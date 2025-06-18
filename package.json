@@ -13,6 +13,6 @@
   },
   "type": "module",
   "workspaces": [
-    "src/icto_v2_frontend"
+    "src/frontend"
   ]
 }

@@ -1,37 +1,57 @@
 {
-  "canisters": {
-    "icto_v2_backend": {
-      "main": "src/icto_v2_backend/main.mo",
-      "type": "motoko"
-    },
-    "icto_v2_frontend": {
-      "dependencies": [
-        "icto_v2_backend"
-      ],
-      "source": [
-        "src/icto_v2_frontend/dist"
-      ],
-      "type": "assets",
-      "workspace": "icto_v2_frontend"
-    },
-    "internet_identity": {
-      "candid": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity.did",
-      "frontend": {},
-      "remote": {
-        "id": {
-          "ic": "rdmx6-jaaaa-aaaaa-aaadq-cai"
+    "canisters": {
+        "backend": {
+            "main": "src/motoko/backend/main.mo",
+            "type": "motoko"
+        },
+        "audit_storage": {
+            "main": "src/motoko/audit_storage/main.mo",
+            "type": "motoko"
+        },
+        "launchpad_deployer": {
+            "main": "src/motoko/launchpad/main.mo",
+            "type": "motoko"
+        },
+        "token_deployer": {
+            "main": "src/motoko/token_deployer/main.mo",
+            "type": "motoko"
+        },
+        "lock_deployer": {
+            "main": "src/motoko/lock_deployer/main.mo",
+            "type": "motoko"
+        },
+        "distributing_deployer": {
+            "main": "src/motoko/distributing_deployer/main.mo",
+            "type": "motoko"
+        },
+        "frontend": {
+            "dependencies": [
+                "backend"
+            ],
+            "source": [
+                "src/frontend/dist"
+            ],
+            "type": "assets",
+            "workspace": "frontend"
+        },
+        "internet_identity": {
+            "candid": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity.did",
+            "frontend": {},
+            "remote": {
+                "id": {
+                    "ic": "rdmx6-jaaaa-aaaaa-aaadq-cai"
+                }
+            },
+            "type": "custom",
+            "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz"
         }
-      },
-      "type": "custom",
-      "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz"
-    }
-  },
-  "defaults": {
-    "build": {
-      "args": "",
-      "packtool": ""
-    }
-  },
-  "output_env_file": ".env",
-  "version": 1
+    },
+    "defaults": {
+        "build": {
+            "args": "",
+            "packtool": ""
+        }
+    },
+    "output_env_file": ".env",
+    "version": 1
 }
