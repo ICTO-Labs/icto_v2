@@ -1,5 +1,14 @@
 # `icto_v2`
 
+> 📢 **Notice: This is the official ICTO V2 repository.**
+>
+> The previous version of the project has been renamed to [`icto_app-v1`](https://github.com/ICTO-Labs/icto.app-v1) and is now archived for reference purposes only.
+>
+> This repository (`icto_app`) contains the new, modular, and production-ready architecture for ICTO V2 — a decentralized launchpad framework designed for scalability, maintainability, and SNS integration on the Internet Computer.
+>
+> Please refer to this repo for all future development, contributions, and deployments.
+
+
 Welcome to your new `icto_v2` project and to the Internet Computer development community. By default, creating a new project adds this README and some template files to your project directory. You can edit these template files to customize your project and to include your own code to speed up the development cycle.
 
 To get started, you might want to explore the project directory structure and the default configuration file. Working with this project in your development environment will not affect any production deployment or identity tokens.
