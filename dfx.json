@@ -8,6 +8,10 @@
             "main": "src/motoko/audit_storage/main.mo",
             "type": "motoko"
         },
+        "invoice_storage": {
+            "main": "src/motoko/invoice_storage/main.mo",
+            "type": "motoko"
+        },
         "launchpad_deployer": {
             "main": "src/motoko/launchpad/main.mo",
             "type": "motoko"
@@ -23,6 +27,17 @@
         "distributing_deployer": {
             "main": "src/motoko/distributing_deployer/main.mo",
             "type": "motoko"
+        },
+        "icp_ledger": {
+            "type": "custom",
+            "candid": "https://github.com/dfinity/ic/releases/download/ledger-suite-icrc-2025-06-10/ledger.did",
+            "wasm": "https://github.com/dfinity/ic/releases/download/ledger-suite-icrc-2025-06-10/ic-icrc1-ledger.wasm.gz",
+            "remote": {
+                "id": {
+                    "ic": "ryjl3-tyaaa-aaaaa-aaaba-cai"
+                }
+            },
+            "init_arg_file": "icp_ledger_init_args.did"
         },
         "frontend": {
             "dependencies": [

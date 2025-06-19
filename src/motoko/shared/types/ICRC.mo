@@ -72,6 +72,29 @@ module {
         memo : ?Blob;
         created_at_time : ?Nat64;
     };
+
+    public type LedgerInfo = {
+        fee : Balance;
+        decimals : Nat8;
+        symbol : Text;
+    };
+
+    public type ValidationResult = {
+        isValid : Bool;
+        errorMessage : ?Text;
+        requiredAmount : ?Balance;
+        currentBalance : ?Balance;
+        currentAllowance : ?Balance;
+    };
+
+    public type PaymentResult = {
+        success : Bool;
+        transactionId : ?Text;
+        blockHeight : ?Nat;
+        errorMessage : ?Text;
+        approvalRequired : Bool;
+        insufficientAllowance : Bool;
+    };
     
     // ================ ICRC-1 TRANSFER TYPES ================
     
@@ -287,6 +310,32 @@ module {
     };
     
     public type ICRC3Interface = actor {
+        icrc3_get_transactions : shared query (GetTransactionsRequest) -> async GetTransactionsResponse;
+        icrc3_get_blocks : shared query (GetTransactionsRequest) -> async GetTransactionsResponse;
+        icrc3_get_archives : shared query () -> async [ArchivedTransaction];
+        icrc3_supported_standards : shared query () -> async [SupportedStandard];
+    };
+    
+    // Combined interface that includes all ICRC standards
+    public type ICRCLedger = actor {
+        // ICRC-1 functions
+        icrc1_name : shared query () -> async Text;
+        icrc1_symbol : shared query () -> async Text;
+        icrc1_decimals : shared query () -> async Nat8;
+        icrc1_fee : shared query () -> async Balance;
+        icrc1_metadata : shared query () -> async MetaData;
+        icrc1_total_supply : shared query () -> async Balance;
+        icrc1_minting_account : shared query () -> async ?Account;
+        icrc1_balance_of : shared query (Account) -> async Balance;
+        icrc1_transfer : shared (TransferArgs) -> async TransferResult;
+        icrc1_supported_standards : shared query () -> async [SupportedStandard];
+        
+        // ICRC-2 functions
+        icrc2_approve : shared (ApproveArgs) -> async ApproveResult;
+        icrc2_transfer_from : shared (TransferFromArgs) -> async TransferFromResult;
+        icrc2_allowance : shared query (AllowanceArgs) -> async Allowance;
+        
+        // ICRC-3 functions (optional)
         icrc3_get_transactions : shared query (GetTransactionsRequest) -> async GetTransactionsResponse;
         icrc3_get_blocks : shared query (GetTransactionsRequest) -> async GetTransactionsResponse;
         icrc3_get_archives : shared query () -> async [ArchivedTransaction];

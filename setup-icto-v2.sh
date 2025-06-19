@@ -25,15 +25,18 @@ echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
 BACKEND_ID=$(dfx canister id backend)
 TOKEN_DEPLOYER_ID=$(dfx canister id token_deployer)
 AUDIT_STORAGE_ID=$(dfx canister id audit_storage)
+INVOICE_STORAGE_ID=$(dfx canister id invoice_storage)
 
 echo -e "${GREEN}✅ Backend ID: ${BACKEND_ID}${NC}"
 echo -e "${GREEN}✅ Token Deployer ID: ${TOKEN_DEPLOYER_ID}${NC}"
 echo -e "${GREEN}✅ Audit Storage ID: ${AUDIT_STORAGE_ID}${NC}"
+echo -e "${GREEN}✅ Invoice Storage ID: ${INVOICE_STORAGE_ID}${NC}"
 
 # Step 3: Setup microservices in backend
 echo -e "\n${BLUE}🔧 Step 3: Setting up microservices in backend...${NC}"
 dfx canister call backend setupMicroservices "(
   principal \"${AUDIT_STORAGE_ID}\",
+  principal \"${INVOICE_STORAGE_ID}\",
   principal \"${TOKEN_DEPLOYER_ID}\",
   principal \"aaaaa-aa\",
   principal \"aaaaa-aa\",
@@ -106,14 +109,19 @@ dfx canister call audit_storage getStorageStats "()"
 # Step 7: Test token deployment
 echo -e "\n${BLUE}🧪 Step 7: Testing token deployment...${NC}"
 TEST_RESULT=$(dfx canister call backend deployToken "(
-  null,
-  record {
-    name = \"Test Token\";
-    symbol = \"TEST\";
-    decimals = 8;
-    transferFee = 10000;
-  },
-  1000000000000
+    null,
+    record {
+        name = \"Test Token\";
+        symbol = \"TEST\";
+        decimals = 8 : nat;
+        transferFee = 10000 : nat;
+        description = \"ICTO V2 testing\";
+        logo = \"Logo\";
+        totalSupply = 1000000000 : nat;
+        metadata = null;
+        canisterId = null;
+    },
+    1000000000000
 )" 2>&1 || echo "FAILED")
 
 if [[ "$TEST_RESULT" == *"FAILED"* ]] || [[ "$TEST_RESULT" == *"err"* ]]; then
@@ -130,6 +138,7 @@ echo -e "\n${BLUE}📊 Setup Summary:${NC}"
 echo -e "• Backend Canister: ${BACKEND_ID}"
 echo -e "• Token Deployer: ${TOKEN_DEPLOYER_ID}"
 echo -e "• Audit Storage: ${AUDIT_STORAGE_ID}"
+echo -e "• Invoice Storage: ${INVOICE_STORAGE_ID}"
 echo -e "• Services Enabled: ✅"
 echo -e "• Whitelist Configured: ✅"
 

@@ -1,24 +1,32 @@
 // ⬇️ Payment Validator for ICTO V2
-// Handles fee validation and payment processing before service execution
+// Updated to use external InvoiceStorage for payment record management
+// Handles fee validation and payment processing with external storage
 
-import Result "mo:base/Result";
 import Principal "mo:base/Principal";
+import Result "mo:base/Result";
 import Time "mo:base/Time";
 import Text "mo:base/Text";
-import Option "mo:base/Option";
-import Array "mo:base/Array";
+import Debug "mo:base/Debug";
+import Nat "mo:base/Nat";
 import Int "mo:base/Int";
+import Option "mo:base/Option";
+import Error "mo:base/Error";
+import Nat64 "mo:base/Nat64";
 
 import Common "../../shared/types/Common";
 import Audit "../../shared/types/Audit";
+import ICRC "../../shared/types/ICRC";
+import InvoiceStorage "../interfaces/InvoiceStorage";
 
 module {
     
-    // ===== PAYMENT STORAGE =====
+    // ===== PAYMENT STORAGE REMOVED - Now uses external InvoiceStorage =====
     
     public type PaymentValidatorStorage = {
         var config: PaymentConfig;
-        var validations: [(Text, PaymentValidationResult)];
+        var validations: [(Text, PaymentValidationResult)]; // Keep validations for temporary processing
+        // REMOVED: var paymentRecords: Trie.Trie<Text, PaymentRecord>;
+        // REMOVED: var userPayments: Trie.Trie<Principal, [Text]>;
     };
     
     public func initPaymentValidator() : PaymentValidatorStorage {
@@ -43,12 +51,14 @@ module {
     
     public type PaymentValidationResult = {
         isValid: Bool;
-        transactionId: ?Audit.TransactionId;
+        transactionId: ?Text;
         paidAmount: Nat;
         requiredAmount: Nat;
-        paymentToken: Common.CanisterId;
+        paymentToken: Principal;
         blockHeight: ?Nat;
         errorMessage: ?Text;
+        approvalRequired: Bool;
+        paymentRecordId: ?Text;
     };
     
     public type FeeStructure = {
@@ -68,61 +78,220 @@ module {
         requireConfirmation: Bool;
     };
     
-    // ===== VALIDATION FUNCTIONS =====
+    // ===== MAIN VALIDATION FUNCTIONS (Using InvoiceStorage) =====
     
     public func validatePaymentForAction(
+        storage: PaymentValidatorStorage,
         actionType: Audit.ActionType,
         userId: Common.UserId,
-        paymentConfig: PaymentConfig
+        auditId: ?Audit.AuditId,
+        invoiceStorage: InvoiceStorage.InvoiceStorage
     ) : async Common.SystemResult<PaymentValidationResult> {
         
-        let requiredAmount = getRequiredFee(actionType, paymentConfig.fees);
+        let requiredAmount = getRequiredFee(actionType, storage.config.fees);
+        let serviceType = getServiceTypeFromAction(actionType);
+        let paymentRecordId = generatePaymentId(userId, serviceType);
         
-        // For MVP, we'll simulate payment validation
-        // In production, this would integrate with ICRC ledger
-        let mockValidation : PaymentValidationResult = {
-            isValid = true;
-            transactionId = ?generateTransactionId(userId);
-            paidAmount = requiredAmount;
-            requiredAmount = requiredAmount;
-            paymentToken = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai"); // ICP
-            blockHeight = ?12345;
+        // Create payment record for external storage
+        let paymentRecord : InvoiceStorage.PaymentRecord = {
+            id = paymentRecordId;
+            userId = userId;
+            amount = requiredAmount;
+            tokenId = storage.config.acceptedTokens[0];
+            recipient = storage.config.feeRecipient;
+            serviceType = serviceType;
+            transactionId = null;
+            blockHeight = null;
+            status = #Pending;
+            createdAt = Time.now();
+            completedAt = null;
+            auditId = auditId;
+            invoiceId = null;
             errorMessage = null;
         };
         
-        #ok(mockValidation)
-    };
-    
-    public func validatePipelinePayment(
-        pipelineSteps: [Common.PipelineStep],
-        userId: Common.UserId,
-        paymentConfig: PaymentConfig
-    ) : async Common.SystemResult<PaymentValidationResult> {
-        
-        let totalFee = calculatePipelineFee(pipelineSteps, paymentConfig.fees);
-        
-        let mockValidation : PaymentValidationResult = {
-            isValid = true;
-            transactionId = ?generateTransactionId(userId);
-            paidAmount = totalFee;
-            requiredAmount = totalFee;
-            paymentToken = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai"); // ICP
-            blockHeight = ?12346;
-            errorMessage = null;
+        // Store payment record in external InvoiceStorage
+        let storeResult = await invoiceStorage.createPaymentRecord(paymentRecord);
+        switch (storeResult) {
+            case (#err(error)) {
+                return #err(#InternalError("Failed to create payment record: " # error));
+            };
+            case (#ok(_)) { };
         };
         
-        #ok(mockValidation)
+        // Process ICRC2 payment
+        let result = await processICRC2PaymentDirect(
+            userId,
+            requiredAmount,
+            storage.config.acceptedTokens[0],
+            storage.config.feeRecipient,
+            serviceType
+        );
+        
+        // Update payment record based on result
+        switch (result) {
+            case (#ok(validation)) {
+                let updatedRecord = {
+                    paymentRecord with
+                    transactionId = validation.transactionId;
+                    blockHeight = validation.blockHeight;
+                    status = if (validation.isValid) #Completed else (
+                        if (validation.approvalRequired) #Pending else #Failed(
+                            Option.get(validation.errorMessage, "Payment failed")
+                        )
+                    );
+                    completedAt = if (validation.isValid) ?Time.now() else null;
+                    errorMessage = validation.errorMessage;
+                };
+                
+                // Update record in external storage
+                ignore await invoiceStorage.updatePaymentRecord(paymentRecordId, updatedRecord);
+                
+                #ok({ validation with paymentRecordId = ?paymentRecordId })
+            };
+            case (#err(error)) {
+                let failedRecord = {
+                    paymentRecord with
+                    status = #Failed("Payment processing failed");
+                    errorMessage = ?"Payment processing failed";
+                };
+                
+                ignore await invoiceStorage.updatePaymentRecord(paymentRecordId, failedRecord);
+                #err(error)
+            };
+        }
     };
     
-    public func processRefund(
-        transactionId: Audit.TransactionId,
+    // ===== PAYMENT RECORD QUERIES (Using External Storage) =====
+    
+    public func getPaymentRecord(
+        recordId: Text, 
+        invoiceStorage: InvoiceStorage.InvoiceStorage
+    ) : async ?InvoiceStorage.PaymentRecord {
+        switch (await invoiceStorage.getPaymentRecord(recordId)) {
+            case (#ok(record)) { record };
+            case (#err(_)) { null };
+        }
+    };
+    
+    public func getUserPaymentRecords(
+        userId: Principal,
+        limit: ?Nat,
+        offset: ?Nat,
+        invoiceStorage: InvoiceStorage.InvoiceStorage
+    ) : async [InvoiceStorage.PaymentRecord] {
+        switch (await invoiceStorage.getUserPaymentRecords(userId, limit, offset)) {
+            case (#ok(records)) { records };
+            case (#err(_)) { [] };
+        }
+    };
+    
+    public func getAllPaymentRecords(
+        invoiceStorage: InvoiceStorage.InvoiceStorage
+    ) : async [InvoiceStorage.PaymentRecord] {
+        // This would need to be implemented as admin function in InvoiceStorage
+        // For now, return empty array
+        []
+    };
+    
+    // ===== ICRC2 PAYMENT PROCESSING =====
+    
+    private func processICRC2PaymentDirect(
+        userId: Principal,
         amount: Nat,
-        recipient: Common.UserId,
-        reason: Text
-    ) : async Common.SystemResult<Text> {
-        // For MVP, simulate refund processing
-        // In production, this would initiate actual ICRC transfer
-        #ok("refund_" # transactionId # "_processed")
+        tokenId: Principal,
+        recipient: Principal,
+        serviceType: Text
+    ) : async Common.SystemResult<PaymentValidationResult> {
+        
+        let icrcLedger = actor(Principal.toText(tokenId)) : ICRC.ICRCLedger;
+        
+        // Check user's allowance for this payment
+        let allowanceArgs = {
+            account = { owner = userId; subaccount = null };
+            spender = { owner = recipient; subaccount = null };
+        };
+        
+        let allowanceResult = await icrcLedger.icrc2_allowance(allowanceArgs);
+        let currentAllowance = allowanceResult.allowance;
+        
+        if (currentAllowance < amount) {
+            return #ok({
+                isValid = false;
+                transactionId = null;
+                paidAmount = 0;
+                requiredAmount = amount;
+                paymentToken = tokenId;
+                blockHeight = null;
+                errorMessage = ?("Insufficient allowance. Required: " # Nat.toText(amount) # " e8s");
+                approvalRequired = true;
+                paymentRecordId = null;
+            });
+        };
+        
+        // Execute transfer_from (following V1 format)
+        let transferArgs = {
+            spender_subaccount = null; // Backend uses default subaccount
+            from = { owner = userId; subaccount = null };
+            to = { owner = recipient; subaccount = null };
+            amount = amount;
+            fee = null; // Let ledger use default fee
+            memo = null;
+            created_at_time = null; // Let ledger set timestamp
+        };
+        
+        try {
+            let transferResult = await icrcLedger.icrc2_transfer_from(transferArgs);
+            switch (transferResult) {
+                case (#Ok(blockHeight)) {
+                    #ok({
+                        isValid = true;
+                        transactionId = ?("icrc2_" # Nat.toText(blockHeight));
+                        paidAmount = amount;
+                        requiredAmount = amount;
+                        paymentToken = tokenId;
+                        blockHeight = ?blockHeight;
+                        errorMessage = null;
+                        approvalRequired = false;
+                        paymentRecordId = null;
+                    })
+                };
+                case (#Err(error)) {
+                    let errorMsg = switch (error) {
+                        case (#BadFee { expected_fee }) { "Bad fee. Expected: " # Nat.toText(expected_fee) };
+                        case (#BadBurn { min_burn_amount }) { "Bad burn amount. Min: " # Nat.toText(min_burn_amount) };
+                        case (#InsufficientFunds { balance }) { "Insufficient funds. Balance: " # Nat.toText(balance) };
+                        case (#InsufficientAllowance { allowance }) { "Insufficient allowance: " # Nat.toText(allowance) };
+                        case (#TooOld) { "Transaction too old" };
+                        case (#CreatedInFuture { ledger_time }) { "Created in future. Ledger time: " # Nat64.toText(ledger_time) };
+                        case (#Duplicate { duplicate_of }) { "Duplicate transaction: " # Nat.toText(duplicate_of) };
+                        case (#TemporarilyUnavailable) { "Service temporarily unavailable" };
+                        case (#GenericError { error_code; message }) { "Error " # Nat.toText(error_code) # ": " # message };
+                    };
+                    
+                    #ok({
+                        isValid = false;
+                        transactionId = null;
+                        paidAmount = 0;
+                        requiredAmount = amount;
+                        paymentToken = tokenId;
+                        blockHeight = null;
+                        errorMessage = ?errorMsg;
+                        approvalRequired = false;
+                        paymentRecordId = null;
+                    })
+                };
+            }
+        } catch (error) {
+            #err(#InternalError("Transfer failed: " # Error.message(error)))
+        }
+    };
+    
+    // ===== HELPER FUNCTIONS =====
+    
+    private func generatePaymentId(userId: Principal, serviceType: Text) : Text {
+        let timestamp = Int.abs(Time.now());
+        "pay_" # Principal.toText(userId) # "_" # serviceType # "_" # Nat.toText(timestamp)
     };
     
     // ===== FEE CALCULATION =====
@@ -139,104 +308,38 @@ module {
         }
     };
     
-    public func calculatePipelineFee(steps: [Common.PipelineStep], fees: FeeStructure) : Nat {
-        var totalFee = 0;
-        for (step in steps.vals()) {
-            switch (step) {
-                case (#CreateToken) totalFee += fees.createToken;
-                case (#SetupTeamLock) totalFee += fees.createLock;
-                case (#CreateDistribution) totalFee += fees.createDistribution;
-                case (#LaunchDAO) totalFee += fees.createLaunchpad + fees.createDAO;
-                case (_) {}; // No additional fees for validation/transfer steps
-            };
-        };
-        totalFee + fees.pipelineExecution // Base pipeline fee
-    };
-    
-    // ===== PAYMENT INFO CREATION =====
-    
-    public func createPaymentInfo(
-        validation: PaymentValidationResult,
-        feeType: Audit.FeeType
-    ) : Audit.PaymentInfo {
-        {
-            transactionId = Option.get(validation.transactionId, "unknown");
-            amount = validation.paidAmount;
-            tokenId = validation.paymentToken;
-            feeType = feeType;
-            status = if (validation.isValid) #Confirmed else #Failed("Validation failed");
-            paidAt = ?Time.now();
-            refundedAt = null;
-            blockHeight = validation.blockHeight;
-        }
-    };
-    
-    // ===== HELPER FUNCTIONS =====
-    
-    private func generateTransactionId(userId: Common.UserId) : Audit.TransactionId {
-        "tx_" # Principal.toText(userId) # "_" # Int.toText(Time.now())
-    };
-    
-    public func isValidPaymentToken(tokenId: Common.CanisterId, config: PaymentConfig) : Bool {
-        Option.isSome(Array.find<Common.CanisterId>(config.acceptedTokens, func(token) {
-            Principal.equal(token, tokenId)
-        }))
-    };
-    
-    public func getActionTypeFeeType(actionType: Audit.ActionType) : Audit.FeeType {
+    public func getServiceTypeFromAction(actionType: Audit.ActionType) : Text {
         switch (actionType) {
-            case (#CreateToken) #CreateToken;
-            case (#CreateLock) #CreateLock;
-            case (#CreateDistribution) #CreateDistribution;
-            case (#CreateLaunchpad) #CreateLaunchpad;
-            case (#CreateDAO) #CreateDAO;
-            case (#StartPipeline) #PipelineExecution;
-            case (_) #CustomFee("other");
+            case (#CreateToken) "createToken";
+            case (#CreateLock) "createLock";
+            case (#CreateDistribution) "createDistribution";
+            case (#CreateLaunchpad) "createLaunchpad";
+            case (#CreateDAO) "createDAO";
+            case (#StartPipeline) "pipelineExecution";
+            case (_) "unknown";
         }
     };
+    
+    // ===== CONFIGURATION =====
     
     public func getDefaultPaymentConfig() : PaymentConfig {
         {
-            acceptedTokens = [
-                Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai") // ICP
-            ];
-            feeRecipient = Principal.fromText("aaaaa-aa"); // Placeholder
+            acceptedTokens = [Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")]; // ICP Ledger
+            feeRecipient = Principal.fromText("u6s2n-gx777-77774-qaaba-cai"); // System recipient
             fees = {
                 createToken = 100_000_000; // 1 ICP
                 createLock = 50_000_000; // 0.5 ICP
-                createDistribution = 50_000_000; // 0.5 ICP
+                createDistribution = 25_000_000; // 0.25 ICP
                 createLaunchpad = 200_000_000; // 2 ICP
                 createDAO = 100_000_000; // 1 ICP
-                pipelineExecution = 50_000_000; // 0.5 ICP base fee
+                pipelineExecution = 10_000_000; // 0.1 ICP
             };
-            paymentTimeout = 300; // 5 minutes
+            paymentTimeout = 3600; // 1 hour
             requireConfirmation = true;
         }
     };
     
-    // ===== ICRC2 PAYMENT PROCESSING =====
-    
-    public func processICRC2Payment(
-        payer: Common.UserId,
-        amount: Nat,
-        paymentToken: Common.CanisterId,
-        feeRecipient: Common.CanisterId,
-        approvalTxId: Text
-    ) : async Common.SystemResult<PaymentValidationResult> {
-        // For MVP, simulate ICRC2 transfer_from call
-        // In production, this would call the actual ICRC2 canister
-        
-        // Simulate successful payment
-        let validation : PaymentValidationResult = {
-            isValid = true;
-            transactionId = ?("icrc2_" # approvalTxId # "_" # Int.toText(Time.now()));
-            paidAmount = amount;
-            requiredAmount = amount;
-            paymentToken = paymentToken;
-            blockHeight = ?12345; // Mock block height
-            errorMessage = null;
-        };
-        
-        #ok(validation)
+    public func updatePaymentConfig(storage: PaymentValidatorStorage, config: PaymentConfig) {
+        storage.config := config;
     };
 } 

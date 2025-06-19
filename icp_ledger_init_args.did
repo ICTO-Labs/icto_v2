@@ -1,0 +1,29 @@
+(variant { 
+    Init = record {
+        minting_account = record { owner = principal "iuzpt-h6xlc-3jfti-ckhfx-wf6ni-6mmad-oozzr-ga6om-d5bhp-sg7de-pqe"; };
+        fee_collector_account = opt record { owner = principal "lekqg-fvb6g-4kubt-oqgzu-rd5r7-muoce-kppfz-aaem3-abfaj-cxq7a-dqe"; };
+        transfer_fee = 10_000;
+        decimals = opt 8;
+        max_memo_length = opt 1000;
+        token_symbol = "ICP";
+        token_name = "Internet Computer";
+        metadata = vec {
+            record { "icrc1:logo"; variant { Text = "https://app.icpswap.com/images/tokens/ryjl3-tyaaa-aaaaa-aaaba-cai.svg" } };
+        };
+        initial_balances = vec { 
+            record { record { owner = principal "lekqg-fvb6g-4kubt-oqgzu-rd5r7-muoce-kppfz-aaem3-abfaj-cxq7a-dqe"; }; 10_000_000_000; }; 
+        };
+        feature_flags = opt record { icrc2 = true };
+        archive_options = record {
+            num_blocks_to_archive = 1000;
+            max_transactions_per_response = opt 1000;
+            trigger_threshold = 2000;
+            max_message_size_bytes = opt 1000;
+            cycles_for_archive_creation = opt 10000000000000;
+            node_max_memory_size_bytes = opt 1000;
+            controller_id = principal "iuzpt-h6xlc-3jfti-ckhfx-wf6ni-6mmad-oozzr-ga6om-d5bhp-sg7de-pqe";
+            more_controller_ids = opt vec {};
+        };
+        index_principal = opt principal "iuzpt-h6xlc-3jfti-ckhfx-wf6ni-6mmad-oozzr-ga6om-d5bhp-sg7de-pqe";
+    } 
+})

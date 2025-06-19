@@ -19,6 +19,7 @@ import Error "mo:base/Error";
 import ProjectTypes "../shared/types/ProjectTypes";
 import BackendTypes "types/BackendTypes";
 import Audit "../shared/types/Audit";
+import Common "../shared/types/Common";
 
 // Import backend modules - ALL business logic handled here
 import AuditLogger "modules/AuditLogger";
@@ -32,6 +33,7 @@ import RefundManager "modules/RefundManager";
 import TokenDeployer "interfaces/TokenDeployer";
 import AuditStorage "interfaces/AuditStorage";
 import LaunchpadDeployer "interfaces/LaunchpadDeployer";
+import InvoiceStorage "interfaces/InvoiceStorage";
 
 // Import migration module
 // import DataMigration "migration";
@@ -40,6 +42,7 @@ actor Backend {
     
     // ================ MICROSERVICE CONFIGURATION ================
     private stable var auditStorageCanisterId : ?Principal = null;
+    private stable var invoiceStorageCanisterId : ?Principal = null;
     private stable var tokenDeployerCanisterId : ?Principal = null;
     private stable var launchpadDeployerCanisterId : ?Principal = null;
     private stable var lockDeployerCanisterId : ?Principal = null;
@@ -76,6 +79,9 @@ actor Backend {
     
     // External audit storage canister (for heavy logging)
     private var externalAuditStorage : ?BackendTypes.AuditStorageActor = null;
+    
+    // External invoice storage canister (for payment/invoice data)
+    private var externalInvoiceStorage : ?InvoiceStorage.InvoiceStorage = null;
     
     // Types - Import from BackendTypes module
     public type SystemConfiguration = BackendTypes.SystemConfiguration;
@@ -167,6 +173,14 @@ actor Backend {
             case null {};
         };
         
+        // Initialize external invoice storage if configured
+        switch (invoiceStorageCanisterId) {
+            case (?canisterId) {
+                externalInvoiceStorage := ?actor(Principal.toText(canisterId));
+            };
+            case null {};
+        };
+        
         // Clear stable variables
         projects := [];
         userProjects := [];
@@ -211,9 +225,46 @@ actor Backend {
         SystemManager.isSuperAdmin(config.adminSettings, caller)
     };
     
+    // ================ HELPER FUNCTIONS FOR EXTERNAL SERVICES ================
+    
+    private func _getInvoiceStorage() : ?InvoiceStorage.InvoiceStorage {
+        externalInvoiceStorage
+    };
+    
+    private func _callPaymentValidatorWithInvoiceStorage(
+        actionType: Audit.ActionType,
+        userId: Principal,
+        auditId: ?Text
+    ) : async Common.SystemResult<PaymentValidator.PaymentValidationResult> {
+        switch (_getInvoiceStorage()) {
+            case (?invoiceStorage) {
+                await PaymentValidator.validatePaymentForAction(
+                    paymentValidator,
+                    actionType,
+                    userId,
+                    auditId,
+                    invoiceStorage
+                )
+            };
+            case null {
+                #err(#ServiceUnavailable("Invoice storage not configured"))
+            };
+        }
+    };
+    
+    // ================ PAYMENT RECORDS QUERY ================
+    public shared query func getRefundRecords() : async [RefundManager.RefundRequest] {
+        RefundManager.getAllRefundRecords(refundManager)
+    };
+
+    public shared query({ caller }) func getUserRefundRecords() : async [RefundManager.RefundRequest] {
+        RefundManager.getRefundsByUser(refundManager, caller)
+    };
+    
     // ================ MICROSERVICE SETUP ================
     public shared({ caller }) func setupMicroservices(
         auditStorageId: Principal,
+        invoiceStorageId: Principal,
         tokenDeployerId: Principal,
         launchpadDeployerId: Principal,
         lockDeployerId: Principal,
@@ -225,6 +276,7 @@ actor Backend {
         
         // Store canister IDs
         auditStorageCanisterId := ?auditStorageId;
+        invoiceStorageCanisterId := ?invoiceStorageId;
         tokenDeployerCanisterId := ?tokenDeployerId;
         launchpadDeployerCanisterId := ?launchpadDeployerId;
         lockDeployerCanisterId := ?lockDeployerId;
@@ -232,6 +284,9 @@ actor Backend {
         
         // Initialize external audit storage
         externalAuditStorage := ?actor(Principal.toText(auditStorageId));
+        
+        // Initialize external invoice storage
+        externalInvoiceStorage := ?actor(Principal.toText(invoiceStorageId));
         
         // Set external audit storage for hybrid logging
         AuditLogger.setExternalAuditStorage(auditStorage, actor(Principal.toText(auditStorageId)));
@@ -242,12 +297,27 @@ actor Backend {
                 try {
                     let _ = await audit.addToWhitelist(Principal.fromActor(Backend));
                     
+                    // Add backend to invoice storage whitelist
+                    switch (externalInvoiceStorage) {
+                        case (?invoice) {
+                            try {
+                                let _ = await invoice.addToWhitelist(Principal.fromActor(Backend));
+                            } catch (error) {
+                                Debug.print("Failed to setup invoice storage whitelist: " # Error.message(error));
+                                return #err("Failed to setup invoice storage whitelist");
+                            };
+                        };
+                        case null {
+                            Debug.print("Invoice storage not initialized");
+                        };
+                    };
+                    
                     // Log setup completion
                     let auditEntry = AuditLogger.logAction(
                         auditStorage,
                         caller,
                         #UpdateSystemConfig,
-                        #RawData("Microservices setup completed"),
+                        #RawData("Microservices setup completed with invoice storage"),
                         null,
                         ?#Backend
                     );
@@ -323,11 +393,11 @@ actor Backend {
         let finalFee = SystemManager.calculateFeeWithDiscount(serviceFee, userVolume);
         
         // PAYMENT VALIDATION (Using PaymentValidator)
-        let paymentConfig = PaymentValidator.getDefaultPaymentConfig();
-        let paymentValidationResult = await PaymentValidator.validatePaymentForAction(
-            #CreateProject,
+        let _ = PaymentValidator.getDefaultPaymentConfig();
+        let paymentValidationResult = await _callPaymentValidatorWithInvoiceStorage(
+            #CreateToken,
             caller,
-            paymentConfig
+            ?auditEntry.id
         );
         
         switch (paymentValidationResult) {
@@ -345,12 +415,19 @@ actor Backend {
             };
             case (#ok(paymentResult)) {
                 if (not paymentResult.isValid) {
-                    let errorMsg = switch (paymentResult.errorMessage) {
-                        case (?msg) msg;
-                        case null "Payment validation failed";
+                    // Handle different failure scenarios
+                    if (paymentResult.approvalRequired) {
+                        let errorMsg = "Payment requires ICRC-2 approval. Please approve " # Nat.toText(paymentResult.requiredAmount) # " e8s to backend canister and try again.";
+                        ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(errorMsg), null, ?100);
+                        return #err(errorMsg);
+                    } else {
+                        let errorMsg = switch (paymentResult.errorMessage) {
+                            case (?msg) msg;
+                            case null "Payment validation failed";
+                        };
+                        ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(errorMsg), null, ?100);
+                        return #err(errorMsg);
                     };
-                    ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(errorMsg), null, ?100);
-                    return #err(errorMsg);
                 };
                 
                 // Log successful payment validation
@@ -419,7 +496,7 @@ actor Backend {
                                 userRegistryStorage,
                                 caller,
                                 ?projectId,
-                                Principal.fromText(projectId), // Mock canister ID for now
+                                Principal.fromText("aaaaa-aa"), // Mock canister ID for now
                                 #LaunchpadDeployer,
                                 #Launchpad({
                                     launchpadName = request.projectInfo.name;
@@ -559,11 +636,11 @@ actor Backend {
         let finalFee = SystemManager.calculateFeeWithDiscount(serviceFee, userVolume);
         
         // PAYMENT VALIDATION (Using PaymentValidator)
-        let paymentConfig = PaymentValidator.getDefaultPaymentConfig();
-        let paymentValidationResult = await PaymentValidator.validatePaymentForAction(
+        let _ = PaymentValidator.getDefaultPaymentConfig();
+        let paymentValidationResult = await _callPaymentValidatorWithInvoiceStorage(
             #CreateToken,
             caller,
-            paymentConfig
+            ?auditEntry.id
         );
         
         switch (paymentValidationResult) {
@@ -581,16 +658,34 @@ actor Backend {
             };
             case (#ok(paymentResult)) {
                 if (not paymentResult.isValid) {
-                    let errorMsg = switch (paymentResult.errorMessage) {
-                        case (?msg) msg;
-                        case null "Payment validation failed";
+                    // Handle different failure scenarios
+                    if (paymentResult.approvalRequired) {
+                        let errorMsg = "Payment requires ICRC-2 approval. Please approve " # Nat.toText(paymentResult.requiredAmount) # " e8s to backend canister and try again.";
+                        ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(errorMsg), null, ?100);
+                        return #err(errorMsg);
+                    } else {
+                        let errorMsg = switch (paymentResult.errorMessage) {
+                            case (?msg) msg;
+                            case null "Payment validation failed";
+                        };
+                        ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(errorMsg), null, ?100);
+                        return #err(errorMsg);
                     };
-                    ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(errorMsg), null, ?100);
-                    return #err(errorMsg);
                 };
                 
-                // Log successful payment validation
-                Debug.print("Payment validated for createToken: " # Nat.toText(paymentResult.paidAmount) # " e8s");
+                // Log successful payment validation with transaction details
+                let txId = switch (paymentResult.transactionId) {
+                    case (?id) id;
+                    case null "no_tx_id";
+                };
+                let paymentRecordId = switch (paymentResult.paymentRecordId) {
+                    case (?id) id;
+                    case null "no_payment_record";
+                };
+                Debug.print("✅ Payment validated for createToken: " # Nat.toText(paymentResult.paidAmount) # " e8s, txId: " # txId # ", recordId: " # paymentRecordId);
+                
+                // Store payment validation in audit with payment record reference  
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
             };
         };
         
@@ -651,7 +746,7 @@ actor Backend {
                                 userRegistryStorage,
                                 caller,
                                 projectId,
-                                Principal.fromText(deployment.canisterId),
+                                Principal.fromText("aaaaa-aa"),//Project canister ID
                                 #TokenDeployer,
                                 #Token({
                                     tokenName = tokenInfo.name;
@@ -686,7 +781,7 @@ actor Backend {
                             tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, _textKey(tokenInfo.symbol), Text.equal, caller).0;
                             
                             // Add canister ID to audit
-                            ignore AuditLogger.addCanisterId(auditStorage, auditEntry.id, Principal.fromText(deployment.canisterId));
+                            ignore AuditLogger.addCanisterId(auditStorage, auditEntry.id, Principal.fromText("aaaaa-aa"));//Token canister ID
                             ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?1500);
                             
                             #ok(deployment.canisterId)
@@ -752,6 +847,22 @@ actor Backend {
     
     public shared query({ caller }) func getMyAuditHistory(limit: Nat, offset: Nat) : async [AuditLogger.AuditEntry] {
         AuditLogger.getUserAuditHistory(auditStorage, caller, limit, offset)
+    };
+    
+    // ================ PAYMENT RECORDS QUERY ================
+    public shared query({ caller }) func getMyPaymentRecords() : async [InvoiceStorage.PaymentRecord] {
+        []  // Will implement with external storage call
+    };
+    
+    public shared query({ caller }) func getPaymentRecord(paymentId: Text) : async ?InvoiceStorage.PaymentRecord {
+        null  // Will implement with external storage call
+    };
+    
+    public shared query({ caller }) func getAllPaymentRecords() : async [InvoiceStorage.PaymentRecord] {
+        if (not _isAdmin(caller)) {
+            return [];
+        };
+        []  // Query functions cannot call external services - return empty for now
     };
     
     // ================ SYSTEM MANAGEMENT ================
@@ -1087,11 +1198,11 @@ actor Backend {
 
     // Get validatePayment
     public shared({ caller }) func validatePayment(payment: PaymentValidator.PaymentConfig) : async Result.Result<PaymentValidator.PaymentValidationResult, Text> {
-        // PAYMENT VALIDATION (Using PaymentValidator)
-        let paymentValidationResult = await PaymentValidator.validatePaymentForAction(
+        // PAYMENT VALIDATION (Using consolidated PaymentValidator)
+        let paymentValidationResult = await _callPaymentValidatorWithInvoiceStorage(
             #CreateToken,
             caller,
-            payment
+            null
         );
         
         switch (paymentValidationResult) {
@@ -1585,6 +1696,250 @@ actor Backend {
             case null {
                 #err("Token deployer not configured")
             };
+        }
+    };
+
+    // ================ DASHBOARD ANALYTICS FUNCTIONS (NEW) ================
+    
+    // Get comprehensive user dashboard summary
+    public shared query({ caller }) func getUserDashboardSummary() : async {
+        profile: ?UserRegistry.UserProfile;
+        projectCount: Nat;
+        tokenDeployments: Nat;
+        totalFeesPaid: Nat;
+        recentActivity: [UserRegistry.DeploymentRecord];
+        projectList: [Text];
+    } {
+        let profile = UserRegistry.getUserProfile(userRegistryStorage, caller);
+        let userProjectIds = Option.get(Trie.get(userProjectsTrie, _principalKey(caller), Principal.equal), []);
+        let recentDeployments = UserRegistry.getUserDeployments(userRegistryStorage, caller, 5, 0);
+        
+        // Count token deployments
+        let tokenCount = Array.foldLeft<UserRegistry.DeploymentRecord, Nat>(
+            recentDeployments, 0,
+            func(acc, deployment) { 
+                if (deployment.serviceType == #TokenDeployer) acc + 1 else acc 
+            }
+        );
+        
+        {
+            profile = profile;
+            projectCount = userProjectIds.size();
+            tokenDeployments = tokenCount;
+            totalFeesPaid = switch (profile) {
+                case (?p) p.totalFeesPaid;
+                case null 0;
+            };
+            recentActivity = recentDeployments;
+            projectList = userProjectIds;
+        }
+    };
+    
+    // Get token statistics by symbol
+    public query func getTokenStatistics(tokenSymbol: Text) : async ?{
+        symbol: Text;
+        deployer: Principal;
+        deployedAt: ?Time.Time;
+        canisterId: ?Text;
+        projectId: ?Text;
+    } {
+        switch (Trie.get(tokenSymbolRegistry, _textKey(tokenSymbol), Text.equal)) {
+            case (?deployer) {
+                // Find deployment in user's records
+                let deployments = UserRegistry.getUserDeployments(userRegistryStorage, deployer, 100, 0);
+                let tokenDeployment = Array.find<UserRegistry.DeploymentRecord>(
+                    deployments,
+                    func(d) { d.serviceType == #TokenDeployer }
+                );
+                
+                switch (tokenDeployment) {
+                    case (?deployment) {
+                        ?{
+                            symbol = tokenSymbol;
+                            deployer = deployer;
+                            deployedAt = ?deployment.deployedAt;
+                            canisterId = ?Principal.toText(deployment.canisterId);
+                            projectId = deployment.projectId;
+                        }
+                    };
+                    case null {
+                        ?{
+                            symbol = tokenSymbol;
+                            deployer = deployer;
+                            deployedAt = null;
+                            canisterId = null;
+                            projectId = null;
+                        }
+                    };
+                }
+            };
+            case null null;
+        }
+    };
+    
+    // Get project analytics (basic backend data)
+    public query func getProjectAnalytics(projectId: Text) : async ?{
+        project: ProjectTypes.ProjectDetail;
+        deployedCanisters: {
+            token: ?Text;
+            launchpad: ?Text; 
+            distribution: ?Text;
+            dao: ?Text;
+        };
+        createdAt: Time.Time;
+        lastUpdated: Time.Time;
+    } {
+        switch (Trie.get(projectsTrie, _textKey(projectId), Text.equal)) {
+            case (?project) {
+                ?{
+                    project = project;
+                    deployedCanisters = {
+                        token = project.deployedCanisters.tokenCanister;
+                        launchpad = project.deployedCanisters.launchpadCanister;
+                        distribution = project.deployedCanisters.distributionCanister;
+                        dao = project.deployedCanisters.daoCanister;
+                    };
+                    createdAt = project.createdAt;
+                    lastUpdated = project.updatedAt;
+                }
+            };
+            case null null;
+        }
+    };
+    
+    // Get platform-wide market overview
+    public query func getMarketOverview() : async {
+        totalProjects: Nat;
+        totalTokens: Nat;
+        totalUsers: Nat;
+        totalDeployments: Nat;
+        recentProjects: [(Text, ProjectTypes.ProjectDetail)];
+    } {
+        let allProjects = Trie.toArray<Text, ProjectTypes.ProjectDetail, (Text, ProjectTypes.ProjectDetail)>(
+            projectsTrie, func (k, v) = (k, v)
+        );
+        
+        // Get most recent 5 projects
+        let sortedProjects = Array.sort<(Text, ProjectTypes.ProjectDetail)>(
+            allProjects,
+            func(a, b) { Int.compare(b.1.createdAt, a.1.createdAt) }
+        );
+        let recentProjects = if (sortedProjects.size() > 5) {
+            Array.subArray<(Text, ProjectTypes.ProjectDetail)>(sortedProjects, 0, 5)
+        } else {
+            sortedProjects
+        };
+        
+        {
+            totalProjects = Trie.size(projectsTrie);
+            totalTokens = Trie.size(tokenSymbolRegistry);
+            totalUsers = UserRegistry.getTotalUsers(userRegistryStorage);
+            totalDeployments = UserRegistry.getTotalDeployments(userRegistryStorage);
+            recentProjects = recentProjects;
+        }
+    };
+    
+    // Get all tokens deployed by a user
+    public shared query({ caller }) func getTokensByUser() : async [UserRegistry.DeploymentRecord] {
+        let allDeployments = UserRegistry.getUserDeployments(userRegistryStorage, caller, 100, 0);
+        Array.filter<UserRegistry.DeploymentRecord>(
+            allDeployments,
+            func(deployment) { deployment.serviceType == #TokenDeployer }
+        )
+    };
+    
+    // Get user's project participation summary
+    public shared query({ caller }) func getProjectParticipation() : async {
+        ownedProjects: [Text];
+        totalProjects: Nat;
+        tokensDeployed: Nat;
+        launchpadsCreated: Nat;
+    } {
+        let userProjectIds = Option.get(Trie.get(userProjectsTrie, _principalKey(caller), Principal.equal), []);
+        let allDeployments = UserRegistry.getUserDeployments(userRegistryStorage, caller, 100, 0);
+        
+        var tokenCount = 0;
+        var launchpadCount = 0;
+        
+        for (deployment in allDeployments.vals()) {
+            switch (deployment.serviceType) {
+                case (#TokenDeployer) tokenCount += 1;
+                case (#LaunchpadDeployer) launchpadCount += 1;
+                case (_) {};
+            };
+        };
+        
+        {
+            ownedProjects = userProjectIds;
+            totalProjects = userProjectIds.size();
+            tokensDeployed = tokenCount;
+            launchpadsCreated = launchpadCount;
+        }
+    };
+    
+    // Get platform statistics for admin dashboard
+    public shared query({ caller }) func getPlatformStatistics() : async {
+        totalUsers: Nat;
+        totalProjects: Nat;
+        totalTokens: Nat;
+        totalDeployments: Nat;
+        deploymentsByType: {
+            tokens: Nat;
+            launchpads: Nat;
+            distributions: Nat;
+            locks: Nat;
+        };
+        isAuthorized: Bool;
+    } {
+        let isAdmin = _isAdmin(caller);
+        
+        if (isAdmin) {
+            let allUsers = UserRegistry.getAllUsers(userRegistryStorage, 1000, 0);
+            var tokenCount = 0;
+            var launchpadCount = 0;
+            var distributionCount = 0;
+            var lockCount = 0;
+            
+            for (user in allUsers.vals()) {
+                let deployments = UserRegistry.getUserDeployments(userRegistryStorage, user.userId, 100, 0);
+                for (deployment in deployments.vals()) {
+                    switch (deployment.serviceType) {
+                        case (#TokenDeployer) tokenCount += 1;
+                        case (#LaunchpadDeployer) launchpadCount += 1;
+                        case (#DistributionDeployer) distributionCount += 1;
+                        case (#LockDeployer) lockCount += 1;
+                        case (_) {};
+                    };
+                };
+            };
+            
+            {
+                totalUsers = UserRegistry.getTotalUsers(userRegistryStorage);
+                totalProjects = Trie.size(projectsTrie);
+                totalTokens = Trie.size(tokenSymbolRegistry);
+                totalDeployments = UserRegistry.getTotalDeployments(userRegistryStorage);
+                deploymentsByType = {
+                    tokens = tokenCount;
+                    launchpads = launchpadCount;
+                    distributions = distributionCount;
+                    locks = lockCount;
+                };
+                isAuthorized = true;
+            }
+        } else {
+            {
+                totalUsers = 0;
+                totalProjects = 0;
+                totalTokens = 0;
+                totalDeployments = 0;
+                deploymentsByType = {
+                    tokens = 0;
+                    launchpads = 0;
+                    distributions = 0;
+                    locks = 0;
+                };
+                isAuthorized = false;
+            }
         }
     };
 }

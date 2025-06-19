@@ -569,4 +569,20 @@ module {
         
         storage
     };
+
+    public func getRefundsByUser(storage: RefundStorage, userId: Common.UserId) : [RefundRequest] {
+        let userKey = Principal.toText(userId);
+        switch (Trie.get(storage.userRefunds, keyT(userKey), Text.equal)) {
+            case (?refundIds) {
+                Array.mapFilter<RefundId, RefundRequest>(refundIds, func(id) = Trie.get(storage.refunds, keyT(id), Text.equal))
+            };
+            case null { [] };
+        }
+    };
+
+    public func getAllRefundRecords(refundManager: RefundStorage) : [RefundRequest] {
+        Trie.toArray<RefundId, RefundRequest, RefundRequest>(
+            refundManager.refunds, func (k, v) = v
+        )
+    };
 } 

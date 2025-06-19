@@ -27,3 +27,6 @@ dist/
 # ignore cursor rules
 .cursor/
 .cursorrules
+
+# ignore temporary files in docs/
+docs/
