@@ -11,7 +11,7 @@
             record { "icrc1:logo"; variant { Text = "https://app.icpswap.com/images/tokens/ryjl3-tyaaa-aaaaa-aaaba-cai.svg" } };
         };
         initial_balances = vec { 
-            record { record { owner = principal "lekqg-fvb6g-4kubt-oqgzu-rd5r7-muoce-kppfz-aaem3-abfaj-cxq7a-dqe"; }; 10_000_000_000; }; 
+            record { record { owner = principal "lekqg-fvb6g-4kubt-oqgzu-rd5r7-muoce-kppfz-aaem3-abfaj-cxq7a-dqe"; }; 100_000_000_000_000; }; 
         };
         feature_flags = opt record { icrc2 = true };
         archive_options = record {

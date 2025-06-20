@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 
 # Step 1: Deploy all canisters
 echo -e "\n${BLUE}📦 Step 1: Deploying all canisters...${NC}"
-# dfx deploy
+dfx deploy
 
 # Step 2: Get canister IDs
 echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
@@ -39,7 +39,7 @@ echo -e "${GREEN}✅ Invoice Storage ID: ${INVOICE_STORAGE_ID}${NC}"
 
 # Step 3: Add sufficient cycles to token_deployer BEFORE setup
 echo -e "\n${BLUE}💰 Step 3: Adding cycles to token_deployer...${NC}"
-# dfx canister deposit-cycles 5000000000000 token_deployer
+dfx canister deposit-cycles 5000000000000 token_deployer
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Cycles added to token_deployer${NC}"
