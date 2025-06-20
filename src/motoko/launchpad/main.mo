@@ -438,4 +438,9 @@ actor LaunchpadDeployer {
             ];
         }
     };
+
+    // ================ HEALTH CHECK ================
+    public query func healthCheck() : async Bool {
+        true
+    };
 }

@@ -30,3 +30,6 @@ dist/
 
 # ignore temporary files in docs/
 docs/
+
+# ignore sns wasm file
+sns_icrc_wasm_v2.wasm

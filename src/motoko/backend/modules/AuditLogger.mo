@@ -49,6 +49,17 @@ module {
     // Set external audit storage
     public func setExternalAuditStorage(storage: AuditStorage, externalActor: AuditStorage.AuditStorage) {
         storage.externalAuditStorage := ?externalActor;
+        Debug.print("✅ AuditLogger: External audit storage configured");
+    };
+    
+    // Check if external audit storage is configured
+    public func hasExternalAuditStorage(storage: AuditStorage) : Bool {
+        Option.isSome(storage.externalAuditStorage)
+    };
+    
+    // Get total entries count
+    public func getTotalEntries(storage: AuditStorage) : Nat {
+        storage.totalEntries
     };
     
     // ===== UTILITY FUNCTIONS =====

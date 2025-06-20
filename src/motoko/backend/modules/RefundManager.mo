@@ -10,10 +10,14 @@ import Text "mo:base/Text";
 import Option "mo:base/Option";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
+import Debug "mo:base/Debug";
+import Error "mo:base/Error";
+import Nat64 "mo:base/Nat64";
 
 // Import shared types
 import Common "../../shared/types/Common";
 import Audit "../../shared/types/Audit";
+import ICRC "../../shared/types/ICRC";
 
 module {
     // ===== CORE TYPES =====
@@ -40,8 +44,8 @@ module {
     };
     
     public type RefundMethod = {
-        #ICRC1 : Common.CanisterId;
-        #ICRC2 : Common.CanisterId;
+        #DirectTransfer : Common.CanisterId; // Direct transfer from system balance
+        #TransferFromTreasury : Common.CanisterId; // Transfer from treasury using approval
         #Manual; // Admin manual processing
     };
     
@@ -174,6 +178,9 @@ module {
         let timestamp = Time.now();
         let refundId = generateRefundId(userId, timestamp);
         
+        // Auto-detect refund method based on default payment token (ICP)
+        let defaultRefundMethod = #DirectTransfer(Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")); // ICP Ledger
+        
         let refundRequest : RefundRequest = {
             id = refundId;
             userId = userId;
@@ -191,7 +198,7 @@ module {
             approvedBy = null;
             approvedAt = null;
             processedAt = null;
-            refundMethod = #ICRC2(Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai")); // Default ICP
+            refundMethod = defaultRefundMethod; // Use ICRC2 for ICP refunds
             refundTransactionId = null;
             processingFee = 1000; // Default processing fee
             auditId = null;
@@ -441,24 +448,196 @@ module {
     };
     
     private func executeRefundPayment(refund: RefundRequest) : async Common.SystemResult<TransactionId> {
-        // Mock implementation for refund payment
-        // In production, this would call the actual ICRC2 canister
+        // Real implementation for refund payment using ICRC standards
         
         switch (refund.refundMethod) {
-            case (#ICRC2(canisterId)) {
-                // Simulate ICRC2 transfer
-                let mockTransactionId = "refund_tx_" # refund.id # "_" # Int.toText(Time.now());
-                #ok(mockTransactionId)
+            case (#DirectTransfer(canisterId)) {
+                await processDirectTransferRefund(refund, canisterId)
             };
-            case (#ICRC1(canisterId)) {
-                // Simulate ICRC1 transfer
-                let mockTransactionId = "refund_icrc1_" # refund.id # "_" # Int.toText(Time.now());
-                #ok(mockTransactionId)
+            case (#TransferFromTreasury(canisterId)) {
+                await processTransferFromTreasuryRefund(refund, canisterId)
             };
             case (#Manual) {
                 // Manual processing - mark as pending manual intervention
                 #ok("manual_" # refund.id)
             };
+        }
+    };
+    
+    // ===== DIRECT TRANSFER REFUND IMPLEMENTATION =====
+    
+    private func processDirectTransferRefund(refund: RefundRequest, canisterId: Principal) : async Common.SystemResult<TransactionId> {
+        Debug.print("💰 Processing Direct Transfer refund: " # refund.id # " amount: " # Nat.toText(refund.refundAmount) # " e8s");
+        
+        let icrcLedger = actor(Principal.toText(canisterId)) : ICRC.ICRCLedger;
+        
+        // Check system balance before attempting refund
+        let balanceResult = await checkSystemBalance(icrcLedger, refund.refundAmount);
+        switch (balanceResult) {
+            case (#err(error)) { return #err(error); };
+            case (#ok(_)) { /* Balance sufficient, proceed */ };
+        };
+        
+        // Prepare transfer arguments for ICRC1
+        let transferArgs = {
+            from_subaccount = null; // System uses default subaccount
+            to = { owner = refund.userId; subaccount = null };
+            amount = refund.refundAmount;
+            fee = null; // Let ledger calculate fee
+            memo = null;
+            created_at_time = null; // Let ledger set timestamp
+        };
+        
+        try {
+            Debug.print("🔄 Executing Direct Transfer for refund: " # refund.id);
+            let transferResult = await icrcLedger.icrc1_transfer(transferArgs);
+            
+            switch (transferResult) {
+                case (#Ok(blockHeight)) {
+                    let transactionId = "direct_refund_" # Nat.toText(blockHeight);
+                    Debug.print("✅ Direct Transfer refund successful - Block: " # Nat.toText(blockHeight) # ", TxId: " # transactionId);
+                    #ok(transactionId)
+                };
+                case (#Err(error)) {
+                    let errorMsg = switch (error) {
+                        case (#BadFee { expected_fee }) { 
+                            "Direct Transfer refund failed - Bad fee. Expected: " # Nat.toText(expected_fee) # " e8s" 
+                        };
+                        case (#BadBurn { min_burn_amount }) { 
+                            "Direct Transfer refund failed - Bad burn amount. Min: " # Nat.toText(min_burn_amount) # " e8s" 
+                        };
+                        case (#InsufficientFunds { balance }) { 
+                            "Direct Transfer refund failed - Insufficient funds in system. Balance: " # Nat.toText(balance) # " e8s" 
+                        };
+                        case (#TooOld) { 
+                            "Direct Transfer refund failed - Transaction too old" 
+                        };
+                        case (#CreatedInFuture { ledger_time }) { 
+                            "Direct Transfer refund failed - Created in future. Ledger time: " # Nat64.toText(ledger_time) 
+                        };
+                        case (#Duplicate { duplicate_of }) { 
+                            "Direct Transfer refund failed - Duplicate transaction: " # Nat.toText(duplicate_of) 
+                        };
+                        case (#TemporarilyUnavailable) { 
+                            "Direct Transfer refund failed - Service temporarily unavailable" 
+                        };
+                        case (#GenericError { error_code; message }) { 
+                            "Direct Transfer refund failed - Error " # Nat.toText(error_code) # ": " # message 
+                        };
+                    };
+                    
+                    Debug.print("❌ Direct Transfer refund failed: " # errorMsg);
+                    #err(#InternalError(errorMsg))
+                };
+            }
+        } catch (error) {
+            let errorMsg = "Direct Transfer refund inter-canister call failed: " # Error.message(error);
+            Debug.print("💥 " # errorMsg);
+            #err(#InternalError(errorMsg))
+        }
+    };
+    
+    // ===== TRANSFER FROM TREASURY REFUND IMPLEMENTATION =====
+    
+    private func processTransferFromTreasuryRefund(refund: RefundRequest, canisterId: Principal) : async Common.SystemResult<TransactionId> {
+        Debug.print("💰 Processing Transfer From Treasury refund: " # refund.id # " amount: " # Nat.toText(refund.refundAmount) # " e8s");
+        
+        let icrcLedger = actor(Principal.toText(canisterId)) : ICRC.ICRCLedger;
+        
+        // For treasury transfer, we use icrc2_transfer_from to transfer from treasury account
+        // This assumes treasury has approved the backend canister to spend tokens
+        let transferFromArgs = {
+            spender_subaccount = null; // Backend uses default subaccount
+            from = { 
+                owner = Principal.fromText("u6s2n-gx777-77774-qaaba-cai"); // Treasury/Fee recipient account
+                subaccount = null 
+            };
+            to = { owner = refund.userId; subaccount = null };
+            amount = refund.refundAmount;
+            fee = null; // Let ledger calculate fee
+            memo = null;
+            created_at_time = null; // Let ledger set timestamp
+        };
+        
+        try {
+            Debug.print("🔄 Executing Transfer From Treasury for refund: " # refund.id);
+            let transferResult = await icrcLedger.icrc2_transfer_from(transferFromArgs);
+            
+            switch (transferResult) {
+                case (#Ok(blockHeight)) {
+                    let transactionId = "treasury_refund_" # Nat.toText(blockHeight);
+                    Debug.print("✅ Transfer From Treasury refund successful - Block: " # Nat.toText(blockHeight) # ", TxId: " # transactionId);
+                    #ok(transactionId)
+                };
+                case (#Err(error)) {
+                    let errorMsg = switch (error) {
+                        case (#BadFee { expected_fee }) { 
+                            "Treasury Transfer refund failed - Bad fee. Expected: " # Nat.toText(expected_fee) # " e8s" 
+                        };
+                        case (#BadBurn { min_burn_amount }) { 
+                            "Treasury Transfer refund failed - Bad burn amount. Min: " # Nat.toText(min_burn_amount) # " e8s" 
+                        };
+                        case (#InsufficientFunds { balance }) { 
+                            "Treasury Transfer refund failed - Insufficient funds in treasury. Balance: " # Nat.toText(balance) # " e8s" 
+                        };
+                        case (#InsufficientAllowance { allowance }) { 
+                            "Treasury Transfer refund failed - Insufficient allowance. Allowance: " # Nat.toText(allowance) # " e8s" 
+                        };
+                        case (#TooOld) { 
+                            "Treasury Transfer refund failed - Transaction too old" 
+                        };
+                        case (#CreatedInFuture { ledger_time }) { 
+                            "Treasury Transfer refund failed - Created in future. Ledger time: " # Nat64.toText(ledger_time) 
+                        };
+                        case (#Duplicate { duplicate_of }) { 
+                            "Treasury Transfer refund failed - Duplicate transaction: " # Nat.toText(duplicate_of) 
+                        };
+                        case (#TemporarilyUnavailable) { 
+                            "Treasury Transfer refund failed - Service temporarily unavailable" 
+                        };
+                        case (#GenericError { error_code; message }) { 
+                            "Treasury Transfer refund failed - Error " # Nat.toText(error_code) # ": " # message 
+                        };
+                    };
+                    
+                    Debug.print("❌ Treasury Transfer refund failed: " # errorMsg);
+                    #err(#InternalError(errorMsg))
+                };
+            }
+        } catch (error) {
+            let errorMsg = "Treasury Transfer refund inter-canister call failed: " # Error.message(error);
+            Debug.print("💥 " # errorMsg);
+            #err(#InternalError(errorMsg))
+        }
+    };
+    
+    // ===== BALANCE VALIDATION =====
+    
+    // Note: This function needs to be called with the actual backend/system canister principal
+    // For now, we'll skip balance check and let the transfer fail naturally if insufficient funds
+    private func checkSystemBalance(
+        icrcLedger: ICRC.ICRCLedger, 
+        requiredAmount: Nat
+    ) : async Common.SystemResult<()> {
+        try {
+            // TODO: Get actual system canister principal that holds the funds
+            // For now, skip balance validation and let transfer handle insufficient funds
+            Debug.print("ℹ️ Skipping balance check - will be handled by transfer");
+            #ok()
+            
+            // NOTE: To implement proper balance check, we need:
+            // 1. The actual principal of the canister that holds refund funds (likely backend)
+            // 2. Pass that principal to this function or make this a method of that canister
+            //
+            // Example implementation:
+            // let systemPrincipal = /* backend canister principal */;
+            // let balanceArgs = { owner = systemPrincipal; subaccount = null };
+            // let balance = await icrcLedger.icrc1_balance_of(balanceArgs);
+            // if (balance < requiredAmount) { #err(#InsufficientFunds) } else { #ok() }
+        } catch (error) {
+            let errorMsg = "Failed to check system balance: " # Error.message(error);
+            Debug.print("💥 " # errorMsg);
+            #err(#InternalError(errorMsg))
         }
     };
     
@@ -585,4 +764,120 @@ module {
             refundManager.refunds, func (k, v) = v
         )
     };
-} 
+
+    // ===== REFUND METHOD UTILITIES =====
+    
+    public func updateRefundMethod(
+        storage: RefundStorage,
+        refundId: RefundId,
+        method: RefundMethod
+    ) : ?RefundRequest {
+        switch (Trie.get(storage.refunds, keyT(refundId), Text.equal)) {
+            case (?refund) {
+                let updatedRefund = {
+                    refund with
+                    refundMethod = method;
+                };
+                
+                storage.refunds := Trie.put(storage.refunds, keyT(refundId), Text.equal, updatedRefund).0;
+                ?updatedRefund
+            };
+            case null null;
+        }
+    };
+    
+    public func getDefaultRefundMethod(tokenCanisterId: ?Principal) : RefundMethod {
+        switch (tokenCanisterId) {
+            case (?canisterId) {
+                // Check if it's known ICP ledger
+                if (Principal.toText(canisterId) == "ryjl3-tyaaa-aaaaa-aaaba-cai") {
+                    #TransferFromTreasury(canisterId) // ICP supports ICRC2, use treasury
+                } else {
+                    #DirectTransfer(canisterId) // Default to direct transfer for other tokens
+                }
+            };
+            case null {
+                #TransferFromTreasury(Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")) // Default to ICP with treasury
+            };
+        }
+    };
+    
+    // ===== CONFIGURATION FUNCTIONS =====
+    
+    public func createRefundRequestWithConfig(
+        storage: RefundStorage,
+        userId: Common.UserId,
+        originalTransactionId: TransactionId,
+        originalAmount: Nat,
+        refundAmount: Nat,
+        reason: RefundReason,
+        description: Text,
+        supportingData: ?Text,
+        acceptedTokens: [Common.CanisterId]
+    ) : RefundRequest {
+        let timestamp = Time.now();
+        let refundId = generateRefundId(userId, timestamp);
+        
+        // Use configuration-based refund method
+        let defaultRefundMethod = getDefaultRefundMethodFromConfig(acceptedTokens);
+        
+        let refundRequest : RefundRequest = {
+            id = refundId;
+            userId = userId;
+            originalTransactionId = originalTransactionId;
+            originalAmount = originalAmount;
+            refundAmount = refundAmount;
+            reason = reason;
+            description = description;
+            isPartial = refundAmount < originalAmount;
+            requestedAt = timestamp;
+            requestedBy = userId;
+            supportingData = supportingData;
+            attachments = [];
+            status = #Pending;
+            approvedBy = null;
+            approvedAt = null;
+            processedAt = null;
+            refundMethod = defaultRefundMethod;
+            refundTransactionId = null;
+            processingFee = 1000; // Default processing fee
+            auditId = null;
+            statusHistory = [];
+            priority = #Normal;
+            escalationLevel = 0;
+            notes = null;
+        };
+        
+        // Store refund request
+        storage.refunds := Trie.put(storage.refunds, keyT(refundId), Text.equal, refundRequest).0;
+        storage.pendingApprovals := Trie.put(storage.pendingApprovals, keyT(refundId), Text.equal, refundRequest).0;
+        
+        // Update indices
+        let userKey = Principal.toText(userId);
+        let existingUserRefunds = Option.get(Trie.get(storage.userRefunds, keyT(userKey), Text.equal), []);
+        storage.userRefunds := Trie.put(storage.userRefunds, keyT(userKey), Text.equal, Array.append(existingUserRefunds, [refundId])).0;
+        
+        let statusKey = refundStatusToString(#Pending);
+        let existingStatusRefunds = Option.get(Trie.get(storage.statusIndex, keyT(statusKey), Text.equal), []);
+        storage.statusIndex := Trie.put(storage.statusIndex, keyT(statusKey), Text.equal, Array.append(existingStatusRefunds, [refundId])).0;
+        
+        storage.totalRefunds += 1;
+        
+        refundRequest
+    };
+    
+    public func getDefaultRefundMethodFromConfig(acceptedTokens: [Common.CanisterId]) : RefundMethod {
+        if (acceptedTokens.size() == 0) {
+            // Fallback to ICP with treasury transfer
+            #TransferFromTreasury(Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai"))
+        } else {
+            let firstToken = acceptedTokens[0];
+            // Check if it's known ICP ledger
+            if (Principal.toText(firstToken) == "ryjl3-tyaaa-aaaaa-aaaba-cai") {
+                #TransferFromTreasury(firstToken) // ICP supports ICRC2, use treasury
+            } else {
+                #DirectTransfer(firstToken) // Default to direct transfer for other tokens
+            }
+        }
+    };
+}  
