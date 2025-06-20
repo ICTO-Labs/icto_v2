@@ -42,7 +42,7 @@ echo -e "${BLUE}📋 Available canisters:${NC}"
 
 # Check which canisters are available
 declare -A CANISTERS
-CANISTER_NAMES=("backend" "audit_storage" "invoice_storage" "token_deployer" "launchpad" "lock_deployer" "distributing_deployer")
+CANISTER_NAMES=("backend" "audit_storage" "invoice_storage" "token_deployer" "launchpad_deployer" "lock_deployer" "distributing_deployer")
 
 for canister in "${CANISTER_NAMES[@]}"; do
     if canister_exists $canister; then
@@ -63,12 +63,14 @@ if [[ -n "${CANISTERS[audit_storage]}" && -n "${CANISTERS[invoice_storage]}" && 
     
     # Prompt for action
     echo "What would you like to do?"
-    echo "1. Setup/Re-setup microservices"
+    echo "1. Setup/Re-setup microservices (Full setup with health checks + whitelists)"
     echo "2. Force reset setup status"
     echo "3. Verify connections only"
-    echo "4. Exit"
+    echo "4. Add backend to deployer whitelists manually"
+    echo "5. Check deployer whitelist status"
+    echo "6. Exit"
     
-    read -p "Enter your choice (1-4): " choice
+    read -p "Enter your choice (1-6): " choice
     
     case $choice in
         1)
@@ -78,7 +80,7 @@ if [[ -n "${CANISTERS[audit_storage]}" && -n "${CANISTERS[invoice_storage]}" && 
             AUDIT_ID=${CANISTERS[audit_storage]:-"rdmx6-jaaaa-aaaaa-aaadq-cai"}
             INVOICE_ID=${CANISTERS[invoice_storage]:-"rdmx6-jaaaa-aaaaa-aaadq-cai"}
             TOKEN_ID=${CANISTERS[token_deployer]:-"rdmx6-jaaaa-aaaaa-aaadq-cai"}
-            LAUNCHPAD_ID=${CANISTERS[launchpad]:-"rdmx6-jaaaa-aaaaa-aaadq-cai"}
+            LAUNCHPAD_ID=${CANISTERS[launchpad_deployer]:-"rdmx6-jaaaa-aaaaa-aaadq-cai"}
             LOCK_ID=${CANISTERS[lock_deployer]:-"rdmx6-jaaaa-aaaaa-aaadq-cai"}
             DIST_ID=${CANISTERS[distributing_deployer]:-"rdmx6-jaaaa-aaaaa-aaadq-cai"}
             
@@ -127,6 +129,83 @@ if [[ -n "${CANISTERS[audit_storage]}" && -n "${CANISTERS[invoice_storage]}" && 
             ;;
             
         4)
+            echo -e "${BLUE}🔐 Adding backend to deployer whitelists manually...${NC}"
+            
+            # Get backend canister ID
+            BACKEND_ID=${CANISTERS[backend]}
+            if [[ -z "$BACKEND_ID" ]]; then
+                echo -e "${RED}❌ Backend canister not found${NC}"
+                exit 1
+            fi
+            
+            echo "Backend canister ID: $BACKEND_ID"
+            echo ""
+            
+            # Add to token deployer whitelist
+            if [[ -n "${CANISTERS[token_deployer]}" ]]; then
+                echo "Adding backend to token deployer whitelist..."
+                dfx canister call token_deployer addBackendToWhitelist "(principal \"$BACKEND_ID\")"
+                echo ""
+            fi
+            
+            # Add to launchpad deployer whitelist
+            if [[ -n "${CANISTERS[launchpad]}" ]]; then
+                echo "Adding backend to launchpad deployer whitelist..."
+                dfx canister call launchpad_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
+                echo ""
+            fi
+            
+            # Add to lock deployer whitelist
+            if [[ -n "${CANISTERS[lock_deployer]}" ]]; then
+                echo "Adding backend to lock deployer whitelist..."
+                dfx canister call lock_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
+                echo ""
+            fi
+            
+            # Add to distribution deployer whitelist
+            if [[ -n "${CANISTERS[distributing_deployer]}" ]]; then
+                echo "Adding backend to distribution deployer whitelist..."
+                dfx canister call distributing_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
+                echo ""
+            fi
+            
+            echo -e "${GREEN}✅ Whitelist operations completed${NC}"
+            ;;
+            
+        5)
+            echo -e "${BLUE}🔍 Checking deployer whitelist status...${NC}"
+            echo ""
+            
+            # Check token deployer whitelist
+            if [[ -n "${CANISTERS[token_deployer]}" ]]; then
+                echo "Token Deployer Whitelist:"
+                dfx canister call token_deployer getWhitelistedBackends "()"
+                echo ""
+            fi
+            
+            # Check launchpad deployer whitelist
+            if [[ -n "${CANISTERS[launchpad]}" ]]; then
+                echo "Launchpad Deployer Whitelist:"
+                dfx canister call launchpad getWhitelist "()"
+                echo ""
+            fi
+            
+            # Check lock deployer whitelist
+            if [[ -n "${CANISTERS[lock_deployer]}" ]]; then
+                echo "Lock Deployer Whitelist:"
+                dfx canister call lock_deployer getWhitelist "()"
+                echo ""
+            fi
+            
+            # Check distribution deployer whitelist
+            if [[ -n "${CANISTERS[distributing_deployer]}" ]]; then
+                echo "Distribution Deployer Whitelist:"
+                dfx canister call distributing_deployer getWhitelist "()"
+                echo ""
+            fi
+            ;;
+            
+        6)
             echo "Exiting..."
             exit 0
             ;;

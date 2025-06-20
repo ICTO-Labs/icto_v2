@@ -452,6 +452,8 @@ actor Backend {
     // ================ MICROSERVICE SETUP ================
     
     private func _initHealthCheck(deployerPrincipal: Principal, serviceType: Text) : async Result.Result<(), Text> {
+        let backendPrincipal = Principal.fromActor(Backend);
+        
         switch (serviceType) {
             case ("token_deployer") {
                 try {
@@ -460,6 +462,11 @@ actor Backend {
                     if (not healthResult) {
                         return #err("Token deployer health check failed");
                     };
+                    
+                    // Add backend to whitelist
+                    let _ = await tokenDeployer.addBackendToWhitelist(backendPrincipal);
+                    Debug.print("✅ Backend added to token deployer whitelist");
+                    
                     #ok()
                 } catch (error) {
                     #err("Token deployer init failed: " # Error.message(error))
@@ -468,18 +475,64 @@ actor Backend {
             case ("launchpad_deployer") {
                 try {
                     let launchpadDeployer: LaunchpadDeployer.Self = actor(Principal.toText(deployerPrincipal));
-                    // Add health check and whitelist once LaunchpadDeployer interface is complete
                     let healthResult = await launchpadDeployer.healthCheck();
                     if (not healthResult) {
                         return #err("Launchpad deployer health check failed");
                     };
+                    
+                    // Add backend to whitelist
+                    let _ = await launchpadDeployer.addToWhitelist(backendPrincipal);
+                    Debug.print("✅ Backend added to launchpad deployer whitelist");
+                    
                     #ok()
                 } catch (error) {
                     #err("Launchpad deployer init failed: " # Error.message(error))
                 }
             };
+            case ("lock_deployer") {
+                try {
+                    let lockDeployer: actor {
+                        healthCheck: () -> async Bool;
+                        addToWhitelist: (Principal) -> async Result.Result<(), Text>;
+                    } = actor(Principal.toText(deployerPrincipal));
+                    
+                    let healthResult = await lockDeployer.healthCheck();
+                    if (not healthResult) {
+                        return #err("Lock deployer health check failed");
+                    };
+                    
+                    // Add backend to whitelist
+                    let _ = await lockDeployer.addToWhitelist(backendPrincipal);
+                    Debug.print("✅ Backend added to lock deployer whitelist");
+                    
+                    #ok()
+                } catch (error) {
+                    #err("Lock deployer init failed: " # Error.message(error))
+                }
+            };
+            case ("distribution_deployer") {
+                try {
+                    let distributionDeployer: actor {
+                        healthCheck: () -> async Bool;
+                        addToWhitelist: (Principal) -> async Result.Result<(), Text>;
+                    } = actor(Principal.toText(deployerPrincipal));
+                    
+                    let healthResult = await distributionDeployer.healthCheck();
+                    if (not healthResult) {
+                        return #err("Distribution deployer health check failed");
+                    };
+                    
+                    // Add backend to whitelist
+                    let _ = await distributionDeployer.addToWhitelist(backendPrincipal);
+                    Debug.print("✅ Backend added to distribution deployer whitelist");
+                    
+                    #ok()
+                } catch (error) {
+                    #err("Distribution deployer init failed: " # Error.message(error))
+                }
+            };
             case (_) {
-                #ok() // Other deployers not implemented yet
+                #ok() // Unknown service type
             };
         }
     };
@@ -555,8 +608,9 @@ actor Backend {
         let initResults = await async {
             let tokenResult = await _initHealthCheck(tokenDeployerId, "token_deployer");
             let launchpadResult = await _initHealthCheck(launchpadDeployerId, "launchpad_deployer");
-            // Lock and distribution deployers will be added later
-            (tokenResult, launchpadResult)
+            let lockResult = await _initHealthCheck(lockDeployerId, "lock_deployer");
+            let distributionResult = await _initHealthCheck(distributionDeployerId, "distribution_deployer");
+            (tokenResult, launchpadResult, lockResult, distributionResult)
         };
         
         switch (initResults.0) {
@@ -564,7 +618,7 @@ actor Backend {
                 return #err("Token deployer init failed: " # error);
             };
             case (#ok()) {
-                Debug.print("✅ Token deployer health check passed");
+                Debug.print("✅ Token deployer health check and whitelist setup completed");
             };
         };
         
@@ -573,7 +627,25 @@ actor Backend {
                 return #err("Launchpad deployer init failed: " # error);
             };
             case (#ok()) {
-                Debug.print("✅ Launchpad deployer health check passed");
+                Debug.print("✅ Launchpad deployer health check and whitelist setup completed");
+            };
+        };
+        
+        switch (initResults.2) {
+            case (#err(error)) {
+                return #err("Lock deployer init failed: " # error);
+            };
+            case (#ok()) {
+                Debug.print("✅ Lock deployer health check and whitelist setup completed");
+            };
+        };
+        
+        switch (initResults.3) {
+            case (#err(error)) {
+                return #err("Distribution deployer init failed: " # error);
+            };
+            case (#ok()) {
+                Debug.print("✅ Distribution deployer health check and whitelist setup completed");
             };
         };
         

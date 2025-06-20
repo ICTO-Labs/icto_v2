@@ -116,6 +116,15 @@ else
     echo -e "${GREEN}✅ Token deployer health: ${TOKEN_HEALTH}${NC}"
 fi
 
+echo -e "${YELLOW}Adding backend to audit_storage whitelist...${NC}"
+dfx canister call audit_storage addToWhitelist "(principal \"${BACKEND_ID}\")"
+if [ $? -eq 0 ]; then
+    echo -e "${GREEN}✅ Backend added to audit_storage whitelist${NC}"
+else
+    echo -e "${RED}❌ Failed to add backend to audit_storage whitelist${NC}"
+    exit 1
+fi
+
 echo -e "${YELLOW}Checking audit_storage health...${NC}"
 AUDIT_HEALTH=$(dfx canister call audit_storage getStorageStats "()" 2>&1 || echo "FAILED")
 if [[ "$AUDIT_HEALTH" == *"FAILED"* ]]; then

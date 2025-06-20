@@ -25,9 +25,14 @@ actor LaunchpadDeployer {
     private stable var CYCLES_FOR_INSTALL : Nat = 300_000_000_000;
     private stable var MIN_CYCLES_IN_DEPLOYER : Nat = 2_000_000_000_000;
     
+    // Admin and whitelist management
+    private stable var admins : [Text] = [];
+    private stable var whitelistedBackends : [(Principal, Bool)] = [];
+    
     // Runtime variables
     private var projects : Trie.Trie<Text, ProjectTypes.ProjectDetail> = Trie.empty();
     private var userProjects : Trie.Trie<Principal, [Text]> = Trie.empty();
+    private var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
     
     // ================ UPGRADE FUNCTIONS ================
     system func preupgrade() {
@@ -38,6 +43,7 @@ actor LaunchpadDeployer {
         userProjectsStable := Trie.toArray<Principal, [Text], (Principal, [Text])>(
             userProjects, func (k, v) = (k, v)
         );
+        whitelistedBackends := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelistTrie, func (k, v) = (k, v));
         Debug.print("LaunchpadDeployer: Preupgrade completed");
     };
 
@@ -54,9 +60,15 @@ actor LaunchpadDeployer {
             userProjects := Trie.put(userProjects, _principalKey(userId), Principal.equal, projectIds).0;
         };
         
+        // Restore whitelist
+        for ((principal, enabled) in whitelistedBackends.vals()) {
+            whitelistTrie := Trie.put(whitelistTrie, _principalKey(principal), Principal.equal, enabled).0;
+        };
+        
         // Clear stable variables
         projectsStable := [];
         userProjectsStable := [];
+        whitelistedBackends := [];
         
         Debug.print("LaunchpadDeployer: Postupgrade completed");
     };
@@ -72,6 +84,18 @@ actor LaunchpadDeployer {
     
     private func _generateProjectId() : Text {
         "project_" # Int.toText(Time.now())
+    };
+    
+    private func _isAdmin(caller: Principal) : Bool {
+        Principal.isController(caller) or 
+        Array.find<Text>(admins, func(admin : Text) = admin == Principal.toText(caller)) != null
+    };
+    
+    private func _isWhitelisted(caller: Principal) : Bool {
+        switch (Trie.get(whitelistTrie, _principalKey(caller), Principal.equal)) {
+            case (?enabled) { enabled };
+            case null { false };
+        }
     };
     
     private func _isProjectOwner(projectId: Text, caller: Principal) : Bool {
@@ -439,8 +463,102 @@ actor LaunchpadDeployer {
         }
     };
 
+    // ================ ADMIN MANAGEMENT ================
+    public shared({ caller }) func addAdmin(adminPrincipal : Text) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can add admins");
+        };
+        
+        let newAdmins = Array.filter<Text>(admins, func(admin) = admin != adminPrincipal);
+        admins := Array.append(newAdmins, [adminPrincipal]);
+        #ok()
+    };
+    
+    public shared({ caller }) func removeAdmin(adminPrincipal : Text) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can remove admins");
+        };
+        
+        admins := Array.filter<Text>(admins, func(admin) = admin != adminPrincipal);
+        #ok()
+    };
+    
+    public query func getAdmins() : async [Text] {
+        admins
+    };
+    
+    // ================ WHITELIST MANAGEMENT ================
+    public shared({ caller }) func addToWhitelist(backend : Principal) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can manage whitelist");
+        };
+        whitelistTrie := Trie.put(whitelistTrie, _principalKey(backend), Principal.equal, true).0;
+        #ok()
+    };
+    
+    public shared({ caller }) func removeFromWhitelist(backend : Principal) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can manage whitelist");
+        };
+        whitelistTrie := Trie.put(whitelistTrie, _principalKey(backend), Principal.equal, false).0;
+        #ok()
+    };
+    
+    public query func getWhitelist() : async [Principal] {
+        let buffer = Buffer.Buffer<Principal>(0);
+        for ((principal, enabled) in Trie.iter(whitelistTrie)) {
+            if (enabled) {
+                buffer.add(principal);
+            };
+        };
+        Buffer.toArray(buffer)
+    };
+    
+    // ================ SERVICE INFO ================
+    public query func getServiceInfo() : async {
+        name: Text;
+        version: Text;
+        description: Text;
+        endpoints: [Text];
+        maintainer: Text;
+    } {
+        {
+            name = "ICTO V2 Launchpad Deployer";
+            version = "2.0.0";
+            description = "Deploys and manages launchpad projects for ICTO V2 platform";
+            endpoints = ["createProject", "updateProject", "deployLaunchpad", "getProject"];
+            maintainer = "ICTO Team";
+        }
+    };
+    
+    public query func getServiceHealth() : async {
+        totalProjects: Nat;
+        cyclesBalance: Nat;
+        isHealthy: Bool;
+    } {
+        let cycles = Cycles.balance();
+        {
+            totalProjects = Trie.size(projects);
+            cyclesBalance = cycles;
+            isHealthy = cycles > MIN_CYCLES_IN_DEPLOYER;
+        }
+    };
+    
+    // ================ BOOTSTRAP FUNCTION ================
+    public shared({ caller }) func bootstrapBackendSetup(backendPrincipal: Principal) : async Result.Result<(), Text> {
+        if (not Principal.isController(caller)) {
+            return #err("Unauthorized: Only deployer/controller can bootstrap backend setup");
+        };
+        
+        // Add backend to whitelist and admin
+        whitelistTrie := Trie.put(whitelistTrie, _principalKey(backendPrincipal), Principal.equal, true).0;
+        admins := Array.append(admins, [Principal.toText(backendPrincipal)]);
+        
+        #ok()
+    };
+
     // ================ HEALTH CHECK ================
     public query func healthCheck() : async Bool {
-        true
+        Cycles.balance() > MIN_CYCLES_IN_DEPLOYER
     };
 }
