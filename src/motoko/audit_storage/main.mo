@@ -126,6 +126,11 @@ actor AuditStorage {
         Buffer.toArray(buffer)
     };
     
+    // Standardized isWhitelisted function
+    public query func isWhitelisted(caller: Principal) : async Bool {
+        _isWhitelisted(caller)
+    };
+    
     // ================ AUDIT LOG FUNCTIONS ================
     public shared({ caller }) func logAuditEvent(
         userId: Text,

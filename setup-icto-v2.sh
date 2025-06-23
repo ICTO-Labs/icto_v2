@@ -18,7 +18,15 @@ NC='\033[0m' # No Color
 
 # Step 1: Deploy all canisters
 echo -e "\n${BLUE}📦 Step 1: Deploying all canisters...${NC}"
-dfx deploy
+# Specity all canister
+dfx deploy icp_ledger --specified-id ryjl3-tyaaa-aaaaa-aaaba-cai #icp_ledger
+dfx deploy backend
+dfx deploy audit_storage
+dfx deploy invoice_storage
+dfx deploy token_deployer
+dfx deploy launchpad_deployer
+dfx deploy lock_deployer
+dfx deploy distributing_deployer
 
 # Step 2: Get canister IDs
 echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
@@ -48,16 +56,100 @@ else
     exit 1
 fi
 
-# Step 4: Manual bootstrap - Add backend to token_deployer whitelist
-echo -e "\n${BLUE}🔧 Step 4: Manual bootstrap - Adding backend to token_deployer whitelist...${NC}"
-dfx canister call token_deployer addBackendToWhitelist "(principal \"${BACKEND_ID}\")"
+# Step 4: Add backend to external services whitelist
+echo -e "\n${BLUE}🔧 Step 4: Adding backend to external services whitelist...${NC}"
 
-if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ Backend added to token_deployer whitelist${NC}"
-else
-    echo -e "${RED}❌ Failed to add backend to whitelist${NC}"
+# Define services with standardized addToWhitelist function
+declare -a SERVICES=(
+    "audit_storage"
+    "invoice_storage" 
+    "token_deployer"
+    "launchpad_deployer"
+    "lock_deployer"
+    "distributing_deployer"
+)
+
+# Status tracking (simple strings to avoid associative array issues)
+FAILED_SERVICES=""
+SUCCESS_SERVICES=""
+
+# Function to add backend to whitelist with status tracking (standardized)
+add_to_whitelist() {
+    local service_name=$1
+    local backend_principal=$2
+    
+    echo -e "${YELLOW}Adding backend to ${service_name} whitelist...${NC}"
+    
+    # Execute the standardized whitelist command
+    if dfx canister call "$service_name" "addToWhitelist" "(principal \"${backend_principal}\")"; then
+        SUCCESS_SERVICES="$SUCCESS_SERVICES $service_name"
+        echo -e "${GREEN}✅ Backend successfully added to ${service_name} whitelist${NC}"
+        return 0
+    else
+        FAILED_SERVICES="$FAILED_SERVICES $service_name"
+        echo -e "${RED}❌ Failed to add backend to ${service_name} whitelist${NC}"
+        return 1
+    fi
+}
+
+# Loop through all services and add backend to whitelist
+echo -e "${BLUE}📋 Processing ${#SERVICES[@]} services for whitelist addition...${NC}"
+
+for service in "${SERVICES[@]}"; do
+    add_to_whitelist "$service" "$BACKEND_ID"
+    
+    # Small delay between calls to avoid overwhelming services
+    sleep 1
+done
+
+# Display comprehensive status report
+SUCCESS_COUNT=$(echo $SUCCESS_SERVICES | wc -w)
+FAILED_COUNT=$(echo $FAILED_SERVICES | wc -w)
+TOTAL_COUNT=${#SERVICES[@]}
+
+echo -e "\n${BLUE}📊 Whitelist Addition Status Report:${NC}"
+echo -e "${GREEN}✅ Successful: $SUCCESS_COUNT/$TOTAL_COUNT${NC}"
+echo -e "${RED}❌ Failed: $FAILED_COUNT/$TOTAL_COUNT${NC}"
+
+if [[ -n "$SUCCESS_SERVICES" ]]; then
+    echo -e "\n${GREEN}Successfully added to whitelist:${NC}"
+    for service in $SUCCESS_SERVICES; do
+        echo -e "  ✓ $service"
+    done
+fi
+
+if [[ -n "$FAILED_SERVICES" ]]; then
+    echo -e "\n${RED}Failed to add to whitelist:${NC}"
+    for service in $FAILED_SERVICES; do
+        echo -e "  ✗ $service"
+    done
+    echo -e "\n${YELLOW}⚠️  Some services failed whitelist addition. You may need to run manual commands:${NC}"
+    for service in $FAILED_SERVICES; do
+        echo -e "  dfx canister call $service addToWhitelist \"(principal \\\"${BACKEND_ID}\\\")\""
+    done
+fi
+
+# Check if critical services failed
+CRITICAL_SERVICES="audit_storage invoice_storage token_deployer"
+CRITICAL_FAILED=""
+
+for critical_service in $CRITICAL_SERVICES; do
+    if [[ "$FAILED_SERVICES" == *"$critical_service"* ]]; then
+        CRITICAL_FAILED="$CRITICAL_FAILED $critical_service"
+    fi
+done
+
+if [[ -n "$CRITICAL_FAILED" ]]; then
+    echo -e "\n${RED}🚨 CRITICAL: Essential services failed whitelist addition:${NC}"
+    for service in $CRITICAL_FAILED; do
+        echo -e "  ⚠️  $service"
+    done
+    echo -e "${RED}Backend may not function properly without these services whitelisted.${NC}"
     exit 1
 fi
+
+echo -e "\n${GREEN}✅ Whitelist addition completed successfully${NC}"
+
 
 # Step 5: Load WASM into token_deployer (fetch from SNS)
 echo -e "\n${BLUE}📥 Step 5: Loading WASM into token_deployer...${NC}"
@@ -134,7 +226,33 @@ else
 fi
 
 # Step 8: Test new deploy() function with RouterTypes
-echo -e "\n${BLUE}🧪 Step 8: Testing new deploy() function with RouterTypes...${NC}"
+# This step (token deployment) will be failed because the token data is not meet requirements, the refunds process will be triggered
+# First, approve ICP for token_deployer
+ICP_LEDGER_CANISTER="icp_ledger"
+APPROVAL_AMOUNT=1000000000000000
+ICRC2_FEE=10000
+
+echo "Step 8.1: Approve backend to spend ICP"
+echo "Approving $APPROVAL_AMOUNT e8s for backend..."
+
+APPROVAL_RESULT=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_approve "(record {
+    spender = record {
+        owner = principal \"$BACKEND_ID\";
+        subaccount = null;
+    };
+    amount = $APPROVAL_AMOUNT : nat;
+    fee = opt ($ICRC2_FEE : nat);
+    memo = opt blob \"ICTO_V2_TOKEN_DEPLOY_APPROVAL\";
+    from_subaccount = null;
+    created_at_time = null;
+    expires_at = null;
+})")
+
+echo "Approval result: $APPROVAL_RESULT"
+
+# Step 8.2: Test new deploy() function with RouterTypes
+
+echo -e "\n${BLUE}🧪 Step 8.2: Testing new deploy() function with RouterTypes...${NC}"
 
 # Generate unique token for testing
 TIMESTAMP=$(date +%s)

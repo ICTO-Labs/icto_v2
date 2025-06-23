@@ -10,12 +10,11 @@ import Trie "mo:base/Trie";
 import Text "mo:base/Text";
 import Option "mo:base/Option";
 import Int "mo:base/Int";
-import Nat8 "mo:base/Nat8";
 import Nat "mo:base/Nat";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
-import Nat64 "mo:base/Nat64";
-
+import Float "mo:base/Float";
+import Buffer "mo:base/Buffer";
 // Import shared types
 import ProjectTypes "../shared/types/ProjectTypes";
 import BackendTypes "types/BackendTypes";
@@ -463,8 +462,8 @@ actor Backend {
                         return #err("Token deployer health check failed");
                     };
                     
-                    // Add backend to whitelist
-                    let _ = await tokenDeployer.addBackendToWhitelist(backendPrincipal);
+                    // Add backend to whitelist (using standardized function)
+                    let _ = await tokenDeployer.addToWhitelist(backendPrincipal);
                     Debug.print("✅ Backend added to token deployer whitelist");
                     
                     #ok()
@@ -2695,4 +2694,559 @@ actor Backend {
             isAuthorized = true;
         }
     };
+    
+    // Check whitelist status of all deployers for backend principal
+    public shared({ caller }) func checkAllDeployerWhitelists() : async {
+        services: [{
+            serviceName: Text;
+            canisterId: ?Text;
+            isWhitelisted: Bool;
+            whitelistFunction: Text;
+            status: Text;
+        }];
+        backendPrincipal: Text;
+        isAuthorized: Bool;
+    } {
+        if (not _isAdmin(caller)) {
+            return {
+                services = [];
+                backendPrincipal = "";
+                isAuthorized = false;
+            };
+        };
+        
+        let backendPrincipalId = Principal.fromActor(Backend);
+        let backendText = Principal.toText(backendPrincipalId);
+        
+        // Simple list of services to check
+        let servicesToCheck = [
+            ("audit_storage", auditStorageCanisterId),
+            ("invoice_storage", invoiceStorageCanisterId),
+            ("token_deployer", tokenDeployerCanisterId),
+            ("launchpad_deployer", launchpadDeployerCanisterId),
+            ("lock_deployer", lockDeployerCanisterId),
+            ("distribution_deployer", distributionDeployerCanisterId),
+        ];
+        
+        var results: [{
+            serviceName: Text;
+            canisterId: ?Text;
+            isWhitelisted: Bool;
+            whitelistFunction: Text;
+            status: Text;
+        }] = [];
+        
+        // Loop through services and append results
+        for ((serviceName, canisterIdOpt) in servicesToCheck.vals()) {
+            let serviceResult = switch (canisterIdOpt) {
+                case (?canisterId) {
+                    Debug.print("Checking whitelist status for " # serviceName # " with canister ID: " # Principal.toText(canisterId));
+                    let isWhitelisted = await _checkWhitelistStatus(serviceName, canisterId, backendPrincipalId);
+                    {
+                        serviceName = serviceName;
+                        canisterId = ?Principal.toText(canisterId);
+                        isWhitelisted = isWhitelisted;
+                        whitelistFunction = "addToWhitelist";
+                        status = if (isWhitelisted) "Whitelisted" else "Not Whitelisted";
+                    }
+                };
+                case null {
+                    {
+                        serviceName = serviceName;
+                        canisterId = null;
+                        isWhitelisted = false;
+                        whitelistFunction = "addToWhitelist";
+                        status = "Not Deployed";
+                    }
+                };
+            };
+            
+            // Append to results
+            results := Array.append(results, [serviceResult]);
+        };
+        
+        {
+            services = results;
+            backendPrincipal = backendText;
+            isAuthorized = true;
+        }
+    };
+    
+    // Helper function to check whitelist status for different services
+    private func _checkWhitelistStatus(serviceName: Text, canisterId: Principal, principalToCheck: Principal) : async Bool {
+        try {
+            switch (serviceName) {
+                case ("audit_storage") {
+                    let auditService: actor {
+                        isWhitelisted: (Principal) -> async Bool;
+                    } = actor(Principal.toText(canisterId));
+                    await auditService.isWhitelisted(principalToCheck)
+                };
+                case ("invoice_storage") {
+                    let invoiceService: actor {
+                        isWhitelisted: (Principal) -> async Bool;
+                    } = actor(Principal.toText(canisterId));
+                    await invoiceService.isWhitelisted(principalToCheck)
+                };
+                case ("token_deployer") {
+                    let tokenService: actor {
+                        isWhitelisted: (Principal) -> async Bool;
+                    } = actor(Principal.toText(canisterId));
+                    await tokenService.isWhitelisted(principalToCheck)
+                };
+                case ("launchpad_deployer") {
+                    let launchpadService: actor {
+                        isWhitelisted: (Principal) -> async Bool;
+                    } = actor(Principal.toText(canisterId));
+                    await launchpadService.isWhitelisted(principalToCheck)
+                };
+                case ("lock_deployer") {
+                    let lockService: actor {
+                        isWhitelisted: (Principal) -> async Bool;
+                    } = actor(Principal.toText(canisterId));
+                    await lockService.isWhitelisted(principalToCheck)
+                };
+                case ("distribution_deployer") {
+                    let distributionService: actor {
+                        isWhitelisted: (Principal) -> async Bool;
+                    } = actor(Principal.toText(canisterId));
+                    await distributionService.isWhitelisted(principalToCheck)
+                };
+                case (_) false;
+            }
+        } catch (error) {
+            Debug.print("Failed to check whitelist for " # serviceName # ": " # Error.message(error));
+            false
+        }
+    };
+    
+    // ================ ENHANCED ADMIN REPORTING & TRANSACTION TRACKING ================
+    
+    // Comprehensive transaction status tracking
+    public shared query({ caller }) func getTransactionStatus(
+        transactionId: Text
+    ) : async {
+        paymentStatus: Text;
+        deploymentStatus: Text;
+        auditTrail: [AuditLogger.AuditEntry];
+        refundStatus: ?Text;
+        stuckAt: ?Text;
+        nextAction: ?Text;
+        isAuthorized: Bool;
+    } {
+        if (not _isAdmin(caller)) {
+            return {
+                paymentStatus = "Unauthorized";
+                deploymentStatus = "Unauthorized";
+                auditTrail = [];
+                refundStatus = null;
+                stuckAt = null;
+                nextAction = null;
+                isAuthorized = false;
+            };
+        };
+        
+        // Search for audit entries related to this transaction
+        let auditQuery : Audit.AuditQuery = {
+            userId = null;
+            projectId = null;
+            actionType = null;
+            serviceType = null;
+            severity = null;
+            timeRange = null;
+            tags = null;
+            limit = ?50;
+            offset = ?0;
+        };
+        
+        let auditPage = AuditLogger.queryAuditEntries(auditStorage, auditQuery);
+        let relatedAudits = Array.filter<AuditLogger.AuditEntry>(
+            auditPage.entries,
+            func(entry) {
+                switch (entry.actionData) {
+                    case (#RawData(text)) Text.contains(text, #text transactionId);
+                    case (_) false;
+                }
+            }
+        );
+        
+        // Determine payment status
+        let paymentStatus = if (relatedAudits.size() == 0) {
+            "Not Found"
+        } else {
+            let latestAudit = relatedAudits[relatedAudits.size() - 1];
+            switch (latestAudit.actionStatus) {
+                case (#Initiated) "Payment Initiated";
+                case (#InProgress) "Payment Processing";
+                case (#Completed) "Payment Completed";
+                case (#Failed(msg)) "Payment Failed: " # msg;
+                case (#Cancelled) "Payment Cancelled";
+                case (#Timeout) "Payment Timeout";
+            }
+        };
+        
+        // Determine deployment status and stuck point
+        let (deploymentStatus, stuckAt, nextAction) = if (relatedAudits.size() > 0) {
+            let latestAudit = relatedAudits[relatedAudits.size() - 1];
+            switch (latestAudit.actionType) {
+                case (#CreateToken) {
+                    switch (latestAudit.actionStatus) {
+                        case (#Completed) ("Token Deployed Successfully", null, null);
+                        case (#Failed(msg)) ("Token Deployment Failed", ?"Token Creation", ?"Retry deployment or process refund");
+                        case (#InProgress) ("Token Deployment In Progress", ?"Token Creation", ?"Wait for completion");
+                        case (_) ("Token Deployment Initiated", ?"Payment Validation", ?"Monitor payment status");
+                    }
+                };
+                case (#CreateProject) {
+                    switch (latestAudit.actionStatus) {
+                        case (#Completed) ("Project Created Successfully", null, null);
+                        case (#Failed(msg)) ("Project Creation Failed", ?"Project Setup", ?"Review project parameters");
+                        case (_) ("Project Creation In Progress", ?"Project Validation", ?"Wait for completion");
+                    }
+                };
+                case (_) ("Unknown Deployment Type", ?"Unknown", ?"Contact support");
+            }
+        } else {
+            ("No Deployment Found", ?"Transaction Not Found", ?"Verify transaction ID")
+        };
+        
+        // Check refund status
+        let userRefunds = RefundManager.getAllRefundRecords(refundManager);
+        let relatedRefund = Array.find<RefundManager.RefundRequest>(
+            userRefunds,
+            func(refund) { refund.originalTransactionId == transactionId }
+        );
+        let refundStatus = switch (relatedRefund) {
+            case (?refund) {
+                switch (refund.status) {
+                    case (#Pending) ?"Refund Pending Approval";
+                    case (#Approved) ?"Refund Approved, Processing";
+                    case (#Processing) ?"Refund Being Processed";
+                    case (#Completed) ?"Refund Completed";
+                    case (#Failed(msg)) ?("Refund Failed: " # debug_show(msg));
+                    case (#Rejected(reason)) ?("Refund Rejected: " # debug_show(reason));
+                    case (#Cancelled) ?"Refund Cancelled";
+                }
+            };
+            case null null;
+        };
+        
+        {
+            paymentStatus = paymentStatus;
+            deploymentStatus = deploymentStatus;
+            auditTrail = relatedAudits;
+            refundStatus = refundStatus;
+            stuckAt = stuckAt;
+            nextAction = nextAction;
+            isAuthorized = true;
+        }
+    };
+    
+    // Analyze stuck deployments and provide recommendations
+    public shared query({ caller }) func analyzeStuckDeployment(
+        auditId: Text
+    ) : async {
+        timeline: [{timestamp: Int; action: Text; status: Text; details: Text}];
+        lastSuccessfulStep: ?Text;
+        failurePoint: ?Text;
+        possibleCauses: [Text];
+        recommendedActions: [Text];
+        autoRecoveryAvailable: Bool;
+        estimatedRecoveryTime: ?Text;
+        isAuthorized: Bool;
+    } {
+        if (not _isAdmin(caller)) {
+            return {
+                timeline = [];
+                lastSuccessfulStep = null;
+                failurePoint = null;
+                possibleCauses = [];
+                recommendedActions = [];
+                autoRecoveryAvailable = false;
+                estimatedRecoveryTime = null;
+                isAuthorized = false;
+            };
+        };
+        
+        // Get audit entry
+        switch (AuditLogger.getAuditEntry(auditStorage, auditId)) {
+            case (?mainEntry) {
+                // Build timeline of related events
+                let timeline = [{
+                    timestamp = mainEntry.timestamp;
+                    action = switch (mainEntry.actionType) {
+                        case (#CreateToken) "Token Deployment Started";
+                        case (#CreateProject) "Project Creation Started";
+                        case (#FeeValidation) "Fee Validation";
+                        case (#PaymentProcessed) "Payment Processed";
+                        case (_) "Action Started";
+                    };
+                    status = switch (mainEntry.actionStatus) {
+                        case (#Initiated) "Initiated";
+                        case (#InProgress) "In Progress";
+                        case (#Completed) "Completed";
+                        case (#Failed(msg)) "Failed";
+                        case (#Cancelled) "Cancelled";
+                        case (#Timeout) "Timeout";
+                    };
+                    details = switch (mainEntry.actionData) {
+                        case (#RawData(text)) text;
+                        case (#TokenData(data)) data.tokenName # " (" # data.tokenSymbol # ")";
+                        case (#ProjectData(data)) data.projectName;
+                        case (_) "No details available";
+                    };
+                }];
+                
+                // Analyze failure point and causes
+                let (lastSuccessfulStep, failurePoint, possibleCauses) = switch (mainEntry.actionStatus) {
+                    case (#Failed(errorMsg)) {
+                        let causes = if (Text.contains(errorMsg, #text "Payment")) {
+                            ["Insufficient funds", "ICRC2 approval missing", "Payment service unavailable"]
+                        } else if (Text.contains(errorMsg, #text "Token")) {
+                            ["Token deployer service down", "Invalid token parameters", "Cycles exhausted"]
+                        } else if (Text.contains(errorMsg, #text "Project")) {
+                            ["Invalid project configuration", "Launchpad service unavailable", "Validation failed"]
+                        } else {
+                            ["Unknown service error", "Network connectivity issues", "System overload"]
+                        };
+                        
+                        (?"Payment Validation", ?errorMsg, causes)
+                    };
+                    case (#Timeout) {
+                        (?"Service Call", ?"Operation Timeout", ["Service overload", "Network latency", "Cycles exhaustion"])
+                    };
+                    case (#InProgress) {
+                        (?"Payment Processing", ?"Still In Progress", ["Long processing time", "Service queue backlog"])
+                    };
+                    case (_) {
+                        (null, null, [])
+                    };
+                };
+                
+                // Generate recommended actions
+                let recommendedActions = switch (mainEntry.actionStatus) {
+                    case (#Failed(errorMsg)) {
+                        if (Text.contains(errorMsg, #text "Payment")) {
+                            ["Check user's token balance", "Verify ICRC2 approval", "Process manual refund if needed"]
+                        } else if (Text.contains(errorMsg, #text "service")) {
+                            ["Check service health", "Retry deployment", "Escalate to technical team"]
+                        } else {
+                            ["Review error logs", "Contact user", "Consider manual intervention"]
+                        }
+                    };
+                    case (#Timeout) {
+                        ["Check service status", "Retry with increased timeout", "Monitor system load"]
+                    };
+                    case (#InProgress) {
+                        ["Monitor for completion", "Check if stuck >1 hour", "Consider timeout escalation"]
+                    };
+                    case (_) {
+                        ["No action required"]
+                    };
+                };
+                
+                // Determine auto-recovery availability
+                let autoRecoveryAvailable = switch (mainEntry.actionStatus) {
+                    case (#Failed(errorMsg)) {
+                        not Text.contains(errorMsg, #text "Invalid") and not Text.contains(errorMsg, #text "Unauthorized")
+                    };
+                    case (#Timeout) true;
+                    case (_) false;
+                };
+                
+                let estimatedRecoveryTime = if (autoRecoveryAvailable) {
+                    ?"5-15 minutes"
+                } else {
+                    ?"Manual intervention required"
+                };
+                
+                {
+                    timeline = timeline;
+                    lastSuccessfulStep = lastSuccessfulStep;
+                    failurePoint = failurePoint;
+                    possibleCauses = possibleCauses;
+                    recommendedActions = recommendedActions;
+                    autoRecoveryAvailable = autoRecoveryAvailable;
+                    estimatedRecoveryTime = estimatedRecoveryTime;
+                    isAuthorized = true;
+                }
+            };
+            case null {
+                {
+                    timeline = [];
+                    lastSuccessfulStep = null;
+                    failurePoint = ?"Audit entry not found";
+                    possibleCauses = ["Invalid audit ID", "Entry may have been archived"];
+                    recommendedActions = ["Verify audit ID", "Check archived logs"];
+                    autoRecoveryAvailable = false;
+                    estimatedRecoveryTime = null;
+                    isAuthorized = true;
+                }
+            };
+        }
+    };
+    
+    // Security monitoring for refund system
+    public shared query({ caller }) func getRefundSecurityReport() : async {
+        suspiciousPatterns: [{
+            pattern: Text;
+            occurrences: Nat;
+            riskLevel: Text;
+            affectedUsers: Nat;
+        }];
+        automaticRefundStats: {
+            totalAutoRefunds: Nat;
+            autoRefundAmount: Nat;
+            averageRefundTime: Text;
+            failureRate: Float;
+        };
+        manualReviewRequired: [RefundManager.RefundRequest];
+        potentialAttacks: [{
+            attackType: Text;
+            confidence: Text;
+            description: Text;
+            recommendedAction: Text;
+        }];
+        isAuthorized: Bool;
+    } {
+        if (not _isAdmin(caller)) {
+            return {
+                suspiciousPatterns = [];
+                automaticRefundStats = {
+                    totalAutoRefunds = 0;
+                    autoRefundAmount = 0;
+                    averageRefundTime = "Unauthorized";
+                    failureRate = 0.0;
+                };
+                manualReviewRequired = [];
+                potentialAttacks = [];
+                isAuthorized = false;
+            };
+        };
+        
+        let allRefunds = RefundManager.getAllRefundRecords(refundManager);
+        let currentTime = Time.now();
+        let last24Hours = currentTime - (24 * 60 * 60 * 1000000000); // 24 hours in nanoseconds
+        
+        // Analyze suspicious patterns
+        var quickRefundCount = 0;
+        var multipleRefundUsers = 0;
+        var highAmountRefunds = 0;
+        
+        // Count automatic refunds and calculate stats
+        var autoRefundCount = 0;
+        var autoRefundAmount = 0;
+        var totalProcessingTime = 0;
+        var failedAutoRefunds = 0;
+        
+        for (refund in allRefunds.vals()) {
+            // Check for quick refunds (within 1 hour of request)
+            switch (refund.processedAt) {
+                case (?processedTime) {
+                    let timeDiff = processedTime - refund.requestedAt;
+                    if (timeDiff < 3600000000000) { // 1 hour in nanoseconds
+                        quickRefundCount += 1;
+                    };
+                };
+                case null {};
+            };
+            
+            // Check for high amount refunds (>50 ICP = 5000000000 e8s)
+            if (refund.refundAmount > 5000000000) {
+                highAmountRefunds += 1;
+            };
+            
+            // Count automatic refunds
+            if (Text.contains(refund.description, #text "Automatic refund")) {
+                autoRefundCount += 1;
+                autoRefundAmount += refund.refundAmount;
+                
+                switch (refund.status) {
+                    case (#Completed) {
+                        switch (refund.processedAt) {
+                            case (?processedTime) {
+                                totalProcessingTime += Int.abs(processedTime - refund.requestedAt);
+                            };
+                            case null {};
+                        };
+                    };
+                    case (#Failed(_)) {
+                        failedAutoRefunds += 1;
+                    };
+                    case (_) {};
+                };
+            };
+        };
+        
+        // Build suspicious patterns
+        let suspiciousPatterns = [
+            {
+                pattern = "Quick refunds (<1 hour)";
+                occurrences = quickRefundCount;
+                riskLevel = if (quickRefundCount > 10) "High" else if (quickRefundCount > 5) "Medium" else "Low";
+                affectedUsers = quickRefundCount; // Simplified
+            },
+            {
+                pattern = "High amount refunds (>50 ICP)";
+                occurrences = highAmountRefunds;
+                riskLevel = if (highAmountRefunds > 5) "High" else if (highAmountRefunds > 2) "Medium" else "Low";
+                affectedUsers = highAmountRefunds; // Simplified
+            }
+        ];
+        
+        // Calculate automatic refund stats
+        let averageProcessingTime = if (autoRefundCount > 0) {
+            Int.toText((totalProcessingTime / autoRefundCount) / 1000000000) # " seconds"
+        } else {
+            "No data"
+        };
+        
+        let failureRate = if (autoRefundCount > 0) {
+            Float.fromInt(failedAutoRefunds) / Float.fromInt(autoRefundCount)
+        } else {
+            0.0
+        };
+        
+        // Get refunds requiring manual review
+        let manualReviewRequired = Array.filter<RefundManager.RefundRequest>(
+            allRefunds,
+            func(refund) {
+                refund.refundAmount > 5000000000 or // >50 ICP
+                refund.escalationLevel > 0 or
+                (refund.status == #Pending and (currentTime - refund.requestedAt) > last24Hours)
+            }
+        );
+        
+        // Detect potential attacks
+        let potentialAttacks = if (quickRefundCount > 20) {
+            [{
+                attackType = "Refund farming";
+                confidence = "High";
+                description = "Unusually high number of quick refunds detected";
+                recommendedAction = "Implement stricter refund validation";
+            }]
+        } else if (autoRefundCount > 50) {
+            [{
+                attackType = "Service exploitation";
+                confidence = "Medium";
+                description = "High volume of automatic refunds may indicate service abuse";
+                recommendedAction = "Review deployment failure patterns";
+            }]
+        } else {
+            []
+        };
+        
+        {
+            suspiciousPatterns = suspiciousPatterns;
+            automaticRefundStats = {
+                totalAutoRefunds = autoRefundCount;
+                autoRefundAmount = autoRefundAmount;
+                averageRefundTime = averageProcessingTime;
+                failureRate = failureRate;
+            };
+            manualReviewRequired = manualReviewRequired;
+            potentialAttacks = potentialAttacks;
+            isAuthorized = true;
+        }
+    };   
 }

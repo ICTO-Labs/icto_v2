@@ -126,6 +126,11 @@ actor InvoiceStorage {
         )
     };
     
+    // Standardized isWhitelisted function
+    public query func isWhitelisted(caller: Principal) : async Bool {
+        _isWhitelisted(caller)
+    };
+    
     // ================ PAYMENT RECORD MANAGEMENT ================
     public shared({ caller }) func createPaymentRecord(record: InvoiceStorageInterface.PaymentRecord) : async Result.Result<Text, Text> {
         if (not _isWhitelisted(caller)) {

@@ -266,6 +266,11 @@ actor DistributingDeployer {
         Buffer.toArray(buffer)
     };
     
+    // Standardized isWhitelisted function
+    public query func isWhitelisted(caller: Principal) : async Bool {
+        _isWhitelisted(caller)
+    };
+    
     // ================ SERVICE INFO ================
     public query func getServiceInfo() : async {
         name: Text;

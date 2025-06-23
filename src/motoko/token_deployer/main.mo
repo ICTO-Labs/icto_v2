@@ -149,7 +149,7 @@ actor TokenDeployer {
         Array.find<Text>(admins, func(admin : Text) = admin == Principal.toText(caller)) != null
     };
     
-    private func isWhitelistedBackend(caller : Principal) : Bool {
+    private func _isWhitelisted(caller : Principal) : Bool {
         switch (Trie.get(whitelistTrie, principalKey(caller), Principal.equal)) {
             case (?enabled) { enabled };
             case null { false };
@@ -336,7 +336,7 @@ actor TokenDeployer {
     ) : async Result.Result<Principal, Text> {
         
         // Only whitelisted backend or admin can call this
-        if (not (isAdmin(caller) or isWhitelistedBackend(caller))) {
+        if (not (isAdmin(caller) or _isWhitelisted(caller))) {
             return #err("Unauthorized: Only whitelisted backend can deploy tokens");
         };
         
@@ -701,7 +701,7 @@ actor TokenDeployer {
         #ok()
     };
     
-    public shared({ caller }) func addBackendToWhitelist(backend : Principal) : async Result.Result<(), Text> {
+    public shared({ caller }) func addToWhitelist(backend : Principal) : async Result.Result<(), Text> {
         if (not isAdmin(caller)) {
             return #err("Unauthorized: Only admins can manage whitelist");
         };
@@ -709,12 +709,22 @@ actor TokenDeployer {
         #ok()
     };
     
-    public shared({ caller }) func removeBackendFromWhitelist(backend : Principal) : async Result.Result<(), Text> {
+    public shared({ caller }) func removeFromWhitelist(backend : Principal) : async Result.Result<(), Text> {
         if (not isAdmin(caller)) {
             return #err("Unauthorized: Only admins can manage whitelist");
         };
         whitelistTrie := Trie.put(whitelistTrie, principalKey(backend), Principal.equal, false).0;
         #ok()
+    };
+    
+    // Legacy function for backward compatibility
+    public shared({ caller }) func addBackendToWhitelist(backend : Principal) : async Result.Result<(), Text> {
+        await addToWhitelist(backend)
+    };
+    
+    // Legacy function for backward compatibility  
+    public shared({ caller }) func removeBackendFromWhitelist(backend : Principal) : async Result.Result<(), Text> {
+        await removeFromWhitelist(backend)
     };
     
     public shared({ caller }) func updateConfiguration(
@@ -749,6 +759,11 @@ actor TokenDeployer {
             };
         };
         Buffer.toArray(buffer)
+    };
+    
+    // Standardized isWhitelisted function
+    public query func isWhitelisted(caller: Principal) : async Bool {
+        _isWhitelisted(caller)
     };
     
     public query func getConfiguration() : async {

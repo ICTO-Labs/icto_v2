@@ -36,10 +36,15 @@ module {
             allowManualWasm: Bool;
         };
         
-        // Admin functions - whitelist management
+        // Admin functions - whitelist management (standardized)
+        addToWhitelist: shared (Principal) -> async Result.Result<(), Text>;
+        removeFromWhitelist: shared (Principal) -> async Result.Result<(), Text>;
+        getWhitelistedBackends: query () -> async [Principal];
+        isWhitelisted: query (Principal) -> async Bool;
+        
+        // Legacy functions for backward compatibility
         addBackendToWhitelist: shared (Principal) -> async Result.Result<(), Text>;
         removeBackendFromWhitelist: shared (Principal) -> async Result.Result<(), Text>;
-        getWhitelistedBackends: query () -> async [Principal];
         
         // Admin functions - general
         addAdmin: shared (Text) -> async Result.Result<(), Text>;
