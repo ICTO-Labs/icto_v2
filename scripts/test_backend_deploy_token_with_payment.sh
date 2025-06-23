@@ -122,8 +122,8 @@ echo "Token Name: $TOKEN_NAME"
 
 echo ""
 echo "Step 3.2: Check service fee info"
-if dfx canister call backend getServiceFee "(\"tokenDeployment\")" 2>/dev/null; then
-    TOKEN_FEE_INFO=$(dfx canister call backend getServiceFee "(\"tokenDeployment\")")
+if dfx canister call backend getServiceFee "(\"createToken\")" 2>/dev/null; then
+    TOKEN_FEE_INFO=$(dfx canister call backend getServiceFee "(\"createToken\")")
     echo "Token deployment fee: $TOKEN_FEE_INFO"
 else
     echo "⚠️  Service fee info not available"
@@ -303,4 +303,4 @@ echo "5. ⏳ Fix 2 action type compilation errors"
 
 echo ""
 echo "✅ ICTO V2 New deployToken() Function Test Completed!"
-echo "Architecture validated and ready for final fixes." 
+echo "Architecture validated and ready for final fixes."

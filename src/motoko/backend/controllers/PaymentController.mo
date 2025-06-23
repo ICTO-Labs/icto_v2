@@ -1,41 +1,70 @@
-// ⬇️ PaymentAPI - Compatible Interface Layer 
-// Maintains backward compatibility with main.mo calls
-// Can also work with PaymentController for future refactoring
+// ⬇️ PaymentController - Payment Business Logic Handler
+// Centralized controller for all payment operations
+// Handles validation, refunds, and payment records with proper delegation
 
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
+import Time "mo:base/Time";
+import Debug "mo:base/Debug";
+import Option "mo:base/Option";
 
-// Import the modules that main.mo expects to pass
-import Common "../../shared/types/Common";
-import InvoiceStorage "../interfaces/InvoiceStorage";
+// Import business logic modules
 import PaymentValidator "../modules/PaymentValidator";
 import RefundManager "../modules/RefundManager";
 import AuditLogger "../modules/AuditLogger";
 import SystemManager "../modules/SystemManager";
 
-// Optional: Import controller for future use
-import PaymentController "../controllers/PaymentController";
+// Import shared types
+import Common "../../shared/types/Common";
+import Audit "../../shared/types/Audit";
+import InvoiceStorage "../interfaces/InvoiceStorage";
 
-module PaymentAPI {
-
-    // ================ COMPATIBLE INTERFACE TYPES ================
+module PaymentController {
+    
+    // ================ CONTROLLER STATE TYPE ================
+    
+    public type PaymentControllerState = {
+        paymentValidator: PaymentValidator.PaymentValidatorStorage;
+        refundManager: RefundManager.RefundStorage;
+        systemStorage: SystemManager.ConfigurationStorage;
+        auditStorage: AuditLogger.AuditStorage;
+        externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage;
+    };
+    
+    // ================ PUBLIC TYPES ================
     
     public type PaymentValidationResult = PaymentValidator.PaymentValidationResult;
     public type RefundRequest = RefundManager.RefundRequest;
     public type RefundStatus = RefundManager.RefundStatus;
     public type PaymentRecord = InvoiceStorage.PaymentRecord;
     
-    // ================ COMPATIBLE FUNCTIONS (MATCHING MAIN.MO CALLS) ================
+    // ================ INITIALIZATION ================
     
-    // Function signature that main.mo expects
+    public func initPaymentController(
+        paymentValidator: PaymentValidator.PaymentValidatorStorage,
+        refundManager: RefundManager.RefundStorage,
+        systemStorage: SystemManager.ConfigurationStorage,
+        auditStorage: AuditLogger.AuditStorage,
+        externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage
+    ) : PaymentControllerState {
+        {
+            paymentValidator = paymentValidator;
+            refundManager = refundManager;
+            systemStorage = systemStorage;
+            auditStorage = auditStorage;
+            externalInvoiceStorage = externalInvoiceStorage;
+        }
+    };
+    
+    // ================ PAYMENT VALIDATION BUSINESS LOGIC ================
+    
     public func validatePaymentForAction(
+        state: PaymentControllerState,
         caller: Principal,
         actionType: Text,
-        auditId: ?Text,
-        paymentValidator: PaymentValidator.PaymentValidatorStorage,
-        externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage
+        auditId: ?Text
     ) : async Result.Result<PaymentValidationResult, Text> {
-        switch (externalInvoiceStorage) {
+        switch (state.externalInvoiceStorage) {
             case (?invoiceStorage) {
                 let auditActionType = switch (actionType) {
                     case ("CreateToken") #CreateToken;
@@ -47,7 +76,7 @@ module PaymentAPI {
                 };
                 
                 let result = await PaymentValidator.validatePaymentForAction(
-                    paymentValidator,
+                    state.paymentValidator,
                     auditActionType,
                     caller,
                     auditId,
@@ -76,24 +105,23 @@ module PaymentAPI {
     };
     
     public func validatePaymentWithInvoiceStorage(
+        state: PaymentControllerState,
         caller: Principal,
         serviceType: Text,
-        auditId: Text,
-        paymentValidator: PaymentValidator.PaymentValidatorStorage,
-        externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage
+        auditId: Text
     ) : async Result.Result<PaymentValidationResult, Text> {
-        await validatePaymentForAction(caller, serviceType, ?auditId, paymentValidator, externalInvoiceStorage)
+        await validatePaymentForAction(state, caller, serviceType, ?auditId)
     };
     
-    // ================ PAYMENT RECORDS FUNCTIONS ================
+    // ================ PAYMENT RECORDS BUSINESS LOGIC ================
     
     public func getUserPaymentRecords(
+        state: PaymentControllerState,
         caller: Principal,
         limit: ?Nat,
-        offset: ?Nat,
-        externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage
+        offset: ?Nat
     ) : async [PaymentRecord] {
-        switch (externalInvoiceStorage) {
+        switch (state.externalInvoiceStorage) {
             case (?invoiceStorage) {
                 try {
                     let result = await invoiceStorage.getUserPaymentRecords(caller, limit, offset);
@@ -108,10 +136,10 @@ module PaymentAPI {
     };
     
     public func getPaymentRecord(
-        paymentId: Text,
-        externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage
+        state: PaymentControllerState,
+        paymentId: Text
     ) : async ?PaymentRecord {
-        switch (externalInvoiceStorage) {
+        switch (state.externalInvoiceStorage) {
             case (?invoiceStorage) {
                 try {
                     let result = await invoiceStorage.getPaymentRecord(paymentId);
@@ -125,31 +153,29 @@ module PaymentAPI {
         }
     };
     
-    // ================ REFUND MANAGEMENT FUNCTIONS (MAIN.MO COMPATIBLE) ================
+    // ================ REFUND MANAGEMENT BUSINESS LOGIC ================
     
     public func adminApproveRefund(
+        state: PaymentControllerState,
         caller: Principal,
         refundId: Text,
-        notes: ?Text,
-        refundManager: RefundManager.RefundStorage,
-        auditStorage: AuditLogger.AuditStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        notes: ?Text
     ) : Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
             return #err("Unauthorized: Only admins can approve refunds");
         };
         
-        switch (RefundManager.approveRefund(refundManager, refundId, caller, notes)) {
+        switch (RefundManager.approveRefund(state.refundManager, refundId, caller, notes)) {
             case (?approvedRefund) {
                 let auditEntry = AuditLogger.logAction(
-                    auditStorage,
+                    state.auditStorage,
                     caller,
                     #AdminLogin, // Using available action type
                     #RawData("Admin approved refund: " # refundId # " - " # (switch(notes) { case(?n) n; case null "No notes" })),
                     null,
                     ?#Backend
                 );
-                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
+                ignore AuditLogger.updateAuditStatus(state.auditStorage, auditEntry.id, #Completed, null, ?100);
                 #ok(approvedRefund)
             };
             case null {
@@ -159,28 +185,26 @@ module PaymentAPI {
     };
     
     public func adminRejectRefund(
+        state: PaymentControllerState,
         caller: Principal,
         refundId: Text,
-        reason: Text,
-        refundManager: RefundManager.RefundStorage,
-        auditStorage: AuditLogger.AuditStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        reason: Text
     ) : Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
             return #err("Unauthorized: Only admins can reject refunds");
         };
         
-        switch (RefundManager.rejectRefund(refundManager, refundId, caller, reason)) {
+        switch (RefundManager.rejectRefund(state.refundManager, refundId, caller, reason)) {
             case (?rejectedRefund) {
                 let auditEntry = AuditLogger.logAction(
-                    auditStorage,
+                    state.auditStorage,
                     caller,
                     #AdminLogin, // Using available action type
                     #RawData("Admin rejected refund: " # refundId # " - Reason: " # reason),
                     null,
                     ?#Backend
                 );
-                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
+                ignore AuditLogger.updateAuditStatus(state.auditStorage, auditEntry.id, #Completed, null, ?100);
                 #ok(rejectedRefund)
             };
             case null {
@@ -190,29 +214,27 @@ module PaymentAPI {
     };
     
     public func adminProcessRefund(
+        state: PaymentControllerState,
         caller: Principal,
-        refundId: Text,
-        refundManager: RefundManager.RefundStorage,
-        auditStorage: AuditLogger.AuditStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        refundId: Text
     ) : async Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
             return #err("Unauthorized: Only admins can process refunds");
         };
         
-        let processResult = await RefundManager.processRefund(refundManager, refundId, caller);
+        let processResult = await RefundManager.processRefund(state.refundManager, refundId, caller);
         
         switch (processResult) {
             case (#ok(processedRefund)) {
                 let auditEntry = AuditLogger.logAction(
-                    auditStorage,
+                    state.auditStorage,
                     caller,
                     #RefundProcessed,
                     #RawData("Admin processed refund: " # refundId),
                     null,
                     ?#Backend
                 );
-                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
+                ignore AuditLogger.updateAuditStatus(state.auditStorage, auditEntry.id, #Completed, null, ?100);
                 #ok(processedRefund)
             };
             case (#err(error)) {
@@ -230,16 +252,15 @@ module PaymentAPI {
     };
     
     public func getUserRefundRecords(
-        caller: Principal,
-        refundManager: RefundManager.RefundStorage
+        state: PaymentControllerState,
+        caller: Principal
     ) : [RefundRequest] {
-        RefundManager.getRefundsByUser(refundManager, caller)
+        RefundManager.getRefundsByUser(state.refundManager, caller)
     };
     
     public func getRefundStats(
-        caller: Principal,
-        refundManager: RefundManager.RefundStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        state: PaymentControllerState,
+        caller: Principal
     ) : {
         totalRefunds: Nat;
         pendingRefunds: Nat;
@@ -248,8 +269,8 @@ module PaymentAPI {
         totalRefundAmount: Nat;
         isAuthorized: Bool;
     } {
-        if (SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
-            let stats = RefundManager.getRefundStats(refundManager);
+        if (SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
+            let stats = RefundManager.getRefundStats(state.refundManager);
             {
                 totalRefunds = stats.totalRefunds;
                 pendingRefunds = stats.pendingRefunds;
@@ -270,90 +291,33 @@ module PaymentAPI {
         }
     };
     
-    // ================ SECURITY & ANALYTICS FUNCTIONS ================
+    // ================ SERVICE MANAGEMENT ================
     
-    public func getRefundSecurityReport(
-        caller: Principal,
-        refundManager: RefundManager.RefundStorage,
-        systemStorage: SystemManager.ConfigurationStorage
-    ) : {
-        suspiciousPatterns: [{
-            pattern: Text;
-            occurrences: Nat;
-            riskLevel: Text;
-            affectedUsers: Nat;
-        }];
-        automaticRefundStats: {
-            totalAutoRefunds: Nat;
-            autoRefundAmount: Nat;
-            averageRefundTime: Text;
-            failureRate: Float;
-        };
-        manualReviewRequired: [RefundRequest];
-        potentialAttacks: [{
-            attackType: Text;
-            confidence: Text;
-            description: Text;
-            recommendedAction: Text;
-        }];
-        isAuthorized: Bool;
-    } {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
-            return {
-                suspiciousPatterns = [];
-                automaticRefundStats = {
-                    totalAutoRefunds = 0;
-                    autoRefundAmount = 0;
-                    averageRefundTime = "0";
-                    failureRate = 0.0;
-                };
-                manualReviewRequired = [];
-                potentialAttacks = [];
-                isAuthorized = false;
-            };
-        };
-
-        // Get basic refund stats
-        let stats = RefundManager.getRefundStats(refundManager);
-        let pendingRefunds = RefundManager.getPendingApprovals(refundManager);
-
+    public func updatePaymentControllerState(
+        state: PaymentControllerState,
+        newExternalInvoiceStorage: ?InvoiceStorage.InvoiceStorage
+    ) : PaymentControllerState {
         {
-            suspiciousPatterns = []; // TODO: Implement pattern detection
-            automaticRefundStats = {
-                totalAutoRefunds = stats.completedRefunds;
-                autoRefundAmount = stats.totalRefundAmount;
-                averageRefundTime = "< 1 hour"; // TODO: Calculate actual average
-                failureRate = 0.05; // TODO: Calculate actual failure rate
-            };
-            manualReviewRequired = pendingRefunds;
-            potentialAttacks = []; // TODO: Implement attack detection
-            isAuthorized = true;
+            state with 
+            externalInvoiceStorage = newExternalInvoiceStorage;
         }
     };
-    
-    // ================ SERVICE INFO ================
     
     public func getServiceInfo() : {
         name: Text;
         version: Text;
         description: Text;
-        endpoints: [Text];
+        capabilities: [Text];
     } {
         {
-            name = "PaymentAPI";
+            name = "PaymentController";
             version = "2.0.0";
-            description = "ICTO V2 Payment Interface - Compatible with main.mo calls";
-            endpoints = [
-                "validatePaymentForAction",
-                "validatePaymentWithInvoiceStorage",
-                "getUserPaymentRecords",
-                "getPaymentRecord",
-                "adminApproveRefund",
-                "adminRejectRefund",
-                "adminProcessRefund",
-                "getUserRefundRecords",
-                "getRefundStats",
-                "getRefundSecurityReport"
+            description = "ICTO V2 Payment Business Logic Controller";
+            capabilities = [
+                "Payment Validation",
+                "Refund Management", 
+                "Payment Records",
+                "Admin Operations"
             ];
         }
     };

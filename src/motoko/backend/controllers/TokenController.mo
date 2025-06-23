@@ -15,6 +15,7 @@ import AuditLogger "../modules/AuditLogger";
 import UserRegistry "../modules/UserRegistry";
 import ControllerTypes "../types/ControllerTypes";
 import PaymentValidator "../modules/PaymentValidator";
+import SystemManager "../modules/SystemManager";
 import TokenService "../services/TokenService";
 
 module TokenController {
@@ -24,7 +25,15 @@ module TokenController {
     public type TokenRecord = ControllerTypes.TokenRecord;
     public type TokenDeploymentRequest = ControllerTypes.TokenDeploymentRequest;
     public type TokenDeploymentResult = ControllerTypes.TokenDeploymentResult;
-    public type TokenControllerState = ControllerTypes.TokenControllerState;
+    
+    // Enhanced TokenControllerState to include all required storages
+    public type TokenControllerState = {
+        userRegistryStorage: UserRegistry.UserRegistryStorage;
+        auditStorage: AuditLogger.AuditStorage;
+        tokenRecords: [(Text, TokenRecord)];
+        systemStorage: ?SystemManager.ConfigurationStorage;
+        paymentValidatorStorage: ?PaymentValidator.PaymentValidatorStorage;
+    };
     
     // Initialize controller with required state
     public func init(
@@ -36,6 +45,25 @@ module TokenController {
             userRegistryStorage = userRegistryStorage;
             auditStorage = auditStorage;
             tokenRecords = tokenRecords;
+            systemStorage = null;
+            paymentValidatorStorage = null;
+        }
+    };
+    
+    // Update context with additional required storages
+    public func updateContext(
+        state: TokenControllerState,
+        auditStorage: AuditLogger.AuditStorage,
+        userRegistryStorage: UserRegistry.UserRegistryStorage,
+        systemStorage: SystemManager.ConfigurationStorage,
+        paymentValidatorStorage: PaymentValidator.PaymentValidatorStorage
+    ) : TokenControllerState {
+        {
+            userRegistryStorage = userRegistryStorage;
+            auditStorage = auditStorage;
+            tokenRecords = state.tokenRecords;
+            systemStorage = ?systemStorage;
+            paymentValidatorStorage = ?paymentValidatorStorage;
         }
     };
     

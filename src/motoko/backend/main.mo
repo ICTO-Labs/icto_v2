@@ -14,14 +14,12 @@ import Nat "mo:base/Nat";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
 import Float "mo:base/Float";
-import Buffer "mo:base/Buffer";
 
 // Import shared types
 import ProjectTypes "../shared/types/ProjectTypes";
 import BackendTypes "types/BackendTypes";
 import Audit "../shared/types/Audit";
 import Common "../shared/types/Common";
-import TokenDeployerTypes "../shared/types/TokenDeployer";
 import APITypes "types/APITypes";
 
 // Import backend modules - ALL business logic handled here
@@ -34,18 +32,18 @@ import RefundManager "modules/RefundManager";
 
 // Import standardized interfaces for microservices
 import TokenDeployer "interfaces/TokenDeployer";
-import AuditStorage "interfaces/AuditStorage";
 import LaunchpadDeployer "interfaces/LaunchpadDeployer";
 import InvoiceStorage "interfaces/InvoiceStorage";
 
-// Import services
-import TokenService "services/TokenService";
 
 // Import utils
 import Utils "./Utils";
 
 // Import API layer
 import PaymentAPI "api/PaymentAPI";
+
+// Import Controllers for business logic
+import PaymentController "controllers/PaymentController";
 
 // ================ MODULAR ARCHITECTURE IMPORTS ================
 // Core Controllers (Business Logic) - Remove payment layers 
@@ -61,9 +59,6 @@ import AdminAPI "./api/AdminAPI";
 import SystemAPI "./api/SystemAPI";
 import TokenAPI "./api/TokenAPI";
 
-// Handlers
-import ValidationHandler "./handlers/ValidationHandler";
-import ErrorHandler "./handlers/ErrorHandler";
 
 // Import migration module
 // import DataMigration "migration";
@@ -147,6 +142,15 @@ actor Backend {
         userRegistryStorage,
         auditStorage,
         []
+    );
+    
+    // Initialize PaymentController for payment business logic
+    private var paymentController = PaymentController.initPaymentController(
+        paymentValidator,
+        refundManager,
+        systemStorage,
+        auditStorage,
+        externalInvoiceStorage
     );
     
     // Types - Import from BackendTypes module
@@ -291,7 +295,16 @@ actor Backend {
         // Reinitialize modular controllers with restored data
         userController := UserController.init(userRegistryStorage, auditStorage, userProjectsTrie);
         projectController := ProjectController.init(projectsTrie, userProjectsTrie, auditStorage, userRegistryStorage);
-        // Payment handling is done directly with modules - no controller layer needed
+        
+        // Reinitialize PaymentController with restored data
+        paymentController := PaymentController.initPaymentController(
+            paymentValidator,
+            refundManager,
+            systemStorage,
+            auditStorage,
+            externalInvoiceStorage
+        );
+        
         adminController := AdminController.init(systemStorage, auditStorage, userRegistryStorage);
         tokenController := TokenController.init(userRegistryStorage, auditStorage, []);
         
@@ -337,18 +350,40 @@ actor Backend {
         userId: Principal,
         auditId: ?Text
     ) : async Common.SystemResult<PaymentValidator.PaymentValidationResult> {
-        switch (_getInvoiceStorage()) {
-            case (?invoiceStorage) {
-                await PaymentValidator.validatePaymentForAction(
-                    paymentValidator,
-                    actionType,
-                    userId,
-                    auditId,
-                    invoiceStorage
-                )
+        let actionTypeText = switch (actionType) {
+            case (#CreateToken) "CreateToken";
+            case (#CreateProject) "CreateProject";
+            case (#CreateLock) "CreateLock";
+            case (#CreateDistribution) "CreateDistribution";
+            case (#CreateLaunchpad) "CreateLaunchpad";
+            case (_) "CreateToken"; // Default fallback
+        };
+        
+        let paymentResult = await PaymentAPI.validatePaymentForAction(
+            userId,
+            actionTypeText,
+            auditId,
+            paymentValidator,
+            externalInvoiceStorage
+        );
+        
+        switch (paymentResult) {
+            case (#err(errorMsg)) {
+                #err(#InternalError(errorMsg))
             };
-            case null {
-                #err(#ServiceUnavailable("Invoice storage not configured"))
+            case (#ok(paymentInfo)) {
+                // Convert PaymentAPI result to PaymentValidator result for compatibility
+                #ok({
+                    isValid = paymentInfo.isValid;
+                    transactionId = paymentInfo.transactionId;
+                    paidAmount = paymentInfo.paidAmount;
+                    requiredAmount = paymentInfo.requiredAmount;
+                    paymentToken = paymentInfo.paymentToken;
+                    blockHeight = paymentInfo.blockHeight;
+                    errorMessage = paymentInfo.errorMessage;
+                    approvalRequired = paymentInfo.approvalRequired;
+                    paymentRecordId = paymentInfo.paymentRecordId;
+                })
             };
         }
     };
@@ -1313,7 +1348,25 @@ actor Backend {
 
     // Get validatePayment
     public shared({ caller }) func validatePayment(payment: PaymentValidator.PaymentConfig) : async Result.Result<PaymentValidator.PaymentValidationResult, Text> {
-        await PaymentAPI.validatePaymentForAction(caller, "CreateToken", null, paymentValidator, externalInvoiceStorage)
+        let paymentResult = await PaymentAPI.validatePaymentForAction(caller, "CreateToken", null, paymentValidator, externalInvoiceStorage);
+        
+        switch (paymentResult) {
+            case (#err(errorMsg)) #err(errorMsg);
+            case (#ok(paymentInfo)) {
+                // Convert PaymentAPI result to PaymentValidator result for public API compatibility
+                #ok({
+                    isValid = paymentInfo.isValid;
+                    transactionId = paymentInfo.transactionId;
+                    paidAmount = paymentInfo.paidAmount;
+                    requiredAmount = paymentInfo.requiredAmount;
+                    paymentToken = paymentInfo.paymentToken;
+                    blockHeight = paymentInfo.blockHeight;
+                    errorMessage = paymentInfo.errorMessage;
+                    approvalRequired = paymentInfo.approvalRequired;
+                    paymentRecordId = paymentInfo.paymentRecordId;
+                })
+            };
+        }
     };
     
     public query func checkTokenSymbolConflict(symbol: Text) : async {
@@ -1914,6 +1967,15 @@ actor Backend {
         if (not SystemManager.getCurrentConfiguration(systemStorage).featureFlags.tokenDeploymentEnabled) {
             return #err("Token deployment service temporarily disabled for maintenance");
         };
+
+
+        // Project ownership validation (specific to token deployment)
+        switch (Utils.validateProjectOwnership(caller, tokenRequest.projectId, projectsTrie)) {
+            case (#err(msg)) {
+                return #err("Project ownership validation failed: " # msg);
+            };
+            case (#ok()) {};
+        };
         
         // ================ PHASE 2: AUDIT & PAYMENT ================
         // Create audit entry
@@ -1936,12 +1998,34 @@ actor Backend {
         };
         
         // ================ PHASE 3: DELEGATE TO API LAYER ================
-        // Delegate to TokenAPI (proper modular architecture)
+        // Create enhanced tokenController with required context
+        let enhancedTokenController = TokenController.updateContext(
+            tokenController,
+            auditStorage,
+            userRegistryStorage,
+            systemStorage,
+            paymentValidator
+        );
+        
+        // Convert PaymentValidator result to TokenAPI PaymentResult type
+        let tokenAPIPaymentResult = TokenAPI.convertPaymentResult({
+            isValid = paymentInfo.isValid;
+            transactionId = paymentInfo.transactionId;
+            paidAmount = paymentInfo.paidAmount;
+            requiredAmount = paymentInfo.requiredAmount;
+            paymentToken = paymentInfo.paymentToken;
+            blockHeight = paymentInfo.blockHeight;
+            errorMessage = paymentInfo.errorMessage;
+            approvalRequired = paymentInfo.approvalRequired;
+            paymentRecordId = paymentInfo.paymentRecordId;
+        });
+        
+        // Delegate to TokenAPI (proper modular architecture)  
         let result = await TokenAPI.deployTokenWithPayment(
             caller,
             tokenRequest,
-            tokenController,
-            paymentInfo,
+            enhancedTokenController,
+            tokenAPIPaymentResult,
             auditEntry.id,
             tokenDeployerCanisterId,
             tokenSymbolRegistry,
@@ -2050,13 +2134,6 @@ actor Backend {
         };
         
         #err("Pipeline deployment not yet implemented - will be handled by PipelineAPI + PipelineController")
-    };
-    
-    // Legacy deploy function - deprecated, will be removed
-    public shared({ caller }) func deploy(
-        deploymentType: APITypes.DeploymentType
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
-        #err("DEPRECATED: Use specific deployment endpoints instead: deployToken(), deployLaunchpad(), deployLock(), etc.")
     };
     
 
@@ -2331,6 +2408,7 @@ actor Backend {
         auditId: Text
     ) : async Result.Result<PaymentValidator.PaymentValidationResult, Text> {
         
+        // Use PaymentAPI instead of direct PaymentValidator calls
         let paymentResult = await PaymentAPI.validatePaymentWithInvoiceStorage(
             caller,
             serviceType,
@@ -2355,7 +2433,18 @@ actor Backend {
                         #err(errorMsg)
                     };
                 } else {
-                    #ok(paymentInfo)
+                    // Convert PaymentAPI result back to PaymentValidator result for compatibility
+                    #ok({
+                        isValid = paymentInfo.isValid;
+                        transactionId = paymentInfo.transactionId;
+                        paidAmount = paymentInfo.paidAmount;
+                        requiredAmount = paymentInfo.requiredAmount;
+                        paymentToken = paymentInfo.paymentToken;
+                        blockHeight = paymentInfo.blockHeight;
+                        errorMessage = paymentInfo.errorMessage;
+                        approvalRequired = paymentInfo.approvalRequired;
+                        paymentRecordId = paymentInfo.paymentRecordId;
+                    })
                 }
             };
         }
