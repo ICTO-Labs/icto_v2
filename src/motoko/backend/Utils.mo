@@ -10,12 +10,14 @@ import Trie "mo:base/Trie";
 import Text "mo:base/Text";
 import Option "mo:base/Option";
 import Debug "mo:base/Debug";
+import Nat "mo:base/Nat";
+import Int "mo:base/Int";
 
 // Import shared types
 import ProjectTypes "../shared/types/ProjectTypes";
 import BackendTypes "./types/BackendTypes";
 import Audit "../shared/types/Audit";
-import RouterTypes "./types/RouterTypes";
+import APITypes "./types/APITypes";
 
 // Import backend modules
 import AuditLogger "./modules/AuditLogger";
@@ -134,7 +136,7 @@ module Utils {
 
     // ================ DEPLOYMENT TYPE MAPPING ================
     
-    public func getServiceTypeFromDeployment(deploymentType: RouterTypes.DeploymentType) : Text {
+    public func getServiceTypeFromDeployment(deploymentType: APITypes.DeploymentType) : Text {
         switch (deploymentType) {
             case (#Token(_)) "tokenDeployment";
             case (#Launchpad(_)) "launchpadDeployment";
@@ -146,7 +148,7 @@ module Utils {
         }
     };
     
-    public func getRequiredServiceForDeployment(deploymentType: RouterTypes.DeploymentType) : ServiceType {
+    public func getRequiredServiceForDeployment(deploymentType: APITypes.DeploymentType) : ServiceType {
         switch (deploymentType) {
             case (#Token(_)) #TokenDeployer;
             case (#Launchpad(_)) #LaunchpadDeployer;
@@ -301,7 +303,7 @@ module Utils {
     public func createAuditEntry(
         caller: Principal,
         serviceType: Text,
-        deploymentType: RouterTypes.DeploymentType,
+        deploymentType: APITypes.DeploymentType,
         projectId: ?Text,
         auditStorage: AuditLogger.AuditStorage
     ) : AuditLogger.AuditEntry {
@@ -358,7 +360,7 @@ module Utils {
 
     // ================ SERVICE TYPE CONVERSION UTILITIES ================
     
-    public func getProjectIdFromDeployment(deploymentType: RouterTypes.DeploymentType) : ?Text {
+    public func getProjectIdFromDeployment(deploymentType: APITypes.DeploymentType) : ?Text {
         switch (deploymentType) {
             case (#Token(req)) req.projectId;
             case (#Launchpad(req)) null; // Launchpad creates new project

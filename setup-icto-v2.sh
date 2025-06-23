@@ -184,13 +184,13 @@ fi
 # Step 7: Health checks using new API
 echo -e "\n${BLUE}🩺 Step 7: Running comprehensive health checks...${NC}"
 
-echo -e "${YELLOW}Checking supported deployment types...${NC}"
-DEPLOYMENT_TYPES=$(dfx canister call backend getSupportedDeploymentTypes "()" 2>&1 || echo "FAILED")
-if [[ "$DEPLOYMENT_TYPES" == *"FAILED"* ]]; then
-    echo -e "${RED}❌ Backend not responsive${NC}"
-else
-    echo -e "${GREEN}✅ Backend responsive - Supported types: ${DEPLOYMENT_TYPES}${NC}"
-fi
+# echo -e "${YELLOW}Checking supported deployment types...${NC}"
+# DEPLOYMENT_TYPES=$(dfx canister call backend getSupportedDeploymentTypes "()" 2>&1 || echo "FAILED")
+# if [[ "$DEPLOYMENT_TYPES" == *"FAILED"* ]]; then
+#     echo -e "${RED}❌ Backend not responsive${NC}"
+# else
+#     echo -e "${GREEN}✅ Backend responsive - Supported types: ${DEPLOYMENT_TYPES}${NC}"
+# fi
 
 echo -e "${YELLOW}Checking token deployment type info...${NC}"
 TOKEN_INFO=$(dfx canister call backend getDeploymentTypeInfo "(\"Token\")" 2>&1 || echo "FAILED")
@@ -225,9 +225,9 @@ else
     echo -e "${GREEN}✅ Audit storage health: ${AUDIT_HEALTH}${NC}"
 fi
 
-# Step 8: Test new deploy() function with RouterTypes
-# This step (token deployment) will be failed because the token data is not meet requirements, the refunds process will be triggered
-# First, approve ICP for token_deployer
+# Step 8: Test new deployToken() function with APITypes
+# This step tests the new deployToken endpoint with TokenDeploymentRequest
+# First, approve ICP for backend
 ICP_LEDGER_CANISTER="icp_ledger"
 APPROVAL_AMOUNT=1000000000000000
 ICRC2_FEE=10000
@@ -250,58 +250,45 @@ APPROVAL_RESULT=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_approve "(record 
 
 echo "Approval result: $APPROVAL_RESULT"
 
-# Step 8.2: Test new deploy() function with RouterTypes
+# Step 8.2: Test new deployToken() function with APITypes
 
-echo -e "\n${BLUE}🧪 Step 8.2: Testing new deploy() function with RouterTypes...${NC}"
+echo -e "\n${BLUE}🧪 Step 8.2: Testing new deployToken() function with APITypes.TokenDeploymentRequest...${NC}"
 
 # Generate unique token for testing
 TIMESTAMP=$(date +%s)
 TEST_SYMBOL="TEST${TIMESTAMP: -4}"
 TEST_NAME="Test Token ${TIMESTAMP: -4}"
 
-# // sample token config
-# name: Text;
-# symbol: Text;
-# decimals: Nat;
-# transferFee: Nat;
-# totalSupply: Nat;
-# metadata: ?Blob;
-# logo: Text;
-# canisterId: ?Text; // Will be populated after deployment
-# };
-
-
-DEPLOY_REQUEST="variant {
-    Token = record {
-        projectId = null;
-        tokenInfo = record {
-            name = \"${TEST_NAME}\";
-            symbol = \"${TEST_SYMBOL}\";
-            decimals = 8 : nat;
-            transferFee = 10000 : nat;
-            totalSupply = 1000000000 : nat;
-            metadata = null;
-            logo = \"LOGO\";
-            canisterId = null;
-        };
-        initialSupply = 1000000000 : nat;
-        options = opt record {
-            allowSymbolConflict = false;
-            enableAdvancedFeatures = true;
-            customMinter = null;
-            customFeeCollector = null;
-            burnEnabled = false;
-            mintingEnabled = false;
-            maxSupply = null;
-            vestingEnabled = false;
-            transferRestrictions = vec {};
-        };
-    }
+# APITypes.TokenDeploymentRequest structure
+TOKEN_DEPLOY_REQUEST="record {
+    projectId = null;
+    tokenInfo = record {
+        name = \"${TEST_NAME}\";
+        symbol = \"${TEST_SYMBOL}\";
+        decimals = 8 : nat;
+        transferFee = 10000 : nat;
+        totalSupply = 1000000000 : nat;
+        metadata = null;
+        logo = \"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJYAAACWCAIAAACzY+a1AAAACXBIWXMAACxLAAAsSwGlPZapAAABAklEQVR4nO3BMQEAAADCoPVPbQhfoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8A3ZZAAELs0vVAAAAAElFTkSuQmCC\";
+        canisterId = null;
+    };
+    initialSupply = 1000000000 : nat;
+    options = opt record {
+        allowSymbolConflict = false;
+        enableAdvancedFeatures = true;
+        customMinter = null;
+        customFeeCollector = null;
+        burnEnabled = false;
+        mintingEnabled = false;
+        maxSupply = null;
+        vestingEnabled = false;
+        transferRestrictions = vec {};
+    };
 }"
 
-echo -e "${YELLOW}Testing deploy() function with RouterTypes.DeploymentType...${NC}"
-echo $DEPLOY_REQUEST
-DEPLOY_RESULT=$(dfx canister call backend deploy "(${DEPLOY_REQUEST})" 2>&1 || echo "FAILED")
+echo -e "${YELLOW}Testing deployToken() function with APITypes.TokenDeploymentRequest...${NC}"
+echo $TOKEN_DEPLOY_REQUEST
+DEPLOY_RESULT=$(dfx canister call backend deployToken "(${TOKEN_DEPLOY_REQUEST})" 2>&1 || echo "FAILED")
 
 if [[ "$DEPLOY_RESULT" == *"FAILED"* ]] || [[ "$DEPLOY_RESULT" == *"err"* ]]; then
     echo -e "${YELLOW}⚠️  Token deployment test failed (expected if payment validation required):${NC}"
@@ -339,17 +326,17 @@ echo -e "• setupMicroservices(): ✅"
 echo -e "• Health Checks: ✅"
 
 echo -e "\n${BLUE}🏗️ Architecture Features:${NC}"
-echo -e "• 4-Phase deploy() Function: ✅"
-echo -e "• RouterTypes.DeploymentType API: ✅"
+echo -e "• Separate deployToken() Endpoint: ✅"
+echo -e "• APITypes.TokenDeploymentRequest: ✅"
 echo -e "• Utils Functions Direct Integration: ✅"
 echo -e "• Centralized Payment & Audit: ✅"
 echo -e "• Service Delegation Pattern: ✅"
 
 echo -e "\n${BLUE}🔗 New API Commands:${NC}"
-echo -e "• Check deployment types: ${YELLOW}dfx canister call backend getSupportedDeploymentTypes \"()\"${NC}"
-echo -e "• Check type info: ${YELLOW}dfx canister call backend getDeploymentTypeInfo \"(\\\"Token\\\")\"${NC}"
-echo -e "• Deploy with new API: ${YELLOW}dfx canister call backend deploy \"(variant { Token = record { ... } })\"${NC}"
-echo -e "• System health: ${YELLOW}dfx canister call backend getAllServicesHealth \"()\"${NC}"
+echo -e "• Check system health: ${YELLOW}dfx canister call backend getAllServicesHealth \"()\"${NC}"
+echo -e "• Deploy token: ${YELLOW}dfx canister call backend deployToken \"(record { projectId = null; tokenInfo = record { ... }; ... })\"${NC}"
+echo -e "• Check token conflicts: ${YELLOW}dfx canister call backend checkTokenSymbolConflict \"(\\\"SYMBOL\\\")\"${NC}"
+echo -e "• Get service fee: ${YELLOW}dfx canister call backend getServiceFee \"(\\\"tokenDeployment\\\")\"${NC}"
 
 echo -e "\n${BLUE}💰 Payment Integration:${NC}"
 echo -e "• ICRC2 payment validation ready"

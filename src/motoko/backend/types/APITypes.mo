@@ -1,6 +1,6 @@
-// ⬇️ ICTO V2 Backend Router Types - Comprehensive Routing System Types
-// Complete type definitions for the ICTO V2 routing and deployment system
-// This module centralizes all routing-related types for maintainability
+// ⬇️ ICTO V2 Backend API Types - Comprehensive API Interface Types  
+// Complete type definitions for the ICTO V2 API and deployment system
+// This module centralizes all API-related types for maintainability and consistency
 
 import Principal "mo:base/Principal";
 import Time "mo:base/Time";
@@ -13,9 +13,9 @@ import BackendTypes "../types/BackendTypes";
 // Import interface types that are used in BackendContext
 // We'll use the actual module types here
 
-module RouterTypes {
+module APITypes {
 
-    // ================ ROUTE TYPES ================
+    // ================ API ROUTE TYPES ================
     
     public type RouteType = {
         #Token;
@@ -454,7 +454,7 @@ module RouterTypes {
         retryCount: Nat;
     };
 
-    // ================ ROUTING CONFIGURATION TYPES ================
+    // ================ API CONFIGURATION TYPES ================
     
     public type RouteConfiguration = {
         routeType: RouteType;
@@ -509,7 +509,7 @@ module RouterTypes {
         #Maintenance;
     };
     
-    public type RouterAnalytics = {
+    public type APIAnalytics = {
         totalDeployments: Nat;
         deploymentsByType: [(RouteType, Nat)];
         averageDeploymentTime: Nat; // seconds
@@ -520,7 +520,7 @@ module RouterTypes {
 
     // ================ ERROR HANDLING TYPES ================
     
-    public type RouterError = {
+    public type APIError = {
         #RouteNotFound: Text;
         #ServiceUnavailable: Text;
         #InvalidRequest: Text;
@@ -533,9 +533,9 @@ module RouterTypes {
         #ResourceExhausted: Text;
     };
     
-    public type RoutingResult<T> = {
+    public type APIResult<T> = {
         #Ok: T;
-        #Err: RouterError;
+        #Err: APIError;
     };
 
     // ================ SERVICE HEALTH TYPES ================

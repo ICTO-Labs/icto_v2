@@ -15,7 +15,6 @@ import Debug "mo:base/Debug";
 import Error "mo:base/Error";
 import Float "mo:base/Float";
 import Buffer "mo:base/Buffer";
-
 // Import shared types
 import ProjectTypes "../shared/types/ProjectTypes";
 import BackendTypes "types/BackendTypes";
@@ -38,40 +37,17 @@ import AuditStorage "interfaces/AuditStorage";
 import LaunchpadDeployer "interfaces/LaunchpadDeployer";
 import InvoiceStorage "interfaces/InvoiceStorage";
 
+
 // Import services
 import TokenService "services/TokenService";
 
 // Import utils
 import Utils "./Utils";
 
-// Import API layer
-import PaymentAPI "api/PaymentAPI";
-
-// ================ MODULAR ARCHITECTURE IMPORTS ================
-// Core Controllers (Business Logic) - Remove payment layers 
-import UserController "./controllers/UserController";
-import ProjectController "./controllers/ProjectController";
-import AdminController "./controllers/AdminController";
-import TokenController "./controllers/TokenController";
-
-// API Layer (Public Interfaces) - Only keep essential ones
-import UserAPI "./api/UserAPI";
-import ProjectAPI "./api/ProjectAPI";
-import AdminAPI "./api/AdminAPI";
-import SystemAPI "./api/SystemAPI";
-import TokenAPI "./api/TokenAPI";
-
-// Handlers
-import ValidationHandler "./handlers/ValidationHandler";
-import ErrorHandler "./handlers/ErrorHandler";
-
 // Import migration module
 // import DataMigration "migration";
 // (with migration = DataMigration.migration)
-
 actor Backend {
-    
-    
     
     // ================ MICROSERVICE CONFIGURATION ================
     private stable var auditStorageCanisterId : ?Principal = null;
@@ -120,51 +96,12 @@ actor Backend {
     // External invoice storage canister (for payment/invoice data)
     private var externalInvoiceStorage : ?InvoiceStorage.InvoiceStorage = null;
     
-    // ================ MODULAR CONTROLLERS INITIALIZATION ================
-    // Initialize modular controllers (will gradually replace direct module calls)
-    private var userController = UserController.init(
-        userRegistryStorage,
-        auditStorage,
-        userProjectsTrie
-    );
-    
-    private var projectController = ProjectController.init(
-        projectsTrie,
-        userProjectsTrie,
-        auditStorage,
-        userRegistryStorage
-    );
-    
-    // Payment handling is done directly with modules - no controller layer needed
-    
-    private var adminController = AdminController.init(
-        systemStorage,
-        auditStorage,
-        userRegistryStorage
-    );
-    
-    private var tokenController = TokenController.init(
-        userRegistryStorage,
-        auditStorage,
-        []
-    );
-    
     // Types - Import from BackendTypes module
     public type SystemConfiguration = BackendTypes.SystemConfiguration;
     public type ServiceHealth = BackendTypes.ServiceHealth;
     public type ActionType = BackendTypes.ActionType;
     public type ResourceType = BackendTypes.ResourceType;
     public type Severity = BackendTypes.Severity;
-    
-    // ================ DEPLOYMENT CONTEXT TYPE ================
-    // Simple deployment context type to replace DeploymentRouter.DeploymentContext
-    type DeploymentContext = {
-        caller: Principal;
-        tokenDeployerCanisterId: ?Principal;
-        launchpadDeployerCanisterId: ?Principal;
-        lockDeployerCanisterId: ?Principal;
-        distributionDeployerCanisterId: ?Principal;
-    };
     
     // ================ UPGRADE FUNCTIONS ================
     system func preupgrade() {
@@ -288,13 +225,6 @@ actor Backend {
         stablePaymentValidations := [];
         stableRefundRecords := [];
         
-        // Reinitialize modular controllers with restored data
-        userController := UserController.init(userRegistryStorage, auditStorage, userProjectsTrie);
-        projectController := ProjectController.init(projectsTrie, userProjectsTrie, auditStorage, userRegistryStorage);
-        // Payment handling is done directly with modules - no controller layer needed
-        adminController := AdminController.init(systemStorage, auditStorage, userRegistryStorage);
-        tokenController := TokenController.init(userRegistryStorage, auditStorage, []);
-        
         // Log successful upgrade
         let upgradeEntry = AuditLogger.logAction(
             auditStorage,
@@ -319,11 +249,13 @@ actor Backend {
     };
     
     private func _isAdmin(caller: Principal) : Bool {
-        SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)
+        let config = SystemManager.getCurrentConfiguration(systemStorage);
+        SystemManager.isAdmin(config.adminSettings, caller)
     };
     
     private func _isSuperAdmin(caller: Principal) : Bool {
-        SystemManager.isSuperAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)
+        let config = SystemManager.getCurrentConfiguration(systemStorage);
+        SystemManager.isSuperAdmin(config.adminSettings, caller)
     };
     
     // ================ HELPER FUNCTIONS FOR EXTERNAL SERVICES ================
@@ -364,7 +296,6 @@ actor Backend {
     
     // ================ ADMIN REFUND MANAGEMENT FUNCTIONS ================
     
-    
     public shared query({ caller }) func adminGetAllRefunds(limit: Nat, offset: Nat) : async [RefundManager.RefundRequest] {
         if (not _isAdmin(caller)) {
             return [];
@@ -403,10 +334,8 @@ actor Backend {
             return #err("Unauthorized: Only admins can approve refunds");
         };
         
-        let result = PaymentAPI.adminApproveRefund(caller, refundId, notes, refundManager, auditStorage, systemStorage);
-        
-        switch (result) {
-            case (#ok(approvedRefund)) {
+        switch (RefundManager.approveRefund(refundManager, refundId, caller, notes)) {
+            case (?approvedRefund) {
                 let auditEntry = AuditLogger.logAction(
                     auditStorage,
                     caller,
@@ -418,8 +347,8 @@ actor Backend {
                 ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
                 #ok(approvedRefund)
             };
-            case (#err(msg)) {
-                #err(msg)
+            case null {
+                #err("Failed to approve refund: Refund not found or not in pending status")
             };
         }
     };
@@ -432,10 +361,8 @@ actor Backend {
             return #err("Unauthorized: Only admins can reject refunds");
         };
         
-        let result = PaymentAPI.adminRejectRefund(caller, refundId, reason, refundManager, auditStorage, systemStorage);
-        
-        switch (result) {
-            case (#ok(rejectedRefund)) {
+        switch (RefundManager.rejectRefund(refundManager, refundId, caller, reason)) {
+            case (?rejectedRefund) {
                 let auditEntry = AuditLogger.logAction(
                     auditStorage,
                     caller,
@@ -447,8 +374,8 @@ actor Backend {
                 ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
                 #ok(rejectedRefund)
             };
-            case (#err(msg)) {
-                #err(msg)
+            case null {
+                #err("Failed to reject refund: Refund not found")
             };
         }
     };
@@ -460,7 +387,7 @@ actor Backend {
             return #err("Unauthorized: Only admins can process refunds");
         };
         
-        let processResult = await PaymentAPI.adminProcessRefund(caller, refundId, refundManager, auditStorage, systemStorage);
+        let processResult = await RefundManager.processRefund(refundManager, refundId, caller);
         
         switch (processResult) {
             case (#ok(processedRefund)) {
@@ -476,7 +403,15 @@ actor Backend {
                 #ok(processedRefund)
             };
             case (#err(error)) {
-                #err(error)
+                let errorMsg = switch (error) {
+                    case (#InternalError(msg)) "Internal error: " # msg;
+                    case (#InvalidInput(msg)) "Invalid input: " # msg;
+                    case (#ServiceUnavailable(msg)) "Service unavailable: " # msg;
+                    case (#Unauthorized) "Unauthorized";
+                    case (#NotFound) "Refund not found";
+                    case (#InsufficientFunds) "Insufficient funds";
+                };
+                #err(errorMsg)
             };
         }
     };
@@ -492,7 +427,7 @@ actor Backend {
         let isAdmin = _isAdmin(caller);
         
         if (isAdmin) {
-            let stats = PaymentAPI.getRefundStats(caller, refundManager, systemStorage);
+            let stats = RefundManager.getRefundStats(refundManager);
             {
                 totalRefunds = stats.totalRefunds;
                 pendingRefunds = stats.pendingRefunds;
@@ -734,7 +669,7 @@ actor Backend {
         #ok()
     };
     
-    // ================ PROJECT MANAGEMENT ================
+    // ================ BUSINESS LOGIC: CREATE PROJECT WITH FULL VALIDATION ================
     public shared({ caller }) func createProject(
         request: ProjectTypes.CreateProjectRequest
     ) : async Result.Result<Text, Text> {
@@ -947,20 +882,22 @@ actor Backend {
                 ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed("Launchpad deployer not configured"), null, ?100);
                 #err("Launchpad deployer not configured")
             };
-        }
+        };
     };
     
     // ================ QUERY FUNCTIONS ================
     public query func getProject(projectId: Text) : async ?ProjectTypes.ProjectDetail {
-        ProjectAPI.getProject(projectId, projectController)
+        Trie.get(projectsTrie, _textKey(projectId), Text.equal)
     };
     
     public query func getUserProjects(user: Principal) : async [Text] {
-        ProjectAPI.getUserProjects(user, projectController)
+        Option.get(Trie.get(userProjectsTrie, _principalKey(user), Principal.equal), [])
     };
     
     public query func getAllProjects() : async [(Text, ProjectTypes.ProjectDetail)] {
-        ProjectAPI.getAllProjects(projectController)
+        Trie.toArray<Text, ProjectTypes.ProjectDetail, (Text, ProjectTypes.ProjectDetail)>(
+            projectsTrie, func (k, v) = (k, v)
+        )
     };
 
     // ================ MODULE HEALTH CHECK ================
@@ -982,30 +919,47 @@ actor Backend {
     
     // ================ USER MANAGEMENT ================
     public shared query({ caller }) func getMyProfile() : async ?UserRegistry.UserProfile {
-        UserAPI.getMyProfile(caller, userController)
+        UserRegistry.getUserProfile(userRegistryStorage, caller)
     };
     
     public shared query({ caller }) func getMyDeployments(limit: Nat, offset: Nat) : async [UserRegistry.DeploymentRecord] {
-        UserAPI.getMyDeployments(caller, userController, limit, offset)
+        UserRegistry.getUserDeployments(userRegistryStorage, caller, limit, offset)
     };
     
     public shared query({ caller }) func getMyAuditHistory(limit: Nat, offset: Nat) : async [AuditLogger.AuditEntry] {
-        UserAPI.getMyAuditHistory(caller, userController, limit, offset)
+        AuditLogger.getUserAuditHistory(auditStorage, caller, limit, offset)
     };
     
     // ================ PAYMENT RECORDS QUERY ================
     
     public shared({ caller }) func getMyPaymentRecords(limit: ?Nat, offset: ?Nat) : async [InvoiceStorage.PaymentRecord] {
-        await PaymentAPI.getUserPaymentRecords(
-            caller, 
-            limit, 
-            offset,
-            externalInvoiceStorage
-        )
+        switch (externalInvoiceStorage) {
+            case (?invoiceStorage) {
+                try {
+                    let result = await invoiceStorage.getUserPaymentRecords(caller, limit, offset);
+                    switch (result) {
+                        case (#ok(records)) records;
+                        case (#err(_)) [];
+                    }
+                } catch (e) { [] }
+            };
+            case null { [] };
+        }
     };
     
     public shared({ caller }) func getPaymentRecord(paymentId: Text) : async ?InvoiceStorage.PaymentRecord {
-        await PaymentAPI.getPaymentRecord(paymentId, externalInvoiceStorage)
+        switch (externalInvoiceStorage) {
+            case (?invoiceStorage) {
+                try {
+                    let result = await invoiceStorage.getPaymentRecord(paymentId);
+                    switch (result) {
+                        case (#ok(record)) record;
+                        case (#err(_)) null;
+                    }
+                } catch (e) { null }
+            };
+            case null { null };
+        }
     };
     
     public shared({ caller }) func getAllPaymentRecords(limit: ?Nat, offset: ?Nat) : async [InvoiceStorage.PaymentRecord] {
@@ -1035,26 +989,96 @@ actor Backend {
         limit: ?Nat,
         offset: ?Nat
     ) : async [InvoiceStorage.PaymentRecord] {
-        // TODO: Move to PaymentAPI
-        // For now, simplified version
         if (not _isAdmin(caller)) {
             return [];
         };
-        []
+        
+        // TODO: Implement search in invoice storage
+        // For now, just return user payment records if userId provided
+        switch (userId) {
+            case (?user) {
+                switch (externalInvoiceStorage) {
+                    case (?invoiceStorage) {
+                        try {
+                            let result = await invoiceStorage.getUserPaymentRecords(user, limit, offset);
+                            switch (result) {
+                                case (#ok(records)) {
+                                    // Filter by serviceType and status if provided
+                                    Array.filter<InvoiceStorage.PaymentRecord>(records, func(record) {
+                                        let serviceTypeMatch = switch (serviceType) {
+                                            case (?sType) record.serviceType == sType;
+                                            case null true;
+                                        };
+                                        let statusMatch = switch (status) {
+                                            case (?stat) record.status == stat;
+                                            case null true;
+                                        };
+                                        serviceTypeMatch and statusMatch
+                                    })
+                                };
+                                case (#err(_)) [];
+                            }
+                        } catch (e) { [] }
+                    };
+                    case null { [] };
+                }
+            };
+            case null { [] };
+        }
     };
     
     // ================ SYSTEM MANAGEMENT ================
     public shared({ caller }) func updateSystemConfig(
         newConfig: SystemManager.SystemConfiguration
     ) : async Result.Result<(), Text> {
-        AdminAPI.updateSystemConfig(caller, newConfig, adminController)
+        if (not _isSuperAdmin(caller)) {
+            return #err("Unauthorized: Only super admins can update system config");
+        };
+        
+        let result = SystemManager.updateConfiguration(systemStorage, newConfig, caller);
+        
+        switch (result) {
+            case (#ok()) {
+                let auditEntry = AuditLogger.logAction(
+                    auditStorage,
+                    caller,
+                    #UpdateSystemConfig,
+                    #RawData("System configuration updated"),
+                    null,
+                    ?#Backend
+                );
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
+                #ok()
+            };
+            case (#err(msg)) #err(msg);
+        }
     };
     
     // ================ CYCLE MANAGEMENT ================
     public shared({ caller }) func updateCycleConfiguration(
         newCycleConfig: SystemManager.CycleConfiguration
     ) : async Result.Result<(), Text> {
-        AdminAPI.updateCycleConfiguration(caller, newCycleConfig, adminController)
+        if (not _isSuperAdmin(caller)) {
+            return #err("Unauthorized: Only super admins can update cycle configuration");
+        };
+        
+        let result = SystemManager.updateCycleConfiguration(systemStorage, newCycleConfig, caller);
+        
+        switch (result) {
+            case (#ok()) {
+                let auditEntry = AuditLogger.logAction(
+                    auditStorage,
+                    caller,
+                    #UpdateSystemConfig,
+                    #RawData("Cycle configuration updated"),
+                    null,
+                    ?#Backend
+                );
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
+                #ok()
+            };
+            case (#err(msg)) #err(msg);
+        }
     };
     
     public shared({ caller }) func updateCycleParameter(
@@ -1135,15 +1159,23 @@ actor Backend {
         lockDeployer: ?Text;
         distributionDeployer: ?Text;
     } {
-        SystemAPI.adminGetCanisterIds(
-            caller,
-            auditStorageCanisterId,
-            tokenDeployerCanisterId,
-            launchpadDeployerCanisterId,
-            lockDeployerCanisterId,
-            distributionDeployerCanisterId,
-            adminController
-        )
+        if (not _isAdmin(caller)) {
+            {
+                auditStorage = null;
+                tokenDeployer = null;
+                launchpadDeployer = null;
+                lockDeployer = null;
+                distributionDeployer = null;
+            }
+        } else {
+            {
+                auditStorage = Option.map(auditStorageCanisterId, Principal.toText);
+                tokenDeployer = Option.map(tokenDeployerCanisterId, Principal.toText);
+                launchpadDeployer = Option.map(launchpadDeployerCanisterId, Principal.toText);
+                lockDeployer = Option.map(lockDeployerCanisterId, Principal.toText);
+                distributionDeployer = Option.map(distributionDeployerCanisterId, Principal.toText);
+            }
+        };
     };
     
     // ================ QUICK CONFIGURATION UPDATE FUNCTIONS ================
@@ -1153,12 +1185,16 @@ actor Backend {
         systemVersion: ?Text,
         maxConcurrentPipelines: ?Nat
     ) : async Result.Result<(), Text> {
-        AdminAPI.updateBasicSystemSettings(
-            caller,
-            adminController,
+        if (not _isSuperAdmin(caller)) {
+            return #err("Only super admins can update basic system settings");
+        };
+        
+        SystemManager.updateBasicSettings(
+            systemStorage,
             maintenanceMode,
             systemVersion,
-            maxConcurrentPipelines
+            maxConcurrentPipelines,
+            caller
         )
     };
     
@@ -1167,12 +1203,12 @@ actor Backend {
         feeRecipient: ?Principal,
         minimumPaymentAmount: ?Nat
     ) : async Result.Result<(), Text> {
-        AdminAPI.updatePaymentSettings(
-            caller,
-            adminController,
+        SystemManager.updatePaymentBasics(
+            systemStorage,
             paymentToken,
             feeRecipient,
-            minimumPaymentAmount
+            minimumPaymentAmount,
+            caller
         )
     };
     
@@ -1184,15 +1220,15 @@ actor Backend {
         createDAOFee: ?Nat,
         pipelineExecutionFee: ?Nat
     ) : async Result.Result<(), Text> {
-        AdminAPI.updateServiceFees(
-            caller,
-            adminController,
+        SystemManager.updateServiceFeeAmounts(
+            systemStorage,
             createTokenFee,
             createLockFee,
             createDistributionFee,
             createLaunchpadFee,
             createDAOFee,
-            pipelineExecutionFee
+            pipelineExecutionFee,
+            caller
         )
     };
     
@@ -1202,13 +1238,13 @@ actor Backend {
         maxDeploymentsPerDay: ?Nat,
         deploymentCooldown: ?Nat
     ) : async Result.Result<(), Text> {
-        AdminAPI.updateUserLimits(
-            caller,
-            adminController,
+        SystemManager.updateUserLimits(
+            systemStorage,
             maxProjectsPerUser,
             maxTokensPerUser,
             maxDeploymentsPerDay,
-            deploymentCooldown
+            deploymentCooldown,
+            caller
         )
     };
     
@@ -1219,14 +1255,14 @@ actor Backend {
         launchpadServiceEnabled: ?Bool,
         pipelineExecutionEnabled: ?Bool
     ) : async Result.Result<(), Text> {
-        AdminAPI.updateCoreServices(
-            caller,
-            adminController,
+        SystemManager.updateCoreFeatures(
+            systemStorage,
             tokenDeploymentEnabled,
             lockServiceEnabled,
             distributionServiceEnabled,
             launchpadServiceEnabled,
-            pipelineExecutionEnabled
+            pipelineExecutionEnabled,
+            caller
         )
     };
     
@@ -1234,25 +1270,43 @@ actor Backend {
         newAdmin: Principal,
         isNewSuperAdmin: Bool
     ) : async Result.Result<(), Text> {
-        AdminAPI.addAdmin(caller, newAdmin, isNewSuperAdmin, adminController)
+        SystemManager.addNewAdmin(
+            systemStorage,
+            newAdmin,
+            isNewSuperAdmin,
+            caller
+        )
     };
     
     public shared({ caller }) func removeAdmin(
         adminToRemove: Principal
     ) : async Result.Result<(), Text> {
-        AdminAPI.removeAdmin(caller, adminToRemove, adminController)
+        SystemManager.removeAdmin(
+            systemStorage,
+            adminToRemove,
+            caller
+        )
     };
     
     public shared({ caller }) func enableMaintenanceMode() : async Result.Result<(), Text> {
-        AdminAPI.enableMaintenanceMode(caller, adminController)
+        if (not _isSuperAdmin(caller)) {
+            return #err("Only super admins can enable maintenance mode");
+        };
+        SystemManager.enableMaintenanceMode(systemStorage, caller)
     };
     
     public shared({ caller }) func disableMaintenanceMode() : async Result.Result<(), Text> {
-        AdminAPI.disableMaintenanceMode(caller, adminController)
+        if (not _isSuperAdmin(caller)) {
+            return #err("Only super admins can disable maintenance mode");
+        };
+        SystemManager.disableMaintenanceMode(systemStorage, caller)
     };
     
     public shared({ caller }) func emergencyStop() : async Result.Result<(), Text> {
-        AdminAPI.emergencyStop(caller, adminController)
+        if (not _isSuperAdmin(caller)) {
+            return #err("Only super admins can emergency stop");
+        };
+        SystemManager.emergencyStop(systemStorage, caller)
     };
     
     public query func getQuickSystemStatus() : async {
@@ -1286,11 +1340,13 @@ actor Backend {
     };
     
     public shared({ caller }) func adminQueryAudit(queryObj: Audit.AuditQuery) : async Audit.AuditPage {
-        AdminAPI.queryAudit(caller, queryObj, adminController)
+        assert(_isAdmin(caller));
+        AuditLogger.queryAuditEntries(auditStorage, queryObj)
     };
     
     public shared({ caller }) func adminGetUsers(limit: Nat, offset: Nat) : async [UserRegistry.UserProfile] {
-        AdminAPI.getAllUsers(caller, adminController, limit, offset)
+        assert(_isAdmin(caller));
+        UserRegistry.getAllUsers(userRegistryStorage, limit, offset)
     };
     
     // ================ SECURITY: TOKEN MANAGEMENT ================
@@ -1313,7 +1369,36 @@ actor Backend {
 
     // Get validatePayment
     public shared({ caller }) func validatePayment(payment: PaymentValidator.PaymentConfig) : async Result.Result<PaymentValidator.PaymentValidationResult, Text> {
-        await PaymentAPI.validatePaymentForAction(caller, "CreateToken", null, paymentValidator, externalInvoiceStorage)
+        // PAYMENT VALIDATION (Using consolidated PaymentValidator)
+        let paymentValidationResult = await _callPaymentValidatorWithInvoiceStorage(
+            #CreateToken,
+            caller,
+            null
+        );
+        
+        switch (paymentValidationResult) {
+            case (#err(error)) {
+                let errorMsg = switch (error) {
+                    case (#InsufficientFunds) "Insufficient funds for payment";
+                    case (#InvalidInput(msg)) "Invalid payment input: " # msg;
+                    case (#ServiceUnavailable(msg)) "Payment service unavailable: " # msg;
+                    case (#Unauthorized) "Unauthorized payment";
+                    case (#NotFound) "Payment not found";
+                    case (#InternalError(msg)) "Payment internal error: " # msg;
+                };
+                return #err("Payment validation failed: " # errorMsg);
+            };
+            case (#ok(paymentResult)) {
+                if (not paymentResult.isValid) {
+                    let errorMsg = switch (paymentResult.errorMessage) {
+                        case (?msg) msg;
+                        case null "Payment validation failed";
+                    };
+                    return #err(errorMsg);
+                };
+                #ok(paymentResult)
+            };
+        };
     };
     
     public query func checkTokenSymbolConflict(symbol: Text) : async {
@@ -1321,7 +1406,22 @@ actor Backend {
         existingDeployer: ?Principal;
         warningMessage: ?Text;
     } {
-        TokenAPI.checkTokenSymbolConflict(symbol, tokenSymbolRegistry)
+        switch (Trie.get(tokenSymbolRegistry, _textKey(symbol), Text.equal)) {
+            case (?deployer) {
+                {
+                    hasConflict = true;
+                    existingDeployer = ?deployer;
+                    warningMessage = ?"WARNING: Token symbol already exists in ICTO platform. Consider using a unique symbol.";
+                }
+            };
+            case null {
+                {
+                    hasConflict = false;
+                    existingDeployer = null;
+                    warningMessage = null;
+                }
+            };
+        }
     };
     
     // ================ SERVICE HEALTH MONITORING ================
@@ -1673,34 +1773,67 @@ actor Backend {
             failedDeployments: Nat;
         };
     } {
-        // Simplified version - delegate to UserAPI functions
-        let profile = UserAPI.getMyProfile(caller, userController);
-        let projects = UserAPI.getUserProjects(caller, userController);
-        let recentDeployments = UserAPI.getMyDeployments(caller, userController, Option.get(limit, 10), Option.get(offset, 0));
-        let recentAudits = UserAPI.getMyAuditHistory(caller, userController, Option.get(limit, 10), Option.get(offset, 0));
+        let defaultLimit = Option.get(limit, 10);
+        let defaultOffset = Option.get(offset, 0);
         
-        // Get payment records
-        let paymentRecords = await PaymentAPI.getUserPaymentRecords(caller, limit, offset, externalInvoiceStorage);
+        // Get user profile
+        let profile = UserRegistry.getUserProfile(userRegistryStorage, caller);
+        
+        // Get user projects
+        let userProjectIds = Option.get(Trie.get(userProjectsTrie, _principalKey(caller), Principal.equal), []);
+        
+        // Get recent deployments
+        let recentDeployments = UserRegistry.getUserDeployments(userRegistryStorage, caller, defaultLimit, defaultOffset);
+        
+        // Get recent audit history
+        let recentAudits = AuditLogger.getUserAuditHistory(auditStorage, caller, defaultLimit, defaultOffset);
+        
+        // Get payment records (async call)
+        let paymentRecords = switch (externalInvoiceStorage) {
+            case (?invoiceStorage) {
+                try {
+                    let result = await invoiceStorage.getUserPaymentRecords(caller, ?defaultLimit, ?defaultOffset);
+                    switch (result) {
+                        case (#ok(records)) records;
+                        case (#err(_)) [];
+                    }
+                } catch (e) { [] }
+            };
+            case null { [] };
+        };
         
         // Get refund records
-        let refundRecords = PaymentAPI.getUserRefundRecords(caller, refundManager);
+        let refundRecords = RefundManager.getRefundsByUser(refundManager, caller);
+        let paginatedRefunds = if (refundRecords.size() > defaultOffset) {
+            let endIndex = Nat.min(defaultOffset + defaultLimit, refundRecords.size());
+            Array.subArray(refundRecords, defaultOffset, endIndex - defaultOffset)
+        } else { [] };
+        
+        // Calculate statistics
+        var successfulDeployments = 0;
+        var failedDeployments = 0;
+        
+        for (deployment in recentDeployments.vals()) {
+            // Count successful vs failed deployments based on deployment records
+            successfulDeployments += 1; // All recorded deployments are considered successful
+        };
         
         {
             profile = profile;
-            projects = projects;
+            projects = userProjectIds;
             recentDeployments = recentDeployments;
             recentAudits = recentAudits;
             paymentRecords = paymentRecords;
-            refundRecords = refundRecords;
+            refundRecords = paginatedRefunds;
             statistics = {
-                totalProjects = projects.size();
+                totalProjects = userProjectIds.size();
                 totalDeployments = recentDeployments.size();
                 totalFeesPaid = switch (profile) {
                     case (?p) p.totalFeesPaid;
                     case null 0;
                 };
-                successfulDeployments = recentDeployments.size();
-                failedDeployments = 0;
+                successfulDeployments = successfulDeployments;
+                failedDeployments = failedDeployments;
             };
         }
     };
@@ -1716,7 +1849,29 @@ actor Backend {
         recentActivity: [UserRegistry.DeploymentRecord];
         projectList: [Text];
     } {
-        UserAPI.getUserDashboardSummary(caller, userController)
+        let profile = UserRegistry.getUserProfile(userRegistryStorage, caller);
+        let userProjectIds = Option.get(Trie.get(userProjectsTrie, _principalKey(caller), Principal.equal), []);
+        let recentDeployments = UserRegistry.getUserDeployments(userRegistryStorage, caller, 5, 0);
+        
+        // Count token deployments
+        let tokenCount = Array.foldLeft<UserRegistry.DeploymentRecord, Nat>(
+            recentDeployments, 0,
+            func(acc, deployment) { 
+                if (deployment.serviceType == #TokenDeployer) acc + 1 else acc 
+            }
+        );
+        
+        {
+            profile = profile;
+            projectCount = userProjectIds.size();
+            tokenDeployments = tokenCount;
+            totalFeesPaid = switch (profile) {
+                case (?p) p.totalFeesPaid;
+                case null 0;
+            };
+            recentActivity = recentDeployments;
+            projectList = userProjectIds;
+        }
     };
     
     // Get token statistics by symbol
@@ -1727,7 +1882,38 @@ actor Backend {
         canisterId: ?Text;
         projectId: ?Text;
     } {
-        TokenAPI.getTokenStatistics(tokenController, tokenSymbol)
+        switch (Trie.get(tokenSymbolRegistry, _textKey(tokenSymbol), Text.equal)) {
+            case (?deployer) {
+                // Find deployment in user's records
+                let deployments = UserRegistry.getUserDeployments(userRegistryStorage, deployer, 100, 0);
+                let tokenDeployment = Array.find<UserRegistry.DeploymentRecord>(
+                    deployments,
+                    func(d) { d.serviceType == #TokenDeployer }
+                );
+                
+                switch (tokenDeployment) {
+                    case (?deployment) {
+                        ?{
+                            symbol = tokenSymbol;
+                            deployer = deployer;
+                            deployedAt = ?deployment.deployedAt;
+                            canisterId = ?Principal.toText(deployment.canisterId);
+                            projectId = deployment.projectId;
+                        }
+                    };
+                    case null {
+                        ?{
+                            symbol = tokenSymbol;
+                            deployer = deployer;
+                            deployedAt = null;
+                            canisterId = null;
+                            projectId = null;
+                        }
+                    };
+                }
+            };
+            case null null;
+        }
     };
     
     // Get project analytics (basic backend data)
@@ -1794,7 +1980,11 @@ actor Backend {
     
     // Get all tokens deployed by a user
     public shared query({ caller }) func getTokensByUser() : async [UserRegistry.DeploymentRecord] {
-        UserAPI.getTokensByUser(caller, userController)
+        let allDeployments = UserRegistry.getUserDeployments(userRegistryStorage, caller, 100, 0);
+        Array.filter<UserRegistry.DeploymentRecord>(
+            allDeployments,
+            func(deployment) { deployment.serviceType == #TokenDeployer }
+        )
     };
     
     // Get user's project participation summary
@@ -1804,7 +1994,26 @@ actor Backend {
         tokensDeployed: Nat;
         launchpadsCreated: Nat;
     } {
-        UserAPI.getProjectParticipation(caller, userController)
+        let userProjectIds = Option.get(Trie.get(userProjectsTrie, _principalKey(caller), Principal.equal), []);
+        let allDeployments = UserRegistry.getUserDeployments(userRegistryStorage, caller, 100, 0);
+        
+        var tokenCount = 0;
+        var launchpadCount = 0;
+        
+        for (deployment in allDeployments.vals()) {
+            switch (deployment.serviceType) {
+                case (#TokenDeployer) tokenCount += 1;
+                case (#LaunchpadDeployer) launchpadCount += 1;
+                case (_) {};
+            };
+        };
+        
+        {
+            ownedProjects = userProjectIds;
+            totalProjects = userProjectIds.size();
+            tokensDeployed = tokenCount;
+            launchpadsCreated = launchpadCount;
+        }
     };
     
     // Get platform statistics for admin dashboard
@@ -1824,16 +2033,35 @@ actor Backend {
         let isAdmin = _isAdmin(caller);
         
         if (isAdmin) {
+            let allUsers = UserRegistry.getAllUsers(userRegistryStorage, 1000, 0);
+            var tokenCount = 0;
+            var launchpadCount = 0;
+            var distributionCount = 0;
+            var lockCount = 0;
+            
+            for (user in allUsers.vals()) {
+                let deployments = UserRegistry.getUserDeployments(userRegistryStorage, user.userId, 100, 0);
+                for (deployment in deployments.vals()) {
+                    switch (deployment.serviceType) {
+                        case (#TokenDeployer) tokenCount += 1;
+                        case (#LaunchpadDeployer) launchpadCount += 1;
+                        case (#DistributionDeployer) distributionCount += 1;
+                        case (#LockDeployer) lockCount += 1;
+                        case (_) {};
+                    };
+                };
+            };
+            
             {
                 totalUsers = UserRegistry.getTotalUsers(userRegistryStorage);
                 totalProjects = Trie.size(projectsTrie);
                 totalTokens = Trie.size(tokenSymbolRegistry);
                 totalDeployments = UserRegistry.getTotalDeployments(userRegistryStorage);
                 deploymentsByType = {
-                    tokens = Trie.size(tokenSymbolRegistry);
-                    launchpads = 0;
-                    distributions = 0;
-                    locks = 0;
+                    tokens = tokenCount;
+                    launchpads = launchpadCount;
+                    distributions = distributionCount;
+                    locks = lockCount;
                 };
                 isAuthorized = true;
             }
@@ -1898,36 +2126,81 @@ actor Backend {
     };
     
 
-    // ================ SEPARATE DEPLOYMENT ENDPOINTS ================
-    // Each service has its own endpoint - clean separation of concerns
+    // ================ UNIFIED DEPLOYMENT ENDPOINT (STEP 3: SERVICE DELEGATION) ================
+    // Entry point that handles payment/audit, then delegates business logic to services
     
-    // Token deployment endpoint
-    public shared({ caller }) func deployToken(
-        tokenRequest: APITypes.TokenDeploymentRequest
+    public shared({ caller }) func deploy(
+        deploymentType: APITypes.DeploymentType
     ) : async Result.Result<APITypes.DeploymentResult, Text> {
         
-        // ================ PHASE 1: GATEWAY VALIDATIONS ================
-        if (Principal.isAnonymous(caller)) {
-            return #err("Anonymous users cannot deploy tokens");
+        Debug.print("🚀 Backend: Entry point - Processing deployment from " # Principal.toText(caller));
+        
+        // ================ PHASE 1: SHARED VALIDATIONS ================
+        
+        // Anonymous user validation
+        switch (Utils.validateAnonymousUser(caller)) {
+            case (#err(msg)) return #err(msg);
+            case (#ok()) {};
         };
         
-        if (not SystemManager.getCurrentConfiguration(systemStorage).featureFlags.tokenDeploymentEnabled) {
-            return #err("Token deployment service temporarily disabled for maintenance");
+        // Service type validation based on deployment type
+        let serviceType = switch (deploymentType) {
+            case (#Token(_)) "tokenDeployment";
+            case (#Launchpad(_)) "launchpadDeployment";
+            case (#Lock(_)) "lockDeployment";
+            case (#Distribution(_)) "distributionDeployment";
+            case (#Airdrop(_)) "airdropDeployment";
+            case (#DAO(_)) "daoDeployment";
+            case (#Pipeline(_)) "pipelineExecution";
         };
         
-        // ================ PHASE 2: AUDIT & PAYMENT ================
+        // System state validation
+        switch (Utils.validateSystemState(serviceType, systemStorage)) {
+            case (#err(msg)) return #err(msg);
+            case (#ok()) {};
+        };
+        
+        // User registration and validation
+        let userProfile = UserRegistry.registerUser(userRegistryStorage, caller);
+        switch (Utils.validateUserLimits(userProfile, serviceType, systemStorage)) {
+            case (#err(msg)) return #err(msg);
+            case (#ok()) {};
+        };
+        
+        // ================ PHASE 2: AUDIT & PAYMENT (BACKEND HANDLES) ================
+        
         // Create audit entry
+        let requestData = switch (deploymentType) {
+            case (#Token(req)) "Token: " # req.tokenInfo.name # " (" # req.tokenInfo.symbol # ")";
+            case (#Launchpad(req)) "Launchpad: " # req.projectRequest.projectInfo.name;
+            case (#Lock(req)) "Lock deployment request" # req.projectId;
+            case (#Distribution(req)) "Distribution deployment request" # req.projectId;
+            case (#Airdrop(req)) "Airdrop deployment request" # req.projectId;
+            case (#DAO(req)) "DAO deployment request" # req.projectId;
+            case (#Pipeline(req)) "Pipeline deployment request" # req.projectId;
+        };
+        
+        let projectId = switch (deploymentType) {
+            case (#Token(req)) req.projectId;
+            case (#Launchpad(req)) null; // Launchpad creates new project
+            case (#Lock(req)) ?req.projectId;
+            case (#Distribution(req)) ?req.projectId;
+            case (#Airdrop(req)) ?req.projectId;
+            case (#DAO(req)) ?req.projectId;
+            case (#Pipeline(req)) ?req.projectId;
+        };
+        
         let auditEntry = AuditLogger.logAction(
             auditStorage,
             caller,
-            #CreateToken,
-            #RawData("Token: " # tokenRequest.tokenInfo.name # " (" # tokenRequest.tokenInfo.symbol # ")"),
-            tokenRequest.projectId,
+            #CreateToken, // Use correct action type for token creation
+            #RawData(requestData),
+            projectId,
             ?#Backend
         );
         
-        // Process payment
-        let paymentInfo = switch (await _processPaymentForService(caller, "tokenDeployment", auditEntry.id)) {
+        // Process payment (BACKEND HANDLES)
+        let paymentInfo = switch (await _processPaymentForService(caller, serviceType, auditEntry.id)) {
             case (#err(msg)) {
                 ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(msg), null, null);
                 return #err(msg);
@@ -1935,130 +2208,373 @@ actor Backend {
             case (#ok(info)) info;
         };
         
-        // ================ PHASE 3: DELEGATE TO API LAYER ================
-        // Delegate to TokenAPI (proper modular architecture)
-        let result = await TokenAPI.deployTokenWithPayment(
-            caller,
-            tokenRequest,
-            tokenController,
-            paymentInfo,
-            auditEntry.id,
-            tokenDeployerCanisterId,
+        Debug.print("💳 Payment processed successfully for " # serviceType # ": " # Nat.toText(paymentInfo.paidAmount) # " e8s");
+        
+        // ================ PHASE 3: CREATE BACKEND CONTEXT ================
+        let backendContext = Utils.createBackendContext(
+            projectsTrie,
             tokenSymbolRegistry,
-            userProjectsTrie
+            auditStorage,
+            userRegistryStorage,
+            systemStorage,
+            paymentValidator,
+            invoiceStorageCanisterId,
+            tokenDeployerCanisterId
         );
         
-        switch (result) {
-            case (#ok(tokenResult)) {
-                // Update gateway-level state (projects, symbol registry, user projects)
-                tokenSymbolRegistry := Utils.updateTokenSymbolRegistry(
-                    tokenRequest.tokenInfo.symbol,
-                    caller,
-                    tokenSymbolRegistry
-                );
+        // ================ PHASE 4: DELEGATE TO SERVICES (BUSINESS LOGIC ONLY) ================
+        switch (deploymentType) {
+            case (#Token(tokenRequest)) {
+                Debug.print("🪙 Backend: Delegating to TokenService for business logic");
                 
-                userProjectsTrie := Utils.updateUserProjectsList(
-                    caller,
-                    tokenRequest.projectId,
-                    userProjectsTrie
-                );
+                // Project ownership validation (specific to token deployment)
+                switch (Utils.validateProjectOwnership(caller, tokenRequest.projectId, projectsTrie)) {
+                    case (#err(msg)) {
+                        // Deployment failed after payment - trigger automatic refund
+                        let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, msg, "Token");
+                        ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
+                        return #err(failureMessage);
+                    };
+                    case (#ok()) {};
+                };
                 
-                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, tokenResult.canisterId, null);
-                #ok(tokenResult)
+                // Convert RouterTypes to TokenService types
+                let serviceRequest : TokenService.TokenDeploymentRequest = {
+                    projectId = tokenRequest.projectId;
+                    tokenInfo = tokenRequest.tokenInfo;
+                    initialSupply = tokenRequest.initialSupply;
+                    options = switch (tokenRequest.options) {
+                        case (?opts) {
+                            ?{
+                                allowSymbolConflict = opts.allowSymbolConflict;
+                                enableAdvancedFeatures = opts.enableAdvancedFeatures;
+                                customMinter = opts.customMinter;
+                                customFeeCollector = opts.customFeeCollector;
+                            }
+                        };
+                        case null null;
+                    };
+                };
+                
+                // Call TokenService for BUSINESS LOGIC ONLY (no payment, no audit)
+                let result = await TokenService.deployToken(caller, serviceRequest, backendContext);
+                
+                // Handle result and complete audit
+                switch (result) {
+                    case (#ok(tokenResult)) {
+                        // ================ POST-DEPLOYMENT BACKEND PROCESSING ================
+                        
+                        // SECURITY: Register token symbol to prevent future duplicates (from original)
+                        tokenSymbolRegistry := Utils.updateTokenSymbolRegistry(
+                            tokenRequest.tokenInfo.symbol,
+                            caller,
+                            tokenSymbolRegistry
+                        );
+                        
+                        // Update user projects list if this is a new project (from original)
+                        userProjectsTrie := Utils.updateUserProjectsList(
+                            caller,
+                            tokenRequest.projectId,
+                            userProjectsTrie
+                        );
+                        
+                        // Log successful payment validation with transaction details (from original)
+                        let txId = switch (paymentInfo.transactionId) {
+                            case (?id) id;
+                            case null "no_tx_id";
+                        };
+                        let paymentRecordId = switch (paymentInfo.paymentRecordId) {
+                            case (?id) id;
+                            case null "no_payment_record";
+                        };
+                        Debug.print("✅ Payment validated for createToken: " # Nat.toText(paymentInfo.paidAmount) # " e8s, txId: " # txId # ", recordId: " # paymentRecordId);
+                        
+                        ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, ?tokenResult.canisterId, null);
+                        
+                        let deploymentId = "TKN-" # Int.toText(Time.now()) # "-" # Principal.toText(caller);
+                        #ok({
+                            deploymentId = deploymentId;
+                            deploymentType = "Token";
+                            canisterId = ?tokenResult.canisterId;
+                            projectId = tokenResult.projectId;
+                            status = #Completed;
+                            createdAt = Time.now();
+                            startedAt = ?Time.now();
+                            completedAt = ?tokenResult.deployedAt;
+                            metadata = {
+                                deployedBy = caller;
+                                estimatedCost = paymentInfo.requiredAmount;
+                                actualCost = ?tokenResult.cyclesUsed;
+                                cyclesUsed = ?tokenResult.cyclesUsed;
+                                transactionId = paymentInfo.transactionId;
+                                paymentRecordId = paymentInfo.paymentRecordId;
+                                serviceEndpoint = "TokenService";
+                                version = "2.0.0";
+                                environment = "production";
+                            };
+                            steps = [];
+                        })
+                    };
+                    case (#err(error)) {
+                        // Deployment failed after payment - trigger automatic refund
+                        let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, error, "Token");
+                        ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
+                        #err(failureMessage)
+                    };
+                }
             };
-            case (#err(error)) {
-                let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, error, "Token");
+            case (#Launchpad(launchpadRequest)) {
+                // TODO: Implement LaunchpadService delegation with refund support
+                let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, "Not implemented", "Launchpad");
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
+                #err(failureMessage)
+            };
+            case (#Lock(lockRequest)) {
+                // TODO: Implement LockService delegation with refund support
+                let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, "Not implemented", "Lock");
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
+                #err(failureMessage)
+            };
+            case (#Distribution(distributionRequest)) {
+                // TODO: Implement DistributionService delegation with refund support
+                let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, "Not implemented", "Distribution");
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
+                #err(failureMessage)
+            };
+            case (#Airdrop(airdropRequest)) {
+                // TODO: Implement AirdropService delegation with refund support
+                let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, "Not implemented", "Airdrop");
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
+                #err(failureMessage)
+            };
+            case (#DAO(daoRequest)) {
+                // TODO: Implement DAOService delegation with refund support
+                let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, "Not implemented", "DAO");
+                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
+                #err(failureMessage)
+            };
+            case (#Pipeline(pipelineRequest)) {
+                // TODO: Implement PipelineService delegation with refund support
+                let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, "Not implemented", "Pipeline");
                 ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed(failureMessage), null, null);
                 #err(failureMessage)
             };
         }
     };
     
-    // Launchpad deployment endpoint  
-    public shared({ caller }) func deployLaunchpad(
-        launchpadRequest: APITypes.LaunchpadDeploymentRequest
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
-        
-        // Basic validations
-        if (Principal.isAnonymous(caller)) {
-            return #err("Anonymous users cannot deploy launchpads");
-        };
-        
-        if (not SystemManager.getCurrentConfiguration(systemStorage).featureFlags.launchpadServiceEnabled) {
-            return #err("Launchpad deployment service temporarily disabled for maintenance");
-        };
-        
-        // TODO: Implement LaunchpadService similar to TokenService pattern
-        #err("Launchpad deployment not yet implemented - will follow TokenService pattern with LaunchpadService + BackendContext")
+    
+    // ================ DEPLOYMENT QUERY FUNCTIONS ================
+    
+    public query func getSupportedDeploymentTypes() : async [Text] {
+        ["Token", "Launchpad", "Lock", "Distribution", "Pipeline"]
     };
     
-    // Lock deployment endpoint
-    public shared({ caller }) func deployLock(
-        lockRequest: APITypes.LockDeploymentRequest
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
+    public query func getDeploymentTypeInfo(deploymentType: Text) : async ?{
+        name: Text;
+        description: Text;
+        estimatedCost: Nat;
+        requirements: [Text];
+    } {
+        switch (deploymentType) {
+            case ("Token") {
+                ?{
+                    name = "ICRC Token Deployment";
+                    description = "Deploy a new ICRC-1/2 compatible token";
+                    estimatedCost = 1000000;
+                    requirements = ["Token name", "Symbol", "Initial supply", "Payment approval"];
+                }
+            };
+            case ("Launchpad") {
+                ?{
+                    name = "Launchpad Project";
+                    description = "Create a complete launchpad project";
+                    estimatedCost = 2000000;
+                    requirements = ["Project details", "Tokenomics", "Timeline"];
+                }
+            };
+            case (_) null;
+        }
+    };
+    
+    // ================ SHARED PAYMENT & AUDIT FUNCTIONS (STEP 1.5) ================
+    // Payment and audit logic handled centrally in backend
+    
+    private func _processPaymentForService(
+        caller: Principal,
+        serviceType: Text,
+        auditId: Text
+    ) : async Result.Result<PaymentValidator.PaymentValidationResult, Text> {
         
-        if (Principal.isAnonymous(caller)) {
-            return #err("Anonymous users cannot deploy locks");
+        let actionType = Utils.getPaymentActionType(serviceType);
+        
+        let paymentResult = await _callPaymentValidatorWithInvoiceStorage(
+            actionType,
+            caller,
+            ?auditId
+        );
+        
+        switch (paymentResult) {
+            case (#err(error)) {
+                let errorMsg = switch (error) {
+                    case (#InsufficientFunds) "Insufficient funds for payment";
+                    case (#InvalidInput(msg)) "Invalid payment input: " # msg;
+                    case (#ServiceUnavailable(msg)) "Payment service unavailable: " # msg;
+                    case (#Unauthorized) "Unauthorized payment";
+                    case (#NotFound) "Payment not found";
+                    case (#InternalError(msg)) "Payment internal error: " # msg;
+                };
+                #err("Payment failed: " # errorMsg)
+            };
+            case (#ok(paymentInfo)) {
+                if (not paymentInfo.isValid) {
+                    if (paymentInfo.approvalRequired) {
+                        #err("Payment requires ICRC-2 approval. Please approve " # Nat.toText(paymentInfo.requiredAmount) # " e8s to backend canister and try again.")
+                    } else {
+                        let errorMsg = switch (paymentInfo.errorMessage) {
+                            case (?msg) msg;
+                            case null "Payment validation failed";
+                        };
+                        #err(errorMsg)
+                    };
+                } else {
+                    #ok(paymentInfo)
+                }
+            };
+        }
+    };
+    
+    // ================ REFUND MECHANISM FOR FAILED DEPLOYMENTS ================
+    
+    // Helper function to automatically process refund when deployment fails after payment
+    private func _processAutomaticRefund(
+        caller: Principal,
+        paymentInfo: PaymentValidator.PaymentValidationResult,
+        auditId: Text,
+        failureReason: Text
+    ) : async Result.Result<RefundManager.RefundRequest, Text> {
+        
+        // Extract transaction ID from payment info
+        let transactionId = switch (paymentInfo.transactionId) {
+            case (?txId) txId;
+            case null {
+                Debug.print("⚠️ No transaction ID found for refund, using audit ID: " # auditId);
+                "audit_" # auditId; // Fallback to audit ID
+            };
         };
         
-        #err("Lock deployment not yet implemented - will be handled by LockAPI + LockController")
+        Debug.print("🔄 Processing automatic refund for user: " # Principal.toText(caller) # ", amount: " # Nat.toText(paymentInfo.paidAmount) # " e8s");
+        
+        // Get system configuration for accepted tokens
+        let config = SystemManager.getCurrentConfiguration(systemStorage);
+        let acceptedTokens = [config.paymentConfig.defaultPaymentToken];
+        
+        // Create refund request with ServiceFailure reason using configuration
+        let refundRequest = RefundManager.createRefundRequestWithConfig(
+            refundManager,
+            caller,
+            transactionId,
+            paymentInfo.paidAmount,
+            paymentInfo.paidAmount, // Full refund
+            #ServiceFailure,
+            "Automatic refund due to deployment failure: " # failureReason,
+            ?"Deployment failed after successful payment, automatic refund initiated",
+            acceptedTokens
+        );
+        
+        Debug.print("📝 Created refund request: " # refundRequest.id);
+        
+        // For service failures, automatically approve the refund (since it's system error)
+        let backendPrincipal = Principal.fromActor(Backend);
+        switch (RefundManager.approveRefund(refundManager, refundRequest.id, backendPrincipal, ?"Auto-approved: Service failure after payment")) {
+            case (?approvedRefund) {
+                Debug.print("✅ Auto-approved refund: " # refundRequest.id);
+                
+                // Process the refund immediately
+                try {
+                    let processResult = await RefundManager.processRefund(refundManager, refundRequest.id, backendPrincipal);
+                    
+                    switch (processResult) {
+                        case (#ok(processedRefund)) {
+                            Debug.print("💰 Refund processed successfully: " # refundRequest.id);
+                            
+                            // Log refund in audit - with debug info
+                            Debug.print("🔍 About to log refund audit entry...");
+                            let hasExternal = AuditLogger.hasExternalAuditStorage(auditStorage);
+                            let externalStatus = if (hasExternal) { "true" } else { "false" };
+                            Debug.print("External audit storage configured: " # externalStatus);
+                            
+                            let refundAuditEntry = AuditLogger.logAction(
+                                auditStorage,
+                                backendPrincipal,
+                                #RefundProcessed,
+                                #RawData("Refund processed: " # refundRequest.id # " for user " # Principal.toText(caller) # " amount: " # Nat.toText(paymentInfo.paidAmount) # " e8s"),
+                                null,
+                                ?#Backend
+                            );
+                            
+                            Debug.print("✅ Refund audit entry created: " # refundAuditEntry.id);
+                            ignore AuditLogger.updateAuditStatus(auditStorage, refundAuditEntry.id, #Completed, null, ?100);
+                            Debug.print("✅ Refund audit status updated to Completed");
+                            
+                            #ok(processedRefund)
+                        };
+                        case (#err(error)) {
+                            let errorMsg = switch (error) {
+                                case (#InternalError(msg)) "Refund processing internal error: " # msg;
+                                case (#InvalidInput(msg)) "Refund processing invalid input: " # msg;
+                                case (#ServiceUnavailable(msg)) "Refund service unavailable: " # msg;
+                                case (#Unauthorized) "Unauthorized refund processing";
+                                case (#NotFound) "Refund not found for processing";
+                                case (#InsufficientFunds) "Insufficient funds for refund";
+                            };
+                            Debug.print("❌ Refund processing failed: " # errorMsg);
+                            #err("Refund processing failed: " # errorMsg)
+                        };
+                    }
+                } catch (error) {
+                    let errorMsg = "Refund processing exception: " # Error.message(error);
+                    Debug.print("💥 " # errorMsg);
+                    #err(errorMsg)
+                }
+            };
+            case null {
+                Debug.print("❌ Failed to approve refund request");
+                #err("Failed to approve refund request")
+            };
+        }
     };
     
-    // Distribution deployment endpoint
-    public shared({ caller }) func deployDistribution(
-        distributionRequest: APITypes.DistributionDeploymentRequest
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
+    // Helper function to handle deployment failure with automatic refund
+    private func _handleDeploymentFailure(
+        caller: Principal,
+        paymentInfo: PaymentValidator.PaymentValidationResult,
+        auditId: Text,
+        failureReason: Text,
+        deploymentType: Text
+    ) : async Text {
         
-        if (Principal.isAnonymous(caller)) {
-            return #err("Anonymous users cannot deploy distribution contracts");
-        };
+        Debug.print("🚨 Deployment failure detected for " # deploymentType # ": " # failureReason);
         
-        #err("Distribution deployment not yet implemented - will be handled by DistributionAPI + DistributionController")
+        // Process automatic refund
+        let refundResult = await _processAutomaticRefund(caller, paymentInfo, auditId, failureReason);
+        
+        switch (refundResult) {
+            case (#ok(refundRequest)) {
+                let refundInfo = switch (refundRequest.refundTransactionId) {
+                    case (?txId) " Refund processed with transaction ID: " # txId;
+                    case null " Refund initiated with ID: " # refundRequest.id;
+                };
+                deploymentType # " deployment failed: " # failureReason # refundInfo
+            };
+            case (#err(refundError)) {
+                // Even if refund fails, we still record that deployment failed
+                // The refund can be processed manually later
+                Debug.print("⚠️ Automatic refund failed, manual intervention may be required: " # refundError);
+                deploymentType # " deployment failed: " # failureReason # " (Automatic refund failed: " # refundError # " - Manual refund may be required)"
+            };
+        }
     };
-    
-    // Airdrop deployment endpoint
-    public shared({ caller }) func deployAirdrop(
-        airdropRequest: APITypes.AirdropDeploymentRequest
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
-        
-        if (Principal.isAnonymous(caller)) {
-            return #err("Anonymous users cannot deploy airdrops");
-        };
-        
-        #err("Airdrop deployment not yet implemented - will be handled by AirdropAPI + AirdropController")
-    };
-    
-    // DAO deployment endpoint
-    public shared({ caller }) func deployDAO(
-        daoRequest: APITypes.DAODeploymentRequest
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
-        
-        if (Principal.isAnonymous(caller)) {
-            return #err("Anonymous users cannot deploy DAOs");
-        };
-        
-        #err("DAO deployment not yet implemented - will be handled by DAOAPI + DAOController")
-    };
-    
-    // Pipeline deployment endpoint
-    public shared({ caller }) func deployPipeline(
-        pipelineRequest: APITypes.PipelineDeploymentRequest
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
-        
-        if (Principal.isAnonymous(caller)) {
-            return #err("Anonymous users cannot deploy pipelines");
-        };
-        
-        #err("Pipeline deployment not yet implemented - will be handled by PipelineAPI + PipelineController")
-    };
-    
-    // Legacy deploy function - deprecated, will be removed
-    public shared({ caller }) func deploy(
-        deploymentType: APITypes.DeploymentType
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
-        #err("DEPRECATED: Use specific deployment endpoints instead: deployToken(), deployLaunchpad(), deployLock(), etc.")
-    };
-    
+
 
     
     // ================ MICROSERVICE SETUP STATUS FUNCTIONS ================
@@ -2076,18 +2592,37 @@ actor Backend {
         };
         isAuthorized: Bool;
     } {
-        SystemAPI.getMicroservicesSetupStatus(
-            caller,
-            microservicesSetupCompleted,
-            setupTimestamp,
-            auditStorageCanisterId,
-            invoiceStorageCanisterId,
-            tokenDeployerCanisterId,
-            launchpadDeployerCanisterId,
-            lockDeployerCanisterId,
-            distributionDeployerCanisterId,
-            adminController
-        )
+        let isAdmin = _isAdmin(caller);
+        
+        if (isAdmin) {
+            {
+                isSetupCompleted = microservicesSetupCompleted;
+                setupTimestamp = setupTimestamp;
+                configuredServices = {
+                    auditStorage = Option.map(auditStorageCanisterId, Principal.toText);
+                    invoiceStorage = Option.map(invoiceStorageCanisterId, Principal.toText);
+                    tokenDeployer = Option.map(tokenDeployerCanisterId, Principal.toText);
+                    launchpadDeployer = Option.map(launchpadDeployerCanisterId, Principal.toText);
+                    lockDeployer = Option.map(lockDeployerCanisterId, Principal.toText);
+                    distributionDeployer = Option.map(distributionDeployerCanisterId, Principal.toText);
+                };
+                isAuthorized = true;
+            }
+        } else {
+            {
+                isSetupCompleted = false;
+                setupTimestamp = null;
+                configuredServices = {
+                    auditStorage = null;
+                    invoiceStorage = null;
+                    tokenDeployer = null;
+                    launchpadDeployer = null;
+                    lockDeployer = null;
+                    distributionDeployer = null;
+                };
+                isAuthorized = false;
+            }
+        }
     };
     
     public shared({ caller }) func forceResetMicroservicesSetup() : async Result.Result<(), Text> {
@@ -2130,16 +2665,34 @@ actor Backend {
         setupCompleted: Bool;
         isAuthorized: Bool;
     } {
-        SystemAPI.verifyMicroservicesConnections(
-            caller,
-            ?Option.isSome(externalAuditStorage),
-            ?Option.isSome(externalInvoiceStorage),
-            tokenDeployerCanisterId,
-            launchpadDeployerCanisterId,
-            AuditLogger.hasExternalAuditStorage(auditStorage),
-            microservicesSetupCompleted,
-            adminController
-        )
+        if (not _isAdmin(caller)) {
+            return {
+                auditStorageConnection = false;
+                invoiceStorageConnection = false;
+                tokenDeployerConnection = false;
+                launchpadDeployerConnection = false;
+                externalAuditConfigured = false;
+                setupCompleted = false;
+                isAuthorized = false;
+            };
+        };
+        
+        // Check connections
+        let auditConnected = Option.isSome(externalAuditStorage);
+        let invoiceConnected = Option.isSome(externalInvoiceStorage);
+        let tokenDeployerConnected = Option.isSome(tokenDeployerCanisterId);
+        let launchpadDeployerConnected = Option.isSome(launchpadDeployerCanisterId);
+        let externalAuditConfigured = AuditLogger.hasExternalAuditStorage(auditStorage);
+        
+        {
+            auditStorageConnection = auditConnected;
+            invoiceStorageConnection = invoiceConnected;
+            tokenDeployerConnection = tokenDeployerConnected;
+            launchpadDeployerConnection = launchpadDeployerConnected;
+            externalAuditConfigured = externalAuditConfigured;
+            setupCompleted = microservicesSetupCompleted;
+            isAuthorized = true;
+        }
     };
     
     // Check whitelist status of all deployers for backend principal
@@ -2270,7 +2823,9 @@ actor Backend {
     // ================ ENHANCED ADMIN REPORTING & TRANSACTION TRACKING ================
     
     // Comprehensive transaction status tracking
-    public shared query({ caller }) func getTransactionStatus(transactionId: Text) : async {
+    public shared query({ caller }) func getTransactionStatus(
+        transactionId: Text
+    ) : async {
         paymentStatus: Text;
         deploymentStatus: Text;
         auditTrail: [AuditLogger.AuditEntry];
@@ -2279,11 +2834,118 @@ actor Backend {
         nextAction: ?Text;
         isAuthorized: Bool;
     } {
-        AdminAPI.getTransactionStatus(caller, transactionId, adminController)
+        if (not _isAdmin(caller)) {
+            return {
+                paymentStatus = "Unauthorized";
+                deploymentStatus = "Unauthorized";
+                auditTrail = [];
+                refundStatus = null;
+                stuckAt = null;
+                nextAction = null;
+                isAuthorized = false;
+            };
+        };
+        
+        // Search for audit entries related to this transaction
+        let auditQuery : Audit.AuditQuery = {
+            userId = null;
+            projectId = null;
+            actionType = null;
+            serviceType = null;
+            severity = null;
+            timeRange = null;
+            tags = null;
+            limit = ?50;
+            offset = ?0;
+        };
+        
+        let auditPage = AuditLogger.queryAuditEntries(auditStorage, auditQuery);
+        let relatedAudits = Array.filter<AuditLogger.AuditEntry>(
+            auditPage.entries,
+            func(entry) {
+                switch (entry.actionData) {
+                    case (#RawData(text)) Text.contains(text, #text transactionId);
+                    case (_) false;
+                }
+            }
+        );
+        
+        // Determine payment status
+        let paymentStatus = if (relatedAudits.size() == 0) {
+            "Not Found"
+        } else {
+            let latestAudit = relatedAudits[relatedAudits.size() - 1];
+            switch (latestAudit.actionStatus) {
+                case (#Initiated) "Payment Initiated";
+                case (#InProgress) "Payment Processing";
+                case (#Completed) "Payment Completed";
+                case (#Failed(msg)) "Payment Failed: " # msg;
+                case (#Cancelled) "Payment Cancelled";
+                case (#Timeout) "Payment Timeout";
+            }
+        };
+        
+        // Determine deployment status and stuck point
+        let (deploymentStatus, stuckAt, nextAction) = if (relatedAudits.size() > 0) {
+            let latestAudit = relatedAudits[relatedAudits.size() - 1];
+            switch (latestAudit.actionType) {
+                case (#CreateToken) {
+                    switch (latestAudit.actionStatus) {
+                        case (#Completed) ("Token Deployed Successfully", null, null);
+                        case (#Failed(msg)) ("Token Deployment Failed", ?"Token Creation", ?"Retry deployment or process refund");
+                        case (#InProgress) ("Token Deployment In Progress", ?"Token Creation", ?"Wait for completion");
+                        case (_) ("Token Deployment Initiated", ?"Payment Validation", ?"Monitor payment status");
+                    }
+                };
+                case (#CreateProject) {
+                    switch (latestAudit.actionStatus) {
+                        case (#Completed) ("Project Created Successfully", null, null);
+                        case (#Failed(msg)) ("Project Creation Failed", ?"Project Setup", ?"Review project parameters");
+                        case (_) ("Project Creation In Progress", ?"Project Validation", ?"Wait for completion");
+                    }
+                };
+                case (_) ("Unknown Deployment Type", ?"Unknown", ?"Contact support");
+            }
+        } else {
+            ("No Deployment Found", ?"Transaction Not Found", ?"Verify transaction ID")
+        };
+        
+        // Check refund status
+        let userRefunds = RefundManager.getAllRefundRecords(refundManager);
+        let relatedRefund = Array.find<RefundManager.RefundRequest>(
+            userRefunds,
+            func(refund) { refund.originalTransactionId == transactionId }
+        );
+        let refundStatus = switch (relatedRefund) {
+            case (?refund) {
+                switch (refund.status) {
+                    case (#Pending) ?"Refund Pending Approval";
+                    case (#Approved) ?"Refund Approved, Processing";
+                    case (#Processing) ?"Refund Being Processed";
+                    case (#Completed) ?"Refund Completed";
+                    case (#Failed(msg)) ?("Refund Failed: " # debug_show(msg));
+                    case (#Rejected(reason)) ?("Refund Rejected: " # debug_show(reason));
+                    case (#Cancelled) ?"Refund Cancelled";
+                }
+            };
+            case null null;
+        };
+        
+        {
+            paymentStatus = paymentStatus;
+            deploymentStatus = deploymentStatus;
+            auditTrail = relatedAudits;
+            refundStatus = refundStatus;
+            stuckAt = stuckAt;
+            nextAction = nextAction;
+            isAuthorized = true;
+        }
     };
     
     // Analyze stuck deployments and provide recommendations
-    public shared query({ caller }) func analyzeStuckDeployment(auditId: Text) : async {
+    public shared query({ caller }) func analyzeStuckDeployment(
+        auditId: Text
+    ) : async {
         timeline: [{timestamp: Int; action: Text; status: Text; details: Text}];
         lastSuccessfulStep: ?Text;
         failurePoint: ?Text;
@@ -2293,7 +2955,135 @@ actor Backend {
         estimatedRecoveryTime: ?Text;
         isAuthorized: Bool;
     } {
-        AdminAPI.analyzeStuckDeployment(caller, auditId, adminController)
+        if (not _isAdmin(caller)) {
+            return {
+                timeline = [];
+                lastSuccessfulStep = null;
+                failurePoint = null;
+                possibleCauses = [];
+                recommendedActions = [];
+                autoRecoveryAvailable = false;
+                estimatedRecoveryTime = null;
+                isAuthorized = false;
+            };
+        };
+        
+        // Get audit entry
+        switch (AuditLogger.getAuditEntry(auditStorage, auditId)) {
+            case (?mainEntry) {
+                // Build timeline of related events
+                let timeline = [{
+                    timestamp = mainEntry.timestamp;
+                    action = switch (mainEntry.actionType) {
+                        case (#CreateToken) "Token Deployment Started";
+                        case (#CreateProject) "Project Creation Started";
+                        case (#FeeValidation) "Fee Validation";
+                        case (#PaymentProcessed) "Payment Processed";
+                        case (_) "Action Started";
+                    };
+                    status = switch (mainEntry.actionStatus) {
+                        case (#Initiated) "Initiated";
+                        case (#InProgress) "In Progress";
+                        case (#Completed) "Completed";
+                        case (#Failed(msg)) "Failed";
+                        case (#Cancelled) "Cancelled";
+                        case (#Timeout) "Timeout";
+                    };
+                    details = switch (mainEntry.actionData) {
+                        case (#RawData(text)) text;
+                        case (#TokenData(data)) data.tokenName # " (" # data.tokenSymbol # ")";
+                        case (#ProjectData(data)) data.projectName;
+                        case (_) "No details available";
+                    };
+                }];
+                
+                // Analyze failure point and causes
+                let (lastSuccessfulStep, failurePoint, possibleCauses) = switch (mainEntry.actionStatus) {
+                    case (#Failed(errorMsg)) {
+                        let causes = if (Text.contains(errorMsg, #text "Payment")) {
+                            ["Insufficient funds", "ICRC2 approval missing", "Payment service unavailable"]
+                        } else if (Text.contains(errorMsg, #text "Token")) {
+                            ["Token deployer service down", "Invalid token parameters", "Cycles exhausted"]
+                        } else if (Text.contains(errorMsg, #text "Project")) {
+                            ["Invalid project configuration", "Launchpad service unavailable", "Validation failed"]
+                        } else {
+                            ["Unknown service error", "Network connectivity issues", "System overload"]
+                        };
+                        
+                        (?"Payment Validation", ?errorMsg, causes)
+                    };
+                    case (#Timeout) {
+                        (?"Service Call", ?"Operation Timeout", ["Service overload", "Network latency", "Cycles exhaustion"])
+                    };
+                    case (#InProgress) {
+                        (?"Payment Processing", ?"Still In Progress", ["Long processing time", "Service queue backlog"])
+                    };
+                    case (_) {
+                        (null, null, [])
+                    };
+                };
+                
+                // Generate recommended actions
+                let recommendedActions = switch (mainEntry.actionStatus) {
+                    case (#Failed(errorMsg)) {
+                        if (Text.contains(errorMsg, #text "Payment")) {
+                            ["Check user's token balance", "Verify ICRC2 approval", "Process manual refund if needed"]
+                        } else if (Text.contains(errorMsg, #text "service")) {
+                            ["Check service health", "Retry deployment", "Escalate to technical team"]
+                        } else {
+                            ["Review error logs", "Contact user", "Consider manual intervention"]
+                        }
+                    };
+                    case (#Timeout) {
+                        ["Check service status", "Retry with increased timeout", "Monitor system load"]
+                    };
+                    case (#InProgress) {
+                        ["Monitor for completion", "Check if stuck >1 hour", "Consider timeout escalation"]
+                    };
+                    case (_) {
+                        ["No action required"]
+                    };
+                };
+                
+                // Determine auto-recovery availability
+                let autoRecoveryAvailable = switch (mainEntry.actionStatus) {
+                    case (#Failed(errorMsg)) {
+                        not Text.contains(errorMsg, #text "Invalid") and not Text.contains(errorMsg, #text "Unauthorized")
+                    };
+                    case (#Timeout) true;
+                    case (_) false;
+                };
+                
+                let estimatedRecoveryTime = if (autoRecoveryAvailable) {
+                    ?"5-15 minutes"
+                } else {
+                    ?"Manual intervention required"
+                };
+                
+                {
+                    timeline = timeline;
+                    lastSuccessfulStep = lastSuccessfulStep;
+                    failurePoint = failurePoint;
+                    possibleCauses = possibleCauses;
+                    recommendedActions = recommendedActions;
+                    autoRecoveryAvailable = autoRecoveryAvailable;
+                    estimatedRecoveryTime = estimatedRecoveryTime;
+                    isAuthorized = true;
+                }
+            };
+            case null {
+                {
+                    timeline = [];
+                    lastSuccessfulStep = null;
+                    failurePoint = ?"Audit entry not found";
+                    possibleCauses = ["Invalid audit ID", "Entry may have been archived"];
+                    recommendedActions = ["Verify audit ID", "Check archived logs"];
+                    autoRecoveryAvailable = false;
+                    estimatedRecoveryTime = null;
+                    isAuthorized = true;
+                }
+            };
+        }
     };
     
     // Security monitoring for refund system
@@ -2319,168 +3109,144 @@ actor Backend {
         }];
         isAuthorized: Bool;
     } {
-        PaymentAPI.getRefundSecurityReport(caller, refundManager, systemStorage)
-    };
-    
-    // ================ MISSING HELPER FUNCTIONS ================
-    
-    // Payment processing function for deployment services
-    private func _processPaymentForService(
-        caller: Principal,
-        serviceType: Text,
-        auditId: Text
-    ) : async Result.Result<PaymentValidator.PaymentValidationResult, Text> {
-        
-        let paymentResult = await PaymentAPI.validatePaymentWithInvoiceStorage(
-            caller,
-            serviceType,
-            auditId,
-            paymentValidator,
-            externalInvoiceStorage
-        );
-        
-        switch (paymentResult) {
-            case (#err(errorMsg)) {
-                #err("Payment failed: " # errorMsg)
-            };
-            case (#ok(paymentInfo)) {
-                if (not paymentInfo.isValid) {
-                    if (paymentInfo.approvalRequired) {
-                        #err("Payment requires ICRC-2 approval. Please approve " # Nat.toText(paymentInfo.requiredAmount) # " e8s to backend canister and try again.")
-                    } else {
-                        let errorMsg = switch (paymentInfo.errorMessage) {
-                            case (?msg) msg;
-                            case null "Payment validation failed";
-                        };
-                        #err(errorMsg)
-                    };
-                } else {
-                    #ok(paymentInfo)
-                }
-            };
-        }
-    };
-    
-    // Helper function to handle deployment failure with automatic refund
-    private func _handleDeploymentFailure(
-        caller: Principal,
-        paymentInfo: PaymentValidator.PaymentValidationResult,
-        auditId: Text,
-        failureReason: Text,
-        deploymentType: Text
-    ) : async Text {
-        
-        Debug.print("🚨 Deployment failure detected for " # deploymentType # ": " # failureReason);
-        
-        // Process automatic refund
-        let refundResult = await _processAutomaticRefund(caller, paymentInfo, auditId, failureReason);
-        
-        switch (refundResult) {
-            case (#ok(refundRequest)) {
-                let refundInfo = switch (refundRequest.refundTransactionId) {
-                    case (?txId) " Refund processed with transaction ID: " # txId;
-                    case null " Refund initiated with ID: " # refundRequest.id;
+        if (not _isAdmin(caller)) {
+            return {
+                suspiciousPatterns = [];
+                automaticRefundStats = {
+                    totalAutoRefunds = 0;
+                    autoRefundAmount = 0;
+                    averageRefundTime = "Unauthorized";
+                    failureRate = 0.0;
                 };
-                deploymentType # " deployment failed: " # failureReason # refundInfo
-            };
-            case (#err(refundError)) {
-                // Even if refund fails, we still record that deployment failed
-                Debug.print("⚠️ Automatic refund failed, manual intervention may be required: " # refundError);
-                deploymentType # " deployment failed: " # failureReason # " (Automatic refund failed: " # refundError # " - Manual refund may be required)"
-            };
-        }
-    };
-    
-    // Process automatic refund for failed deployments
-    private func _processAutomaticRefund(
-        caller: Principal,
-        paymentInfo: PaymentValidator.PaymentValidationResult,
-        auditId: Text,
-        failureReason: Text
-    ) : async Result.Result<RefundManager.RefundRequest, Text> {
-        
-        // Extract transaction ID from payment info
-        let transactionId = switch (paymentInfo.transactionId) {
-            case (?txId) txId;
-            case null {
-                Debug.print("⚠️ No transaction ID found for refund, using audit ID: " # auditId);
-                "audit_" # auditId; // Fallback to audit ID
+                manualReviewRequired = [];
+                potentialAttacks = [];
+                isAuthorized = false;
             };
         };
         
-        Debug.print("🔄 Processing automatic refund for user: " # Principal.toText(caller) # ", amount: " # Nat.toText(paymentInfo.paidAmount) # " e8s");
+        let allRefunds = RefundManager.getAllRefundRecords(refundManager);
+        let currentTime = Time.now();
+        let last24Hours = currentTime - (24 * 60 * 60 * 1000000000); // 24 hours in nanoseconds
         
-        // Get system configuration for accepted tokens
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        let acceptedTokens = [config.paymentConfig.defaultPaymentToken];
+        // Analyze suspicious patterns
+        var quickRefundCount = 0;
+        var multipleRefundUsers = 0;
+        var highAmountRefunds = 0;
         
-        // Create refund request with ServiceFailure reason using configuration
-        let refundRequest = RefundManager.createRefundRequestWithConfig(
-            refundManager,
-            caller,
-            transactionId,
-            paymentInfo.paidAmount,
-            paymentInfo.paidAmount, // Full refund
-            #ServiceFailure,
-            "Automatic refund due to deployment failure: " # failureReason,
-            ?"Deployment failed after successful payment, automatic refund initiated",
-            acceptedTokens
+        // Count automatic refunds and calculate stats
+        var autoRefundCount = 0;
+        var autoRefundAmount = 0;
+        var totalProcessingTime = 0;
+        var failedAutoRefunds = 0;
+        
+        for (refund in allRefunds.vals()) {
+            // Check for quick refunds (within 1 hour of request)
+            switch (refund.processedAt) {
+                case (?processedTime) {
+                    let timeDiff = processedTime - refund.requestedAt;
+                    if (timeDiff < 3600000000000) { // 1 hour in nanoseconds
+                        quickRefundCount += 1;
+                    };
+                };
+                case null {};
+            };
+            
+            // Check for high amount refunds (>50 ICP = 5000000000 e8s)
+            if (refund.refundAmount > 5000000000) {
+                highAmountRefunds += 1;
+            };
+            
+            // Count automatic refunds
+            if (Text.contains(refund.description, #text "Automatic refund")) {
+                autoRefundCount += 1;
+                autoRefundAmount += refund.refundAmount;
+                
+                switch (refund.status) {
+                    case (#Completed) {
+                        switch (refund.processedAt) {
+                            case (?processedTime) {
+                                totalProcessingTime += Int.abs(processedTime - refund.requestedAt);
+                            };
+                            case null {};
+                        };
+                    };
+                    case (#Failed(_)) {
+                        failedAutoRefunds += 1;
+                    };
+                    case (_) {};
+                };
+            };
+        };
+        
+        // Build suspicious patterns
+        let suspiciousPatterns = [
+            {
+                pattern = "Quick refunds (<1 hour)";
+                occurrences = quickRefundCount;
+                riskLevel = if (quickRefundCount > 10) "High" else if (quickRefundCount > 5) "Medium" else "Low";
+                affectedUsers = quickRefundCount; // Simplified
+            },
+            {
+                pattern = "High amount refunds (>50 ICP)";
+                occurrences = highAmountRefunds;
+                riskLevel = if (highAmountRefunds > 5) "High" else if (highAmountRefunds > 2) "Medium" else "Low";
+                affectedUsers = highAmountRefunds; // Simplified
+            }
+        ];
+        
+        // Calculate automatic refund stats
+        let averageProcessingTime = if (autoRefundCount > 0) {
+            Int.toText((totalProcessingTime / autoRefundCount) / 1000000000) # " seconds"
+        } else {
+            "No data"
+        };
+        
+        let failureRate = if (autoRefundCount > 0) {
+            Float.fromInt(failedAutoRefunds) / Float.fromInt(autoRefundCount)
+        } else {
+            0.0
+        };
+        
+        // Get refunds requiring manual review
+        let manualReviewRequired = Array.filter<RefundManager.RefundRequest>(
+            allRefunds,
+            func(refund) {
+                refund.refundAmount > 5000000000 or // >50 ICP
+                refund.escalationLevel > 0 or
+                (refund.status == #Pending and (currentTime - refund.requestedAt) > last24Hours)
+            }
         );
         
-        Debug.print("📝 Created refund request: " # refundRequest.id);
+        // Detect potential attacks
+        let potentialAttacks = if (quickRefundCount > 20) {
+            [{
+                attackType = "Refund farming";
+                confidence = "High";
+                description = "Unusually high number of quick refunds detected";
+                recommendedAction = "Implement stricter refund validation";
+            }]
+        } else if (autoRefundCount > 50) {
+            [{
+                attackType = "Service exploitation";
+                confidence = "Medium";
+                description = "High volume of automatic refunds may indicate service abuse";
+                recommendedAction = "Review deployment failure patterns";
+            }]
+        } else {
+            []
+        };
         
-        // For service failures, automatically approve the refund (since it's system error)
-        let backendPrincipal = Principal.fromActor(Backend);
-        switch (RefundManager.approveRefund(refundManager, refundRequest.id, backendPrincipal, ?"Auto-approved: Service failure after payment")) {
-            case (?approvedRefund) {
-                Debug.print("✅ Auto-approved refund: " # refundRequest.id);
-                
-                // Process the refund immediately
-                try {
-                    let processResult = await RefundManager.processRefund(refundManager, refundRequest.id, backendPrincipal);
-                    
-                    switch (processResult) {
-                        case (#ok(processedRefund)) {
-                            Debug.print("💰 Refund processed successfully: " # refundRequest.id);
-                            
-                            // Log refund in audit
-                            let refundAuditEntry = AuditLogger.logAction(
-                                auditStorage,
-                                backendPrincipal,
-                                #RefundProcessed,
-                                #RawData("Refund processed: " # refundRequest.id # " for user " # Principal.toText(caller) # " amount: " # Nat.toText(paymentInfo.paidAmount) # " e8s"),
-                                null,
-                                ?#Backend
-                            );
-                            
-                            ignore AuditLogger.updateAuditStatus(auditStorage, refundAuditEntry.id, #Completed, null, ?100);
-                            
-                            #ok(processedRefund)
-                        };
-                        case (#err(error)) {
-                            let errorMsg = switch (error) {
-                                case (#InternalError(msg)) "Refund processing internal error: " # msg;
-                                case (#InvalidInput(msg)) "Refund processing invalid input: " # msg;
-                                case (#ServiceUnavailable(msg)) "Refund service unavailable: " # msg;
-                                case (#Unauthorized) "Unauthorized refund processing";
-                                case (#NotFound) "Refund not found for processing";
-                                case (#InsufficientFunds) "Insufficient funds for refund";
-                            };
-                            Debug.print("❌ Refund processing failed: " # errorMsg);
-                            #err("Refund processing failed: " # errorMsg)
-                        };
-                    }
-                } catch (error) {
-                    let errorMsg = "Refund processing exception: " # Error.message(error);
-                    Debug.print("💥 " # errorMsg);
-                    #err(errorMsg)
-                }
+        {
+            suspiciousPatterns = suspiciousPatterns;
+            automaticRefundStats = {
+                totalAutoRefunds = autoRefundCount;
+                autoRefundAmount = autoRefundAmount;
+                averageRefundTime = averageProcessingTime;
+                failureRate = failureRate;
             };
-            case null {
-                Debug.print("❌ Failed to approve refund request");
-                #err("Failed to approve refund request")
-            };
+            manualReviewRequired = manualReviewRequired;
+            potentialAttacks = potentialAttacks;
+            isAuthorized = true;
         }
-    };
+    };   
 }
-

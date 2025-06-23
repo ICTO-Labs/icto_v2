@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Admin Microservices Setup Script for ICTO V2
-# Requires bash 4.0+ for associative arrays
+# macOS compatible - no associative arrays required
 # This script helps admin setup and manage microservices
 
 echo "🔧 Admin Microservices Setup - ICTO V2"
@@ -174,8 +174,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
         4)
             echo -e "${BLUE}🔐 Adding backend to deployer whitelists manually...${NC}"
             
-            # Get backend canister ID
-            BACKEND_ID=${CANISTERS[backend]}
+            # Use backend canister ID we already have
             if [[ -z "$BACKEND_ID" ]]; then
                 echo -e "${RED}❌ Backend canister not found${NC}"
                 exit 1
@@ -185,30 +184,42 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             echo ""
             
             # Add to token deployer whitelist
-            if [[ -n "${CANISTERS[token_deployer]}" ]]; then
+            if [[ -n "$TOKEN_DEPLOYER_ID" ]]; then
                 echo "Adding backend to token deployer whitelist..."
                 dfx canister call token_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
                 echo ""
             fi
             
             # Add to launchpad deployer whitelist
-            if [[ -n "${CANISTERS[launchpad]}" ]]; then
+            if [[ -n "$LAUNCHPAD_DEPLOYER_ID" ]]; then
                 echo "Adding backend to launchpad deployer whitelist..."
                 dfx canister call launchpad_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
                 echo ""
             fi
             
-            # Add to lock deployer whitelist
-            if [[ -n "${CANISTERS[lock_deployer]}" ]]; then
+            # Add to other deployers
+            if [[ -n "$LOCK_DEPLOYER_ID" ]]; then
                 echo "Adding backend to lock deployer whitelist..."
                 dfx canister call lock_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
                 echo ""
             fi
             
-            # Add to distribution deployer whitelist
-            if [[ -n "${CANISTERS[distributing_deployer]}" ]]; then
-                echo "Adding backend to distribution deployer whitelist..."
+            if [[ -n "$DISTRIBUTING_DEPLOYER_ID" ]]; then
+                echo "Adding backend to distributing deployer whitelist..."
                 dfx canister call distributing_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
+                echo ""
+            fi
+            
+            # Add to audit and invoice storage
+            if [[ -n "$AUDIT_STORAGE_ID" ]]; then
+                echo "Adding backend to audit storage whitelist..."
+                dfx canister call audit_storage addToWhitelist "(principal \"$BACKEND_ID\")"
+                echo ""
+            fi
+            
+            if [[ -n "$INVOICE_STORAGE_ID" ]]; then
+                echo "Adding backend to invoice storage whitelist..."
+                dfx canister call invoice_storage addToWhitelist "(principal \"$BACKEND_ID\")"
                 echo ""
             fi
             
@@ -220,28 +231,28 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             echo ""
             
             # Check token deployer whitelist
-            if [[ -n "${CANISTERS[token_deployer]}" ]]; then
+            if [[ -n "$TOKEN_DEPLOYER_ID" ]]; then
                 echo "Token Deployer Whitelist:"
                 dfx canister call token_deployer getWhitelistedBackends "()"
                 echo ""
             fi
             
             # Check launchpad deployer whitelist
-            if [[ -n "${CANISTERS[launchpad]}" ]]; then
+            if [[ -n "$LAUNCHPAD_DEPLOYER_ID" ]]; then
                 echo "Launchpad Deployer Whitelist:"
                 dfx canister call launchpad getWhitelist "()"
                 echo ""
             fi
             
             # Check lock deployer whitelist
-            if [[ -n "${CANISTERS[lock_deployer]}" ]]; then
+            if [[ -n "$LOCK_DEPLOYER_ID" ]]; then
                 echo "Lock Deployer Whitelist:"
                 dfx canister call lock_deployer getWhitelist "()"
                 echo ""
             fi
             
             # Check distribution deployer whitelist
-            if [[ -n "${CANISTERS[distributing_deployer]}" ]]; then
+            if [[ -n "$DISTRIBUTING_DEPLOYER_ID" ]]; then
                 echo "Distribution Deployer Whitelist:"
                 dfx canister call distributing_deployer getWhitelist "()"
                 echo ""
@@ -252,8 +263,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             echo -e "${BLUE}🔐 Standardized Whitelist Management${NC}"
             echo ""
             
-            # Get backend canister ID
-            BACKEND_ID=${CANISTERS[backend]}
+            # Use backend canister ID we already have
             if [[ -z "$BACKEND_ID" ]]; then
                 echo -e "${RED}❌ Backend canister not found${NC}"
                 exit 1
@@ -262,101 +272,113 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             echo "Backend canister ID: $BACKEND_ID"
             echo ""
             
-            # Define services with standardized addToWhitelist function
-            declare -a WHITELIST_SERVICES=(
-                "audit_storage"
-                "invoice_storage"
-                "token_deployer"
-                "launchpad_deployer"
-                "lock_deployer"
-                "distributing_deployer"
-            )
+            # Status tracking with simple variables
+            SUCCESS_COUNT=0
+            FAILED_COUNT=0
+            SUCCESS_SERVICES=""
+            FAILED_SERVICES=""
             
-            # Status tracking
-            declare -A WHITELIST_STATUS
-            declare -a FAILED_SERVICES
-            declare -a SUCCESS_SERVICES
-            
-            # Function to add to whitelist with status tracking (standardized)
+            # Function to add to whitelist with status tracking
             add_to_service_whitelist() {
                 local service_name=$1
                 local backend_principal=$2
                 
                 echo -e "${YELLOW}Adding backend to ${service_name} whitelist...${NC}"
                 
-                # Check if canister exists
-                if [[ -z "${CANISTERS[$service_name]}" ]]; then
+                # Check if canister exists by checking the ID variable directly
+                local service_id=""
+                case $service_name in
+                    "audit_storage") service_id="$AUDIT_STORAGE_ID" ;;
+                    "invoice_storage") service_id="$INVOICE_STORAGE_ID" ;;
+                    "token_deployer") service_id="$TOKEN_DEPLOYER_ID" ;;
+                    "launchpad_deployer") service_id="$LAUNCHPAD_DEPLOYER_ID" ;;
+                    "lock_deployer") service_id="$LOCK_DEPLOYER_ID" ;;
+                    "distributing_deployer") service_id="$DISTRIBUTING_DEPLOYER_ID" ;;
+                esac
+                
+                if [[ -z "$service_id" ]]; then
                     echo -e "${ORANGE}⚠️  ${service_name} not deployed - skipping${NC}"
-                    WHITELIST_STATUS["$service_name"]="SKIPPED"
                     return 0
                 fi
                 
+                # Determine the actual canister name for dfx call
+                local dfx_canister_name=""
+                case $service_name in
+                    "audit_storage") dfx_canister_name="audit_storage" ;;
+                    "invoice_storage") dfx_canister_name="invoice_storage" ;;
+                    "token_deployer") dfx_canister_name="token_deployer" ;;
+                    "launchpad_deployer") dfx_canister_name="launchpad_deployer" ;;
+                    "lock_deployer") dfx_canister_name="lock_deployer" ;;
+                    "distributing_deployer") dfx_canister_name="distributing_deployer" ;;
+                    *) echo -e "${RED}❌ Unknown service: ${service_name}${NC}"; return 1 ;;
+                esac
+                
                 # Execute the standardized whitelist command
-                if dfx canister call "$service_name" "addToWhitelist" "(principal \"${backend_principal}\")"; then
-                    WHITELIST_STATUS["$service_name"]="SUCCESS"
-                    SUCCESS_SERVICES+=("$service_name")
+                if dfx canister call "$dfx_canister_name" "addToWhitelist" "(principal \"${backend_principal}\")"; then
+                    SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                    SUCCESS_SERVICES="$SUCCESS_SERVICES $service_name"
                     echo -e "${GREEN}✅ Backend successfully added to ${service_name} whitelist${NC}"
                     return 0
                 else
-                    WHITELIST_STATUS["$service_name"]="FAILED"
-                    FAILED_SERVICES+=("$service_name")
+                    FAILED_COUNT=$((FAILED_COUNT + 1))
+                    FAILED_SERVICES="$FAILED_SERVICES $service_name"
                     echo -e "${RED}❌ Failed to add backend to ${service_name} whitelist${NC}"
                     return 1
                 fi
             }
             
+            # Define services list (simple array)
+            SERVICES_TO_PROCESS="audit_storage invoice_storage token_deployer launchpad_deployer lock_deployer distributing_deployer"
+            SERVICE_COUNT=6
+            
             # Process all services
-            echo -e "${BLUE}📋 Processing ${#WHITELIST_SERVICES[@]} services for whitelist addition...${NC}"
+            echo -e "${BLUE}📋 Processing ${SERVICE_COUNT} services for whitelist addition...${NC}"
             echo ""
             
-            for service in "${WHITELIST_SERVICES[@]}"; do
+            for service in $SERVICES_TO_PROCESS; do
                 add_to_service_whitelist "$service" "$BACKEND_ID"
-                
-                # Small delay between calls
                 sleep 0.5
             done
             
             # Display comprehensive status report
             echo ""
             echo -e "${BLUE}📊 Whitelist Management Status Report:${NC}"
-            echo -e "${GREEN}✅ Successful: ${#SUCCESS_SERVICES[@]}${NC}"
-            echo -e "${RED}❌ Failed: ${#FAILED_SERVICES[@]}${NC}"
+            echo -e "${GREEN}✅ Successful: ${SUCCESS_COUNT}${NC}"
+            echo -e "${RED}❌ Failed: ${FAILED_COUNT}${NC}"
             
-            if [ ${#SUCCESS_SERVICES[@]} -gt 0 ]; then
+            if [[ -n "$SUCCESS_SERVICES" ]]; then
                 echo ""
                 echo -e "${GREEN}Successfully added to whitelist:${NC}"
-                for service in "${SUCCESS_SERVICES[@]}"; do
+                for service in $SUCCESS_SERVICES; do
                     echo -e "  ✓ $service"
                 done
             fi
             
-            if [ ${#FAILED_SERVICES[@]} -gt 0 ]; then
+            if [[ -n "$FAILED_SERVICES" ]]; then
                 echo ""
                 echo -e "${RED}Failed to add to whitelist:${NC}"
-                for service in "${FAILED_SERVICES[@]}"; do
+                for service in $FAILED_SERVICES; do
                     echo -e "  ✗ $service"
                 done
                 echo ""
                 echo -e "${YELLOW}⚠️  Manual commands for failed services:${NC}"
-                for service in "${FAILED_SERVICES[@]}"; do
+                for service in $FAILED_SERVICES; do
                     echo -e "  dfx canister call $service addToWhitelist \"(principal \\\"${BACKEND_ID}\\\")\""
                 done
             fi
             
             # Check critical services
-            CRITICAL_SERVICES=("audit_storage" "invoice_storage" "token_deployer")
-            CRITICAL_FAILED=()
-            
-            for critical_service in "${CRITICAL_SERVICES[@]}"; do
-                if [[ "${WHITELIST_STATUS[$critical_service]}" == "FAILED" ]]; then
-                    CRITICAL_FAILED+=("$critical_service")
+            CRITICAL_FAILED=""
+            for critical_service in "audit_storage" "invoice_storage" "token_deployer"; do
+                if [[ "$FAILED_SERVICES" == *"$critical_service"* ]]; then
+                    CRITICAL_FAILED="$CRITICAL_FAILED $critical_service"
                 fi
             done
             
-            if [ ${#CRITICAL_FAILED[@]} -gt 0 ]; then
+            if [[ -n "$CRITICAL_FAILED" ]]; then
                 echo ""
                 echo -e "${RED}🚨 CRITICAL: Essential services failed whitelist addition:${NC}"
-                for service in "${CRITICAL_FAILED[@]}"; do
+                for service in $CRITICAL_FAILED; do
                     echo -e "  ⚠️  $service"
                 done
                 echo -e "${RED}Backend may not function properly without these services whitelisted.${NC}"
