@@ -15,6 +15,8 @@ import Audit "../audit/AuditTypes";
 import PaymentTypes "PaymentTypes";
 import ICRC "../../../shared/types/ICRC";
 import InvoiceStorage "../../../shared/interfaces/InvoiceStorage";
+import ConfigService "../config/ConfigService";
+import ConfigTypes "../config/ConfigTypes";
 
 
 module PaymentService {
@@ -61,6 +63,8 @@ module PaymentService {
             invoiceStorageId = state.invoiceStorageId;
         }
     };
+
+    // --- ADMIN CONFIGURATION ---
 
     // --- TYPE CONVERSION UTILS ---
 
@@ -124,9 +128,11 @@ module PaymentService {
     private func toStorageRefundReason(reason: PaymentTypes.RefundReason) : Text {
         switch(reason) {
             case (#SystemError) "SystemError";
-            case (#UserRequested) "UserRequested";
             case (#DuplicatePayment) "DuplicatePayment";
-            case (#ServiceUnavailable) "ServiceUnavailable";
+            case (#ServiceFailure) "ServiceFailure";
+            case (#Custom(msg)) "Custom: " # msg;
+            case (#AdminOverride) "AdminOverride";
+            case (#UserRequest) "UserRequest";
         }
     };
 
@@ -204,35 +210,114 @@ module PaymentService {
         "payment_" # Principal.toText(userId) # "_" # serviceType # "_" # Int.toText(Time.now())
     };
 
-    private func getRequiredFee(
-        actionType: Audit.ActionType,
-        fees: PaymentTypes.FeeStructure
+    // New function to get fee for a specific service from ConfigService
+    public func getServiceFee(
+        configState: ConfigTypes.State,
+        serviceName: Text
     ) : Nat {
-        switch (actionType) {
-            case (#CreateToken) fees.createToken;
-            case (#CreateLock) fees.createLock;
-            case (#CreateDistribution) fees.createDistribution;
-            case (#CreateLaunchpad) fees.createLaunchpad;
-            case (#CreateDAO) fees.createDAO;
-            case (#PipelineCompleted) fees.pipelineExecution; // Assuming pipeline fee is on completion
-            // Add other cases as needed, for now, default to 0
-            case (_) 0;
-        }
+        let feeKey = serviceName # ".fee";
+        // Using a default of 0, assuming service is free if not configured
+        ConfigService.getNumber(configState, feeKey, 0)
+    };
+
+    private func getRequiredFee(
+        configState: ConfigTypes.State,
+        actionType: Audit.ActionType
+    ) : Nat {
+        let serviceName = getServiceTypeFromAction(actionType);
+        if (serviceName == "generic") { return 0; }; // No fee for generic actions
+        return getServiceFee(configState, serviceName # ".fee");
     };
 
     private func getServiceTypeFromAction(actionType: Audit.ActionType) : Text {
         switch (actionType) {
-            case (#CreateToken) "TokenDeployer";
-            case (#CreateLock) "LockDeployer";
-            case (#CreateDistribution) "DistributionDeployer";
-            case (#CreateLaunchpad) "LaunchpadDeployer";
-            case (#CreateDAO) "DAODeployer";
-            case (#PipelineCompleted) "PipelineEngine";
-            case (_) "Generic";
+            case (#CreateToken) "token_deployer";
+            case (#CreateLock) "lock_deployer";
+            case (#CreateDistribution) "distribution_deployer";
+            case (#CreateLaunchpad) "launchpad_deployer";
+            case (#CreateDAO) "dao_deployer";
+            case (#PipelineCompleted) "pipeline_engine";
+            case (_) "generic";
         }
     };
 
     // --- CORE PAYMENT LOGIC ---
+
+    // is useful for UIs to check if approval is needed before initiating a transaction.
+    public func checkPaymentApproval(
+        state: PaymentTypes.State,
+        configState: ConfigTypes.State,
+        user: Principal,
+        backendPrincipal: Principal,
+        actionType: Audit.ActionType
+    ) : async PaymentTypes.PaymentValidationResult {
+        let requiredAmount = getRequiredFee(configState, actionType);
+        let paymentInfo = ConfigService.getPaymentInfo(configState);
+        if (requiredAmount == 0) {
+            return {
+                isValid = true;
+                transactionId = null;
+                paidAmount = 0;
+                requiredAmount = 0;
+                paymentToken = paymentInfo.defaultToken;
+                blockHeight = null;
+                errorMessage = null;
+                approvalRequired = false;
+                paymentRecordId = null;
+            };
+        };
+        
+        if (paymentInfo.acceptedTokens.size() == 0) {
+            return {
+                isValid = false;
+                transactionId = null;
+                paidAmount = 0;
+                requiredAmount = requiredAmount;
+                paymentToken = paymentInfo.defaultToken;
+                blockHeight = null;
+                errorMessage = ?("Payment token not configured in system.");
+                approvalRequired = true;
+                paymentRecordId = null;
+            };
+        };
+        let paymentToken = paymentInfo.defaultToken;
+
+        let icrcLedger = actor(Principal.toText(paymentToken)) : ICRC.ICRCLedger;
+
+        let allowanceArgs : ICRC.AllowanceArgs = {
+            account = { owner = user; subaccount = null };
+            spender = { owner = backendPrincipal; subaccount = null };
+        };
+        
+        let allowanceResult = await icrcLedger.icrc2_allowance(allowanceArgs);
+        
+        if (allowanceResult.allowance >= requiredAmount) {
+            return {
+                isValid = true; // isValid here means approval is sufficient
+                transactionId = null;
+                paidAmount = 0;
+                requiredAmount = requiredAmount;
+                paymentToken = paymentToken;
+                blockHeight = null;
+                errorMessage = null;
+                approvalRequired = false;
+                paymentRecordId = null;
+            };
+        } else {
+            return {
+                isValid = false; // isValid false means approval is required
+                transactionId = null;
+                paidAmount = 0;
+                requiredAmount = requiredAmount;
+                paymentToken = paymentToken;
+                blockHeight = null;
+                errorMessage = ?("Insufficient allowance. Required: " # Nat.toText(requiredAmount) # ", Current: " # Nat.toText(allowanceResult.allowance));
+                approvalRequired = true;
+                paymentRecordId = null;
+            };
+        }
+    };
+
 
     // Internal function to handle the actual ICRC-2 transfer
     private func _processICRC2Transfer(
@@ -240,34 +325,13 @@ module PaymentService {
         spender: Principal, // The backend principal that is approved to spend
         amount: Nat,
         paymentTokenId: Principal,
-        recipient: Principal
-    ) : async PaymentTypes.PaymentValidationResult {
+        recipient: Principal,
+        memo: ?Nat64
+    ) : async Result.Result<(Nat, ?Nat), ICRC.TransferFromError> {
         
         let icrcLedger = actor(Principal.toText(paymentTokenId)) : ICRC.ICRCLedger;
 
-        // 1. Check allowance
-        let allowanceArgs : ICRC.AllowanceArgs = {
-            account = { owner = user; subaccount = null };
-            spender = { owner = spender; subaccount = null };
-        };
-        
-        let allowanceResult = await icrcLedger.icrc2_allowance(allowanceArgs);
-        
-        if (allowanceResult.allowance < amount) {
-            return {
-                isValid = false;
-                transactionId = null;
-                paidAmount = 0;
-                requiredAmount = amount;
-                paymentToken = paymentTokenId;
-                blockHeight = null;
-                errorMessage = ?("Insufficient allowance. Required: " # Nat.toText(amount) # ", Current: " # Nat.toText(allowanceResult.allowance));
-                approvalRequired = true;
-                paymentRecordId = null;
-            };
-        };
-
-        // 2. Execute transfer_from
+        // Execute transfer_from
         let transferArgs : ICRC.TransferFromArgs = {
             spender_subaccount = null;
             from = { owner = user; subaccount = null };
@@ -282,32 +346,10 @@ module PaymentService {
 
         switch (transferResult) {
             case (#Ok(blockHeight)) {
-                return {
-                    isValid = true;
-                    transactionId = ?(Nat.toText(blockHeight));
-                    paidAmount = amount;
-                    requiredAmount = amount;
-                    paymentToken = paymentTokenId;
-                    blockHeight = ?blockHeight;
-                    errorMessage = null;
-                    approvalRequired = false;
-                    paymentRecordId = null; // Will be set by the caller
-                };
+                return #ok((blockHeight, ?blockHeight));
             };
             case (#Err(err)) {
-                // TODO: Finer error handling
-                let errorText = "ICRC2 transfer failed.";
-                return {
-                    isValid = false;
-                    transactionId = null;
-                    paidAmount = 0;
-                    requiredAmount = amount;
-                    paymentToken = paymentTokenId;
-                    blockHeight = null;
-                    errorMessage = ?errorText;
-                    approvalRequired = false;
-                    paymentRecordId = null;
-                };
+                return #err(err);
             };
         }
     };
@@ -315,13 +357,15 @@ module PaymentService {
 
     public func validateAndProcessPayment(
         state: PaymentTypes.State,
+        configState: ConfigTypes.State,
         caller: Common.UserId,
         backendPrincipal: Principal,
         actionType: Audit.ActionType,
         auditId: ?Audit.AuditId
     ) : async PaymentTypes.PaymentValidationResult {
         
-        let requiredAmount = getRequiredFee(actionType, state.config.fees);
+        let requiredAmount = getRequiredFee(configState, actionType);
+        let paymentInfo = ConfigService.getPaymentInfo(configState);
         if (requiredAmount == 0) {
             // No fee required for this action
             return {
@@ -329,7 +373,7 @@ module PaymentService {
                 transactionId = null;
                 paidAmount = 0;
                 requiredAmount = 0;
-                paymentToken = state.config.feeRecipient; // Placeholder
+                paymentToken = paymentInfo.defaultToken;
                 blockHeight = null;
                 errorMessage = null;
                 approvalRequired = false;
@@ -339,10 +383,32 @@ module PaymentService {
 
         let serviceType = getServiceTypeFromAction(actionType);
         let paymentId = generatePaymentId(caller, serviceType);
-        let paymentToken = state.config.acceptedTokens[0]; // Assume first token for now
-        let feeRecipient = state.config.feeRecipient;
+        
+        // Get config from ConfigService instead of local state
+        if (paymentInfo.acceptedTokens.size() == 0 or not Principal.equal(paymentInfo.feeRecipient, backendPrincipal)) {
+            return {
+                isValid = false;
+                transactionId = null;
+                paidAmount = 0;
+                requiredAmount = requiredAmount;
+                paymentToken = paymentInfo.defaultToken;
+                blockHeight = null;
+                errorMessage = ?("Payment token or fee recipient not configured.");
+                approvalRequired = false; // Cannot proceed anyway
+                paymentRecordId = null;
+            };
+        };
+        let paymentToken = paymentInfo.defaultToken;
+        let feeRecipient = paymentInfo.feeRecipient;//TODO: check if this is correct - Backend canister
 
-        // 1. Create initial payment record and store it
+        // 1. Check allowance FIRST, before creating any records.
+        // This prevents creating pending records for users who haven't approved the transfer.
+        let approvalCheck = await checkPaymentApproval(state, configState, caller, backendPrincipal, actionType);
+        if (not approvalCheck.isValid) {
+            return approvalCheck; // Return the result from checkPaymentApproval
+        };
+
+        // 2. Create initial payment record and store it
         let initialPaymentRecord : PaymentTypes.PaymentRecord = {
             id = paymentId;
             userId = caller;
@@ -369,31 +435,47 @@ module PaymentService {
             case null {};
         };
 
-        // 2. Process the actual transfer
-        let validationResult = await _processICRC2Transfer(
+        // 3. Process the actual transfer
+        let transferResult = await _processICRC2Transfer(
             caller,
             backendPrincipal,
             requiredAmount,
             paymentToken,
-            feeRecipient
+            feeRecipient,
+            null // memo
         );
 
-        // 3. Create a final, updated payment record
+        Debug.print("Transfer result: " # debug_show(transferResult));
+        
+        let (isValid, transactionId, blockHeight, errorMessage) = switch (transferResult) {
+            case (#ok((bh, _))) {
+                (true, ?Nat.toText(bh), ?bh, null);
+            };
+            case (#err(err)) {
+                // TODO: Finer error translation
+                (false, null, null, ?("ICRC-2 Transfer Failed."));
+            };
+        };
+
+
+        // 4. Create a final, updated payment record
         let finalPaymentRecord : PaymentTypes.PaymentRecord = {
             initialPaymentRecord with
             completedAt = ?Time.now();
-            transactionId = validationResult.transactionId;
-            blockHeight = validationResult.blockHeight;
-            errorMessage = validationResult.errorMessage;
-            status = if (validationResult.isValid) {
+            transactionId = transactionId;
+            blockHeight = blockHeight;
+            errorMessage = errorMessage;
+            status = if (isValid) {
                 #Completed
             } else {
-                #Failed(Option.get(validationResult.errorMessage, "Payment processing failed."))
+                #Failed(Option.get(errorMessage, "Payment processing failed."))
             };
         };
         
-        // 4. Update state with the final record and statistics
-        if (validationResult.isValid) {
+        Debug.print("--- Final payment record: " # debug_show(finalPaymentRecord));
+        Debug.print("Payment ID: " # paymentId);
+        // 5. Update state with the final record and statistics
+        if (isValid) {
             state.totalPayments += 1;
             state.totalVolume += requiredAmount;
         };
@@ -409,14 +491,24 @@ module PaymentService {
             case null {};
         };
         
-        // 5. Update user-specific payment index
+        // 6. Update user-specific payment index
         let userKey = Principal.toText(caller);
         let userPayments = Option.get(Trie.get(state.userPayments, textKey(userKey), Text.equal), []);
         let updatedUserPayments = Array.append(userPayments, [paymentId]);
         state.userPayments := Trie.put(state.userPayments, textKey(userKey), Text.equal, updatedUserPayments).0;
 
-        // 6. Return the result
-        return { validationResult with paymentRecordId = ?paymentId };
+        // 7. Return the result
+        return { 
+            isValid = isValid;
+            transactionId = transactionId;
+            paidAmount = if(isValid) requiredAmount else 0;
+            requiredAmount = requiredAmount;
+            paymentToken = paymentToken;
+            blockHeight = blockHeight;
+            errorMessage = errorMessage;
+            approvalRequired = false; // Already handled
+            paymentRecordId = ?paymentId 
+        };
     };
 
     // --- REFUND LOGIC ---

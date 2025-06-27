@@ -176,32 +176,54 @@ actor Backend {
             return #err("Token symbol '" # symbol # "' already exists");
         };
         
-        // 2. Get fee from config
-        let fee = ConfigService.getNumber(configState, "token_deployer.fee", 100_000_000); // Default 1 ICP
-
-        // 3. Process payment
+        // 2. Process payment
         let paymentResult = await PaymentService.validateAndProcessPayment(
             paymentState,
+            configState,
             caller,
             owner, // The backend canister principal acts as the spender
             #CreateToken,
-            null
+            null // We don't have a primary audit log yet
         );
 
+        // 3. Log the payment processing action itself
         if (not paymentResult.isValid) {
-            return #err(Option.get(paymentResult.errorMessage, "Payment failed."));
+            // Log payment failure and exit
+            ignore await AuditService.logAction(
+                auditState,
+                caller,
+                #PaymentFailed,
+                #RawData(Option.get(paymentResult.errorMessage, "Payment failed")),
+                request.projectId,
+                paymentResult.paymentRecordId,
+                ?#Backend
+            );
+            return #err(Option.get(paymentResult.errorMessage, "Payment processing failed."));
+        } else {
+            // Log payment success
+            ignore await AuditService.logAction(
+                auditState,
+                caller,
+                #PaymentProcessed,
+                #RawData("Payment of " # Nat.toText(paymentResult.paidAmount) # " successful."),
+                request.projectId,
+                paymentResult.paymentRecordId,
+                ?#Backend
+            );
         };
+        Debug.print("Payment result: " # debug_show(paymentResult));
 
-        // 4. Log initial action
+        // 4. Log the primary business action (token deployment)
         let auditEntry = await AuditService.logAction(auditState, 
             caller, 
             #CreateToken, 
             #RawData("Initiating token deployment for " # symbol),
+            request.projectId,
             paymentResult.paymentRecordId,
             ?#TokenDeployer
         );
         let auditId = auditEntry.id;
-
+        Debug.print("Audit ID: " # debug_show(auditEntry));
         // 5. Prepare for external deployment call
         // This service function now constructs the correct {config, deploymentConfig} structure
         let preparedCall = switch(
@@ -217,6 +239,7 @@ actor Backend {
             case (#ok(call)) { call };
         };
 
+        Debug.print("Prepared call: " # debug_show(preparedCall));
         // 6. Execute external call
         let deployerActor = actor(Principal.toText(preparedCall.canisterId)) : actor {
             deployTokenWithConfig : (TokenDeployerTypes.TokenConfig, TokenDeployerTypes.DeploymentConfig, ?Principal) -> async Result.Result<Principal, Text>
@@ -312,7 +335,7 @@ actor Backend {
             case (#err(msg)) {
                 // Log failure and return
                 Debug.print("setCanisterIds: Admin access required");
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("setCanisterIds: Admin access required"), null, null);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("setCanisterIds: Admin access required"), null, null, null);
                 return;
             };
             case (#ok()) {};
@@ -342,6 +365,7 @@ actor Backend {
                 configChanges = "Initial setup";
                 justification = "System initialization";
             }),
+            null,
             null,
             null
         );
@@ -442,13 +466,13 @@ actor Backend {
         // Authorization Check
         switch (_onlySuperAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("forceResetMicroserviceSetup: Super-admin access required"), null, null);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("forceResetMicroserviceSetup: Super-admin access required"), null, null, null);
                 return;
             };
             case (#ok()) {};
         };
         microserviceState.setupCompleted := false;
-        ignore await AuditService.logAction(auditState, caller, #UpdateSystemConfig, #RawData("Forced microservice setup reset"), null, null);
+        ignore await AuditService.logAction(auditState, caller, #UpdateSystemConfig, #RawData("Forced microservice setup reset"), null, null, null);
     };
 
     // ==================================================================================================
@@ -486,18 +510,82 @@ actor Backend {
     // ADMIN COMMAND ENDPOINTS
     // ==================================================================================================
     
+    public shared({caller}) func adminSetConfigValue(key: Text, value: Text) : async Result.Result<(), Text> {
+        // 1. Authorization
+        switch(_onlyAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminSetConfigValue: Admin access required for key: " # key), null, null, ?#Backend);
+                return #err(msg);
+            };
+            case (#ok) {};
+        };
+
+        // 2. Delegate to service
+        let result = ConfigService.set(configState, key, value, caller);
+
+        // 3. Log Action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UpdateSystemConfig,
+            #AdminData({
+                adminAction = "Set/Update Config Value";
+                targetUser = null;
+                configChanges = "Set key '" # key # "' to value '" # value # "'";
+                justification = "Admin request to update system configuration.";
+            }),
+            null,
+            null,
+            ?#Backend
+        );
+
+        return result;
+    };
+
+    public shared({caller}) func adminDeleteConfigValue(key: Text) : async Result.Result<(), Text> {
+        // 1. Authorization
+        switch(_onlyAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminDeleteConfigValue: Admin access required for key: " # key), null, null, ?#Backend);
+                return #err(msg);
+            };
+            case (#ok) {};
+        };
+
+        // 2. Delegate to service
+        ConfigService.delete(configState, key);
+
+        // 3. Log Action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UpdateSystemConfig,
+            #AdminData({
+                adminAction = "Delete Config Value";
+                targetUser = null;
+                configChanges = "Deleted key '" # key # "'";
+                justification = "Admin request to clean up system configuration.";
+            }),
+            null,
+            null,
+            ?#Backend
+        );
+
+        return #ok(());
+    };
+
     public shared({caller}) func adminApproveRefund(refundId: PaymentTypes.RefundId, notes: ?Text) : async Result.Result<PaymentTypes.RefundRequest, Text> {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminApproveRefund: Admin access required"), null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminApproveRefund: Admin access required"), null, null, ?#Backend);
                 return #err(msg);
             };
             case (#ok) {};
         };
         
         // 2. Log Action
-        ignore await AuditService.logAction(auditState, caller, #AdminAction("Approving refund " # refundId), #RawData("Approving refund " # refundId), null, ?#Backend);
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Approving refund " # refundId), #RawData("Approving refund " # refundId), null, null, ?#Backend);
 
         // 3. Delegate to service
         return await PaymentService.approveRefund(paymentState, refundId, caller, notes);
@@ -507,14 +595,14 @@ actor Backend {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminRejectRefund: Admin access required"), null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminRejectRefund: Admin access required"), null, null, ?#Backend);
                 return #err(msg);
             };
             case (#ok) {};
         };
 
         // 2. Log Action
-        ignore await AuditService.logAction(auditState, caller, #AdminAction("Rejecting refund " # refundId), #RawData("Rejecting refund " # refundId), null, ?#Backend);
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Rejecting refund " # refundId), #RawData("Rejecting refund " # refundId), null, null, ?#Backend);
 
         // 3. Delegate to service
         return await PaymentService.rejectRefund(paymentState, refundId, caller, reason);
@@ -524,16 +612,76 @@ actor Backend {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminProcessRefund: Admin access required"), null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminProcessRefund: Admin access required"), null, null, ?#Backend);
                 return #err(msg);
             };
             case (#ok) {};
         };
 
         // 2. Log Action
-        ignore await AuditService.logAction(auditState, caller, #AdminAction("Processing refund " # refundId), #RawData("Processing refund " # refundId), null, ?#Backend);
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Processing refund " # refundId), #RawData("Processing refund " # refundId), null, null, ?#Backend);
 
         // 3. Delegate to service
         return await PaymentService.processRefund(paymentState, refundId, caller);
+    };
+
+    // ==================================================================================================
+    // PAYMENT & FEES - PUBLIC ENDPOINTS
+    // ==================================================================================================
+
+    public shared({caller}) func checkPaymentApprovalForAction(
+        actionType: AuditTypes.ActionType
+    ) : async PaymentTypes.PaymentValidationResult {
+        // This function allows the frontend to check if an ICRC-2 approval is
+        // required before initiating a transaction.
+        if (Principal.isAnonymous(caller)) {
+            return {
+                isValid = false;
+                transactionId = null;
+                paidAmount = 0;
+                requiredAmount = 0;
+                paymentToken = Principal.fromText("aaaaa-aa");
+                blockHeight = null;
+                errorMessage = ?("Anonymous users cannot perform this action.");
+                approvalRequired = true;
+                paymentRecordId = null;
+            };
+        };
+        
+        return await PaymentService.checkPaymentApproval(
+            paymentState,
+            configState,
+            caller,
+            owner, // The backend canister principal is the spender
+            actionType
+        );
+    };
+
+        public shared query func getPaymentConfig() : async {
+        acceptedTokens: [Principal];
+        feeRecipient: Principal;
+        serviceFees: [(Text, Nat)];
+        paymentTimeout: Nat;
+        requireConfirmation: Bool;
+        defaultToken: Principal;
+    } {
+        let paymentInfo = ConfigService.getPaymentInfo(configState);
+
+        let serviceFees = [
+            ("token_deployer", ConfigService.getNumber(configState, "token_deployer.fee", 0)),
+            ("lock_deployer", ConfigService.getNumber(configState, "lock_deployer.fee", 0)),
+            ("distribution_deployer", ConfigService.getNumber(configState, "distribution_deployer.fee", 0)),
+            ("launchpad_deployer", ConfigService.getNumber(configState, "launchpad_deployer.fee", 0)),
+            ("dao_deployer", ConfigService.getNumber(configState, "dao_deployer.fee", 0)),
+            ("pipeline_engine", ConfigService.getNumber(configState, "pipeline_engine.fee", 0))
+        ];
+        return {
+            acceptedTokens = paymentInfo.acceptedTokens;
+            feeRecipient = paymentInfo.feeRecipient;
+            serviceFees = serviceFees;
+            paymentTimeout = ConfigService.getNumber(configState, "payment.timeout", 3600);
+            requireConfirmation = ConfigService.getBool(configState, "payment.require_confirmation", true);
+            defaultToken = paymentInfo.defaultToken;
+        };
     };
 };

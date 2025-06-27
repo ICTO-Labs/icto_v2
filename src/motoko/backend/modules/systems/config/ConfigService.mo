@@ -42,6 +42,7 @@ module ConfigService {
         // Payment configs
         ignore set(state, "payment.default_token", "ryjl3-tyaaa-aaaaa-aaaba-cai", backendId);
         ignore set(state, "payment.min_amount", "10000000", backendId);
+        ignore set(state, "payment.accepted_tokens", "ryjl3-tyaaa-aaaaa-aaaba-cai", backendId);//split by comma (list of tokens)
         ignore set(state, "payment.fee_recipient", Principal.toText(backendId), backendId);
 
         // User configs
@@ -159,6 +160,26 @@ module ConfigService {
         switch (Trie.get(state.values, {key=key; hash=Text.hash(key)}, Text.equal)) {
             case (?value) Principal.fromText(value);
             case (null) default;
+        }
+    };
+
+    public func getList(state: ConfigTypes.State, key: Text, default: [Text]) : [Text] {
+        let list = get(state, key, "");
+        let result = Iter.toArray(Text.split(list, #char ','));
+        if(result.size() == 0) {
+            return default;
+        };
+        result
+    };
+
+    //Get payment info
+    public func getPaymentInfo(state: ConfigTypes.State) : ConfigTypes.PaymentConfig {
+        {
+            defaultToken = getPrincipal(state, "payment.default_token", Principal.fromText("aaaaa-aa"));
+            acceptedTokens = Array.map(getList(state, "payment.accepted_tokens", []), func(item: Text) : Principal { Principal.fromText(item) });
+            feeRecipient = getPrincipal(state, "payment.fee_recipient", Principal.fromText("aaaaa-aa"));
+            feeAmount = getNumber(state, "payment.fee_amount", 0);
+            minFee = getNumber(state, "payment.min_fee", 0);
         }
     };
     

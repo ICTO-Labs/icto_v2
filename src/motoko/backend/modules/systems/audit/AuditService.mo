@@ -153,6 +153,7 @@ module AuditService {
         actionType: AuditTypes.ActionType,
         actionData: AuditTypes.ActionData,
         projectId: ?Common.ProjectId,
+        paymentId: ?Text,
         serviceType: ?AuditTypes.ServiceType
     ) : async AuditTypes.AuditEntry {
         let timestamp = Time.now();
@@ -172,6 +173,7 @@ module AuditService {
             projectId = projectId;
             serviceType = serviceType;
             canisterId = null;
+            paymentId = paymentId;
             paymentInfo = null;
             executionTime = null;
             gasUsed = null;
@@ -210,7 +212,7 @@ module AuditService {
                 // Fire-and-forget call
                 ignore externalAudit.logAuditEvent(
                     Principal.toText(entry.userId),
-                    toExternalActionType(entry.actionType),
+                    entry.actionType,
                     toExternalResourceType(entry.serviceType),
                     entry.projectId,
                     ?details,
@@ -239,7 +241,7 @@ module AuditService {
                 
                 // Log the status update as a new, separate event to the external log
                 let statusUpdateLogData = #RawData("Status of audit '" # auditId # "' changed to '" # statusToText(status) # "'");
-                let statusUpdateEntry = await logAction(state, entry.userId, #UpdateSystemConfig, statusUpdateLogData, entry.projectId, entry.serviceType);
+                let statusUpdateEntry = await logAction(state, entry.userId, #UpdateSystemConfig, statusUpdateLogData, entry.projectId, entry.paymentId, entry.serviceType);
 
                 return ?updatedEntry;
             };
@@ -255,32 +257,6 @@ module AuditService {
             case(#Failed(msg)) "Failed(" # msg # ")";
             case(#Cancelled) "Cancelled";
             case(#Timeout) "Timeout";
-        }
-    };
-
-    private func toExternalActionType(actionType: AuditTypes.ActionType) : ExternalAudit.ActionType {
-        // This is a lossy conversion, as the external interface is less detailed.
-        // We map based on the general category of the action.
-        switch (actionType) {
-            case (#CreateProject) #ProjectCreate;
-            case (#UpdateProject) #ProjectUpdate;
-            case (#DeleteProject) #ProjectDelete;
-            case (#CreateToken) #TokenDeploy;
-            case (#CreateLock) #LockCreate;
-            case (#CreateDistribution) #DistributionCreate;
-            case (#CreateLaunchpad) #LaunchpadCreate;
-            case (#StartPipeline or #StepCompleted or #PipelineCompleted) #LaunchpadLaunch;
-            case (#StepFailed or #PipelineFailed) #SystemMaintenance; // Mapped to a system event type implicitly
-            case (#FeeValidation or #PaymentProcessed) #PaymentProcess;
-            case (#PaymentFailed) #PaymentProcess; // Still a payment process action
-            case (#RefundProcessed) #PaymentRefund;
-            case (#AdminLogin) #UserLogin;
-            case (#UpdateSystemConfig or #ServiceMaintenance or #SystemUpgrade) #SystemUpgrade;
-            case (#UserManagement or #GrantAccess or #RevokeAccess) #AdminAction;
-            case (#AccessDenied or #AccessGranted or #AccessRevoked) #AdminAction;
-            case (#AdminAction(_)) #AdminAction;
-            case (#Custom(_)) #AdminAction; // Default for custom actions
-            case (#CreateDAO) #AdminAction; // No specific type, map to admin
         }
     };
     

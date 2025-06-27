@@ -4,33 +4,6 @@ import Time "mo:base/Time";
 
 module {
     
-    // ================ ACTION TYPES ================
-    public type ActionType = {
-        #ProjectCreate;
-        #ProjectUpdate;
-        #ProjectDelete;
-        #TokenDeploy;
-        #TokenMint;
-        #TokenBurn;
-        #TokenTransfer;
-        #LockCreate;
-        #LockUpdate;
-        #LockClaim;
-        #DistributionCreate;
-        #DistributionExecute;
-        #LaunchpadCreate;
-        #LaunchpadUpdate;
-        #LaunchpadLaunch;
-        #LaunchpadEnd;
-        #PaymentProcess;
-        #PaymentRefund;
-        #SystemUpgrade;
-        #SystemMaintenance;
-        #UserLogin;
-        #UserLogout;
-        #AdminAction;
-    };
-    
     // ================ RESOURCE TYPES ================
     public type ResourceType = {
         #Project;
@@ -66,7 +39,236 @@ module {
         #Error;
         #Critical;
     };
+
+    // ===== ACTION TYPES =====
     
+    public type ActionType = {
+        // Fee-based service call
+        #ServiceFee: Text; // e.g., "token_deployer", "lock_deployer"
+
+        // Project Management Actions
+        #CreateProject;
+        #UpdateProject;
+        #DeleteProject;
+        
+        // Service Deployment Actions
+        #CreateToken;
+        #CreateLock;
+        #CreateDistribution;
+        #CreateLaunchpad;
+        #CreateDAO;
+        
+        // Pipeline Actions
+        #StartPipeline;
+        #StepCompleted;
+        #StepFailed;
+        #PipelineCompleted;
+        #PipelineFailed;
+        
+        // Payment Actions
+        #FeeValidation;
+        #PaymentProcessed;
+        #PaymentFailed;
+        #RefundProcessed;
+        
+        // Admin Actions
+        #AdminLogin;
+        #UpdateSystemConfig;
+        #ServiceMaintenance;
+        #UserManagement;
+        #SystemUpgrade;
+
+        // Access Control Actions
+        #AccessDenied;
+        #AccessGranted;
+        #GrantAccess;
+        #RevokeAccess;
+        #AccessRevoked;
+            
+        // Custom Actions
+        #Custom : Text;
+        #AdminAction : Text;
+    };
+    
+    public type ActionStatus = {
+        #Initiated;
+        #InProgress;
+        #Completed;
+        #Failed : Text;
+        #Cancelled;
+        #Timeout;
+    };
+    
+
+    public type ProjectActionData = {
+        projectName: Text;
+        projectDescription: Text;
+        configSnapshot: Text; // JSON snapshot
+    };
+    
+    public type TokenActionData = {
+        tokenName: Text;
+        tokenSymbol: Text;
+        totalSupply: Nat;
+        standard: Text;
+        deploymentConfig: Text;
+    };
+    
+    public type LockActionData = {
+        lockType: Text;
+        duration: Nat;
+        amount: Nat;
+        recipients: [Text];
+    };
+    
+    public type DistributionActionData = {
+        distributionType: Text;
+        totalAmount: Nat;
+        recipientCount: Nat;
+        startTime: ?Time.Time;
+    };
+    
+    public type LaunchpadActionData = {
+        launchpadName: Text;
+        daoEnabled: Bool;
+        votingConfig: Text;
+    };
+    
+    public type PaymentActionData = {
+        amount: Nat;
+        tokenId: Principal;
+        feeType: Text;
+        transactionHash: ?Text;
+    };
+    
+    public type PipelineActionData = {
+        pipelineId: Text;
+        stepName: Text;
+        stepIndex: Nat;
+        totalSteps: Nat;
+        stepData: Text;
+    };
+    
+    public type AdminActionData = {
+        adminAction: Text;
+        targetUser: ?Principal;
+        configChanges: Text;
+        justification: Text;
+    };
+    // ===== ACTION DATA VARIANTS =====
+    
+    public type ActionData = {
+        #ProjectData : ProjectActionData;
+        #TokenData : TokenActionData;
+        #LockData : LockActionData;
+        #DistributionData : DistributionActionData;
+        #LaunchpadData : LaunchpadActionData;
+        #PaymentData : PaymentActionData;
+        #PipelineData : PipelineActionData;
+        #AdminData : AdminActionData;
+        #RawData : Text; // JSON string for flexibility
+    };
+    // ===== COMPREHENSIVE AUDIT ENTRY =====
+    
+    public type AuditEntry = {
+        // Core identification
+        id: AuditId;
+        timestamp: Time.Time;
+        sessionId: ?SessionId;
+        
+        // User information
+        userId: Principal;
+        userRole: UserRole;
+        ipAddress: ?Text;
+        userAgent: ?Text;
+        
+        // Action details
+        actionType: ActionType;
+        actionStatus: ActionStatus;
+        actionData: ActionData;
+        
+        // Context information
+        projectId: ?Text;
+        serviceType: ?ServiceType;
+        canisterId: ?Principal;
+        
+        // Payment information
+        paymentId: ?Text; // Link to PaymentRecordId
+        paymentInfo: ?PaymentInfo;
+        
+        // Technical details
+        executionTime: ?Nat; // milliseconds
+        gasUsed: ?Nat;
+        errorCode: ?Text;
+        errorMessage: ?Text;
+        
+        // Metadata
+        tags: [Text];
+        severity: LogSeverity;
+        isSystem: Bool;
+    };
+    
+    public type LogSeverity = {
+        #Info;
+        #Warning;
+        #Error;
+        #Critical;
+        #Debug;
+    };
+    public type UserRole = {
+        #User;
+        #Admin;
+        #System;
+        #Service;
+    };
+    
+    public type ServiceType = {
+        #TokenDeployer;
+        #LockDeployer;
+        #DistributionDeployer;
+        #LaunchpadDeployer;
+        #InvoiceService;
+        #Backend;
+    };
+
+    public type AuditId = Text;
+    public type SessionId = Text;
+    public type UserId = Text;
+    public type ProjectId = Text;
+    public type CanisterId = Text;
+
+
+    // ===== PAYMENT TRACKING =====
+    
+    public type PaymentInfo = {
+        transactionId: Text;
+        amount: Nat;
+        tokenId: Principal;
+        feeType: FeeType;
+        status: PaymentStatus;
+        paidAt: ?Time.Time;
+        refundedAt: ?Time.Time;
+        blockHeight: ?Nat;
+    };
+    
+    public type FeeType = {
+        #CreateToken;
+        #CreateLock;
+        #CreateDistribution;
+        #CreateLaunchpad;
+        #CreateDAO;
+        #PipelineExecution;
+        #CustomFee : Text;
+    };
+    
+    public type PaymentStatus = {
+        #Pending;
+        #Confirmed;
+        #Failed : Text;
+        #Refunded;
+        #Expired;
+    };
+    // ================ AUDIT STORAGE ================
     public type AuditStorage = actor {
         // Whitelist management
         addToWhitelist : (Principal) -> async Result.Result<(), Text>;
@@ -90,5 +292,21 @@ module {
             severity: Severity,
             metadata: ?[(Text, Text)]
         ) -> async Result.Result<Text, Text>;
+
+        // Get audit event
+        getAuditEvent : (
+            userId: Text,
+            action: ActionType,
+            resourceType: ResourceType,
+            resourceId: ?Text,
+            details: ?Text,
+            metadata: ?[(Text, Text)]
+        ) -> async Result.Result<Text, Text>;
+
+        //Get all audit entries
+        getAuditLogs : (
+            offset: Nat,
+            limit: Nat
+        ) -> async [AuditEntry];
     };
 } 

@@ -32,4 +32,12 @@ module ConfigTypes {
             var updatedBy = ?owner;
         }
     };
+
+    public type PaymentConfig = {
+        defaultToken: Principal;
+        acceptedTokens: [Principal];
+        feeRecipient: Principal;
+        feeAmount: Nat;
+        minFee: Nat;
+    };
 }
