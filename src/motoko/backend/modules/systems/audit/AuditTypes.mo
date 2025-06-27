@@ -5,7 +5,7 @@ import Principal "mo:base/Principal";
 import Int "mo:base/Int";
 import Trie "mo:base/Trie";
 import Common "../../../shared/types/Common";
-import Interfaces "../../../shared/types/Interfaces";
+import ExternalAudit "../../../shared/interfaces/AuditStorage";
 
 module AuditTypes {
     // =================================================================================
@@ -21,7 +21,7 @@ module AuditTypes {
         var totalEntries: Nat;
         
         // External audit storage reference
-        var externalAuditStorage: ?Interfaces.AuditStorageActor;
+        var externalAuditStorage: ?ExternalAudit.AuditStorage;
     };
 
     public type StableState = {
@@ -90,7 +90,14 @@ module AuditTypes {
         #ServiceMaintenance;
         #UserManagement;
         #SystemUpgrade;
-        
+
+        // Access Control Actions
+        #AccessDenied;
+        #AccessGranted;
+        #GrantAccess;
+        #RevokeAccess;
+        #AccessRevoked;
+            
         // Custom Actions
         #Custom : Text;
         #AdminAction : Text;

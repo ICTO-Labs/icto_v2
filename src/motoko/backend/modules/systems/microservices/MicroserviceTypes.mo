@@ -15,6 +15,8 @@ module MicroserviceTypes {
         launchpadDeployer: ?Principal;
         lockDeployer: ?Principal;
         distributionDeployer: ?Principal;
+        invoiceStorage: ?Principal;
+        auditStorage: ?Principal;
     };
 
     public type State = {

@@ -110,32 +110,47 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             
             read -p "Proceed with setup? (y/N): " confirm
             if [[ $confirm =~ ^[Yy]$ ]]; then
-                # Build setupMicroservices call with actual canister IDs only
-                SETUP_CALL="dfx canister call backend setupMicroservices \"("
-                SETUP_CALL="${SETUP_CALL}principal \\\"$AUDIT_ID\\\", "
-                SETUP_CALL="${SETUP_CALL}principal \\\"$INVOICE_ID\\\", "
-                SETUP_CALL="${SETUP_CALL}principal \\\"$TOKEN_ID\\\", "
+                # Build setCanisterIds call with actual canister IDs only
+                SETUP_CALL="dfx canister call backend setCanisterIds \"(record {"
+                SETUP_CALL="${SETUP_CALL} tokenDeployer = opt principal \\\"$TOKEN_ID\\\"; "
                 
-                # Add optional services if deployed, otherwise use dummy (required by function signature)
+                # Add optional services if deployed
+
+                if [[ -n "$AUDIT_ID" ]]; then
+                    SETUP_CALL="${SETUP_CALL} auditStorage = opt principal \\\"$AUDIT_ID\\\"; "
+                else
+                    SETUP_CALL="${SETUP_CALL} auditStorage = null; "
+                fi
+                
+                # Add invoice storage
+                if [[ -n "$INVOICE_ID" ]]; then
+                    SETUP_CALL="${SETUP_CALL} invoiceStorage = opt principal \\\"$INVOICE_ID\\\"; "
+                else
+                    SETUP_CALL="${SETUP_CALL} invoiceStorage = null; "
+                fi
+
+                # Add launchpad deployer
                 if [[ -n "$LAUNCHPAD_ID" ]]; then
-                    SETUP_CALL="${SETUP_CALL}principal \\\"$LAUNCHPAD_ID\\\", "
+                    SETUP_CALL="${SETUP_CALL} launchpadDeployer = opt principal \\\"$LAUNCHPAD_ID\\\"; "
                 else
-                    SETUP_CALL="${SETUP_CALL}principal \\\"aaaaa-aa\\\", "  # Use anonymous principal for not deployed
+                    SETUP_CALL="${SETUP_CALL} launchpadDeployer = null; "
                 fi
                 
+                # Add lock deployer
                 if [[ -n "$LOCK_ID" ]]; then
-                    SETUP_CALL="${SETUP_CALL}principal \\\"$LOCK_ID\\\", "
+                    SETUP_CALL="${SETUP_CALL} lockDeployer = opt principal \\\"$LOCK_ID\\\"; "
                 else
-                    SETUP_CALL="${SETUP_CALL}principal \\\"aaaaa-aa\\\", "  # Use anonymous principal for not deployed
+                    SETUP_CALL="${SETUP_CALL} lockDeployer = null; "
                 fi
                 
+                # Add distribution deployer
                 if [[ -n "$DIST_ID" ]]; then
-                    SETUP_CALL="${SETUP_CALL}principal \\\"$DIST_ID\\\""
+                    SETUP_CALL="${SETUP_CALL} distributionDeployer = opt principal \\\"$DIST_ID\\\"; "
                 else
-                    SETUP_CALL="${SETUP_CALL}principal \\\"aaaaa-aa\\\""  # Use anonymous principal for not deployed
+                    SETUP_CALL="${SETUP_CALL} distributionDeployer = null; "
                 fi
                 
-                SETUP_CALL="${SETUP_CALL})\""
+                SETUP_CALL="${SETUP_CALL}})\""
                 
                 echo "Executing: $SETUP_CALL"
                 eval $SETUP_CALL

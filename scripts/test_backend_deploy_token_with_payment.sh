@@ -58,8 +58,8 @@ echo "Backend balance: $BACKEND_BALANCE e8s"
 
 echo ""
 echo "Step 1.3: Test backend availability"
-if dfx canister call backend getAllServicesHealth 2>/dev/null >/dev/null; then
-    SERVICES_HEALTH=$(dfx canister call backend getAllServicesHealth "()")
+if dfx canister call backend getMicroserviceHealth 2>/dev/null >/dev/null; then
+    SERVICES_HEALTH=$(dfx canister call backend getMicroserviceHealth "()")
     echo "✅ Backend is responsive"
     echo "Services health: $SERVICES_HEALTH"
 else
@@ -132,38 +132,37 @@ fi
 echo ""
 echo "=== Phase 4: Backend deployToken() Function Call ==="
 
-echo "Step 4.1: Call new deployToken() function with APITypes.TokenDeploymentRequest"
+echo "Step 4.1: Call new deployToken() function with updated DeploymentRequest"
 
-# Construct APITypes.TokenDeploymentRequest for token deployment
+# Construct the new, nested DeploymentRequest structure
 TOKEN_DEPLOY_REQUEST="record {
-    projectId = null;
-    tokenInfo = record {
+    tokenConfig = record {
         name = \"${TOKEN_NAME}\";
         symbol = \"${TOKEN_SYMBOL}\";
         decimals = 8 : nat8;
+        totalSupply = 100000000000 : nat;
+        initialBalances = vec {};
+        minter = null;
+        feeCollector = null;
         transferFee = 10000 : nat;
-        totalSupply = 1000000000 : nat;
-        metadata = null;
-        logo = opt \"data\";
-        canisterId = null;
+        description = opt \"A test token deployed via ICTO V2 script.\";
+        logo = null;
+        website = null;
+        socialLinks = null;
+        projectId = null;
     };
-    initialSupply = 1000000000 : nat;
-    options = opt record {
-        allowSymbolConflict = false;
-        enableAdvancedFeatures = true;
-        customMinter = null;
-        customFeeCollector = null;
-        burnEnabled = false;
-        mintingEnabled = false;
-        maxSupply = null;
-        vestingEnabled = false;
-        transferRestrictions = vec {};
-        cyclesOps = true;
-        initialBalances = opt vec {};
+    deploymentConfig = record {
+        cyclesForInstall = null;
+        cyclesForArchive = null;
+        minCyclesInDeployer = null;
+        archiveOptions = null;
+        enableCycleOps = opt true;
+        tokenOwner = principal \"${USER_PRINCIPAL}\";
     };
+    projectId = null;
 }"
 
-echo "TokenDeploymentRequest structure:"
+echo "DeploymentRequest structure:"
 echo "$TOKEN_DEPLOY_REQUEST"
 
 # Try the new deployToken() function

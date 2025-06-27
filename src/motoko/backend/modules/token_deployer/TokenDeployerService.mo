@@ -31,10 +31,11 @@ module TokenDeployerService {
 
     public func prepareDeployment(
         caller: Principal,
-        request: TokenDeployerTypes.DeploymentRequest,
+        tokenConfig: TokenDeployerTypes.TokenConfig,
+        deploymentConfig: TokenDeployerTypes.DeploymentConfig,
         configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
-    ) : Result.Result<{ canisterId: Principal; args: TokenDeployerInterface.ExternalDeployerArgs }, Text> {
+    ) : Result.Result<TokenDeployerTypes.PreparedDeployment, Text> {
 
         // 1. Get the deployer canister ID from the microservice state
         switch(MicroserviceService.getCanisterIds(microserviceState)) {
@@ -43,34 +44,21 @@ module TokenDeployerService {
                 switch(ids.tokenDeployer) {
                     case null { return #err("Token Deployer canister ID is not configured.") };
                     case (?canisterId) {
-                        // 2. Prepare the arguments for the external call
-                        let args : TokenDeployerInterface.ExternalDeployerArgs = {
-                            config = {
-                                name = request.tokenInfo.name;
-                                symbol = request.tokenInfo.symbol;
-                                decimals = 8; // Default to 8
-                                totalSupply = request.initialSupply;
-                                initialBalances = []; // Keep it simple for now
-                                minter = ?{owner = caller; subaccount = null};
-                                feeCollector = null;
-                                transferFee = 10_000; // Default fee
-                                description = ?"ICRC Token deployed via ICTO V2";
-                                logo = request.tokenInfo.logo;
-                                website = null;
-                                socialLinks = null;
-                                projectId = request.projectId;
-                            };
-                            deploymentConfig = {
-                                cyclesForInstall = ?(ConfigService.getNumber(configState, "token_deployer.initial_cycles", 2_000_000_000_000));
-                                cyclesForArchive = ?(ConfigService.getNumber(configState, "token_deployer.archive_cycles", 1_000_000_000_000));
-                                minCyclesInDeployer = ?(ConfigService.getNumber(configState, "token_deployer.min_cycles", 500_000_000_000));
-                                archiveOptions = null;
-                                enableCycleOps = ?false;
-                                tokenOwner = caller;
-                            };
-                            paymentResult = null; // Payment is handled by the main backend
+                        // 2. The arguments are already structured correctly by main.mo.
+                        // This service's role is primarily to fetch the correct deployer canister
+                        // and wrap the arguments for the actor call.
+                        // In the future, it could add/override system-level configs.
+                        
+                        let preparedArgs = {
+                            config = tokenConfig;
+                            deploymentConfig = deploymentConfig;
+                            targetCanister = null; // Backend always creates new canisters
                         };
-                        return #ok({ canisterId = canisterId; args = args; });
+
+                        return #ok({ 
+                            canisterId = canisterId;
+                            args = preparedArgs;
+                        });
                     };
                 };
             };

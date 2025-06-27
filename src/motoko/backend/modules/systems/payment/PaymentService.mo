@@ -14,6 +14,7 @@ import Common "../../../shared/types/Common";
 import Audit "../audit/AuditTypes";
 import PaymentTypes "PaymentTypes";
 import ICRC "../../../shared/types/ICRC";
+import InvoiceStorage "../../../shared/interfaces/InvoiceStorage";
 
 
 module PaymentService {
@@ -30,7 +31,7 @@ module PaymentService {
     };
 
     public func fromStableState(stableState: PaymentTypes.StableState) : PaymentTypes.State {
-        let state = PaymentTypes.emptyState(stableState.config.feeRecipient); // Pass a dummy or stored owner
+        let state = PaymentTypes.emptyState(stableState.config.feeRecipient);
         state.config := stableState.config;
         for (entry in stableState.payments.vals()) { let (k, v) = entry; state.payments := Trie.put(state.payments, {key=k; hash=Text.hash(k)}, Text.equal, v).0; };
         for (entry in stableState.userPayments.vals()) { let (k, v) = entry; state.userPayments := Trie.put(state.userPayments, {key=k; hash=Text.hash(k)}, Text.equal, v).0; };
@@ -41,6 +42,7 @@ module PaymentService {
         state.totalVolume := stableState.totalVolume;
         state.totalRefunds := stableState.totalRefunds;
         state.totalRefundedAmount := stableState.totalRefundedAmount;
+        state.invoiceStorageId := stableState.invoiceStorageId;
         return state;
     };
 
@@ -56,6 +58,141 @@ module PaymentService {
             totalVolume = state.totalVolume;
             totalRefunds = state.totalRefunds;
             totalRefundedAmount = state.totalRefundedAmount;
+            invoiceStorageId = state.invoiceStorageId;
+        }
+    };
+
+    // --- TYPE CONVERSION UTILS ---
+
+    private func toStoragePaymentStatus(status: PaymentTypes.PaymentStatus) : InvoiceStorage.PaymentStatus {
+        switch(status) {
+            case (#Pending) { #Pending };
+            case (#Completed) { #Completed };
+            case (#Failed(msg)) { #Failed(msg) };
+            case (#Refunded(refundId)) { #Refunded(refundId) };
+        }
+    };
+
+    private func fromStoragePaymentStatus(status: InvoiceStorage.PaymentStatus) : PaymentTypes.PaymentStatus {
+        switch(status) {
+            case (#Pending) { #Pending };
+            case (#Completed) { #Completed };
+            // Note: V1 interface has #Approved, which we map to Completed
+            case (#Approved) { #Completed };
+            case (#Failed(msg)) { #Failed(msg) };
+            case (#Refunded(refundId)) { #Refunded(refundId) };
+        }
+    };
+
+    private func toStoragePaymentRecord(record: PaymentTypes.PaymentRecord) : InvoiceStorage.PaymentRecord {
+        {
+            id = record.id;
+            userId = record.userId;
+            amount = record.amount;
+            tokenId = record.tokenId;
+            recipient = record.recipient;
+            serviceType = record.serviceType;
+            transactionId = record.transactionId;
+            blockHeight = record.blockHeight;
+            status = toStoragePaymentStatus(record.status);
+            createdAt = record.createdAt;
+            completedAt = record.completedAt;
+            auditId = record.auditId;
+            invoiceId = null; // V2 does not use invoices
+            errorMessage = record.errorMessage;
+        }
+    };
+
+    private func fromStoragePaymentRecord(record: InvoiceStorage.PaymentRecord) : PaymentTypes.PaymentRecord {
+        {
+            id = record.id;
+            userId = record.userId;
+            amount = record.amount;
+            tokenId = record.tokenId;
+            recipient = record.recipient;
+            serviceType = record.serviceType;
+            transactionId = record.transactionId;
+            blockHeight = record.blockHeight;
+            status = fromStoragePaymentStatus(record.status);
+            createdAt = record.createdAt;
+            completedAt = record.completedAt;
+            auditId = record.auditId;
+            errorMessage = record.errorMessage;
+        }
+    };
+
+    private func toStorageRefundReason(reason: PaymentTypes.RefundReason) : Text {
+        switch(reason) {
+            case (#SystemError) "SystemError";
+            case (#UserRequested) "UserRequested";
+            case (#DuplicatePayment) "DuplicatePayment";
+            case (#ServiceUnavailable) "ServiceUnavailable";
+        }
+    };
+
+    private func toStorageRefundStatus(status: PaymentTypes.RefundStatus) : InvoiceStorage.RefundStatus {
+        switch(status) {
+            case (#Pending) { #Pending };
+            case (#Approved) { #Processing }; // Mapping to processing as V1 doesn't have Approved
+            case (#Processing) { #Processing };
+            case (#Completed) { #Completed };
+            case (#Failed(msg)) { #Failed(msg) };
+            case (#Cancelled) { #Cancelled };
+            case (#Rejected(msg)) { #Failed("Rejected: " # msg) }; // No direct 'Rejected' in V1
+        }
+    };
+
+    private func fromStorageRefundStatus(status: InvoiceStorage.RefundStatus) : PaymentTypes.RefundStatus {
+        switch(status) {
+            case (#Pending) { #Pending };
+            case (#Processing) { #Processing };
+            case (#Completed) { #Completed };
+            case (#Failed(msg)) { #Failed(msg) };
+            case (#Cancelled) { #Cancelled };
+        }
+    };
+
+    private func toStorageRefundRequest(req: PaymentTypes.RefundRequest) : InvoiceStorage.Refund {
+        {
+            id = req.id;
+            invoiceId = ""; // No invoices in V2
+            userId = req.userId;
+            paymentRecordId = ?req.originalPaymentRecordId;
+            originalAmount = req.originalAmount;
+            refundAmount = req.refundAmount;
+            reason = toStorageRefundReason(req.reason);
+            description = req.description;
+            status = toStorageRefundStatus(req.status);
+            requestedBy = req.requestedBy;
+            requestedAt = req.requestedAt;
+            approvedBy = req.approvedBy;
+            approvedAt = req.approvedAt;
+            processedAt = req.processedAt;
+            auditId = req.auditId;
+        }
+    };
+
+    private func fromStorageRefund(refund: InvoiceStorage.Refund) : PaymentTypes.RefundRequest {
+        {
+            id = refund.id;
+            userId = refund.userId;
+            originalPaymentRecordId = Option.get(refund.paymentRecordId, "");
+            originalAmount = refund.originalAmount;
+            refundAmount = refund.refundAmount;
+            reason = #UserRequest; // TODO: needs reverse mapping from Text
+            description = refund.description;
+            isPartial = refund.originalAmount != refund.refundAmount;
+            requestedAt = refund.requestedAt;
+            requestedBy = refund.requestedBy;
+            status = fromStorageRefundStatus(refund.status);
+            approvedBy = refund.approvedBy;
+            approvedAt = refund.approvedAt;
+            processedAt = refund.processedAt;
+            refundTransactionId = null; // Not in V1 storage type
+            processingFee = 0; // Not in V1 storage type
+            auditId = refund.auditId;
+            statusHistory = []; // Not in V1 storage type
+            notes = null; // Not in V1 storage type
         }
     };
 
@@ -223,6 +360,15 @@ module PaymentService {
         };
         state.payments := Trie.put(state.payments, textKey(paymentId), Text.equal, initialPaymentRecord).0;
 
+        // Persist initial record to external storage (fire-and-forget)
+        switch(state.invoiceStorageId) {
+            case(?id) {
+                let storageActor = actor(Principal.toText(id)) : InvoiceStorage.InvoiceStorage;
+                ignore storageActor.createPaymentRecord(toStoragePaymentRecord(initialPaymentRecord));
+            };
+            case null {};
+        };
+
         // 2. Process the actual transfer
         let validationResult = await _processICRC2Transfer(
             caller,
@@ -252,6 +398,16 @@ module PaymentService {
             state.totalVolume += requiredAmount;
         };
         state.payments := Trie.put(state.payments, textKey(paymentId), Text.equal, finalPaymentRecord).0;
+        
+        // Persist final record to external storage (fire-and-forget)
+        switch(state.invoiceStorageId) {
+            case(?id) {
+                let storageActor = actor(Principal.toText(id)) : InvoiceStorage.InvoiceStorage;
+                // Use update here since we created the initial record already
+                ignore storageActor.updatePaymentRecord(finalPaymentRecord.id, toStoragePaymentRecord(finalPaymentRecord));
+            };
+            case null {};
+        };
         
         // 5. Update user-specific payment index
         let userKey = Principal.toText(caller);
@@ -287,7 +443,7 @@ module PaymentService {
         paymentRecordId: PaymentTypes.PaymentRecordId,
         reason: PaymentTypes.RefundReason,
         description: Text
-    ) : Result.Result<PaymentTypes.RefundRequest, Text> {
+    ) : async Result.Result<PaymentTypes.RefundRequest, Text> {
         
         switch(Trie.get(state.payments, textKey(paymentRecordId), Text.equal)) {
             case null { return #err("Original payment record not found.") };
@@ -322,6 +478,15 @@ module PaymentService {
                 // Store refund request
                 state.refunds := Trie.put(state.refunds, textKey(refundId), Text.equal, refundRequest).0;
                 
+                // Persist to external storage (fire-and-forget)
+                switch(state.invoiceStorageId) {
+                    case (?id) {
+                        let storageActor = actor(Principal.toText(id)) : InvoiceStorage.InvoiceStorage;
+                        ignore await storageActor.createRefund(toStorageRefundRequest(refundRequest));
+                    };
+                    case null {};
+                };
+
                 // Update indices
                 let userKey = Principal.toText(userId);
                 let existingUserRefunds = Option.get(Trie.get(state.userRefunds, textKey(userKey), Text.equal), []);
@@ -343,15 +508,73 @@ module PaymentService {
     public func getPaymentRecord(
         state: PaymentTypes.State,
         recordId: PaymentTypes.PaymentRecordId
-    ) : ?PaymentTypes.PaymentRecord {
-        Trie.get(state.payments, textKey(recordId), Text.equal)
+    ) : async ?PaymentTypes.PaymentRecord {
+        // 1. Check local cache first
+        let cached = Trie.get(state.payments, textKey(recordId), Text.equal);
+        if (Option.isSome(cached)) {
+            return cached;
+        };
+
+        // 2. If not in cache, query external storage
+        switch(state.invoiceStorageId) {
+            case null { return null; };
+            case (?id) {
+                let storageActor = actor(Principal.toText(id)) : InvoiceStorage.InvoiceStorage;
+                let fromStorageResult = await storageActor.getPaymentRecord(recordId);
+                
+                switch(fromStorageResult) {
+                    case (#err(_)) { return null; };
+                    case (#ok(optRecord)) {
+                        switch(optRecord) {
+                            case null { return null; };
+                            case (?record) {
+                                // Convert from storage type to local type
+                                let localRecord = fromStoragePaymentRecord(record);
+                                // Add to cache for future requests
+                                state.payments := Trie.put(state.payments, textKey(recordId), Text.equal, localRecord).0;
+                                return ?localRecord;
+                            };
+                        };
+                    };
+                };
+            }
+        };
     };
 
     public func getRefundRequest(
         state: PaymentTypes.State,
         refundId: PaymentTypes.RefundId
-    ) : ?PaymentTypes.RefundRequest {
-        Trie.get(state.refunds, textKey(refundId), Text.equal)
+    ) : async ?PaymentTypes.RefundRequest {
+        // 1. Check local cache first
+        let cached = Trie.get(state.refunds, textKey(refundId), Text.equal);
+        if (Option.isSome(cached)) {
+            return cached;
+        };
+        
+        // 2. If not in cache, query external storage
+        switch(state.invoiceStorageId) {
+            case null { return null; };
+            case (?id) {
+                let storageActor = actor(Principal.toText(id)) : InvoiceStorage.InvoiceStorage;
+                let fromStorageResult = await storageActor.getRefund(refundId);
+
+                switch(fromStorageResult) {
+                    case (#err(_)) { return null; };
+                    case (#ok(optRefund)) {
+                        switch(optRefund) {
+                            case null { return null; };
+                            case (?refund) {
+                                // Convert from storage type to local type
+                                let localRefund = fromStorageRefund(refund);
+                                // Add to cache
+                                state.refunds := Trie.put(state.refunds, textKey(refundId), Text.equal, localRefund).0;
+                                return ?localRefund;
+                            };
+                        };
+                    };
+                };
+            }
+        };
     };
 
     public func getUserPayments(
@@ -377,7 +600,7 @@ module PaymentService {
         newStatus: PaymentTypes.RefundStatus,
         adminId: Common.UserId,
         notes: ?Text
-    ) : PaymentTypes.RefundRequest {
+    ) : async PaymentTypes.RefundRequest {
         let oldStatus = refund.status;
         let oldStatusText = refundStatusToString(oldStatus);
         let newStatusText = refundStatusToString(newStatus);
@@ -402,6 +625,15 @@ module PaymentService {
         // Update main refund record
         state.refunds := Trie.put(state.refunds, {key = refund.id; hash = Text.hash(refund.id)}, Text.equal, updatedRefund).0;
 
+        // Persist update to external storage
+        switch(state.invoiceStorageId) {
+            case (?id) {
+                let storageActor = actor(Principal.toText(id)) : InvoiceStorage.InvoiceStorage;
+                ignore await storageActor.updateRefund(updatedRefund.id, toStorageRefundRequest(updatedRefund));
+            };
+            case null {};
+        };
+
         // Update status index
         let oldStatusList = Option.get(Trie.get(state.statusRefunds, textKey(oldStatusText), Text.equal), []);
         let newOldStatusList = Array.filter<Text>(oldStatusList, func(id) { id != refund.id });
@@ -419,15 +651,17 @@ module PaymentService {
         refundId: PaymentTypes.RefundId,
         adminId: Common.UserId,
         notes: ?Text
-    ) : Result.Result<PaymentTypes.RefundRequest, Text> {
-        switch(Trie.get(state.refunds, textKey(refundId), Text.equal)) {
+    ) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+        let refundResult = await getRefundRequest(state, refundId);
+        
+        switch(refundResult) {
             case null { #err("Refund ID not found.") };
             case (?refund) {
                 if (refund.status != #Pending) {
                     return #err("Refund is not in Pending state.")
                 };
                 
-                let updatedRefund = _updateRefundStatus(state, refund, #Approved, adminId, notes);
+                let updatedRefund = await _updateRefundStatus(state, refund, #Approved, adminId, notes);
                 #ok(updatedRefund)
             };
         }
@@ -438,8 +672,10 @@ module PaymentService {
         refundId: PaymentTypes.RefundId,
         adminId: Common.UserId,
         reason: Text
-    ) : Result.Result<PaymentTypes.RefundRequest, Text> {
-        switch(Trie.get(state.refunds, textKey(refundId), Text.equal)) {
+    ) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+        let refundResult = await getRefundRequest(state, refundId);
+        
+        switch(refundResult) {
             case null { #err("Refund ID not found.") };
             case (?refund) {
                 switch (refund.status) {
@@ -450,7 +686,7 @@ module PaymentService {
                     };
                 };
 
-                let updatedRefund = _updateRefundStatus(state, refund, #Rejected(reason), adminId, ?reason);
+                let updatedRefund = await _updateRefundStatus(state, refund, #Rejected(reason), adminId, ?reason);
                 #ok(updatedRefund)
             };
         }
@@ -460,8 +696,8 @@ module PaymentService {
         state: PaymentTypes.State,
         refundId: PaymentTypes.RefundId,
         adminId: Common.UserId
-    ) : Result.Result<PaymentTypes.RefundRequest, Text> {
-        let refundResult = Trie.get(state.refunds, textKey(refundId), Text.equal);
+    ) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+        let refundResult = await getRefundRequest(state, refundId);
         
         switch(refundResult) {
             case null { return #err("Refund ID not found.") };
@@ -482,7 +718,7 @@ module PaymentService {
                     (#Failed("Token transfer failed during refund processing."), ?"Refund transfer failed.")
                 };
 
-                let updatedRefund = _updateRefundStatus(state, refund, finalStatus, adminId, finalNotes);
+                let updatedRefund = await _updateRefundStatus(state, refund, finalStatus, adminId, finalNotes);
                 
                 // Also update the original payment record
                 let payment = Trie.get(state.payments, textKey(refund.originalPaymentRecordId), Text.equal);

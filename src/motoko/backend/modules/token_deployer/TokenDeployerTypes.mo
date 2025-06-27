@@ -1,6 +1,10 @@
 import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
 import Principal "mo:base/Principal";
+import Nat64 "mo:base/Nat64";
+import Result "mo:base/Result";
+import Shared "../../../shared/types/TokenDeployer";
+import Common "../../../shared/types/Common";
 import ICRC "../../../shared/types/ICRC";
 
 module TokenDeployerTypes {
@@ -24,43 +28,10 @@ module TokenDeployerTypes {
 
     // --- CORE DEPLOYMENT TYPES ---
 
-    public type TokenConfig = {
-        name: Text;
-        symbol: Text;
-        decimals: Nat8;
-        totalSupply: Nat;
-        transferFee: Nat;
-        
-        // Initial setup
-        initialBalances : [(ICRC.Account, Nat)];
-        minter : ?ICRC.Account;
-        feeCollector : ?ICRC.Account;
-        
-        // Metadata
-        description: ?Text;
-        logo: ?Text;
-        website: ?Text;
-        socialLinks: ?[(Text, Text)];
-
-        // V2 Integration
-        projectId: ?Text;
-    };
-
-    public type DeploymentConfig = {
-        cyclesForInstall: ?Nat;
-        cyclesForArchive: ?Nat;
-        minCyclesInDeployer: ?Nat;
-        archiveOptions: ?{
-            num_blocks_to_archive: Nat;
-            trigger_threshold: Nat;
-            max_message_size_bytes: ?Nat;
-            cycles_for_archive_creation: ?Nat;
-            node_max_memory_size_bytes: ?Nat;
-            controller_id: Principal;
-        };
-        enableCycleOps: ?Bool;
-        tokenOwner: Principal;
-    };
+    // Re-export shared types for convenience
+    public type TokenConfig = Shared.TokenConfig;
+    public type DeploymentConfig = Shared.DeploymentConfig;
+    public type ArchiveOptions = Shared.ArchiveOptions;
     
     public type TokenInfo = {
         name: Text;
@@ -68,14 +39,32 @@ module TokenDeployerTypes {
         logo: ?Text;
     };
 
+    // V2 Deployment Request structure for the backend
+    // This aligns with what the `token_deployer` canister's `deployTokenWithConfig` function expects.
     public type DeploymentRequest = {
-        projectId: ?Text;
-        tokenInfo: TokenInfo;
-        initialSupply: Nat;
+        // Corresponds to the `config` parameter in `deployTokenWithConfig`
+        tokenConfig: TokenConfig;
+        
+        // Corresponds to the `deploymentConfig` parameter in `deployTokenWithConfig`
+        deploymentConfig: DeploymentConfig;
+        
+        // Optional project ID for tracking in the backend
+        projectId: ?Common.ProjectId;
+    };
+    
+    public type PreparedDeployment = {
+        canisterId: Principal;
+        args: {
+            config: TokenConfig;
+            deploymentConfig: DeploymentConfig;
+            targetCanister : ?Principal; // Not used for new deployments from backend
+        };
     };
 
     public type DeploymentResult = {
         canisterId: Principal;
+        projectId: ?Common.ProjectId;
+        transactionId: ?Text;
         tokenSymbol: Text;
         cyclesUsed: Nat;
     };

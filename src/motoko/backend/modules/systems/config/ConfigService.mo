@@ -110,6 +110,14 @@ module ConfigService {
         state.values := Trie.remove(state.values, {key = key; hash = Text.hash(key)}, Text.equal).0;
     };
 
+    public func setNumber(state: ConfigTypes.State, key: Text, value: Nat) {
+        state.values := Trie.put(state.values, {key=key; hash=Text.hash(key)}, Text.equal, Nat.toText(value)).0;
+    };
+
+    public func setPrincipal(state: ConfigTypes.State, key: Text, value: Principal) {
+        state.values := Trie.put(state.values, {key=key; hash=Text.hash(key)}, Text.equal, Principal.toText(value)).0;
+    };
+
     // =================================================================================
     // CONFIG MANAGEMENT (GETTERS)
     // =================================================================================
@@ -145,6 +153,13 @@ module ConfigService {
             };
         };
         result
+    };
+
+    public func getPrincipal(state: ConfigTypes.State, key: Text, default: Principal) : Principal {
+        switch (Trie.get(state.values, {key=key; hash=Text.hash(key)}, Text.equal)) {
+            case (?value) Principal.fromText(value);
+            case (null) default;
+        }
     };
     
     // =================================================================================

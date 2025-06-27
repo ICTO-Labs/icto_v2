@@ -8,6 +8,8 @@ import Option "mo:base/Option";
 import Iter "mo:base/Iter";
 import Text "mo:base/Text";
 import Buffer "mo:base/Buffer";
+import Nat "mo:base/Nat";
+import Debug "mo:base/Debug";
 
 // System Modules
 import ConfigService "./modules/systems/config/ConfigService";
@@ -90,6 +92,17 @@ actor Backend {
             case null { MicroserviceService.initState() };
             case (?s) { MicroserviceService.fromStableState(s) };
         };
+        // Re-sync storage canister IDs after upgrade
+        switch (microserviceState.canisterIds) {
+            case (?ids) {
+                paymentState.invoiceStorageId := ids.invoiceStorage;
+                // Now we can set the audit storage
+                if (Option.isSome(ids.auditStorage)) {
+                    AuditService.setExternalAuditStorage(auditState, Option.get(ids.auditStorage, owner));
+                };
+            };
+            case null {};
+        };
         projectState := switch(stableProjectState) {
             case null { ProjectService.initState(owner) };
             case (?s) { ProjectService.fromStableState(s) };
@@ -104,6 +117,39 @@ actor Backend {
     };
 
     // ==================================================================================================
+    // AUTHENTICATION & VALIDATION HELPERS
+    // ==================================================================================================
+    
+    private func _isAdmin(caller: Principal) : Bool {
+        ConfigService.isAdmin(configState, caller)
+    };
+
+    private func _isSuperAdmin(caller: Principal) : Bool {
+        ConfigService.isSuperAdmin(configState, caller)
+    };
+    
+    private func _isAuthenticated(caller: Principal) : Bool {
+        // An authenticated user must have a profile.
+        Option.isSome(UserService.getUserProfile(userState, caller))
+    };
+
+    private func _onlyAdmin(caller: Principal) : Result.Result<(), Text> {
+        if (not _isAdmin(caller) and not _isSuperAdmin(caller) and not Principal.isController(caller)) {
+            // Logging is moved to the public function to support async logging
+            return #err("Unauthorized: Admin access required.");
+        };
+        #ok(())
+    };
+
+    private func _onlySuperAdmin(caller: Principal) : Result.Result<(), Text> {
+        if (not _isSuperAdmin(caller)) {
+            // Logging is moved to the public function to support async logging
+            return #err("Unauthorized: Super-admin access required.");
+        };
+        #ok(())
+    };
+
+    // ==================================================================================================
     // BUSINESS LOGIC - PUBLIC ENDPOINTS
     // ==================================================================================================
 
@@ -111,22 +157,29 @@ actor Backend {
         request: TokenDeployerTypes.DeploymentRequest
     ) : async Result.Result<TokenDeployerTypes.DeploymentResult, Text> {
 
-        // 1. Validate request arguments
+        // 1. Authorization & Validation
         if (Principal.isAnonymous(caller)) {
             return #err("Anonymous users cannot deploy tokens");
         };
-        if (Text.size(request.tokenInfo.name) == 0) {
+        // Ensure user profile exists, create if not
+        ignore UserService.registerUser(userState, caller);
+
+        // Basic validation for the request object itself
+        if (Text.size(request.tokenConfig.name) == 0) {
             return #err("Token name cannot be empty");
         };
-        if (Text.size(request.tokenInfo.symbol) == 0) {
+        if (Text.size(request.tokenConfig.symbol) == 0) {
             return #err("Token symbol cannot be empty");
         };
-        let symbol = request.tokenInfo.symbol;
+        let symbol = request.tokenConfig.symbol;
         if (Trie.get(tokenSymbolRegistry, {key = symbol; hash = Text.hash(symbol)}, Text.equal) != null) {
             return #err("Token symbol '" # symbol # "' already exists");
         };
         
-        // 2. Process payment
+        // 2. Get fee from config
+        let fee = ConfigService.getNumber(configState, "token_deployer.fee", 100_000_000); // Default 1 ICP
+
+        // 3. Process payment
         let paymentResult = await PaymentService.validateAndProcessPayment(
             paymentState,
             caller,
@@ -139,21 +192,23 @@ actor Backend {
             return #err(Option.get(paymentResult.errorMessage, "Payment failed."));
         };
 
-        // 3. Log initial action
-        let auditEntry = AuditService.logAction(auditState, 
+        // 4. Log initial action
+        let auditEntry = await AuditService.logAction(auditState, 
             caller, 
             #CreateToken, 
             #RawData("Initiating token deployment for " # symbol),
-            null,
-            null
+            paymentResult.paymentRecordId,
+            ?#TokenDeployer
         );
         let auditId = auditEntry.id;
 
-        // 4. Prepare for external deployment call
+        // 5. Prepare for external deployment call
+        // This service function now constructs the correct {config, deploymentConfig} structure
         let preparedCall = switch(
             TokenDeployerService.prepareDeployment(
                 caller,
-                request,
+                request.tokenConfig,
+                request.deploymentConfig,
                 configState,
                 microserviceState
             )
@@ -162,47 +217,60 @@ actor Backend {
             case (#ok(call)) { call };
         };
 
-        // 5. Execute external call
-        let deployerActor : TokenDeployerInterface.TokenDeployerActor = actor(Principal.toText(preparedCall.canisterId));
-        let deploymentResult = await deployerActor.deployToken(preparedCall.args);
+        // 6. Execute external call
+        let deployerActor = actor(Principal.toText(preparedCall.canisterId)) : actor {
+            deployTokenWithConfig : (TokenDeployerTypes.TokenConfig, TokenDeployerTypes.DeploymentConfig, ?Principal) -> async Result.Result<Principal, Text>
+        };
+        let deploymentResult = await deployerActor.deployTokenWithConfig(preparedCall.args.config, preparedCall.args.deploymentConfig, null);
 
-        // 6. Process result
+        // 7. Process result
         switch(deploymentResult) {
             case (#err(msg)) {
-                ignore AuditService.updateAuditStatus(auditState, auditId, #Failed(msg), ?msg);
-                // TODO: Handle refund logic
+                ignore await AuditService.updateAuditStatus(auditState, auditId, #Failed(msg), ?msg);
+                
+                // Automatically create a refund request on failure
+                if (Option.isSome(paymentResult.paymentRecordId)) {
+                    ignore PaymentService.createRefundRequest(
+                        paymentState,
+                        caller,
+                        Option.get(paymentResult.paymentRecordId, ""),
+                        #SystemError,
+                        "Token deployment failed with message: " # msg
+                    );
+                };
+
                 return #err("Deployment failed: " # msg);
             };
-            case (#ok(result)) {
+            case (#ok(canisterId)) {
                 // Update state
-                tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, {key=symbol; hash=Text.hash(symbol)}, Text.equal, result.canisterId).0;
+                tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, {key=symbol; hash=Text.hash(symbol)}, Text.equal, canisterId).0;
 
                 // Update user record with deployment info
                 ignore UserService.recordDeployment(
                     userState,
                     caller,
                     request.projectId,
-                    result.canisterId,
+                    canisterId,
                     #TokenDeployer,
                     #Token({
-                        tokenName = request.tokenInfo.name;
+                        tokenName = request.tokenConfig.name;
                         tokenSymbol = symbol;
                         standard = "ICRC1";
-                        decimals = 8;
+                        decimals = request.tokenConfig.decimals;
                         features = [];
-                        totalSupply = request.initialSupply;
+                        totalSupply = request.tokenConfig.totalSupply;
                     }),
                     {
-                        cyclesCost = result.cyclesUsed;
+                        cyclesCost = 0; // TODO: Get this from deployer result
                         deploymentFee = paymentResult.paidAmount;
                         paymentToken = paymentResult.paymentToken;
                         totalCost = paymentResult.paidAmount;
                         transactionId = paymentResult.transactionId;
                     },
                     {
-                        name = request.tokenInfo.name;
-                        description = null;
-                        tags = [];
+                        name = request.tokenConfig.name;
+                        description = request.tokenConfig.description;
+                        tags = []; // Tags are not part of TokenConfig
                         version = "1.0.0";
                         isPublic = true;
                         parentProject = request.projectId;
@@ -211,14 +279,14 @@ actor Backend {
                 );
 
                 // Update audit log
-                ignore AuditService.updateAuditStatus(auditState, auditId, #Completed, ?("Successfully deployed token " # symbol));
+                ignore await AuditService.updateAuditStatus(auditState, auditId, #Completed, ?("Successfully deployed token " # symbol));
 
                 return #ok({
-                    canisterId = result.canisterId;
+                    canisterId = canisterId;
                     projectId = request.projectId;
                     transactionId = paymentResult.transactionId;
-                    tokenSymbol = result.tokenSymbol;
-                    cyclesUsed = result.cyclesUsed;
+                    tokenSymbol = symbol;
+                    cyclesUsed = 0; // TODO: Get this from deployer result
                 });
             };
         };
@@ -239,19 +307,33 @@ actor Backend {
     };
     
     public shared({caller}) func setCanisterIds(canisterIds: MicroserviceTypes.CanisterIds) : async () {
-        // Idempotency check: only allow setup once
-        if (microserviceState.setupCompleted) {
-            return;
+        // 1. Authorization Check
+        switch (_onlyAdmin(caller)) {
+            case (#err(msg)) {
+                // Log failure and return
+                Debug.print("setCanisterIds: Admin access required");
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("setCanisterIds: Admin access required"), null, null);
+                return;
+            };
+            case (#ok()) {};
         };
-
-        // Set the canister IDs in the microservice state
+        Debug.print("Setting canister IDs to " # debug_show(canisterIds));
+        
+        // 2. Set the canister IDs in the microservice state
         MicroserviceService.setCanisterIds(microserviceState, canisterIds);
 
-        // Mark setup as complete
+        // Propagate storage IDs to relevant services
+        paymentState.invoiceStorageId := canisterIds.invoiceStorage;
+        if (Option.isSome(canisterIds.auditStorage)) {
+            Debug.print("Setting audit storage to " # Principal.toText(Option.get(canisterIds.auditStorage, owner)));
+            AuditService.setExternalAuditStorage(auditState, Option.get(canisterIds.auditStorage, owner));
+        };
+
+        // 3. Mark setup as complete
         microserviceState.setupCompleted := true;
 
-        // Log the action
-        ignore AuditService.logAction(auditState, 
+        // 4. Log the action
+        ignore await AuditService.logAction(auditState, 
             caller, 
             #UpdateSystemConfig,
             #AdminData({
@@ -276,7 +358,9 @@ actor Backend {
                     ("TokenDeployer", ids.tokenDeployer),
                     ("LaunchpadDeployer", ids.launchpadDeployer),
                     ("LockDeployer", ids.lockDeployer),
-                    ("DistributionDeployer", ids.distributionDeployer)
+                    ("DistributionDeployer", ids.distributionDeployer),
+                    ("InvoiceStorage", ids.invoiceStorage),
+                    ("AuditStorage", ids.auditStorage)
                 ];
 
                 let servicesToCheck : [(Text, Principal)] = Array.mapFilter<(Text, ?Principal), (Text, Principal)>(
@@ -295,13 +379,13 @@ actor Backend {
                     let (name, id) = service;
                     let healthActor = actor(Principal.toText(id)) : MicroserviceInterface.HealthActor;
                     try {
-                        let healthResult = await healthActor.getServiceHealth();
+                        let healthResult = await healthActor.healthCheck();
                         results.add({
                             name = name;
                             canisterId = id;
                             status = #Ok;
-                            cycles = ?healthResult.cycles;
-                            isHealthy = ?healthResult.isHealthy;
+                            cycles = ?0;
+                            isHealthy = ?healthResult;
                         });
                     } catch (e) {
                         results.add({
@@ -329,4 +413,127 @@ actor Backend {
     // --------------------------------------------------------------------------------------------------
     // USERS
     // --------------------------------------------------------------------------------------------------
+
+    public shared({caller}) func getUserProfile(userId: Principal) : async ?UserTypes.UserProfile {
+        switch(_onlyAdmin(caller)) {
+            case (#ok) { return UserService.getUserProfile(userState, userId); };
+            case (#err(_msg)) { return null };
+        }
+    };
+
+    // ==================================================================================================
+    // ADMIN CONFIG & STATUS
+    // ==================================================================================================
+    
+    public shared query func getServiceFee(serviceName: Text) : async ?Nat {
+        // Example: "token_deployer.fee"
+        let key = serviceName # ".fee";
+        switch (Trie.get(configState.values, {key = key; hash = Text.hash(key)}, Text.equal)) {
+            case (?value) Nat.fromText(value);
+            case null null;
+        }
+    };
+
+    public shared query func getMicroserviceSetupStatus() : async Bool {
+        microserviceState.setupCompleted
+    };
+    
+    public shared({caller}) func forceResetMicroserviceSetup() : async () {
+        // Authorization Check
+        switch (_onlySuperAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("forceResetMicroserviceSetup: Super-admin access required"), null, null);
+                return;
+            };
+            case (#ok()) {};
+        };
+        microserviceState.setupCompleted := false;
+        ignore await AuditService.logAction(auditState, caller, #UpdateSystemConfig, #RawData("Forced microservice setup reset"), null, null);
+    };
+
+    // ==================================================================================================
+    // ADMIN QUERY ENDPOINTS
+    // ==================================================================================================
+
+    public shared({caller}) func adminGetPaymentRecord(recordId: PaymentTypes.PaymentRecordId) : async ?PaymentTypes.PaymentRecord {
+        if (not _isAdmin(caller)) { return null; };
+        return await PaymentService.getPaymentRecord(paymentState, recordId);
+    };
+
+    public shared({caller}) func adminGetRefundRequest(refundId: PaymentTypes.RefundId) : async ?PaymentTypes.RefundRequest {
+        if (not _isAdmin(caller)) { return null; };
+        return await PaymentService.getRefundRequest(paymentState, refundId);
+    };
+
+    public shared({caller}) func adminGetUserPayments(userId: Common.UserId) : async [PaymentTypes.PaymentRecord] {
+        if (not _isAdmin(caller)) { return []; };
+        return PaymentService.getUserPayments(paymentState, userId);
+    };
+
+    public shared({caller}) func adminGetUserDeployments(userId: Common.UserId) : async [UserTypes.DeploymentRecord] {
+        if (not _isAdmin(caller)) { return []; };
+        // NOTE: The service function has limit/offset, but we expose a simpler version for now.
+        // V1 reference: icto_app/backend/main.mo -> get_user_projects
+        return UserService.getUserDeployments(userState, userId, 100, 0);
+    };
+    
+    public shared({caller}) func adminGetUserProfile(userId: Common.UserId) : async ?UserTypes.UserProfile {
+        if (not _isAdmin(caller)) { return null; };
+        return UserService.getUserProfile(userState, userId);
+    };
+
+    // ==================================================================================================
+    // ADMIN COMMAND ENDPOINTS
+    // ==================================================================================================
+    
+    public shared({caller}) func adminApproveRefund(refundId: PaymentTypes.RefundId, notes: ?Text) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+        // 1. Authorization
+        switch(_onlyAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminApproveRefund: Admin access required"), null, ?#Backend);
+                return #err(msg);
+            };
+            case (#ok) {};
+        };
+        
+        // 2. Log Action
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Approving refund " # refundId), #RawData("Approving refund " # refundId), null, ?#Backend);
+
+        // 3. Delegate to service
+        return await PaymentService.approveRefund(paymentState, refundId, caller, notes);
+    };
+
+    public shared({caller}) func adminRejectRefund(refundId: PaymentTypes.RefundId, reason: Text) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+        // 1. Authorization
+        switch(_onlyAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminRejectRefund: Admin access required"), null, ?#Backend);
+                return #err(msg);
+            };
+            case (#ok) {};
+        };
+
+        // 2. Log Action
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Rejecting refund " # refundId), #RawData("Rejecting refund " # refundId), null, ?#Backend);
+
+        // 3. Delegate to service
+        return await PaymentService.rejectRefund(paymentState, refundId, caller, reason);
+    };
+
+    public shared({caller}) func adminProcessRefund(refundId: PaymentTypes.RefundId) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+        // 1. Authorization
+        switch(_onlyAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminProcessRefund: Admin access required"), null, ?#Backend);
+                return #err(msg);
+            };
+            case (#ok) {};
+        };
+
+        // 2. Log Action
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Processing refund " # refundId), #RawData("Processing refund " # refundId), null, ?#Backend);
+
+        // 3. Delegate to service
+        return await PaymentService.processRefund(paymentState, refundId, caller);
+    };
 };

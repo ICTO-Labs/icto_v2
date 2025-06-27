@@ -15,5 +15,6 @@ module MicroserviceInterface {
     // The generic actor interface for a health-checkable service.
     public type HealthActor = actor {
         getServiceHealth: () -> async HealthResult;
+        healthCheck: () -> async Bool;
     };
 }; 

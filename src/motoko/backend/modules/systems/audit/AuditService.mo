@@ -16,6 +16,7 @@ import AuditTypes "AuditTypes";
 import Interfaces "../../../shared/types/Interfaces";
 import Common "../../../shared/types/Common";
 import ProjectTypes "../../../shared/types/ProjectTypes";
+import ExternalAudit "../../../shared/interfaces/AuditStorage";
 
 module AuditService {
     
@@ -29,8 +30,8 @@ module AuditService {
 
     public func fromStableState(stableState: AuditTypes.StableState) : AuditTypes.State {
         let state = AuditTypes.emptyState();
-        let externalStorageActor : ?Interfaces.AuditStorageActor = 
-            Option.map(stableState.externalAuditStorage, func(p: Principal): Interfaces.AuditStorageActor { return actor(Principal.toText(p)) });
+        let externalStorageActor : ?ExternalAudit.AuditStorage = 
+            Option.map(stableState.externalAuditStorage, func(p: Principal): ExternalAudit.AuditStorage { return actor(Principal.toText(p)) });
         
         for (entry in stableState.entries.vals()) { let (k, v) = entry; state.entries := Trie.put(state.entries, {key=k; hash=Text.hash(k)}, Text.equal, v).0; };
         for (entry in stableState.userEntries.vals()) { let (k, v) = entry; state.userEntries := Trie.put(state.userEntries, {key=k; hash=Text.hash(k)}, Text.equal, v).0; };
@@ -59,8 +60,8 @@ module AuditService {
     // CONFIG
     // =================================================================================
     
-    public func setExternalAuditStorage(state: AuditTypes.State, externalActor: Interfaces.AuditStorageActor) {
-        state.externalAuditStorage := ?externalActor;
+    public func setExternalAuditStorage(state: AuditTypes.State, storagePrincipal: Principal) {
+        state.externalAuditStorage := ?(actor(Principal.toText(storagePrincipal)) : ExternalAudit.AuditStorage);
     };
     
     // =================================================================================
@@ -153,9 +154,9 @@ module AuditService {
         actionData: AuditTypes.ActionData,
         projectId: ?Common.ProjectId,
         serviceType: ?AuditTypes.ServiceType
-    ) : AuditTypes.AuditEntry {
+    ) : async AuditTypes.AuditEntry {
         let timestamp = Time.now();
-        let auditId = AuditTypes.generateAuditId(userId, timestamp);
+        let auditId = "audit_" # Principal.toText(userId) # "_" # Int.toText(timestamp);
         
         let entry : AuditTypes.AuditEntry = {
             id = auditId;
@@ -194,8 +195,8 @@ module AuditService {
         updateActionTypeIndex(state, actionType, auditId);
         updateDateIndex(state, timestamp, auditId);
         
-        // Log to external audit storage asynchronously (non-blocking)
-        // ignore await _logToExternal(state, entry);
+        // Log to external audit storage asynchronously
+        await _logToExternal(state, entry);
         
         return entry;
     };
@@ -203,18 +204,17 @@ module AuditService {
     private func _logToExternal(state: AuditTypes.State, entry: AuditTypes.AuditEntry) : async () {
         switch (state.externalAuditStorage) {
             case (?externalAudit) {
-                // This is a simplified mapping. A more robust solution would be needed.
-                let extActionType : ProjectTypes.ActionType = #ProjectCreate;
-                let extResourceType : ProjectTypes.ResourceType = #Project;
+                
+                let details = actionDataToText(entry.actionData);
 
                 // Fire-and-forget call
-                ignore await externalAudit.logAuditEvent(
+                ignore externalAudit.logAuditEvent(
                     Principal.toText(entry.userId),
-                    extActionType,
-                    extResourceType,
+                    toExternalActionType(entry.actionType),
+                    toExternalResourceType(entry.serviceType),
                     entry.projectId,
-                    ?("details"),
-                    null
+                    ?details,
+                    null // metadata not mapped currently
                 );
             };
             case null {};
@@ -226,7 +226,7 @@ module AuditService {
         auditId: AuditTypes.AuditId,
         status: AuditTypes.ActionStatus,
         errorMessage: ?Text
-    ) : ?AuditTypes.AuditEntry {
+    ) : async ?AuditTypes.AuditEntry {
         let key = {key=auditId; hash=Text.hash(auditId)};
         switch (Trie.get(state.entries, key, Text.equal)) {
             case (?entry) {
@@ -237,11 +237,75 @@ module AuditService {
                 };
                 state.entries := Trie.put(state.entries, key, Text.equal, updatedEntry).0;
                 
-                // TODO: Log status update to external storage
-                
+                // Log the status update as a new, separate event to the external log
+                let statusUpdateLogData = #RawData("Status of audit '" # auditId # "' changed to '" # statusToText(status) # "'");
+                let statusUpdateEntry = await logAction(state, entry.userId, #UpdateSystemConfig, statusUpdateLogData, entry.projectId, entry.serviceType);
+
                 return ?updatedEntry;
             };
             case null { return null; };
+        }
+    };
+
+    private func statusToText(status: AuditTypes.ActionStatus) : Text {
+        switch(status) {
+            case(#Initiated) "Initiated";
+            case(#InProgress) "InProgress";
+            case(#Completed) "Completed";
+            case(#Failed(msg)) "Failed(" # msg # ")";
+            case(#Cancelled) "Cancelled";
+            case(#Timeout) "Timeout";
+        }
+    };
+
+    private func toExternalActionType(actionType: AuditTypes.ActionType) : ExternalAudit.ActionType {
+        // This is a lossy conversion, as the external interface is less detailed.
+        // We map based on the general category of the action.
+        switch (actionType) {
+            case (#CreateProject) #ProjectCreate;
+            case (#UpdateProject) #ProjectUpdate;
+            case (#DeleteProject) #ProjectDelete;
+            case (#CreateToken) #TokenDeploy;
+            case (#CreateLock) #LockCreate;
+            case (#CreateDistribution) #DistributionCreate;
+            case (#CreateLaunchpad) #LaunchpadCreate;
+            case (#StartPipeline or #StepCompleted or #PipelineCompleted) #LaunchpadLaunch;
+            case (#StepFailed or #PipelineFailed) #SystemMaintenance; // Mapped to a system event type implicitly
+            case (#FeeValidation or #PaymentProcessed) #PaymentProcess;
+            case (#PaymentFailed) #PaymentProcess; // Still a payment process action
+            case (#RefundProcessed) #PaymentRefund;
+            case (#AdminLogin) #UserLogin;
+            case (#UpdateSystemConfig or #ServiceMaintenance or #SystemUpgrade) #SystemUpgrade;
+            case (#UserManagement or #GrantAccess or #RevokeAccess) #AdminAction;
+            case (#AccessDenied or #AccessGranted or #AccessRevoked) #AdminAction;
+            case (#AdminAction(_)) #AdminAction;
+            case (#Custom(_)) #AdminAction; // Default for custom actions
+            case (#CreateDAO) #AdminAction; // No specific type, map to admin
+        }
+    };
+    
+    private func toExternalResourceType(serviceType: ?AuditTypes.ServiceType) : ExternalAudit.ResourceType {
+        switch (serviceType) {
+            case (?(#TokenDeployer)) #Token;
+            case (?(#LockDeployer)) #Lock;
+            case (?(#DistributionDeployer)) #Distribution;
+            case (?(#LaunchpadDeployer)) #Launchpad;
+            case (?(#InvoiceService)) #Payment;
+            case (?(#Backend)) #System;
+            case null #System; // Default if no service is specified
+        }
+    };
+
+    private func actionDataToText(actionData: AuditTypes.ActionData) : Text {
+        // A simple text representation. Could be JSON for more detail.
+        switch(actionData) {
+            case (#RawData(txt)) txt;
+            case (#AdminData(d)) "Admin Action: " # d.adminAction;
+            case (#ProjectData(d)) "Project: " # d.projectName;
+            case (#TokenData(d)) "Token: " # d.tokenSymbol;
+            case (#PaymentData(d)) "Payment: " # Nat.toText(d.amount);
+            // Add other cases as needed
+            case (_) "Complex action data...";
         }
     };
 }

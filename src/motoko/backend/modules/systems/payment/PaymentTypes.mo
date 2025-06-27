@@ -27,6 +27,7 @@ module PaymentTypes {
         totalVolume: Nat;
         totalRefunds: Nat;
         totalRefundedAmount: Nat;
+        invoiceStorageId: ?Principal;
     };
 
     public type State = {
@@ -40,6 +41,7 @@ module PaymentTypes {
         var totalVolume: Nat;
         var totalRefunds: Nat;
         var totalRefundedAmount: Nat;
+        var invoiceStorageId: ?Principal;
     };
 
     public func emptyState(owner: Principal) : State {
@@ -67,6 +69,7 @@ module PaymentTypes {
             var totalVolume = 0;
             var totalRefunds = 0;
             var totalRefundedAmount = 0;
+            var invoiceStorageId = null;
         }
     };
     // --- ID TYPES ---
