@@ -6,6 +6,7 @@ import Principal "mo:base/Principal";
 import Time "mo:base/Time";
 import Trie "mo:base/Trie";
 import ProjectTypes "../../shared/types/ProjectTypes";
+import Audit "../../shared/types/Audit";
 
 // Import backend types for proper typing
 import BackendTypes "../types/BackendTypes";
@@ -56,6 +57,7 @@ module APITypes {
     };
 
     // ================ TOKEN DEPLOYMENT TYPES ================
+    
     
     public type TokenDeploymentRequest = {
         projectId: ?Text;
@@ -625,5 +627,56 @@ module APITypes {
         rolloutPercentage: ?Nat;
         conditions: [Text];
         expirationTime: ?Time.Time;
+    };
+
+    // Admin Request Types for centralized gateway
+
+    public type AdminAction = {
+        #CreateOrUpdateConfig : {
+            key: Text;
+            value: Text;
+        };
+        #DeleteConfig : {
+            key: Text;
+        };
+        #UpdateUserLimits : {
+            maxProjectsPerUser: ?Nat;
+            maxTokensPerUser: ?Nat;
+            maxDeploymentsPerDay: ?Nat;
+            deploymentCooldown: ?Nat;
+            maxRequestsPerUser: ?Nat;
+        };
+        #AdminManagement : {
+            #AddAdmin : { principal: Principal; isSuperAdmin: Bool };
+            #RemoveAdmin : { principal: Principal };
+        };
+        #MaintenanceMode : {
+            #Enable;
+            #Disable;
+        };
+        #EmergencyStop;
+        #GetSystemConfig;
+    };
+
+    public type AdminRequest = {
+        action: AdminAction;
+        metadata: ?{
+            requestId: ?Text;
+            timestamp: ?Int;
+            source: ?Text;
+            priority: ?{ #High; #Normal; #Low };
+        };
+    };
+
+    public type AdminResponse = {
+        #Success : {
+            data: Any;
+            message: ?Text;
+        };
+        #Error : {
+            code: Text;
+            message: Text;
+            details: ?Text;
+        };
     };
 } 

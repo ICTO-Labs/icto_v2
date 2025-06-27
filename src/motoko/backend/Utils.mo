@@ -4,27 +4,16 @@
 
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
-import Time "mo:base/Time";
 import Array "mo:base/Array";
 import Trie "mo:base/Trie";
 import Text "mo:base/Text";
 import Option "mo:base/Option";
 import Debug "mo:base/Debug";
-import Nat "mo:base/Nat";
-import Int "mo:base/Int";
 
 // Import shared types
 import ProjectTypes "../shared/types/ProjectTypes";
-import BackendTypes "./types/BackendTypes";
 import Audit "../shared/types/Audit";
 import APITypes "./types/APITypes";
-
-// Import backend modules
-import AuditLogger "./modules/AuditLogger";
-import UserRegistry "./modules/UserRegistry";
-import SystemManager "./modules/SystemManager";
-import PaymentValidator "./modules/PaymentValidator";
-import TokenService "./services/TokenService";
 
 module Utils {
 
@@ -179,37 +168,6 @@ module Utils {
         #ok()
     };
     
-    public func validateSystemState(
-        serviceType: Text,
-        systemStorage: SystemManager.ConfigurationStorage
-    ) : Result.Result<(), Text> {
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        
-        if (config.maintenanceMode) {
-            return #err("System is in maintenance mode");
-        };
-        
-        if (not SystemManager.isServiceEnabled(config, serviceType)) {
-            return #err(serviceType # " service is currently disabled");
-        };
-        
-        #ok()
-    };
-    
-    public func validateUserLimits(
-        userProfile: UserRegistry.UserProfile,
-        serviceType: Text,
-        systemStorage: SystemManager.ConfigurationStorage
-    ) : Result.Result<(), Text> {
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        let deploymentCount = userProfile.deploymentCount;
-        
-        if (deploymentCount >= config.deploymentLimits.maxProjectsPerUser) {
-            return #err("Maximum deployment limit reached for " # serviceType);
-        };
-        
-        #ok()
-    };
     
     public func validateProjectOwnership(
         caller: Principal,
@@ -250,112 +208,6 @@ module Utils {
             case ("distributionDeployer") Option.isSome(distributionDeployerCanisterId);
             case (_) false;
         }
-    };
-
-    // ================ FEE CALCULATION UTILITIES ================
-    
-    public func calculateServiceFee(
-        serviceType: Text,
-        userProfile: UserRegistry.UserProfile,
-        systemStorage: SystemManager.ConfigurationStorage
-    ) : Result.Result<Nat, Text> {
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        
-        // Get service fee
-        let serviceFee = switch (SystemManager.getServiceFee(config, serviceType)) {
-            case (?fee) fee;
-            case null return #err("Service fee not configured for " # serviceType);
-        };
-        
-        // Calculate with volume discounts
-        let userVolume = userProfile.deploymentCount;
-        let finalFee = SystemManager.calculateFeeWithDiscount(serviceFee, userVolume);
-        
-        #ok(finalFee)
-    };
-
-    // ================ BACKEND CONTEXT UTILITIES ================
-    
-    public func createBackendContext(
-        projectsTrie: Trie.Trie<Text, ProjectTypes.ProjectDetail>,
-        tokenSymbolRegistry: Trie.Trie<Text, Principal>,
-        auditStorage: AuditLogger.AuditStorage,
-        userRegistryStorage: UserRegistry.UserRegistryStorage,
-        systemStorage: SystemManager.ConfigurationStorage,
-        paymentValidatorStorage: PaymentValidator.PaymentValidatorStorage,
-        invoiceStorageCanisterId: ?Principal,
-        tokenDeployerCanisterId: ?Principal
-    ) : TokenService.BackendContext {
-        {
-            projectsTrie = projectsTrie;
-            tokenSymbolRegistry = tokenSymbolRegistry;
-            auditStorage = auditStorage;
-            userRegistryStorage = userRegistryStorage;
-            systemStorage = systemStorage;
-            paymentValidatorStorage = paymentValidatorStorage;
-            invoiceStorageCanisterId = invoiceStorageCanisterId;
-            tokenDeployerCanisterId = tokenDeployerCanisterId;
-        }
-    };
-
-    // ================ AUDIT UTILITIES ================
-    
-    public func createAuditEntry(
-        caller: Principal,
-        serviceType: Text,
-        deploymentType: APITypes.DeploymentType,
-        projectId: ?Text,
-        auditStorage: AuditLogger.AuditStorage
-    ) : AuditLogger.AuditEntry {
-        let actionType = switch (serviceType) {
-            case ("tokenDeployment") #CreateToken;
-            case ("launchpadDeployment") #CreateLaunchpad;
-            case ("lockDeployment") #CreateLock;
-            case ("distributionDeployment") #CreateDistribution;
-            case ("airdropDeployment") #CreateDistribution;
-            case ("daoDeployment") #CreateDAO;
-            case ("pipelineExecution") #StartPipeline;
-            case (_) #CreateToken;
-        };
-        
-        let auditData = switch (deploymentType) {
-            case (#Token(req)) {
-                #TokenData({
-                    tokenName = req.tokenInfo.name;
-                    tokenSymbol = req.tokenInfo.symbol;
-                    totalSupply = req.initialSupply;
-                    standard = "ICRC2";
-                    deploymentConfig = "{}";
-                })
-            };
-            case (_) {
-                #RawData("Deployment request: " # serviceType)
-            };
-        };
-        
-        AuditLogger.logAction(
-            auditStorage,
-            caller,
-            actionType,
-            auditData,
-            projectId,
-            ?#TokenDeployer
-        )
-    };
-    
-    public func completeAuditEntry(
-        auditId: Text,
-        canisterId: ?Text,
-        success: Bool,
-        errorMsg: ?Text,
-        auditStorage: AuditLogger.AuditStorage
-    ) {
-        let status = if (success) {
-            #Completed
-        } else {
-            #Failed(Option.get(errorMsg, "Unknown error"))
-        };
-        ignore AuditLogger.updateAuditStatus(auditStorage, auditId, status, canisterId, ?100);
     };
 
     // ================ SERVICE TYPE CONVERSION UTILITIES ================
@@ -408,24 +260,6 @@ module Utils {
         }
     };
 
-    // ================ ADMIN VALIDATION UTILITIES ================
-    
-    public func isAdmin(
-        principal: Principal,
-        systemStorage: SystemManager.ConfigurationStorage
-    ) : Bool {
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        SystemManager.isAdmin(config.adminSettings, principal)
-    };
-    
-    public func isSuperAdmin(
-        principal: Principal,
-        systemStorage: SystemManager.ConfigurationStorage
-    ) : Bool {
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        SystemManager.isSuperAdmin(config.adminSettings, principal)
-    };
-
     // ================ PAYMENT ACTION TYPE UTILITIES ================
     
     public func getPaymentActionType(serviceType: Text) : Audit.ActionType {
@@ -446,4 +280,16 @@ module Utils {
     public func logPhase(phase: Text, caller: Principal, details: Text) {
         Debug.print("🚀 Backend " # phase # " - " # Principal.toText(caller) # ": " # details);
     };
+
+    // ================ TEXT TO BOOL UTILITIES ================
+    public func textToBool(t : Text) : Bool {
+        if (t == "true") {
+            true
+        } else if (t == "false") {
+            false
+        } else {
+            false
+        }
+    };
+
 } 

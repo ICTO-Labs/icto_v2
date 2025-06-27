@@ -49,7 +49,7 @@ INVOICE_STORAGE_ID=$(get_canister_id "invoice_storage")
 TOKEN_DEPLOYER_ID=$(get_canister_id "token_deployer")
 LAUNCHPAD_DEPLOYER_ID=$(get_canister_id "launchpad_deployer")
 LOCK_DEPLOYER_ID=$(get_canister_id "lock_deployer")
-DISTRIBUTING_DEPLOYER_ID=$(get_canister_id "distributing_deployer")
+DISTRIBUTION_DEPLOYER_ID=$(get_canister_id "distribution_deployer")
 
 # Display canister status
 echo -e "${GREEN}✅ backend: ${BACKEND_ID:-'not deployed'}${NC}"
@@ -58,7 +58,7 @@ echo -e "${GREEN}✅ invoice_storage: ${INVOICE_STORAGE_ID:-'not deployed'}${NC}
 echo -e "${GREEN}✅ token_deployer: ${TOKEN_DEPLOYER_ID:-'not deployed'}${NC}"
 echo -e "${GREEN}✅ launchpad_deployer: ${LAUNCHPAD_DEPLOYER_ID:-'not deployed'}${NC}"
 echo -e "${GREEN}✅ lock_deployer: ${LOCK_DEPLOYER_ID:-'not deployed'}${NC}"
-echo -e "${GREEN}✅ distributing_deployer: ${DISTRIBUTING_DEPLOYER_ID:-'not deployed'}${NC}"
+echo -e "${GREEN}✅ distribution_deployer: ${DISTRIBUTION_DEPLOYER_ID:-'not deployed'}${NC}"
 
 echo ""
 
@@ -90,7 +90,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             TOKEN_ID=$TOKEN_DEPLOYER_ID
             LAUNCHPAD_ID=$LAUNCHPAD_DEPLOYER_ID
             LOCK_ID=$LOCK_DEPLOYER_ID
-            DIST_ID=$DISTRIBUTING_DEPLOYER_ID
+            DIST_ID=$DISTRIBUTION_DEPLOYER_ID
             
             # Validate that we have the required canisters
             if [[ -z "$AUDIT_ID" || -z "$INVOICE_ID" || -z "$TOKEN_ID" ]]; then
@@ -204,9 +204,9 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
                 echo ""
             fi
             
-            if [[ -n "$DISTRIBUTING_DEPLOYER_ID" ]]; then
-                echo "Adding backend to distributing deployer whitelist..."
-                dfx canister call distributing_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
+            if [[ -n "$DISTRIBUTION_DEPLOYER_ID" ]]; then
+                echo "Adding backend to distribution deployer whitelist..."
+                dfx canister call distribution_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
                 echo ""
             fi
             
@@ -240,7 +240,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             # Check launchpad deployer whitelist
             if [[ -n "$LAUNCHPAD_DEPLOYER_ID" ]]; then
                 echo "Launchpad Deployer Whitelist:"
-                dfx canister call launchpad getWhitelist "()"
+                dfx canister call launchpad_deployer getWhitelist "()"
                 echo ""
             fi
             
@@ -252,9 +252,9 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             fi
             
             # Check distribution deployer whitelist
-            if [[ -n "$DISTRIBUTING_DEPLOYER_ID" ]]; then
+            if [[ -n "$DISTRIBUTION_DEPLOYER_ID" ]]; then
                 echo "Distribution Deployer Whitelist:"
-                dfx canister call distributing_deployer getWhitelist "()"
+                dfx canister call distribution_deployer getWhitelist "()"
                 echo ""
             fi
             ;;
@@ -293,7 +293,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
                     "token_deployer") service_id="$TOKEN_DEPLOYER_ID" ;;
                     "launchpad_deployer") service_id="$LAUNCHPAD_DEPLOYER_ID" ;;
                     "lock_deployer") service_id="$LOCK_DEPLOYER_ID" ;;
-                    "distributing_deployer") service_id="$DISTRIBUTING_DEPLOYER_ID" ;;
+                    "distribution_deployer") service_id="$DISTRIBUTION_DEPLOYER_ID" ;;
                 esac
                 
                 if [[ -z "$service_id" ]]; then
@@ -309,7 +309,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
                     "token_deployer") dfx_canister_name="token_deployer" ;;
                     "launchpad_deployer") dfx_canister_name="launchpad_deployer" ;;
                     "lock_deployer") dfx_canister_name="lock_deployer" ;;
-                    "distributing_deployer") dfx_canister_name="distributing_deployer" ;;
+                    "distribution_deployer") dfx_canister_name="distribution_deployer" ;;
                     *) echo -e "${RED}❌ Unknown service: ${service_name}${NC}"; return 1 ;;
                 esac
                 
@@ -328,7 +328,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             }
             
             # Define services list (simple array)
-            SERVICES_TO_PROCESS="audit_storage invoice_storage token_deployer launchpad_deployer lock_deployer distributing_deployer"
+            SERVICES_TO_PROCESS="audit_storage invoice_storage token_deployer launchpad_deployer lock_deployer distribution_deployer"
             SERVICE_COUNT=6
             
             # Process all services

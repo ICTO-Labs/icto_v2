@@ -1,9 +1,12 @@
-// Token Deployer Types - Centralized type definitions
+// ================ UNIFIED TOKEN DEPLOYER TYPES ================
+// Merged from:
+// 1. shared/types/TokenDeployer.mo
+// 2. backend/types/TokenDeployer.mo
+// 3. backend/types/APITypes.mo (token-related)
 
 import Principal "mo:base/Principal";
 import Time "mo:base/Time";
 import Result "mo:base/Result";
-
 import ICRC "./ICRC";
 
 module {
@@ -44,6 +47,18 @@ module {
         enableCycleOps : Bool;
         lastCycleCheck : Time.Time;
     };
+
+    // Backup from backend/types/TokenDeployer
+    public type TokenInfo_bk = {
+        name: Text;
+        symbol: Text;
+        decimals: Nat8;
+        description: ?Text;
+        transferFee: Nat;
+        logo: ?Text;
+        website: ?Text;
+        socialLinks: ?[(Text, Text)];
+    };
     
     public type TokenStatus = {
         #Active;
@@ -51,10 +66,29 @@ module {
         #Deprecated;
         #Upgrading;
     };
+
+    public type TokenRecord = {
+        tokenId: Text;
+        canisterId: Principal;
+        projectId: Text;
+        owner: Principal;
+        tokenInfo: TokenInfo_bk;
+        initialSupply: Nat;
+        currentSupply: ?Nat;
+        deployedAt: Int;
+        status: Text;
+        transactionCount: Nat;
+        holderCount: Nat;
+        metadata: {
+            version: Text;
+            deployer: Text;
+            cyclesUsed: Nat;
+        };
+    };
     
     // ================ DEPLOYMENT TYPES ================
     
-    public type TokenConfig = {
+    public type TokenConfig_bk = {
         name : Text;
         symbol : Text;
         decimals : Nat8;
@@ -69,13 +103,66 @@ module {
         feeCollector : ?ICRC.Account;
         projectId : ?Text;
     };
+
+    // Backup from backend/types/TokenDeployer
+    public type TokenConfig = {
+        name: Text;
+        symbol: Text;
+        decimals: Nat8;
+        totalSupply: Nat;
+        initialBalances : [(ICRC.Account, Nat)];
+        minter : ?ICRC.Account;
+        feeCollector : ?ICRC.Account;
+        transferFee: Nat;
+        description: ?Text;
+        logo: ?Text;
+        website: ?Text;
+        socialLinks: ?[(Text, Text)];
+        projectId: ?Text;
+    };
     
     public type DeploymentConfig = {
         cyclesForInstall : ?Nat;
-        cyclesForArchive : ?Nat64;
+        cyclesForArchive : ?Nat;
         minCyclesInDeployer : ?Nat;
         archiveOptions : ?ArchiveOptions;
         enableCycleOps : ?Bool;
+        tokenOwner : Principal;
+    };
+
+    // Backup from backend/types/TokenDeployer
+    public type DeploymentConfig_bk = {
+        cyclesForInstall: ?Nat64;
+        cyclesForArchive: ?Nat64;
+        minCyclesInDeployer: ?Nat64;
+        archiveOptions: ?ArchiveOptions_bk;
+        enableCycleOps: ?Bool;
+        tokenOwner: Principal;
+    };
+    
+    public type TokenDeploymentRequest = {
+        projectId: ?Text;
+        tokenInfo: TokenInfo_bk;
+        initialSupply: Nat;
+        options: ?TokenDeploymentOptions;
+    };
+
+    public type TokenDeploymentOptions = {
+        allowSymbolConflict: Bool;
+        enableAdvancedFeatures: Bool;
+        customMinter: ?Principal;
+        customFeeCollector: ?Principal;
+        enableCyclesOps: ?Bool;
+        initialBalances: ?[(ICRC.Account, Nat)];
+    };
+
+    public type TokenDeploymentResult = {
+        canisterId: Principal;
+        projectId: ?Text;
+        deployedAt: Int;
+        cyclesUsed: Nat;
+        tokenSymbol: Text;
+        initialSupply: Nat;
     };
     
     public type PendingDeployment = {
@@ -88,7 +175,7 @@ module {
         error : ?Text;
     };
     
-    public type DeploymentStatus = {
+    public type DeploymentStatus_bk = {
         #Pending;
         #Installing;
         #Configuring;
@@ -104,12 +191,83 @@ module {
         deployedAt : Time.Time;
         config : TokenConfig;
         deploymentConfig : ?DeploymentConfig;
-        deploymentTime : Nat; // milliseconds
+        deploymentTime : Nat;
         cyclesUsed : Nat;
         success : Bool;
         error : ?Text;
     };
     
+    // ================ ARCHIVE OPTIONS ================
+    
+    public type ArchiveOptions = {
+        num_blocks_to_archive : Nat64;
+        max_transactions_per_response : ?Nat64;
+        trigger_threshold : Nat64;
+        max_message_size_bytes : ?Nat64;
+        cycles_for_archive_creation : ?Nat64;
+        node_max_memory_size_bytes : ?Nat64;
+        controller_id : Principal;
+        more_controller_ids : ?[Principal];
+    };
+
+    // Backup from backend/types/TokenDeployer
+    public type ArchiveOptions_bk = {
+        maxArchiveSize: Nat;
+        maxArchiveDuration: Nat;
+        maxArchiveCount: Nat;
+    };
+    
+        // ================ DEPLOYMENT RESULT TYPES ================
+    
+    public type DeploymentResult = {
+        deploymentId: Text;
+        deploymentType: Text;
+        canisterId: ?Text;
+        projectId: ?Text;
+        status: DeploymentStatus;
+        createdAt: Time.Time;
+        startedAt: ?Time.Time;
+        completedAt: ?Time.Time;
+        metadata: DeploymentMetadata;
+        steps: [DeploymentStepResult]; // For pipeline deployments
+    };
+    
+    public type DeploymentStatus = {
+        #Pending;
+        #Queued;
+        #InProgress;
+        #Completed;
+        #Failed: Text;
+        #Cancelled;
+        #Timeout;
+        #PartialSuccess;
+        #RollingBack;
+    };
+    
+    public type DeploymentMetadata = {
+        deployedBy: Principal;
+        estimatedCost: Nat;
+        actualCost: ?Nat;
+        cyclesUsed: ?Nat;
+        transactionId: ?Text;
+        paymentRecordId: ?Text;
+        serviceEndpoint: Text;
+        version: Text;
+        environment: Text; // "development", "staging", "production"
+    };
+    
+    public type DeploymentStepResult = {
+        stepId: Text;
+        stepType: Text;
+        status: DeploymentStatus;
+        canisterId: ?Text;
+        startedAt: Time.Time;
+        completedAt: ?Time.Time;
+        cyclesUsed: ?Nat;
+        errorMessage: ?Text;
+        retryCount: Nat;
+    };
+
     // ================ V1 COMPATIBILITY TYPES ================
     
     public type InitArgsRequested = {
@@ -175,17 +333,6 @@ module {
         #Unset;
     };
     
-    public type ArchiveOptions = {
-        num_blocks_to_archive : Nat64;
-        max_transactions_per_response : ?Nat64;
-        trigger_threshold : Nat64;
-        max_message_size_bytes : ?Nat64;
-        cycles_for_archive_creation : ?Nat64;
-        node_max_memory_size_bytes : ?Nat64;
-        controller_id : Principal;
-        more_controller_ids : ?[Principal];
-    };
-    
     // ================ SERVICE TYPES ================
     
     public type ServiceInfo = {
@@ -202,7 +349,7 @@ module {
     
     // ================ API RESPONSE TYPES ================
     
-    public type DeploymentResult = {
+    public type DeploymentResultToken = {
         id : Text;
         success : Bool;
         error : ?Text;

@@ -26,7 +26,7 @@ dfx deploy invoice_storage
 dfx deploy token_deployer
 dfx deploy launchpad_deployer
 dfx deploy lock_deployer
-dfx deploy distributing_deployer
+dfx deploy distribution_deployer
 
 # Step 2: Get canister IDs
 echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
@@ -38,7 +38,7 @@ INVOICE_STORAGE_ID=$(dfx canister id invoice_storage)
 # For services not yet implemented, use placeholder
 LAUNCHPAD_DEPLOYER_ID=$(dfx canister id launchpad_deployer)
 LOCK_DEPLOYER_ID=$(dfx canister id lock_deployer)
-DISTRIBUTION_DEPLOYER_ID=$(dfx canister id distributing_deployer)
+DISTRIBUTION_DEPLOYER_ID=$(dfx canister id distribution_deployer)
 
 echo -e "${GREEN}✅ Backend ID: ${BACKEND_ID}${NC}"
 echo -e "${GREEN}✅ Token Deployer ID: ${TOKEN_DEPLOYER_ID}${NC}"
@@ -66,7 +66,7 @@ declare -a SERVICES=(
     "token_deployer"
     "launchpad_deployer"
     "lock_deployer"
-    "distributing_deployer"
+    "distribution_deployer"
 )
 
 # Status tracking (simple strings to avoid associative array issues)
@@ -265,11 +265,11 @@ TOKEN_DEPLOY_REQUEST="record {
     tokenInfo = record {
         name = \"${TEST_NAME}\";
         symbol = \"${TEST_SYMBOL}\";
-        decimals = 8 : nat;
+        decimals = 8 : nat8;
         transferFee = 10000 : nat;
         totalSupply = 1000000000 : nat;
         metadata = null;
-        logo = \"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJYAAACWCAIAAACzY+a1AAAACXBIWXMAACxLAAAsSwGlPZapAAABAklEQVR4nO3BMQEAAADCoPVPbQhfoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8A3ZZAAELs0vVAAAAAElFTkSuQmCC\";
+        logo = opt\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJYAAACWCAIAAACzY+a1AAAACXBIWXMAACxLAAAsSwGlPZapAAABAklEQVR4nO3BMQEAAADCoPVPbQhfoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8A3ZZAAELs0vVAAAAAElFTkSuQmCC\";
         canisterId = null;
     };
     initialSupply = 1000000000 : nat;
@@ -283,6 +283,8 @@ TOKEN_DEPLOY_REQUEST="record {
         maxSupply = null;
         vestingEnabled = false;
         transferRestrictions = vec {};
+        cyclesOps = true;
+        initialBalances = opt vec {};
     };
 }"
 

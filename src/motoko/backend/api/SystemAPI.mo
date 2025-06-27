@@ -246,19 +246,19 @@ module SystemAPI {
         totalUsers: Nat;
         totalDeployments: Nat;
         activePipelines: Nat;
-        currentConfiguration: SystemConfiguration;
+        // currentConfiguration: SystemConfiguration;
         microservicesConfigured: Bool;
         lastUpdated: Int;
     } {
         let currentTime = Time.now();
-        let config = AdminController.getSystemConfig(adminController);
+        // let config = SystemManager.getCurrentConfig(adminController.systemStorage);
         
         {
             totalProjects = totalProjects;
             totalUsers = totalUsers;
             totalDeployments = totalDeployments;
             activePipelines = activePipelines;
-            currentConfiguration = config;
+            // currentConfiguration = config;
             microservicesConfigured = microservicesConfigured;
             lastUpdated = currentTime;
         }
@@ -505,22 +505,21 @@ module SystemAPI {
     public func configureServiceEndpoint(
         caller: Principal,
         serviceType: Text,
-        canisterId: ?Principal,
-        isActive: ?Bool,
+        canisterId: Principal,
         version: ?Text,
-        endpoints: ?[Text],
         adminController: AdminController.AdminControllerState
     ) : Result.Result<(), Text> {
-        AdminController.configureServiceEndpoint(adminController, serviceType, canisterId, isActive, version, endpoints, caller)
+        AdminController.enableServiceEndpoint(adminController, serviceType, canisterId, version, caller)
     };
     
     public func enableServiceEndpoint(
         caller: Principal,
         serviceType: Text,
         canisterId: Principal,
+        version: ?Text,
         adminController: AdminController.AdminControllerState
     ) : Result.Result<(), Text> {
-        AdminController.enableServiceEndpoint(adminController, serviceType, canisterId, caller)
+        AdminController.enableServiceEndpoint(adminController, serviceType, canisterId, version, caller)
     };
     
     // ================ DEPLOYMENT TYPE INFORMATION API ================

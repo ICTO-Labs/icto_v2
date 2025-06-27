@@ -11,7 +11,7 @@ import Nat "mo:base/Nat";
 import Debug "mo:base/Debug";
 import TokenController "../controllers/TokenController";
 import APITypes "../types/APITypes";
-
+import TokenDeployerTypes "../../shared/types/TokenDeployer";
 // Import TokenService for actual business logic
 import TokenService "../services/TokenService";
 
@@ -21,10 +21,10 @@ import Utils "../Utils";
 module TokenAPI {
     
     // Public types
-    public type TokenInfo = TokenController.TokenInfo;
-    public type TokenRecord = TokenController.TokenRecord;
-    public type TokenDeploymentRequest = TokenController.TokenDeploymentRequest;
-    public type TokenDeploymentResult = TokenController.TokenDeploymentResult;
+    public type TokenInfo = TokenDeployerTypes.TokenInfo;
+    public type TokenRecord = TokenDeployerTypes.TokenRecord;
+    public type TokenDeploymentRequest = TokenDeployerTypes.TokenDeploymentRequest;
+    public type TokenDeploymentResult = TokenDeployerTypes.TokenDeploymentResult;
     
     // ================ CLEAN PAYMENT RESULT TYPE ================
     // Use API-level payment result type instead of direct PaymentValidator dependency
@@ -45,14 +45,14 @@ module TokenAPI {
     // Main modular deployment function following API → Controller → Service pattern
     public func deployTokenWithPayment(
         caller: Principal,
-        tokenRequest: APITypes.TokenDeploymentRequest,
+        tokenRequest: TokenDeployerTypes.TokenDeploymentRequest,
         tokenController: TokenController.TokenControllerState,
         paymentInfo: PaymentResult, // Use clean API type instead of PaymentValidator type
         auditId: Text,
         tokenDeployerCanisterId: ?Principal,
         tokenSymbolRegistry: Trie.Trie<Text, Principal>,
         userProjectsTrie: Trie.Trie<Principal, [Text]>
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
+    ) : async Result.Result<TokenDeployerTypes.DeploymentResult, Text> {
         
         Debug.print("🪙 TokenAPI: Processing token deployment for " # Principal.toText(caller));
         
@@ -70,7 +70,7 @@ module TokenAPI {
         // ================ CONVERT TO SERVICE REQUEST ================
         
         // Convert APITypes to TokenService types
-        let serviceRequest : TokenService.TokenDeploymentRequest = {
+        let serviceRequest : TokenDeployerTypes.TokenDeploymentRequest = {
             projectId = tokenRequest.projectId;
             tokenInfo = tokenRequest.tokenInfo;
             initialSupply = tokenRequest.initialSupply;
@@ -81,6 +81,14 @@ module TokenAPI {
                         enableAdvancedFeatures = opts.enableAdvancedFeatures;
                         customMinter = opts.customMinter;
                         customFeeCollector = opts.customFeeCollector;
+                        enableCyclesOps = ?false;
+                        initialBalances = switch (tokenRequest.options) {
+                            case (?opts) switch (opts.initialBalances) {
+                                case (?balances) ?balances;
+                                case null null;
+                            };
+                            case null null;
+                        };
                     }
                 };
                 case null null;
@@ -135,12 +143,12 @@ module TokenAPI {
                 #ok({
                     deploymentId = deploymentId;
                     deploymentType = "Token";
-                    canisterId = ?tokenResult.canisterId;
+                    canisterId = ?Principal.toText(tokenResult.canisterId);
                     projectId = tokenResult.projectId;
                     status = #Completed;
                     createdAt = Time.now();
                     startedAt = ?Time.now();
-                    completedAt = ?tokenResult.deployedAt;
+                    completedAt = ?Time.now();
                     metadata = {
                         deployedBy = caller;
                         estimatedCost = paymentInfo.requiredAmount;
@@ -191,7 +199,7 @@ module TokenAPI {
     
     private func _validateTokenSymbol(
         symbol: Text,
-        options: ?APITypes.TokenDeploymentOptions,
+        options: ?TokenDeployerTypes.TokenDeploymentOptions,
         tokenSymbolRegistry: Trie.Trie<Text, Principal>
     ) : Result.Result<(), Text> {
         let existingToken = Trie.get(tokenSymbolRegistry, {key = symbol; hash = Text.hash(symbol)}, Text.equal);

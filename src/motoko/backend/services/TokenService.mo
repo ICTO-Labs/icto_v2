@@ -12,6 +12,7 @@ import Option "mo:base/Option";
 import Nat8 "mo:base/Nat8";
 import Nat "mo:base/Nat";
 import Nat64 "mo:base/Nat64";
+import Int "mo:base/Int";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
 
@@ -21,6 +22,7 @@ import BackendTypes "../types/BackendTypes";
 import Audit "../../shared/types/Audit";
 import TokenDeployerTypes "../../shared/types/TokenDeployer";
 import Common "../../shared/types/Common";
+import ICRC "../../shared/types/ICRC";
 
 // Import interfaces for external services
 import TokenDeployer "../interfaces/TokenDeployer";
@@ -32,6 +34,8 @@ import UserRegistry "../modules/UserRegistry";
 import SystemManager "../modules/SystemManager";
 import PaymentValidator "../modules/PaymentValidator";
 
+import APITypes "../types/APITypes";
+
 module TokenService {
 
     // ================ SERVICE TYPES ================
@@ -40,7 +44,7 @@ module TokenService {
         projectId: ?Text;
         tokenInfo: ProjectTypes.TokenInfo;
         initialSupply: Nat;
-        options: ?TokenDeploymentOptions;
+        options: ?APITypes.TokenDeploymentOptions;
     };
     
     public type TokenDeploymentOptions = {
@@ -48,6 +52,7 @@ module TokenService {
         enableAdvancedFeatures: Bool;
         customMinter: ?Principal;
         customFeeCollector: ?Principal;
+        cyclesOps: ?Bool;
     };
     
     public type TokenDeploymentResult = {
@@ -66,7 +71,7 @@ module TokenService {
         tokenSymbolRegistry: Trie.Trie<Text, Principal>;
         auditStorage: AuditLogger.AuditStorage;
         userRegistryStorage: UserRegistry.UserRegistryStorage;
-        systemStorage: SystemManager.ConfigurationStorage;
+        systemStorage: SystemManager.ConfigStorage;
         paymentValidatorStorage: PaymentValidator.PaymentValidatorStorage;
         invoiceStorageCanisterId: ?Principal;
         tokenDeployerCanisterId: ?Principal;
@@ -77,9 +82,9 @@ module TokenService {
     
     public func deployToken(
         caller: Principal,
-        request: TokenDeploymentRequest,
+        request: TokenDeployerTypes.TokenDeploymentRequest,
         context: BackendContext
-    ) : async Result.Result<TokenDeploymentResult, Text> {
+    ) : async Result.Result<TokenDeployerTypes.TokenDeploymentResult, Text> {
         
         Debug.print("🪙 TokenService: Processing business logic for " # Principal.toText(caller));
         
@@ -102,7 +107,7 @@ module TokenService {
         let deploymentResult = await _callTokenDeployer(
             caller,
             request,
-            SystemManager.getCurrentConfiguration(context.systemStorage),
+            context.systemStorage,
             context.tokenDeployerCanisterId
         );
 
@@ -128,7 +133,7 @@ module TokenService {
     
     private func _validateRequest(
         caller: Principal,
-        request: TokenDeploymentRequest
+        request: TokenDeployerTypes.TokenDeploymentRequest
     ) : Result.Result<(), Text> {
         if (Principal.isAnonymous(caller)) {
             return #err("Anonymous users cannot deploy tokens");
@@ -151,7 +156,7 @@ module TokenService {
     
     private func _validateTokenSymbol(
         symbol: Text,
-        options: ?TokenDeploymentOptions,
+        options: ?TokenDeployerTypes.TokenDeploymentOptions,
         tokenSymbolRegistry: Trie.Trie<Text, Principal>
     ) : Result.Result<(), Text> {
         let existingToken = Trie.get(tokenSymbolRegistry, {key = symbol; hash = Text.hash(symbol)}, Text.equal);
@@ -174,8 +179,8 @@ module TokenService {
     
     private func _callTokenDeployer(
         caller: Principal,
-        request: TokenDeploymentRequest,
-        config: SystemManager.SystemConfiguration,
+        request: TokenDeployerTypes.TokenDeploymentRequest,
+        config: SystemManager.ConfigStorage,
         tokenDeployerCanisterId: ?Principal
     ) : async Result.Result<Text, Text> {
         
@@ -190,6 +195,13 @@ module TokenService {
                         symbol = request.tokenInfo.symbol;
                         decimals = 8;
                         totalSupply = request.initialSupply;
+                        initialBalances = switch (request.options) {
+                            case (?opts) switch (opts.initialBalances) {
+                                case (?balances) balances;
+                                case null [];
+                            };
+                            case null [];
+                        };
                         minter = switch (request.options) {
                             case (?opts) switch (opts.customMinter) {
                                 case (?minter) ?{owner = minter; subaccount = null};
@@ -204,22 +216,28 @@ module TokenService {
                             };
                             case null null;
                         };
-                        transferFee = 10_000; // 0.0001 tokens
+                        transferFee = request.tokenInfo.transferFee;
                         description = ?"ICRC-2 Token deployed via ICTO V2";
-                        logo = ?request.tokenInfo.logo;
+                        logo = request.tokenInfo.logo;
                         website = null;
-                        features = [];
-                        initialBalances = [];
+                        socialLinks = null;
                         projectId = request.projectId;
                     };
                     
                     // Prepare deployment configuration
                     let deploymentConfig : TokenDeployerTypes.DeploymentConfig = {
-                        cyclesForInstall = ?2_000_000_000_000; // 2T cycles
-                        cyclesForArchive = ?Nat64.fromNat(1_000_000_000_000); // 1T cycles
-                        minCyclesInDeployer = ?500_000_000_000; // 0.5T cycles
+                        cyclesForInstall = ?Int.abs(SystemManager.getNumber(config, "token_deployer.initial_cycles", 2_000_000_000_000)); // 2T cycles
+                        cyclesForArchive = ?Int.abs(SystemManager.getNumber(config, "token_deployer.archive_cycles", 1_000_000_000_000)); // 1T cycles
+                        minCyclesInDeployer = ?Int.abs(SystemManager.getNumber(config, "token_deployer.min_cycles", 500_000_000_000)); // 0.5T cycles
                         archiveOptions = null;
-                        enableCycleOps = ?true;
+                        enableCycleOps = switch (request.options) {
+                            case (?opts) switch (opts.enableCyclesOps) {
+                                case (?cyclesOps) ?cyclesOps;
+                                case null ?false;
+                            };
+                            case null ?false;
+                        };
+                        tokenOwner = caller;
                     };
                     
                     let result = await tokenDeployer.deployTokenWithConfig(tokenConfig, deploymentConfig, null);
@@ -249,14 +267,14 @@ module TokenService {
     
     private func _postDeploymentProcessing(
         caller: Principal,
-        request: TokenDeploymentRequest,
+        request: TokenDeployerTypes.TokenDeploymentRequest,
         canisterId: Text,
         context: BackendContext
-    ) : async Result.Result<TokenDeploymentResult, Text> {
+    ) : async Result.Result<TokenDeployerTypes.TokenDeploymentResult, Text> {
         
         Debug.print("🪙 TokenService: Processing post-deployment tasks");
         
-        let config = SystemManager.getCurrentConfiguration(context.systemStorage);
+        let config = context.systemStorage;
         let canisterPrincipal = Principal.fromText(canisterId);
         
         // Get user profile for activity update
@@ -267,28 +285,14 @@ module TokenService {
         };
         
         // Calculate final fee with discounts (same as original)
-        let serviceFee = switch (SystemManager.getServiceFee(config, "createToken")) {
+        let serviceFee = switch (Nat.fromText(SystemManager.get(config, "token_deployer.fee", "100000000"))) {
             case (?fee) fee;
-            case null {
-                // Use default fee if not configured
-                {
-                    baseAmount = 100_000_000; // 1 ICP
-                    tokenId = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai"); // ICP
-                    recipient = Principal.fromText("aaaaa-aa"); // Placeholder
-                    isPriceVariable = false;
-                    priceMultiplier = null;
-                    volumeDiscounts = [];
-                    isActive = true;
-                    serviceName = "createToken";
-                    createdAt = Time.now();
-                    updatedAt = Time.now();
-                }
-            };
+            case null 100000000;
         };
         
-        let userVolume = finalUserProfile.deploymentCount;
-        let finalFee = SystemManager.calculateFeeWithDiscount(serviceFee, userVolume);
-        
+        //let userVolume = finalUserProfile.deploymentCount;
+        let finalFee = serviceFee;//SystemManager.calculateFeeWithDiscount(serviceFee, userVolume);
+        let paymentToken = Principal.fromText(SystemManager.get(config, "payment.default_token", "ryjl3-tyaaa-aaaaa-aaaba-cai"));
         // Record deployment in user registry (same as original)
         let deploymentRecord = UserRegistry.recordDeployment(
             context.userRegistryStorage,
@@ -299,16 +303,16 @@ module TokenService {
             #Token({
                 tokenName = request.tokenInfo.name;
                 tokenSymbol = request.tokenInfo.symbol;
-                decimals = Nat8.fromNat(request.tokenInfo.decimals);
+                decimals = request.tokenInfo.decimals;
                 totalSupply = request.initialSupply;
                 standard = "ICRC2";
                 features = [];
             }),
             {
                 deploymentFee = finalFee;
-                cyclesCost = config.cycleConfig.cyclesForTokenCreation;
+                cyclesCost = 0;
                 totalCost = finalFee;
-                paymentToken = config.paymentConfig.defaultPaymentToken;
+                paymentToken = paymentToken;
                 transactionId = null;
             },
             {
@@ -326,24 +330,26 @@ module TokenService {
         ignore UserRegistry.updateUserActivity(context.userRegistryStorage, caller, finalFee);
         
         // Update user projects list if this is associated with a project (same as original)
-        switch (request.projectId) {
-            case (?pId) {
-                // This logic would be in main.mo but we note it here for completeness
-                Debug.print("🪙 TokenService: Token associated with project " # pId);
-            };
-            case null {
-                Debug.print("🪙 TokenService: Standalone token deployment");
-            };
-        };
-        
+        // switch (request.projectId) {
+        //     case (?pId) {
+        //         // This logic would be in main.mo but we note it here for completeness
+        //         Debug.print("🪙 TokenService: Token associated with project " # pId);
+        //     };
+        //     case null {
+        //         Debug.print("🪙 TokenService: Standalone token deployment");
+        //     };
+        // };
+        let cyclesForTokenCreation = SystemManager.getNumber(config, "deploy_token.initial_cycles", 0);
         // Return success result
         #ok({
-            canisterId = canisterId;
+            canisterId = Principal.fromText(canisterId);
             projectId = request.projectId;
             deployedAt = Time.now();
-            cyclesUsed = config.cycleConfig.cyclesForTokenCreation;
+            cyclesUsed = cyclesForTokenCreation;
             transactionId = null; // Payment handled by backend
             paymentRecordId = null; // Payment handled by backend
+            initialSupply = request.initialSupply;
+            tokenSymbol = request.tokenInfo.symbol;
         })
     };
 
@@ -351,28 +357,13 @@ module TokenService {
     
     public func estimateDeploymentCost(
         userDeploymentCount: Nat,
-        config: SystemManager.SystemConfiguration
+        config: SystemManager.ConfigStorage
     ) : Nat {
-        let serviceFee = switch (SystemManager.getServiceFee(config, "createToken")) {
+        let serviceFee = switch (Nat.fromText(SystemManager.get(config, "token_deployer.fee", "100000000"))) {
             case (?fee) fee;
-            case null { 
-                // Return default fee structure if not configured
-                {
-                    baseAmount = 1_000_000; // 0.01 ICP
-                    tokenId = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai"); // ICP
-                    recipient = Principal.fromText("aaaaa-aa"); // Placeholder
-                    isPriceVariable = false;
-                    priceMultiplier = null;
-                    volumeDiscounts = [];
-                    isActive = true;
-                    serviceName = "createToken";
-                    createdAt = Time.now();
-                    updatedAt = Time.now();
-                }
-            };
+            case null 100000000;
         };
-        
-        SystemManager.calculateFeeWithDiscount(serviceFee, userDeploymentCount)
+        serviceFee
     };
 
     // ================ QUERY FUNCTIONS ================

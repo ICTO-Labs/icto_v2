@@ -27,7 +27,7 @@ module {
     public type AuditEntry = AuditLogger.AuditEntry;
     public type ProjectDetail = ProjectTypes.ProjectDetail;
     public type CreateProjectRequest = ProjectTypes.CreateProjectRequest;
-    public type SystemConfiguration = SystemManager.SystemConfiguration;
+    public type SystemConfiguration = SystemManager.ConfigStorage;
     public type PaymentValidationResult = PaymentValidator.PaymentValidationResult;
     public type RefundRequest = RefundManager.RefundRequest;
     public type PaymentRecord = InvoiceStorage.PaymentRecord;
@@ -54,7 +54,7 @@ module {
     public type PaymentControllerState = {
         paymentValidator: PaymentValidator.PaymentValidatorStorage;
         refundManager: RefundManager.RefundStorage;
-        systemStorage: SystemManager.ConfigurationStorage;
+        systemStorage: SystemManager.ConfigStorage;
         auditStorage: AuditLogger.AuditStorage;
         externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage;
     };
@@ -62,7 +62,7 @@ module {
     // ================ ADMIN CONTROLLER TYPES ================
     
     public type AdminControllerState = {
-        systemStorage: SystemManager.ConfigurationStorage;
+        systemStorage: SystemManager.ConfigStorage;
         auditStorage: AuditLogger.AuditStorage;
         userRegistryStorage: UserRegistry.UserRegistryStorage;
     };

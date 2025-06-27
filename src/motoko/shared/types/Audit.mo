@@ -50,6 +50,7 @@ module {
         
         // Custom Actions
         #Custom : Text;
+        #AdminAction : Text;
     };
     
     public type ActionStatus = {

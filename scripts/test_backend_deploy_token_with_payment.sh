@@ -122,8 +122,8 @@ echo "Token Name: $TOKEN_NAME"
 
 echo ""
 echo "Step 3.2: Check service fee info"
-if dfx canister call backend getServiceFee "(\"createToken\")" 2>/dev/null; then
-    TOKEN_FEE_INFO=$(dfx canister call backend getServiceFee "(\"createToken\")")
+if dfx canister call backend getServiceFee "(\"token_deployer\")" 2>/dev/null; then
+    TOKEN_FEE_INFO=$(dfx canister call backend getServiceFee "(\"token_deployer\")")
     echo "Token deployment fee: $TOKEN_FEE_INFO"
 else
     echo "⚠️  Service fee info not available"
@@ -140,11 +140,11 @@ TOKEN_DEPLOY_REQUEST="record {
     tokenInfo = record {
         name = \"${TOKEN_NAME}\";
         symbol = \"${TOKEN_SYMBOL}\";
-        decimals = 8 : nat;
+        decimals = 8 : nat8;
         transferFee = 10000 : nat;
         totalSupply = 1000000000 : nat;
         metadata = null;
-        logo = \"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAJYAAACWCAIAAACzY+a1AAAACXBIWXMAACxLAAAsSwGlPZapAAABAklEQVR4nO3BMQEAAADCoPVPbQhfoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA8A3ZZAAELs0vVAAAAAElFTkSuQmCC\";
+        logo = opt \"data\";
         canisterId = null;
     };
     initialSupply = 1000000000 : nat;
@@ -158,6 +158,8 @@ TOKEN_DEPLOY_REQUEST="record {
         maxSupply = null;
         vestingEnabled = false;
         transferRestrictions = vec {};
+        cyclesOps = true;
+        initialBalances = opt vec {};
     };
 }"
 

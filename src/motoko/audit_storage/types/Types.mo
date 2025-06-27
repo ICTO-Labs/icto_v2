@@ -27,7 +27,8 @@ module {
         #SystemMaintenance;
         #UserLogin;
         #UserLogout;
-        #AdminAction;
+        #AdminAction : Text;
+        #Custom : Text;
     };
     
     // ================ RESOURCE TYPES ================

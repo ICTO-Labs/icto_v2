@@ -13,7 +13,7 @@
             "type": "motoko"
         },
         "launchpad_deployer": {
-            "main": "src/motoko/launchpad/main.mo",
+            "main": "src/motoko/launchpad_deployer/main.mo",
             "type": "motoko"
         },
         "token_deployer": {
@@ -24,8 +24,8 @@
             "main": "src/motoko/lock_deployer/main.mo",
             "type": "motoko"
         },
-        "distributing_deployer": {
-            "main": "src/motoko/distributing_deployer/main.mo",
+        "distribution_deployer": {
+            "main": "src/motoko/distribution_deployer/main.mo",
             "type": "motoko"
         },
         "icp_ledger": {

@@ -98,6 +98,7 @@ module {
             case (#UserManagement) "user_management";
             case (#SystemUpgrade) "system_upgrade";
             case (#Custom(name)) "custom_" # name;
+            case (#AdminAction(action)) "admin_action_" # action;
         }
     };
     
@@ -223,6 +224,7 @@ module {
                     case (#Completed) "completed";
                     case (#Failed(msg)) "failed: " # msg;
                     case (#Cancelled) "cancelled";
+                    case (#TimedOut) "timed_out";
                 };
                 
                 Debug.print("AuditLogger: Status update - " # entry.id # " -> " # statusText);

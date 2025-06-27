@@ -17,6 +17,7 @@ import Common "../../shared/types/Common";
 import Audit "../../shared/types/Audit";
 import ICRC "../../shared/types/ICRC";
 import InvoiceStorage "../interfaces/InvoiceStorage";
+import SystemManager "../modules/SystemManager";
 
 module {
     
@@ -25,13 +26,10 @@ module {
     public type PaymentValidatorStorage = {
         var config: PaymentConfig;
         var validations: [(Text, PaymentValidationResult)]; // Keep validations for temporary processing
-        // REMOVED: var paymentRecords: Trie.Trie<Text, PaymentRecord>;
-        // REMOVED: var userPayments: Trie.Trie<Principal, [Text]>;
     };
-    
-    public func initPaymentValidator() : PaymentValidatorStorage {
+    public func initPaymentValidator(systemConfig: SystemManager.ConfigStorage) : PaymentValidatorStorage {
         {
-            var config = getDefaultPaymentConfig();
+            var config = getDefaultPaymentConfig(systemConfig);
             var validations = [];
         }
     };
@@ -40,9 +38,9 @@ module {
         storage.validations
     };
     
-    public func importValidations(validations: [(Text, PaymentValidationResult)]) : PaymentValidatorStorage {
+    public func importValidations(systemConfig: SystemManager.ConfigStorage, validations: [(Text, PaymentValidationResult)]) : PaymentValidatorStorage {
         {
-            var config = getDefaultPaymentConfig();
+            var config = getDefaultPaymentConfig(systemConfig);
             var validations = validations;
         }
     };
@@ -336,20 +334,20 @@ module {
     
     // ===== CONFIGURATION =====
     
-    public func getDefaultPaymentConfig() : PaymentConfig {
+    public func getDefaultPaymentConfig(systemConfig: SystemManager.ConfigStorage) : PaymentConfig {
         {
-            acceptedTokens = [Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai")]; // ICP Ledger
-            feeRecipient = Principal.fromText("u6s2n-gx777-77774-qaaba-cai"); // System recipient
+            acceptedTokens = [Principal.fromText(SystemManager.get(systemConfig, "payment.default_token", "ryjl3-tyaaa-aaaaa-aaaba-cai"))]; // ICP Ledger
+            feeRecipient = Principal.fromText(SystemManager.get(systemConfig, "payment.fee_recipient", "u6s2n-gx777-77774-qaaba-cai")); // System recipient
             fees = {
-                createToken = 100_000_000; // 1 ICP
-                createLock = 50_000_000; // 0.5 ICP
-                createDistribution = 25_000_000; // 0.25 ICP
-                createLaunchpad = 200_000_000; // 2 ICP
-                createDAO = 100_000_000; // 1 ICP
-                pipelineExecution = 10_000_000; // 0.1 ICP
+                createToken = SystemManager.getNumber(systemConfig, "fees.create_token", 100_000_000); // 1 ICP
+                createLock = SystemManager.getNumber(systemConfig, "fees.create_lock", 50_000_000); // 0.5 ICP
+                createDistribution = SystemManager.getNumber(systemConfig, "fees.create_distribution", 25_000_000); // 0.25 ICP
+                createLaunchpad = SystemManager.getNumber(systemConfig, "fees.create_launchpad", 200_000_000); // 2 ICP
+                createDAO = SystemManager.getNumber(systemConfig, "fees.create_dao", 100_000_000); // 1 ICP
+                pipelineExecution = SystemManager.getNumber(systemConfig, "fees.pipeline_execution", 10_000_000); // 0.1 ICP
             };
-            paymentTimeout = 3600; // 1 hour
-            requireConfirmation = true;
+            paymentTimeout = SystemManager.getNumber(systemConfig, "payment.timeout", 3600); // 1 hour
+            requireConfirmation = SystemManager.getBool(systemConfig, "payment.require_confirmation", true);
         }
     };
     

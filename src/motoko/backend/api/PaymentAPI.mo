@@ -133,9 +133,9 @@ module PaymentAPI {
         notes: ?Text,
         refundManager: RefundManager.RefundStorage,
         auditStorage: AuditLogger.AuditStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        systemStorage: SystemManager.ConfigStorage
     ) : Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (not SystemManager._isAdmin(systemStorage, caller)) {
             return #err("Unauthorized: Only admins can approve refunds");
         };
         
@@ -164,9 +164,9 @@ module PaymentAPI {
         reason: Text,
         refundManager: RefundManager.RefundStorage,
         auditStorage: AuditLogger.AuditStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        systemStorage: SystemManager.ConfigStorage
     ) : Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (not SystemManager._isAdmin(systemStorage, caller)) {
             return #err("Unauthorized: Only admins can reject refunds");
         };
         
@@ -194,9 +194,9 @@ module PaymentAPI {
         refundId: Text,
         refundManager: RefundManager.RefundStorage,
         auditStorage: AuditLogger.AuditStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        systemStorage: SystemManager.ConfigStorage
     ) : async Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (not SystemManager._isAdmin(systemStorage, caller)) {
             return #err("Unauthorized: Only admins can process refunds");
         };
         
@@ -239,7 +239,7 @@ module PaymentAPI {
     public func getRefundStats(
         caller: Principal,
         refundManager: RefundManager.RefundStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        systemStorage: SystemManager.ConfigStorage
     ) : {
         totalRefunds: Nat;
         pendingRefunds: Nat;
@@ -248,7 +248,7 @@ module PaymentAPI {
         totalRefundAmount: Nat;
         isAuthorized: Bool;
     } {
-        if (SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (SystemManager._isAdmin(systemStorage, caller)) {
             let stats = RefundManager.getRefundStats(refundManager);
             {
                 totalRefunds = stats.totalRefunds;
@@ -275,7 +275,7 @@ module PaymentAPI {
     public func getRefundSecurityReport(
         caller: Principal,
         refundManager: RefundManager.RefundStorage,
-        systemStorage: SystemManager.ConfigurationStorage
+        systemStorage: SystemManager.ConfigStorage
     ) : {
         suspiciousPatterns: [{
             pattern: Text;
@@ -298,7 +298,7 @@ module PaymentAPI {
         }];
         isAuthorized: Bool;
     } {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)) {
+        if (not SystemManager._isAdmin(systemStorage, caller)) {
             return {
                 suspiciousPatterns = [];
                 automaticRefundStats = {

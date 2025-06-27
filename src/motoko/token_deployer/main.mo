@@ -50,18 +50,19 @@ actor TokenDeployer {
     public type ArchiveOptions = TokenDeployerTypes.ArchiveOptions;
     public type MetadataValue = TokenDeployerTypes.MetadataValue;
     public type LedgerArg = TokenDeployerTypes.LedgerArg;
+    public type DeploymentResultToken = TokenDeployerTypes.DeploymentResultToken;
     
     // ================ STABLE VARIABLES ================
     
     // Core V2 storage - clean state management
     private stable var tokensStable : [(Text, TokenInfo)] = [];
-    private stable var deploymentHistoryStable : [(Text, DeploymentResult)] = [];
+    private stable var deploymentHistoryStable : [(Text, DeploymentResultToken)] = [];
     
     // Configuration - backend controlled
     private stable var deploymentFee : Nat = 100_000_000; // 1 ICP
     private stable var minCyclesInDeployer : Nat = 8_000_000_000_000; // 8T cycles
     private stable var cyclesForInstall : Nat = 4_000_000_000_000; // 4T cycles
-    private stable var cyclesForArchive : Nat64 = 2_000_000_000_000; // 2T cycles
+    private stable var cyclesForArchive : Nat = 2_000_000_000_000; // 2T cycles
     
     // WASM management - enhanced from V1
     private stable var snsWasmVersion : Blob = "a35575419aa7867702a5344c6d868aa190bb682421e77137d0514398f1506952";
@@ -82,7 +83,7 @@ actor TokenDeployer {
     
     // Runtime variables
     private var tokens : Trie.Trie<Text, TokenInfo> = Trie.empty();
-    private var deploymentHistory : Trie.Trie<Text, DeploymentResult> = Trie.empty();
+    private var deploymentHistory : Trie.Trie<Text, DeploymentResultToken> = Trie.empty();
     private var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
     
     // Timer for automatic WASM updates
@@ -93,7 +94,7 @@ actor TokenDeployer {
     system func preupgrade() {
         Debug.print("TokenDeployer V2: Starting preupgrade");
         tokensStable := Trie.toArray<Text, TokenInfo, (Text, TokenInfo)>(tokens, func (k, v) = (k, v));
-        deploymentHistoryStable := Trie.toArray<Text, DeploymentResult, (Text, DeploymentResult)>(deploymentHistory, func (k, v) = (k, v));
+        deploymentHistoryStable := Trie.toArray<Text, DeploymentResultToken, (Text, DeploymentResultToken)>(deploymentHistory, func (k, v) = (k, v));
         whitelistedBackends := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelistTrie, func (k, v) = (k, v));
         Debug.print("TokenDeployer V2: Preupgrade completed");
     };
@@ -334,7 +335,7 @@ actor TokenDeployer {
         deploymentConfig : DeploymentConfig,
         targetCanister : ?Principal
     ) : async Result.Result<Principal, Text> {
-        
+        Debug.print("TOKEN DEPLOYER - DEPLOY TOKEN WITH CONFIG" # debug_show(config));
         // Only whitelisted backend or admin can call this
         if (not (isAdmin(caller) or _isWhitelisted(caller))) {
             return #err("Unauthorized: Only whitelisted backend can deploy tokens");
@@ -401,7 +402,7 @@ actor TokenDeployer {
         switch (canisterId) {
             case (#err(error)) {
                 failedDeployments += 1;
-                let deploymentResult : DeploymentResult = {
+                let deploymentResult : DeploymentResultToken = {
                     id = requestId;
                     success = false;
                     error = ?error;
@@ -423,7 +424,7 @@ actor TokenDeployer {
                 switch (installResult) {
                     case (#err(error)) {
                         failedDeployments += 1;
-                        let deploymentResult : DeploymentResult = {
+                        let deploymentResult : DeploymentResultToken = {
                             id = requestId;
                             success = false;
                             error = ?error;
@@ -440,12 +441,12 @@ actor TokenDeployer {
                     };
                     case (#ok()) {
                         // Transfer ownership
-                        let ownershipResult = await transferOwnership(canister, caller, enableCycleOps);
+                        let ownershipResult = await transferOwnership(canister, deploymentConfig.tokenOwner, enableCycleOps);
                         
                         switch (ownershipResult) {
                             case (#err(error)) {
                                 failedDeployments += 1;
-                                let deploymentResult : DeploymentResult = {
+                                let deploymentResult : DeploymentResultToken = {
                                     id = requestId;
                                     success = false;
                                     error = ?error;
@@ -479,7 +480,7 @@ actor TokenDeployer {
                                     moduleHash = Hex.encode(Blob.toArray(snsWasmVersion));
                                     wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
                                     standard = "ICRC-2";
-                                    features = config.features;
+                                    features = [];
                                     status = #Active;
                                     projectId = config.projectId;
                                     launchpadId = null;
@@ -491,7 +492,7 @@ actor TokenDeployer {
                                 tokens := Trie.put(tokens, textKey(Principal.toText(canister)), Text.equal, tokenInfo).0;
                                 
                                 // Create deployment record
-                                let deploymentResult : DeploymentResult = {
+                                let deploymentResult : DeploymentResultToken = {
                                     id = requestId;
                                     success = true;
                                     error = null;
@@ -527,9 +528,9 @@ actor TokenDeployer {
     ) : async Result.Result<(), Text> {
         try {
             // Use backend-provided archive cycles or fallback to default
-            let archiveCycles = switch (deploymentConfig.cyclesForArchive) {
-                case (?cycles) { cycles };
-                case null { cyclesForArchive };
+            let archiveCycles: Nat64 = switch (deploymentConfig.cyclesForArchive) {
+                case (?cycles) { Nat64.fromNat(cycles) };
+                case null { Nat64.fromNat(cyclesForArchive) };
             };
             
             // Create ledger arguments based on config
@@ -554,7 +555,7 @@ actor TokenDeployer {
                         node_max_memory_size_bytes = ?(1024 * 1024 * 1024);
                         max_message_size_bytes = ?(128 * 1024);
                         cycles_for_archive_creation = ?archiveCycles;
-                        controller_id = Principal.fromActor(TokenDeployer);
+                        controller_id = deploymentConfig.tokenOwner;//Set token owner as controller of this canister
                         max_transactions_per_response = null;
                         more_controller_ids = ?[Principal.fromActor(TokenDeployer)];
                     }
@@ -651,7 +652,7 @@ actor TokenDeployer {
         if (start >= arr.size()) {
             []
         } else {
-            Array.subArray(arr, start, end - start)
+            Array.subArray(arr, start, Nat.sub(end, start))
         }
     };
     
@@ -668,11 +669,11 @@ actor TokenDeployer {
         if (start >= arr.size()) {
             []
         } else {
-            Array.subArray(arr, start, end - start)
-        }
+            Array.subArray(arr, start, Nat.sub(end, start))
+        }   
     };
     
-    public query func getDeploymentHistory(requestId : Text) : async ?DeploymentResult {
+    public query func getDeploymentHistory(requestId : Text) : async ?DeploymentResultToken {
         Trie.get(deploymentHistory, textKey(requestId), Text.equal)
     };
     
@@ -731,7 +732,7 @@ actor TokenDeployer {
         newDeploymentFee : ?Nat,
         newMinCycles : ?Nat,
         newInstallCycles : ?Nat,
-        newArchiveCycles : ?Nat64,
+        newArchiveCycles : ?Nat,
         newAllowManualWasm : ?Bool
     ) : async Result.Result<(), Text> {
         if (not isAdmin(caller)) {
@@ -770,7 +771,7 @@ actor TokenDeployer {
         deploymentFee : Nat;
         minCyclesInDeployer : Nat;
         cyclesForInstall : Nat;
-        cyclesForArchive : Nat64;
+        cyclesForArchive : Nat;
         allowManualWasm : Bool;
     } {
         {

@@ -18,20 +18,23 @@ import PaymentValidator "../modules/PaymentValidator";
 import SystemManager "../modules/SystemManager";
 import TokenService "../services/TokenService";
 
+
+import TokenDeployerTypes "../../shared/types/TokenDeployer";
+
 module TokenController {
     
     // Use centralized types
-    public type TokenInfo = ControllerTypes.TokenInfo;
-    public type TokenRecord = ControllerTypes.TokenRecord;
-    public type TokenDeploymentRequest = ControllerTypes.TokenDeploymentRequest;
-    public type TokenDeploymentResult = ControllerTypes.TokenDeploymentResult;
+    public type TokenInfo = TokenDeployerTypes.TokenInfo;
+    public type TokenRecord = TokenDeployerTypes.TokenRecord;
+    public type TokenDeploymentRequest = TokenDeployerTypes.TokenDeploymentRequest;
+    public type TokenDeploymentResult = TokenDeployerTypes.TokenDeploymentResult;
     
     // Enhanced TokenControllerState to include all required storages
     public type TokenControllerState = {
         userRegistryStorage: UserRegistry.UserRegistryStorage;
         auditStorage: AuditLogger.AuditStorage;
         tokenRecords: [(Text, TokenRecord)];
-        systemStorage: ?SystemManager.ConfigurationStorage;
+        systemStorage: ?SystemManager.ConfigStorage;
         paymentValidatorStorage: ?PaymentValidator.PaymentValidatorStorage;
     };
     
@@ -55,7 +58,7 @@ module TokenController {
         state: TokenControllerState,
         auditStorage: AuditLogger.AuditStorage,
         userRegistryStorage: UserRegistry.UserRegistryStorage,
-        systemStorage: SystemManager.ConfigurationStorage,
+        systemStorage: SystemManager.ConfigStorage,
         paymentValidatorStorage: PaymentValidator.PaymentValidatorStorage
     ) : TokenControllerState {
         {
@@ -65,32 +68,6 @@ module TokenController {
             systemStorage = ?systemStorage;
             paymentValidatorStorage = ?paymentValidatorStorage;
         }
-    };
-    
-    // ================ TOKEN DEPLOYMENT WITH PAYMENT ================
-    
-    // Simplified business logic function - just returns basic result
-    // TODO: Implement full deployment logic when all types are properly aligned
-    public func deployTokenWithPayment(
-        state: TokenControllerState,
-        caller: Principal,
-        request: TokenDeploymentRequest,
-        paymentInfo: PaymentValidator.PaymentValidationResult,
-        auditId: Text,
-        tokenDeployerCanisterId: ?Principal
-    ) : async Result.Result<TokenDeploymentResult, Text> {
-        
-        // For now, return a simplified success result
-        // TODO: Implement actual token deployment logic
-        
-        #ok({
-            canisterId = caller; // Temporary placeholder
-            projectId = request.projectId;
-            deployedAt = Time.now();
-            cyclesUsed = 1000000; // Temporary placeholder
-            tokenSymbol = request.tokenInfo.symbol;
-            initialSupply = request.initialSupply;
-        })
     };
     
     // ================ TOKEN INFORMATION RETRIEVAL ================

@@ -18,7 +18,7 @@ module {
         getTokenInfo: query (Text) -> async ?TokenDeployerTypes.TokenInfo;
         getTokensByOwner: query (Principal, Nat, Nat) -> async [TokenDeployerTypes.TokenInfo];
         getAllTokens: query (Nat, Nat) -> async [TokenDeployerTypes.TokenInfo];
-        getDeploymentHistory: query (Text) -> async ?TokenDeployerTypes.DeploymentResult;
+        getDeploymentHistory: query (Text) -> async ?TokenDeployerTypes.TokenDeploymentResult;
         getTotalTokens: query () -> async Nat;
         
         // Service info

@@ -26,7 +26,7 @@ module PaymentController {
     public type PaymentControllerState = {
         paymentValidator: PaymentValidator.PaymentValidatorStorage;
         refundManager: RefundManager.RefundStorage;
-        systemStorage: SystemManager.ConfigurationStorage;
+        systemStorage: SystemManager.ConfigStorage;
         auditStorage: AuditLogger.AuditStorage;
         externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage;
     };
@@ -43,7 +43,7 @@ module PaymentController {
     public func initPaymentController(
         paymentValidator: PaymentValidator.PaymentValidatorStorage,
         refundManager: RefundManager.RefundStorage,
-        systemStorage: SystemManager.ConfigurationStorage,
+        systemStorage: SystemManager.ConfigStorage,
         auditStorage: AuditLogger.AuditStorage,
         externalInvoiceStorage: ?InvoiceStorage.InvoiceStorage
     ) : PaymentControllerState {
@@ -161,7 +161,7 @@ module PaymentController {
         refundId: Text,
         notes: ?Text
     ) : Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
+        if (not SystemManager._isAdmin(state.systemStorage, caller)) {
             return #err("Unauthorized: Only admins can approve refunds");
         };
         
@@ -190,7 +190,7 @@ module PaymentController {
         refundId: Text,
         reason: Text
     ) : Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
+        if (not SystemManager._isAdmin(state.systemStorage, caller)) {
             return #err("Unauthorized: Only admins can reject refunds");
         };
         
@@ -218,7 +218,7 @@ module PaymentController {
         caller: Principal,
         refundId: Text
     ) : async Result.Result<RefundRequest, Text> {
-        if (not SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
+        if (not SystemManager._isAdmin(state.systemStorage, caller)) {
             return #err("Unauthorized: Only admins can process refunds");
         };
         
@@ -269,7 +269,7 @@ module PaymentController {
         totalRefundAmount: Nat;
         isAuthorized: Bool;
     } {
-        if (SystemManager.isAdmin(SystemManager.getCurrentConfiguration(state.systemStorage).adminSettings, caller)) {
+        if (SystemManager._isAdmin(state.systemStorage, caller)) {
             let stats = RefundManager.getRefundStats(state.refundManager);
             {
                 totalRefunds = stats.totalRefunds;

@@ -21,6 +21,7 @@ import BackendTypes "types/BackendTypes";
 import Audit "../shared/types/Audit";
 import Common "../shared/types/Common";
 import APITypes "types/APITypes";
+import TokenDeployerTypes "../shared/types/TokenDeployer";
 
 // Import backend modules - ALL business logic handled here
 import AuditLogger "modules/AuditLogger";
@@ -88,11 +89,11 @@ actor Backend {
     private stable var stableAuditEntries : [AuditLogger.AuditEntry] = [];
     private stable var stableUserProfiles : [(Principal, UserRegistry.UserProfile)] = [];
     private stable var stableDeploymentRecords : [UserRegistry.DeploymentRecord] = [];
-    private stable var stableSystemConfig : ?SystemManager.SystemConfiguration = null;
+    private stable var stableSystemConfig : ?SystemManager.StableConfig = null;
     private stable var stablePipelineExecutions : [(Text, PipelineEngine.PipelineExecution)] = [];
     private stable var stablePaymentValidations : [(Text, PaymentValidator.PaymentValidationResult)] = [];
     private stable var stableRefundRecords : [RefundManager.RefundRequest] = [];
-    
+
     // Runtime variables
     private var projectsTrie : Trie.Trie<Text, ProjectTypes.ProjectDetail> = Trie.empty();
     private var userProjectsTrie : Trie.Trie<Principal, [Text]> = Trie.empty();
@@ -105,8 +106,38 @@ actor Backend {
     private var auditStorage = AuditLogger.initAuditStorage();
     private var userRegistryStorage = UserRegistry.initUserRegistry();
     private var pipelineExecutor = PipelineEngine.initPipelineExecutor();
-    private var systemStorage = SystemManager.initConfigurationStorage();
-    private var paymentValidator = PaymentValidator.initPaymentValidator();
+
+    //Initialize config storage
+    private var configStorage = switch (stableSystemConfig) {
+        case (?config) {
+            Debug.print("Initializing from stable storage with values: " # debug_show(config.values));
+            Debug.print("Admin count: " # debug_show(config.admins.size()));
+            Debug.print("SuperAdmin count: " # debug_show(config.superAdmins.size()));
+            
+            let storage = SystemManager.initConfigStorage(Principal.fromActor(Backend));
+            let result = SystemManager.importStorage(storage, config);
+            
+            // Verify imported data
+            let importedValues = SystemManager.getAllValues(result);
+            Debug.print("After import - values count: " # debug_show(importedValues.size()));
+            Debug.print("After import - values: " # debug_show(importedValues));
+            
+            result
+        };
+        case null {
+            Debug.print("Initializing new storage with default values...");
+            let storage = SystemManager.initConfigStorage(Principal.fromActor(Backend));
+            SystemManager.loadDefaultConfig(storage, Principal.fromActor(Backend));
+            
+            // Verify default values
+            let defaultValues = SystemManager.getAllValues(storage);
+            Debug.print("Default storage initialized with " # debug_show(defaultValues.size()) # " values");
+            Debug.print("Default values: " # debug_show(defaultValues));
+            
+            storage
+        };
+    };
+    private var paymentValidator = PaymentValidator.initPaymentValidator(configStorage);
     private var refundManager = RefundManager.initRefundManager();
     
     // External audit storage canister (for heavy logging)
@@ -133,7 +164,7 @@ actor Backend {
     // Payment handling is done directly with modules - no controller layer needed
     
     private var adminController = AdminController.init(
-        systemStorage,
+        configStorage,
         auditStorage,
         userRegistryStorage
     );
@@ -148,7 +179,7 @@ actor Backend {
     private var paymentController = PaymentController.initPaymentController(
         paymentValidator,
         refundManager,
-        systemStorage,
+        configStorage,
         auditStorage,
         externalInvoiceStorage
     );
@@ -191,7 +222,18 @@ actor Backend {
         stableAuditEntries := AuditLogger.exportAllEntries(auditStorage);
         stableUserProfiles := UserRegistry.exportUserProfiles(userRegistryStorage);
         stableDeploymentRecords := UserRegistry.exportDeploymentRecords(userRegistryStorage);
-        stableSystemConfig := ?SystemManager.getCurrentConfiguration(systemStorage);
+        
+        // Export system config BEFORE other modules
+        Debug.print("Exporting system config to stable storage...");
+        stableSystemConfig := ?SystemManager.exportStorage(configStorage);
+        Debug.print("System config exported with values: " # debug_show(Option.get(stableSystemConfig, {
+            values = [];
+            admins = [];
+            superAdmins = [];
+            lastUpdated = 0;
+            updatedBy = Principal.fromText("aaaaa-aa");
+        }).values));
+        
         stablePipelineExecutions := PipelineEngine.getActivePipelines(pipelineExecutor);
         stablePaymentValidations := PaymentValidator.exportValidations(paymentValidator);
         stableRefundRecords := RefundManager.exportRefundRecords(refundManager);
@@ -224,21 +266,44 @@ actor Backend {
             userRegistryStorage := UserRegistry.importUserData(stableUserProfiles, stableDeploymentRecords);
         };
         
-        switch (stableSystemConfig) {
+        // Initialize config storage from stable state
+        Debug.print("Initializing config storage...");
+        configStorage := switch (stableSystemConfig) {
             case (?config) {
-                systemStorage := SystemManager.importConfiguration(config);
+                Debug.print("Found stable config with " # debug_show(config.values.size()) # " values");
+                Debug.print("Stable values: " # debug_show(config.values));
+                
+                let storage = SystemManager.initConfigStorage(Principal.fromActor(Backend));
+                let result = SystemManager.importStorage(storage, config);
+                
+                // Verify imported values
+                let importedValues = SystemManager.getAllValues(result);
+                Debug.print("After import - values count: " # debug_show(importedValues.size()));
+                Debug.print("After import - values: " # debug_show(importedValues));
+                
+                result
             };
             case null {
-                systemStorage := SystemManager.initConfigurationStorage();
+                Debug.print("No stable config found, initializing with defaults...");
+                let storage = SystemManager.initConfigStorage(Principal.fromActor(Backend));
+                SystemManager.loadDefaultConfig(storage, Principal.fromActor(Backend));
+                
+                // Verify default values
+                let defaultValues = SystemManager.getAllValues(storage);
+                Debug.print("Default storage initialized with " # debug_show(defaultValues.size()) # " values");
+                Debug.print("Default values: " # debug_show(defaultValues));
+                
+                storage
             };
         };
         
+        // Restore other module data
         if (stablePipelineExecutions.size() > 0) {
             pipelineExecutor := PipelineEngine.importPipelineExecutions(stablePipelineExecutions);
         };
         
         if (stablePaymentValidations.size() > 0) {
-            paymentValidator := PaymentValidator.importValidations(stablePaymentValidations);
+            paymentValidator := PaymentValidator.importValidations(configStorage, stablePaymentValidations);
         };
         
         if (stableRefundRecords.size() > 0) {
@@ -300,12 +365,12 @@ actor Backend {
         paymentController := PaymentController.initPaymentController(
             paymentValidator,
             refundManager,
-            systemStorage,
+            configStorage,
             auditStorage,
             externalInvoiceStorage
         );
         
-        adminController := AdminController.init(systemStorage, auditStorage, userRegistryStorage);
+        adminController := AdminController.init(configStorage, auditStorage, userRegistryStorage);
         tokenController := TokenController.init(userRegistryStorage, auditStorage, []);
         
         // Log successful upgrade
@@ -332,11 +397,11 @@ actor Backend {
     };
     
     private func _isAdmin(caller: Principal) : Bool {
-        SystemManager.isAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)
+        SystemManager._isAdmin(configStorage, caller)
     };
     
     private func _isSuperAdmin(caller: Principal) : Bool {
-        SystemManager.isSuperAdmin(SystemManager.getCurrentConfiguration(systemStorage).adminSettings, caller)
+        SystemManager._isSuperAdmin(configStorage, caller)
     };
     
     // ================ HELPER FUNCTIONS FOR EXTERNAL SERVICES ================
@@ -438,7 +503,7 @@ actor Backend {
             return #err("Unauthorized: Only admins can approve refunds");
         };
         
-        let result = PaymentAPI.adminApproveRefund(caller, refundId, notes, refundManager, auditStorage, systemStorage);
+        let result = PaymentAPI.adminApproveRefund(caller, refundId, notes, refundManager, auditStorage, configStorage);
         
         switch (result) {
             case (#ok(approvedRefund)) {
@@ -467,7 +532,7 @@ actor Backend {
             return #err("Unauthorized: Only admins can reject refunds");
         };
         
-        let result = PaymentAPI.adminRejectRefund(caller, refundId, reason, refundManager, auditStorage, systemStorage);
+        let result = PaymentAPI.adminRejectRefund(caller, refundId, reason, refundManager, auditStorage, configStorage);
         
         switch (result) {
             case (#ok(rejectedRefund)) {
@@ -495,7 +560,7 @@ actor Backend {
             return #err("Unauthorized: Only admins can process refunds");
         };
         
-        let processResult = await PaymentAPI.adminProcessRefund(caller, refundId, refundManager, auditStorage, systemStorage);
+        let processResult = await PaymentAPI.adminProcessRefund(caller, refundId, refundManager, auditStorage, configStorage);
         
         switch (processResult) {
             case (#ok(processedRefund)) {
@@ -527,7 +592,7 @@ actor Backend {
         let isAdmin = _isAdmin(caller);
         
         if (isAdmin) {
-            let stats = PaymentAPI.getRefundStats(caller, refundManager, systemStorage);
+            let stats = PaymentAPI.getRefundStats(caller, refundManager, configStorage);
             {
                 totalRefunds = stats.totalRefunds;
                 pendingRefunds = stats.pendingRefunds;
@@ -644,7 +709,7 @@ actor Backend {
         lockDeployerId: Principal,
         distributionDeployerId: Principal
     ) : async Result.Result<(), Text> {
-        if (not Utils.isAdmin(caller, systemStorage)) {
+        if (not SystemManager._isAdmin(configStorage, caller)) {
             return #err("Unauthorized: Only admins can setup microservices");
         };
         
@@ -751,6 +816,16 @@ actor Backend {
         // Mark setup as completed and save timestamp
         microservicesSetupCompleted := true;
         setupTimestamp := ?currentTime;
+
+        // Save service canisters
+        SystemManager.saveServiceCanisters(configStorage, Principal.fromActor(Backend), {
+            auditStorageCanisterId = Option.get(auditStorageCanisterId, Principal.fromActor(Backend));
+            invoiceStorageCanisterId = Option.get(invoiceStorageCanisterId, Principal.fromActor(Backend));
+            tokenDeployerCanisterId = Option.get(tokenDeployerCanisterId, Principal.fromActor(Backend));
+            launchpadDeployerCanisterId = Option.get(launchpadDeployerCanisterId, Principal.fromActor(Backend));
+            lockDeployerCanisterId = Option.get(lockDeployerCanisterId, Principal.fromActor(Backend));
+            distributionDeployerCanisterId = Option.get(distributionDeployerCanisterId, Principal.fromActor(Backend));
+        });
         
         // Log setup completion
         let setupType = if (isReSetup) { "Re-setup" } else { "Initial setup" };
@@ -777,14 +852,15 @@ actor Backend {
             return #err("Anonymous users cannot create projects");
         };
         
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        
+        let maintenanceMode = SystemManager.getBool(configStorage, "system.maintenance_mode", false);
+        let maxProjectsPerUser = SystemManager.getNumber(configStorage, "user.max_projects", 5);
+        let isServiceEnabled = SystemManager.getBool(configStorage, "project_creation.is_enabled", true);
         // Check if service is enabled
-        if (not SystemManager.isServiceEnabled(config, "projectCreation")) {
+        if (not isServiceEnabled) {
             return #err("Project creation is currently disabled");
         };
         
-        if (config.maintenanceMode) {
+        if (maintenanceMode) {
             return #err("System is in maintenance mode");
         };
         
@@ -796,7 +872,7 @@ actor Backend {
             Trie.get(userProjectsTrie, _principalKey(caller), Principal.equal), 
             []
         );
-        if (existingProjects.size() >= config.deploymentLimits.maxProjectsPerUser) {
+        if (existingProjects.size() >= maxProjectsPerUser) {
             return #err("Maximum projects per user exceeded");
         };
         
@@ -815,19 +891,13 @@ actor Backend {
         );
         
         // Get service fee and calculate with discounts
-        let serviceFee = switch (SystemManager.getServiceFee(config, "createProject")) {
-            case (?fee) fee;
-            case null {
-                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Failed("Service fee not configured"), null, ?100);
-                return #err("Service fee not configured");
-            };
-        };
+        let serviceFee = SystemManager.getNumber(configStorage, "fees.create_project", 0);
         
         let userVolume = userProfile.deploymentCount;
-        let finalFee = SystemManager.calculateFeeWithDiscount(serviceFee, userVolume);
+        let finalFee = serviceFee; // TODO: Implement fee calculation
         
         // PAYMENT VALIDATION (Using PaymentValidator)
-        let _ = PaymentValidator.getDefaultPaymentConfig();
+        let _ = PaymentValidator.getDefaultPaymentConfig(configStorage);
         let paymentValidationResult = await _callPaymentValidatorWithInvoiceStorage(
             #CreateToken,
             caller,
@@ -942,10 +1012,10 @@ actor Backend {
                                     votingEnabled = false;
                                 }),
                                 {
-                                    deploymentFee = finalFee;
-                                    cyclesCost = config.deploymentLimits.maxCyclesPerDeployment / 3;
-                                    totalCost = finalFee;
-                                    paymentToken = config.paymentConfig.defaultPaymentToken;
+                                    deploymentFee = 0;
+                                    cyclesCost = 0;
+                                    totalCost = 0;
+                                    paymentToken = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai");
                                     transactionId = null; // TODO: Add from payment validation
                                 },
                                 {
@@ -1078,66 +1148,12 @@ actor Backend {
         []
     };
     
-    // ================ SYSTEM MANAGEMENT ================
-    public shared({ caller }) func updateSystemConfig(
-        newConfig: SystemManager.SystemConfiguration
-    ) : async Result.Result<(), Text> {
-        AdminAPI.updateSystemConfig(caller, newConfig, adminController)
-    };
-    
-    // ================ CYCLE MANAGEMENT ================
-    public shared({ caller }) func updateCycleConfiguration(
-        newCycleConfig: SystemManager.CycleConfiguration
-    ) : async Result.Result<(), Text> {
-        AdminAPI.updateCycleConfiguration(caller, newCycleConfig, adminController)
-    };
-    
-    public shared({ caller }) func updateCycleParameter(
-        parameterName: Text,
-        value: Nat
-    ) : async Result.Result<(), Text> {
-        if (not _isSuperAdmin(caller)) {
-            return #err("Unauthorized: Only super admins can update cycle parameters");
-        };
-        
-        let result = SystemManager.updateSpecificCycleParameter(systemStorage, parameterName, value, caller);
-        
-        switch (result) {
-            case (#ok()) {
-                let auditEntry = AuditLogger.logAction(
-                    auditStorage,
-                    caller,
-                    #UpdateSystemConfig,
-                    #RawData("Cycle parameter " # parameterName # " updated to " # Nat.toText(value)),
-                    null,
-                    ?#Backend
-                );
-                ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, null, ?100);
-                #ok()
-            };
-            case (#err(msg)) #err(msg);
-        }
-    };
-    
-    public query func getCycleConfigForService(serviceName: Text) : async Result.Result<{cyclesForCreation: Nat; minCyclesReserve: Nat}, Text> {
-        SystemManager.getCycleConfigForService(systemStorage, serviceName)
-    };
-    
-    public query func getCycleConfiguration() : async SystemManager.CycleConfiguration {
-        SystemManager.getCurrentConfiguration(systemStorage).cycleConfig
-    };
-    
-    public query func getSystemConfig() : async SystemManager.SystemConfiguration {
-        SystemManager.getCurrentConfiguration(systemStorage)
-    };
-    
-
     public query func getSystemInfo() : async {
         totalProjects: Nat;
         totalUsers: Nat;
         totalDeployments: Nat;
         activePipelines: Nat;
-        currentConfiguration: SystemManager.SystemConfiguration;
+        // currentConfiguration: SystemManager.SystemConfiguration;
         microservicesConfigured: Bool;
     } {
         {
@@ -1145,7 +1161,7 @@ actor Backend {
             totalUsers = UserRegistry.getTotalUsers(userRegistryStorage);
             totalDeployments = UserRegistry.getTotalDeployments(userRegistryStorage);
             activePipelines = PipelineEngine.getActivePipelines(pipelineExecutor).size();
-            currentConfiguration = SystemManager.getCurrentConfiguration(systemStorage);
+            // currentConfiguration = SystemManager.getCurrentConfiguration(systemStorage);
             microservicesConfigured = Option.isSome(auditStorageCanisterId) and 
                                     Option.isSome(tokenDeployerCanisterId) and
                                     Option.isSome(launchpadDeployerCanisterId);
@@ -1181,152 +1197,6 @@ actor Backend {
         )
     };
     
-    // ================ QUICK CONFIGURATION UPDATE FUNCTIONS ================
-    
-    public shared({ caller }) func updateBasicSystemSettings(
-        maintenanceMode: ?Bool,
-        systemVersion: ?Text,
-        maxConcurrentPipelines: ?Nat
-    ) : async Result.Result<(), Text> {
-        AdminAPI.updateBasicSystemSettings(
-            caller,
-            adminController,
-            maintenanceMode,
-            systemVersion,
-            maxConcurrentPipelines
-        )
-    };
-    
-    public shared({ caller }) func updatePaymentSettings(
-        paymentToken: ?Principal,
-        feeRecipient: ?Principal,
-        minimumPaymentAmount: ?Nat
-    ) : async Result.Result<(), Text> {
-        AdminAPI.updatePaymentSettings(
-            caller,
-            adminController,
-            paymentToken,
-            feeRecipient,
-            minimumPaymentAmount
-        )
-    };
-    
-    public shared({ caller }) func updateServiceFees(
-        createTokenFee: ?Nat,
-        createLockFee: ?Nat,
-        createDistributionFee: ?Nat,
-        createLaunchpadFee: ?Nat,
-        createDAOFee: ?Nat,
-        pipelineExecutionFee: ?Nat
-    ) : async Result.Result<(), Text> {
-        AdminAPI.updateServiceFees(
-            caller,
-            adminController,
-            createTokenFee,
-            createLockFee,
-            createDistributionFee,
-            createLaunchpadFee,
-            createDAOFee,
-            pipelineExecutionFee
-        )
-    };
-    
-    public shared({ caller }) func updateUserLimits(
-        maxProjectsPerUser: ?Nat,
-        maxTokensPerUser: ?Nat,
-        maxDeploymentsPerDay: ?Nat,
-        deploymentCooldown: ?Nat
-    ) : async Result.Result<(), Text> {
-        AdminAPI.updateUserLimits(
-            caller,
-            adminController,
-            maxProjectsPerUser,
-            maxTokensPerUser,
-            maxDeploymentsPerDay,
-            deploymentCooldown
-        )
-    };
-    
-    public shared({ caller }) func updateCoreServices(
-        tokenDeploymentEnabled: ?Bool,
-        lockServiceEnabled: ?Bool,
-        distributionServiceEnabled: ?Bool,
-        launchpadServiceEnabled: ?Bool,
-        pipelineExecutionEnabled: ?Bool
-    ) : async Result.Result<(), Text> {
-        AdminAPI.updateCoreServices(
-            caller,
-            adminController,
-            tokenDeploymentEnabled,
-            lockServiceEnabled,
-            distributionServiceEnabled,
-            launchpadServiceEnabled,
-            pipelineExecutionEnabled
-        )
-    };
-    
-    public shared({ caller }) func addAdmin(
-        newAdmin: Principal,
-        isNewSuperAdmin: Bool
-    ) : async Result.Result<(), Text> {
-        AdminAPI.addAdmin(caller, newAdmin, isNewSuperAdmin, adminController)
-    };
-    
-    public shared({ caller }) func removeAdmin(
-        adminToRemove: Principal
-    ) : async Result.Result<(), Text> {
-        AdminAPI.removeAdmin(caller, adminToRemove, adminController)
-    };
-    
-    public shared({ caller }) func enableMaintenanceMode() : async Result.Result<(), Text> {
-        AdminAPI.enableMaintenanceMode(caller, adminController)
-    };
-    
-    public shared({ caller }) func disableMaintenanceMode() : async Result.Result<(), Text> {
-        AdminAPI.disableMaintenanceMode(caller, adminController)
-    };
-    
-    public shared({ caller }) func emergencyStop() : async Result.Result<(), Text> {
-        AdminAPI.emergencyStop(caller, adminController)
-    };
-    
-    public query func getQuickSystemStatus() : async {
-        version: Text;
-        maintenanceMode: Bool;
-        emergencyStop: Bool;
-        totalAdmins: Nat;
-        totalSuperAdmins: Nat;
-        coreServicesEnabled: {
-            tokenDeployment: Bool;
-            projectCreation: Bool;
-            lockService: Bool;
-            distributionService: Bool;
-            pipelineExecution: Bool;
-        };
-        currentFees: {
-            tokenDeployment: Nat;
-            projectCreation: Nat;
-            lockService: Nat;
-            distributionService: Nat;
-            pipelineExecution: Nat;
-        };
-        userLimits: {
-            maxProjectsPerUser: Nat;
-            maxTokensPerUser: Nat;
-            maxDeploymentsPerDay: Nat;
-            deploymentCooldown: Nat;
-        };
-    } {
-        SystemManager.getQuickStatus(systemStorage)
-    };
-    
-    public shared({ caller }) func adminQueryAudit(queryObj: Audit.AuditQuery) : async Audit.AuditPage {
-        AdminAPI.queryAudit(caller, queryObj, adminController)
-    };
-    
-    public shared({ caller }) func adminGetUsers(limit: Nat, offset: Nat) : async [UserRegistry.UserProfile] {
-        AdminAPI.getAllUsers(caller, adminController, limit, offset)
-    };
     
     // ================ SECURITY: TOKEN MANAGEMENT ================
     public shared query({ caller }) func getDeployedTokens() : async [(Text, Principal)] {
@@ -1339,11 +1209,8 @@ actor Backend {
     };
     
     // Get Service Fee
-    public query func getServiceFee(serviceType: Text) : async ?Nat {
-        switch (SystemManager.getServiceFee(systemStorage.currentConfig, serviceType)) {
-            case (?fee) { ?fee.baseAmount };
-            case null { null };
-        }
+    public query func getServiceFee(serviceType: Text) : async Nat {
+        SystemManager.getServiceFee(configStorage, serviceType, 0);
     };
 
     // Get validatePayment
@@ -1381,24 +1248,27 @@ actor Backend {
     
     // Check if specific service is healthy and available  
     private func _isServiceHealthy(serviceType: Text) : Bool {
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        let endpoints = config.serviceEndpoints;
+        let tokenDeployerEnabled = SystemManager.getBool(configStorage, "token_deployer.is_enable", false);
+        let auditServiceEnabled = SystemManager.getBool(configStorage, "audit_service.is_enable", false);
+        let lockDeployerEnabled = SystemManager.getBool(configStorage, "lock_deployer.is_enable", false);
+        let distributionDeployerEnabled = SystemManager.getBool(configStorage, "distribution_deployer.is_enable", false);
+        let launchpadDeployerEnabled = SystemManager.getBool(configStorage, "launchpad_deployer.is_enabled", false);
         
         switch (serviceType) {
             case ("tokenDeployer") { 
-                endpoints.tokenDeployer.isActive and Option.isSome(tokenDeployerCanisterId)
+                tokenDeployerEnabled and Option.isSome(tokenDeployerCanisterId)
             };
             case ("lockDeployer") { 
-                endpoints.lockDeployer.isActive and Option.isSome(lockDeployerCanisterId)
+                auditServiceEnabled and Option.isSome(lockDeployerCanisterId)
             };
             case ("distributionDeployer") { 
-                endpoints.distributionDeployer.isActive and Option.isSome(distributionDeployerCanisterId)
+                distributionDeployerEnabled and Option.isSome(distributionDeployerCanisterId)
             };
             case ("launchpadDeployer") { 
-                endpoints.launchpadDeployer.isActive and Option.isSome(launchpadDeployerCanisterId)
+                launchpadDeployerEnabled and Option.isSome(launchpadDeployerCanisterId)
             };
             case ("auditService") { 
-                endpoints.auditService.isActive and Option.isSome(auditStorageCanisterId)
+                auditServiceEnabled and Option.isSome(auditStorageCanisterId)
             };
             case (_) { false };
         }
@@ -1432,6 +1302,12 @@ actor Backend {
             case (_) { false };
         }
     };
+
+    //Check all system config
+
+    public shared({ caller }) func getAllSystemConfig() : async Result.Result<[(Text, Text)], Text> {
+        AdminController.getAllConfigs(adminController)
+    };
     
     // Perform health check on specific service
     public shared({ caller }) func checkServiceHealth(serviceType: Text) : async Result.Result<{
@@ -1445,7 +1321,9 @@ actor Backend {
             return #err("Unauthorized: Only admins can check service health");
         };
         
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
+        let version = SystemManager.get(configStorage, serviceType # ".version", "0.0.0");
+        let isActive = SystemManager.getBool(configStorage, serviceType # ".is_active", false);
+        let canisterId = SystemManager.get(configStorage, serviceType # ".canister_id", "0.0.0");
         let startTime = Time.now();
         
         switch (serviceType) {
@@ -1484,7 +1362,7 @@ actor Backend {
                                 lastHealthCheck = ?startTime;
                                 version = switch (serviceInfo) {
                                     case (?info) info.version;
-                                    case null config.serviceEndpoints.tokenDeployer.version;
+                                    case (_) version;
                                 };
                                 responseTime = ?Int.abs(responseTime);
                             })
@@ -1496,7 +1374,7 @@ actor Backend {
                                 isHealthy = false;
                                 canisterId = ?Principal.toText(canisterId);
                                 lastHealthCheck = ?startTime;
-                                version = config.serviceEndpoints.tokenDeployer.version;
+                                version = version;
                                 responseTime = null;
                             })
                         };
@@ -1526,7 +1404,7 @@ actor Backend {
                                 isHealthy = true;
                                 canisterId = ?Principal.toText(canisterId);
                                 lastHealthCheck = ?startTime;
-                                version = config.serviceEndpoints.auditService.version;
+                                version = version;
                                 responseTime = ?Int.abs(responseTime);
                             })
                         } catch (error) {
@@ -1536,7 +1414,7 @@ actor Backend {
                                 isHealthy = false;
                                 canisterId = ?Principal.toText(canisterId);
                                 lastHealthCheck = ?startTime;
-                                version = config.serviceEndpoints.auditService.version;
+                                version = version;
                                 responseTime = null;
                             })
                         };
@@ -1571,9 +1449,12 @@ actor Backend {
         }];
         timestamp: Time.Time;
     } {
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
         let timestamp = Time.now();
-        
+        let tokenDeployerVersion = SystemManager.get(configStorage, "token_deployer.version", "0.0.0");
+        let auditServiceVersion = SystemManager.get(configStorage, "audit_service.version", "0.0.0");
+        let lockDeployerVersion = SystemManager.get(configStorage, "lock_deployer.version", "0.0.0");
+        let distributionDeployerVersion = SystemManager.get(configStorage, "distribution_deployer.version", "0.0.0");
+        let launchpadDeployerVersion = SystemManager.get(configStorage, "launchpad_deployer.version", "0.0.0");
         // Async health checks for available services
         let tokenHealthy = await _checkServiceHealthAsync("tokenDeployer");
         let auditHealthy = await _checkServiceHealthAsync("auditService");
@@ -1583,36 +1464,36 @@ actor Backend {
                 name = "tokenDeployer";
                 isHealthy = tokenHealthy;
                 canisterId = Option.map(tokenDeployerCanisterId, Principal.toText);
-                lastHealthCheck = config.serviceEndpoints.tokenDeployer.lastHealthCheck;
-                version = config.serviceEndpoints.tokenDeployer.version;
+                lastHealthCheck = null;
+                version = tokenDeployerVersion;
             },
             {
                 name = "lockDeployer";
                 isHealthy = Option.isSome(lockDeployerCanisterId); // Not deployed yet
                 canisterId = Option.map(lockDeployerCanisterId, Principal.toText);
-                lastHealthCheck = config.serviceEndpoints.lockDeployer.lastHealthCheck;
-                version = config.serviceEndpoints.lockDeployer.version;
+                lastHealthCheck = null;
+                version = "0.0.0";
             },
             {
                 name = "distributionDeployer";
                 isHealthy = Option.isSome(distributionDeployerCanisterId); // Not deployed yet
                 canisterId = Option.map(distributionDeployerCanisterId, Principal.toText);
-                lastHealthCheck = config.serviceEndpoints.distributionDeployer.lastHealthCheck;
-                version = config.serviceEndpoints.distributionDeployer.version;
+                lastHealthCheck = null;
+                version = distributionDeployerVersion;
             },
             {
                 name = "launchpadDeployer";
                 isHealthy = Option.isSome(launchpadDeployerCanisterId); // Not deployed yet
                 canisterId = Option.map(launchpadDeployerCanisterId, Principal.toText);
-                lastHealthCheck = config.serviceEndpoints.launchpadDeployer.lastHealthCheck;
-                version = config.serviceEndpoints.launchpadDeployer.version;
+                lastHealthCheck = null;
+                version = launchpadDeployerVersion;
             },
             {
                 name = "auditService";
                 isHealthy = auditHealthy;
                 canisterId = Option.map(auditStorageCanisterId, Principal.toText);
-                lastHealthCheck = config.serviceEndpoints.auditService.lastHealthCheck;
-                version = config.serviceEndpoints.auditService.version;
+                lastHealthCheck = null;
+                version = auditServiceVersion;
             }
         ];
         
@@ -1635,78 +1516,6 @@ actor Backend {
         }
     };
     
-    public shared({ caller }) func configureServiceEndpoint(
-        serviceType: Text,
-        canisterId: ?Principal,
-        isActive: ?Bool,
-        version: ?Text,
-        endpoints: ?[Text]
-    ) : async Result.Result<(), Text> {
-        if (not _isSuperAdmin(caller)) {
-            return #err("Only super admins can configure service endpoints");
-        };
-        
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        let currentEndpoints = config.serviceEndpoints;
-        
-        let updatedEndpoints = switch (serviceType) {
-            case ("tokenDeployer") {
-                {
-                    currentEndpoints with
-                    tokenDeployer = {
-                        currentEndpoints.tokenDeployer with
-                        canisterId = Option.get(canisterId, currentEndpoints.tokenDeployer.canisterId);
-                        isActive = Option.get(isActive, currentEndpoints.tokenDeployer.isActive);
-                        version = Option.get(version, currentEndpoints.tokenDeployer.version);
-                        endpoints = Option.get(endpoints, currentEndpoints.tokenDeployer.endpoints);
-                    };
-                }
-            };
-            case ("auditService") {
-                {
-                    currentEndpoints with
-                    auditService = {
-                        currentEndpoints.auditService with
-                        canisterId = Option.get(canisterId, currentEndpoints.auditService.canisterId);
-                        isActive = Option.get(isActive, currentEndpoints.auditService.isActive);
-                        version = Option.get(version, currentEndpoints.auditService.version);
-                        endpoints = Option.get(endpoints, currentEndpoints.auditService.endpoints);
-                    };
-                }
-            };
-            case (_) {
-                return #err("Unknown service type: " # serviceType);
-            };
-        };
-        
-        let updatedConfig = {
-            config with
-            serviceEndpoints = updatedEndpoints;
-        };
-        
-        SystemManager.updateConfiguration(systemStorage, updatedConfig, caller)
-    };
-    
-    public shared({ caller }) func enableServiceEndpoint(serviceType: Text) : async Result.Result<(), Text> {
-        if (not _isSuperAdmin(caller)) {
-            return #err("Only super admins can enable service endpoints");
-        };
-        
-        let canisterId = switch (serviceType) {
-            case ("tokenDeployer") { tokenDeployerCanisterId };
-            case ("auditService") { auditStorageCanisterId };
-            case (_) { null };
-        };
-        
-        switch (canisterId) {
-            case (?id) {
-                await configureServiceEndpoint(serviceType, ?id, ?true, null, null)
-            };
-            case null {
-                #err("Service canister not configured: " # serviceType)
-            };
-        }
-    };
 
     // ================ FRONTEND DASHBOARD FUNCTIONS ================
     
@@ -1907,64 +1716,18 @@ actor Backend {
         }
     };
     
-    // ================ TOKEN DEPLOYER ADMIN FUNCTIONS ================
-    // Note: Token deployer admin functions are now integrated into setupMicroservices()
-    // Use setupMicroservices() to automatically handle health checks, whitelist, and admin setup
-
-    // ================ SHARED VALIDATION FUNCTIONS (STEP 1) ================
-    // Using Utils module for all validation logic
-    
-    private func _validateAnonymousUser(caller: Principal) : Result.Result<(), Text> {
-        Utils.validateAnonymousUser(caller)
-    };
-    
-    private func _validateSystemState(serviceType: Text) : Result.Result<(), Text> {
-        Utils.validateSystemState(serviceType, systemStorage)
-    };
-    
-    private func _validateUserRegistration(caller: Principal) : UserRegistry.UserProfile {
-        UserRegistry.registerUser(userRegistryStorage, caller)
-    };
-    
-    private func _validateUserLimits(
-        userProfile: UserRegistry.UserProfile,
-        serviceType: Text
-    ) : Result.Result<(), Text> {
-        Utils.validateUserLimits(userProfile, serviceType, systemStorage)
-    };
-    
-    private func _validateProjectOwnership(
-        caller: Principal,
-        projectId: ?Text
-    ) : Result.Result<(), Text> {
-        Utils.validateProjectOwnership(caller, projectId, projectsTrie)
-    };
-    
-    
-    // ================ SHARED FEE CALCULATION ================
-    
-    private func _calculateServiceFee(
-        serviceType: Text,
-        userProfile: UserRegistry.UserProfile
-    ) : Result.Result<Nat, Text> {
-        Utils.calculateServiceFee(serviceType, userProfile, systemStorage)
-    };
-    
-
-    // ================ SEPARATE DEPLOYMENT ENDPOINTS ================
-    // Each service has its own endpoint - clean separation of concerns
     
     // Token deployment endpoint
     public shared({ caller }) func deployToken(
-        tokenRequest: APITypes.TokenDeploymentRequest
-    ) : async Result.Result<APITypes.DeploymentResult, Text> {
+        tokenRequest: TokenDeployerTypes.TokenDeploymentRequest
+    ) : async Result.Result<TokenDeployerTypes.TokenDeploymentResult, Text> {
         
         // ================ PHASE 1: GATEWAY VALIDATIONS ================
         if (Principal.isAnonymous(caller)) {
             return #err("Anonymous users cannot deploy tokens");
         };
         
-        if (not SystemManager.getCurrentConfiguration(systemStorage).featureFlags.tokenDeploymentEnabled) {
+        if (not SystemManager.getBool(configStorage, "token_deployment.is_enabled", true)) {
             return #err("Token deployment service temporarily disabled for maintenance");
         };
 
@@ -2003,7 +1766,7 @@ actor Backend {
             tokenController,
             auditStorage,
             userRegistryStorage,
-            systemStorage,
+            configStorage,
             paymentValidator
         );
         
@@ -2048,7 +1811,21 @@ actor Backend {
                 );
                 
                 ignore AuditLogger.updateAuditStatus(auditStorage, auditEntry.id, #Completed, tokenResult.canisterId, null);
-                #ok(tokenResult)
+                switch (tokenResult.canisterId) {
+                    case (?canisterId) {
+                        #ok({
+                            canisterId = Principal.fromText(canisterId);
+                            projectId = tokenRequest.projectId;
+                            deployedAt = Time.now();
+                            cyclesUsed = 0; // TODO: Add cycles used
+                            tokenSymbol = tokenRequest.tokenInfo.symbol;
+                            initialSupply = tokenRequest.initialSupply;
+                        })
+                    };
+                    case null {
+                        #err("Token deployment failed: Canister ID is null");
+                    };
+                };
             };
             case (#err(error)) {
                 let failureMessage = await _handleDeploymentFailure(caller, paymentInfo, auditEntry.id, error, "Token");
@@ -2068,7 +1845,7 @@ actor Backend {
             return #err("Anonymous users cannot deploy launchpads");
         };
         
-        if (not SystemManager.getCurrentConfiguration(systemStorage).featureFlags.launchpadServiceEnabled) {
+        if (not Utils.textToBool(SystemManager.get(configStorage, "launchpad_deployment.is_enabled", "false"))) {
             return #err("Launchpad deployment service temporarily disabled for maintenance");
         };
         
@@ -2344,63 +2121,6 @@ actor Backend {
         }
     };
     
-    // ================ ENHANCED ADMIN REPORTING & TRANSACTION TRACKING ================
-    
-    // Comprehensive transaction status tracking
-    public shared query({ caller }) func getTransactionStatus(transactionId: Text) : async {
-        paymentStatus: Text;
-        deploymentStatus: Text;
-        auditTrail: [AuditLogger.AuditEntry];
-        refundStatus: ?Text;
-        stuckAt: ?Text;
-        nextAction: ?Text;
-        isAuthorized: Bool;
-    } {
-        AdminAPI.getTransactionStatus(caller, transactionId, adminController)
-    };
-    
-    // Analyze stuck deployments and provide recommendations
-    public shared query({ caller }) func analyzeStuckDeployment(auditId: Text) : async {
-        timeline: [{timestamp: Int; action: Text; status: Text; details: Text}];
-        lastSuccessfulStep: ?Text;
-        failurePoint: ?Text;
-        possibleCauses: [Text];
-        recommendedActions: [Text];
-        autoRecoveryAvailable: Bool;
-        estimatedRecoveryTime: ?Text;
-        isAuthorized: Bool;
-    } {
-        AdminAPI.analyzeStuckDeployment(caller, auditId, adminController)
-    };
-    
-    // Security monitoring for refund system
-    public shared query({ caller }) func getRefundSecurityReport() : async {
-        suspiciousPatterns: [{
-            pattern: Text;
-            occurrences: Nat;
-            riskLevel: Text;
-            affectedUsers: Nat;
-        }];
-        automaticRefundStats: {
-            totalAutoRefunds: Nat;
-            autoRefundAmount: Nat;
-            averageRefundTime: Text;
-            failureRate: Float;
-        };
-        manualReviewRequired: [RefundManager.RefundRequest];
-        potentialAttacks: [{
-            attackType: Text;
-            confidence: Text;
-            description: Text;
-            recommendedAction: Text;
-        }];
-        isAuthorized: Bool;
-    } {
-        PaymentAPI.getRefundSecurityReport(caller, refundManager, systemStorage)
-    };
-    
-    // ================ MISSING HELPER FUNCTIONS ================
-    
     // Payment processing function for deployment services
     private func _processPaymentForService(
         caller: Principal,
@@ -2500,8 +2220,8 @@ actor Backend {
         Debug.print("🔄 Processing automatic refund for user: " # Principal.toText(caller) # ", amount: " # Nat.toText(paymentInfo.paidAmount) # " e8s");
         
         // Get system configuration for accepted tokens
-        let config = SystemManager.getCurrentConfiguration(systemStorage);
-        let acceptedTokens = [config.paymentConfig.defaultPaymentToken];
+        let defaultPaymentToken = SystemManager.get(configStorage, "payment.default_token", "ryjl3-tyaaa-aaaaa-aaaba-cai");
+        let acceptedTokens = [Principal.fromText(defaultPaymentToken)];
         
         // Create refund request with ServiceFailure reason using configuration
         let refundRequest = RefundManager.createRefundRequestWithConfig(
@@ -2570,6 +2290,55 @@ actor Backend {
                 #err("Failed to approve refund request")
             };
         }
+    };
+
+    // Replace all individual admin endpoints with a single gateway
+    public shared({ caller }) func adminRequest(request: APITypes.AdminRequest) : async APITypes.AdminResponse {
+        await AdminAPI.handleAdminRequest(caller, request, adminController)
+    };
+
+    public shared query({ caller }) func checkConfigState() : async Text {
+        SystemManager.checkStorageState(configStorage)
+    };
+    public shared query func getValueFromState() : async [(Text, Text)] {
+        let values = switch (stableSystemConfig) {
+            case (?config) {
+                config.values
+            };
+            case null {
+                []
+            };
+        };
+        // Sort by key for consistent order
+        Array.sort(values, func(a: (Text, Text), b: (Text, Text)) : {#less; #equal; #greater} {
+            Text.compare(a.0, b.0)
+        })
+    };
+    public shared query func getValueFromRuntime() : async [(Text, Text)] {
+        let values = Trie.toArray<Text, Text, (Text, Text)>(configStorage.values, func (k,v) = (k,v));
+        // Sort by key for consistent order
+        Array.sort(values, func(a: (Text, Text), b: (Text, Text)) : {#less; #equal; #greater} {
+            Text.compare(a.0, b.0)
+        })
+    };
+
+    public shared query func checkStableStorage() : async Text {
+        switch (stableSystemConfig) {
+            case (?config) {
+                let values = config.values;
+                "Stable storage exists with " # 
+                Nat.toText(values.size()) # " values:\n" #
+                debug_show(values)
+            };
+            case null {
+                "No stable storage found"
+            };
+        }
+    };
+
+    //Get auditLog by User
+    public shared query func getAuditLogByUser(user: Principal, limit: Nat, offset: Nat) : async [AuditLogger.AuditEntry] {
+        AuditLogger.getUserAuditHistory(auditStorage, user, limit, offset)
     };
 }
 

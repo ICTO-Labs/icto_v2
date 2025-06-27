@@ -8,7 +8,8 @@ import Array "mo:base/Array";
 import Option "mo:base/Option";
 import Debug "mo:base/Debug";
 import Nat "mo:base/Nat";
-
+import Utils "../Utils";
+import Trie "mo:base/Trie";
 // Import shared modules
 import SystemManager "../modules/SystemManager";
 import AuditLogger "../modules/AuditLogger";
@@ -18,8 +19,8 @@ import Audit "../../shared/types/Audit";
 module AdminController {
     
     // Public types for controller interface
-    public type SystemConfiguration = SystemManager.SystemConfiguration;
-    public type CycleConfiguration = SystemManager.CycleConfiguration;
+    public type SystemConfiguration = SystemManager.ConfigStorage;
+    public type CycleConfiguration = SystemManager.ConfigStorage;
     public type UserProfile = UserRegistry.UserProfile;
     public type AuditEntry = AuditLogger.AuditEntry;
     public type AuditQuery = Audit.AuditQuery;
@@ -27,14 +28,14 @@ module AdminController {
     
     // Controller state type
     public type AdminControllerState = {
-        systemStorage: SystemManager.ConfigurationStorage;
+        systemStorage: SystemManager.ConfigStorage;
         auditStorage: AuditLogger.AuditStorage;
         userRegistryStorage: UserRegistry.UserRegistryStorage;
     };
     
     // Initialize controller with required state
     public func init(
-        systemStorage: SystemManager.ConfigurationStorage,
+        systemStorage: SystemManager.ConfigStorage,
         auditStorage: AuditLogger.AuditStorage,
         userRegistryStorage: UserRegistry.UserRegistryStorage
     ) : AdminControllerState {
@@ -50,8 +51,7 @@ module AdminController {
         state: AdminControllerState,
         caller: Principal
     ) : Bool {
-        let config = SystemManager.getCurrentConfiguration(state.systemStorage);
-        SystemManager.isAdmin(config.adminSettings, caller)
+        SystemManager._isAdmin(state.systemStorage, caller)
     };
     
     // Helper function to check if user is super admin
@@ -59,220 +59,80 @@ module AdminController {
         state: AdminControllerState,
         caller: Principal
     ) : Bool {
-        let config = SystemManager.getCurrentConfiguration(state.systemStorage);
-        SystemManager.isSuperAdmin(config.adminSettings, caller)
+        SystemManager._isSuperAdmin(state.systemStorage, caller)
     };
     
     // ================ SYSTEM CONFIGURATION MANAGEMENT ================
-    
-    public func updateSystemConfig(
+
+        //Get all configs
+    public func getAllConfigs(state: AdminControllerState) : Result.Result<[(Text, Text)], Text> {
+        #ok(SystemManager.getAllValues(state.systemStorage))
+    };
+
+
+    public func createOrUpdateConfig(
         state: AdminControllerState,
-        newConfig: SystemConfiguration,
+        key: Text,
+        value: Text,
         caller: Principal
     ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Unauthorized: Only super admins can update system config");
-        };
-        
-        let result = SystemManager.updateConfiguration(state.systemStorage, newConfig, caller);
-        
+        //log action
+        let auditEntry = AuditLogger.logAction(
+            state.auditStorage,
+            caller,
+            #UpdateSystemConfig,
+            #RawData("Config " # key # " updated/created to " # value),
+            null,
+            ?#Backend
+        );
+
+        let result = SystemManager.set(state.systemStorage, key, value, caller);
         switch (result) {
             case (#ok()) {
-                let auditEntry = AuditLogger.logAction(
-                    state.auditStorage,
-                    caller,
-                    #UpdateSystemConfig,
-                    #RawData("System configuration updated"),
-                    null,
-                    ?#Backend
-                );
                 ignore AuditLogger.updateAuditStatus(state.auditStorage, auditEntry.id, #Completed, null, ?100);
                 #ok()
             };
             case (#err(msg)) #err(msg);
         }
     };
-    
-    public func updateBasicSystemSettings(
+
+    //Delete config
+    public func deleteConfig(
         state: AdminControllerState,
-        maintenanceMode: ?Bool,
-        systemVersion: ?Text,
-        maxConcurrentPipelines: ?Nat,
+        key: Text,
         caller: Principal
     ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Only super admins can update basic system settings");
-        };
-        
-        SystemManager.updateBasicSettings(
-            state.systemStorage,
-            maintenanceMode,
-            systemVersion,
-            maxConcurrentPipelines,
-            caller
-        )
-    };
-    
-    public func updatePaymentSettings(
-        state: AdminControllerState,
-        paymentToken: ?Principal,
-        feeRecipient: ?Principal,
-        minimumPaymentAmount: ?Nat,
-        caller: Principal
-    ) : Result.Result<(), Text> {
-        SystemManager.updatePaymentBasics(
-            state.systemStorage,
-            paymentToken,
-            feeRecipient,
-            minimumPaymentAmount,
-            caller
-        )
-    };
-    
-    public func updateServiceFees(
-        state: AdminControllerState,
-        createTokenFee: ?Nat,
-        createLockFee: ?Nat,
-        createDistributionFee: ?Nat,
-        createLaunchpadFee: ?Nat,
-        createDAOFee: ?Nat,
-        pipelineExecutionFee: ?Nat,
-        caller: Principal
-    ) : Result.Result<(), Text> {
-        SystemManager.updateServiceFeeAmounts(
-            state.systemStorage,
-            createTokenFee,
-            createLockFee,
-            createDistributionFee,
-            createLaunchpadFee,
-            createDAOFee,
-            pipelineExecutionFee,
-            caller
-        )
-    };
-    
-    public func updateUserLimits(
-        state: AdminControllerState,
-        maxProjectsPerUser: ?Nat,
-        maxTokensPerUser: ?Nat,
-        maxDeploymentsPerDay: ?Nat,
-        deploymentCooldown: ?Nat,
-        caller: Principal
-    ) : Result.Result<(), Text> {
-        SystemManager.updateUserLimits(
-            state.systemStorage,
-            maxProjectsPerUser,
-            maxTokensPerUser,
-            maxDeploymentsPerDay,
-            deploymentCooldown,
-            caller
-        )
-    };
-    
-    public func updateCoreServices(
-        state: AdminControllerState,
-        tokenDeploymentEnabled: ?Bool,
-        lockServiceEnabled: ?Bool,
-        distributionServiceEnabled: ?Bool,
-        launchpadServiceEnabled: ?Bool,
-        pipelineExecutionEnabled: ?Bool,
-        caller: Principal
-    ) : Result.Result<(), Text> {
-        SystemManager.updateCoreFeatures(
-            state.systemStorage,
-            tokenDeploymentEnabled,
-            lockServiceEnabled,
-            distributionServiceEnabled,
-            launchpadServiceEnabled,
-            pipelineExecutionEnabled,
-            caller
-        )
-    };
-    
-    // ================ CYCLE MANAGEMENT ================
-    
-    public func updateCycleConfiguration(
-        state: AdminControllerState,
-        newCycleConfig: CycleConfiguration,
-        caller: Principal
-    ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Unauthorized: Only super admins can update cycle configuration");
-        };
-        
-        let result = SystemManager.updateCycleConfiguration(state.systemStorage, newCycleConfig, caller);
-        
+        //log action
+        let auditEntry = AuditLogger.logAction(
+            state.auditStorage,
+            caller,
+            #AdminAction("DeleteSystemConfig"),
+            #RawData("Config " # key # " deleted"),
+            null,
+            ?#Backend
+        );
+        let result = SystemManager.delete(state.systemStorage, key, caller);
         switch (result) {
             case (#ok()) {
-                let auditEntry = AuditLogger.logAction(
-                    state.auditStorage,
-                    caller,
-                    #UpdateSystemConfig,
-                    #RawData("Cycle configuration updated"),
-                    null,
-                    ?#Backend
-                );
                 ignore AuditLogger.updateAuditStatus(state.auditStorage, auditEntry.id, #Completed, null, ?100);
                 #ok()
             };
             case (#err(msg)) #err(msg);
         }
     };
+
     
-    public func updateCycleParameter(
-        state: AdminControllerState,
-        parameterName: Text,
-        value: Nat,
-        caller: Principal
-    ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Unauthorized: Only super admins can update cycle parameters");
-        };
-        
-        let result = SystemManager.updateSpecificCycleParameter(state.systemStorage, parameterName, value, caller);
-        
-        switch (result) {
-            case (#ok()) {
-                let auditEntry = AuditLogger.logAction(
-                    state.auditStorage,
-                    caller,
-                    #UpdateSystemConfig,
-                    #RawData("Cycle parameter " # parameterName # " updated to " # Nat.toText(value)),
-                    null,
-                    ?#Backend
-                );
-                ignore AuditLogger.updateAuditStatus(state.auditStorage, auditEntry.id, #Completed, null, ?100);
-                #ok()
-            };
-            case (#err(msg)) #err(msg);
-        }
-    };
-    
-    public func getCycleConfigForService(
-        state: AdminControllerState,
-        serviceName: Text
-    ) : Result.Result<{cyclesForCreation: Nat; minCyclesReserve: Nat}, Text> {
-        SystemManager.getCycleConfigForService(state.systemStorage, serviceName)
-    };
-    
-    public func getCycleConfiguration(
-        state: AdminControllerState
-    ) : CycleConfiguration {
-        SystemManager.getCurrentConfiguration(state.systemStorage).cycleConfig
-    };
     
     // ================ ADMIN MANAGEMENT ================
     
     public func addAdmin(
         state: AdminControllerState,
         newAdmin: Principal,
-        isNewSuperAdmin: Bool,
         caller: Principal
     ) : Result.Result<(), Text> {
-        SystemManager.addNewAdmin(
+        SystemManager.addAdmin(
             state.systemStorage,
             newAdmin,
-            isNewSuperAdmin,
             caller
         )
     };
@@ -295,9 +155,6 @@ module AdminController {
         state: AdminControllerState,
         caller: Principal
     ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Only super admins can enable maintenance mode");
-        };
         SystemManager.enableMaintenanceMode(state.systemStorage, caller)
     };
     
@@ -305,9 +162,6 @@ module AdminController {
         state: AdminControllerState,
         caller: Principal
     ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Only super admins can disable maintenance mode");
-        };
         SystemManager.disableMaintenanceMode(state.systemStorage, caller)
     };
     
@@ -321,45 +175,6 @@ module AdminController {
         SystemManager.emergencyStop(state.systemStorage, caller)
     };
     
-    // ================ SYSTEM INFORMATION ================
-    
-    public func getSystemConfig(
-        state: AdminControllerState
-    ) : SystemConfiguration {
-        SystemManager.getCurrentConfiguration(state.systemStorage)
-    };
-    
-    public func getQuickSystemStatus(
-        state: AdminControllerState
-    ) : {
-        version: Text;
-        maintenanceMode: Bool;
-        emergencyStop: Bool;
-        totalAdmins: Nat;
-        totalSuperAdmins: Nat;
-        coreServicesEnabled: {
-            tokenDeployment: Bool;
-            projectCreation: Bool;
-            lockService: Bool;
-            distributionService: Bool;
-            pipelineExecution: Bool;
-        };
-        currentFees: {
-            tokenDeployment: Nat;
-            projectCreation: Nat;
-            lockService: Nat;
-            distributionService: Nat;
-            pipelineExecution: Nat;
-        };
-        userLimits: {
-            maxProjectsPerUser: Nat;
-            maxTokensPerUser: Nat;
-            maxDeploymentsPerDay: Nat;
-            deploymentCooldown: Nat;
-        };
-    } {
-        SystemManager.getQuickStatus(state.systemStorage)
-    };
     
     // ================ USER MANAGEMENT ================
     
@@ -458,70 +273,33 @@ module AdminController {
     
     // ================ SERVICE ENDPOINT MANAGEMENT ================
     
-    public func configureServiceEndpoint(
-        state: AdminControllerState,
-        serviceType: Text,
-        canisterId: ?Principal,
-        isActive: ?Bool,
-        version: ?Text,
-        endpoints: ?[Text],
-        caller: Principal
-    ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Only super admins can configure service endpoints");
-        };
-        
-        let config = SystemManager.getCurrentConfiguration(state.systemStorage);
-        let currentEndpoints = config.serviceEndpoints;
-        
-        let updatedEndpoints = switch (serviceType) {
-            case ("tokenDeployer") {
-                {
-                    currentEndpoints with
-                    tokenDeployer = {
-                        currentEndpoints.tokenDeployer with
-                        canisterId = Option.get(canisterId, currentEndpoints.tokenDeployer.canisterId);
-                        isActive = Option.get(isActive, currentEndpoints.tokenDeployer.isActive);
-                        version = Option.get(version, currentEndpoints.tokenDeployer.version);
-                        endpoints = Option.get(endpoints, currentEndpoints.tokenDeployer.endpoints);
-                    };
-                }
-            };
-            case ("auditService") {
-                {
-                    currentEndpoints with
-                    auditService = {
-                        currentEndpoints.auditService with
-                        canisterId = Option.get(canisterId, currentEndpoints.auditService.canisterId);
-                        isActive = Option.get(isActive, currentEndpoints.auditService.isActive);
-                        version = Option.get(version, currentEndpoints.auditService.version);
-                        endpoints = Option.get(endpoints, currentEndpoints.auditService.endpoints);
-                    };
-                }
-            };
-            case (_) {
-                return #err("Unknown service type: " # serviceType);
-            };
-        };
-        
-        let updatedConfig = {
-            config with
-            serviceEndpoints = updatedEndpoints;
-        };
-        
-        SystemManager.updateConfiguration(state.systemStorage, updatedConfig, caller)
-    };
-    
+    // Enable a service endpoint by domain as serviceType and key is_enabled
     public func enableServiceEndpoint(
         state: AdminControllerState,
         serviceType: Text,
         canisterId: Principal,
+        version: ?Text,
         caller: Principal
     ) : Result.Result<(), Text> {
-        if (not isSuperAdmin(state, caller)) {
-            return #err("Only super admins can enable service endpoints");
+        ignore SystemManager.set(state.systemStorage, serviceType # ".is_enabled", "true", caller);
+        ignore SystemManager.set(state.systemStorage, serviceType # ".canister_id", Principal.toText(canisterId), caller);
+        switch (version) {
+            case (?version) {
+                ignore SystemManager.set(state.systemStorage, serviceType # ".version", version, caller);
+            };
+            case null {};
         };
-        
-        configureServiceEndpoint(state, serviceType, ?canisterId, ?true, null, null, caller)
+        #ok()
     };
+
+    // Disable a service endpoint by domain as serviceType and key is_enabled
+    public func disableServiceEndpoint(
+        state: AdminControllerState,
+        serviceType: Text,
+        caller: Principal
+    ) : Result.Result<(), Text> {
+        ignore SystemManager.set(state.systemStorage, serviceType # ".is_enabled", "false", caller);
+        #ok()
+    };
+    
 } 

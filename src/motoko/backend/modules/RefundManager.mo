@@ -874,7 +874,8 @@ module {
             let firstToken = acceptedTokens[0];
             // Check if it's known ICP ledger
             if (Principal.toText(firstToken) == "ryjl3-tyaaa-aaaaa-aaaba-cai") {
-                #TransferFromTreasury(firstToken) // ICP supports ICRC2, use treasury
+                #DirectTransfer(firstToken) // Accept ICP as a refund method and direct transfer from backend canister.
+                // #TransferFromTreasury(firstToken) // ICP supports ICRC2, use treasury
             } else {
                 #DirectTransfer(firstToken) // Default to direct transfer for other tokens
             }
