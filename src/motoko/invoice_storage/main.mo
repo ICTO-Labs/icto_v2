@@ -9,7 +9,7 @@ import Debug "mo:base/Debug";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
 import Types "./types/Types";
-import InvoiceStorageInterface "../backend/interfaces/InvoiceStorage";
+import InvoiceStorageInterface "../backend/shared/interfaces/InvoiceStorage";
 
 actor InvoiceStorage {
     

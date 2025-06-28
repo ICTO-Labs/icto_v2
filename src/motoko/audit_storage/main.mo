@@ -20,19 +20,19 @@ actor AuditStorage {
     
     // ================ STABLE VARIABLES ================
     private stable var whitelistedCanisters : [(Principal, Bool)] = [];
-    private stable var auditLogsStable : [(Text, Types.AuditLog)] = [];
+    private stable var auditEntriesStable : [(Text, Types.AuditEntry)] = [];
     private stable var systemEventsStable : [(Text, Types.SystemEvent)] = [];
     
     // Runtime variables
     private var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
-    private var auditLogs : Trie.Trie<Text, Types.AuditLog> = Trie.empty();
+    private var auditEntries : Trie.Trie<Text, Types.AuditEntry> = Trie.empty();
     private var systemEvents : Trie.Trie<Text, Types.SystemEvent> = Trie.empty();
     
     // ================ UPGRADE FUNCTIONS ================
     system func preupgrade() {
         Debug.print("AuditStorage: Starting preupgrade");
         whitelistedCanisters := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelistTrie, func (k, v) = (k, v));
-        auditLogsStable := Trie.toArray<Text, Types.AuditLog, (Text, Types.AuditLog)>(auditLogs, func (k, v) = (k, v));
+        auditEntriesStable := Trie.toArray<Text, Types.AuditEntry, (Text, Types.AuditEntry)>(auditEntries, func (k, v) = (k, v));
         systemEventsStable := Trie.toArray<Text, Types.SystemEvent, (Text, Types.SystemEvent)>(systemEvents, func (k, v) = (k, v));
         Debug.print("AuditStorage: Preupgrade completed");
     };
@@ -46,8 +46,8 @@ actor AuditStorage {
         };
         
         // Restore audit logs
-        for ((id, log) in auditLogsStable.vals()) {
-            auditLogs := Trie.put(auditLogs, _textKey(id), Text.equal, log).0;
+        for ((id, log) in auditEntriesStable.vals()) {
+            auditEntries := Trie.put(auditEntries, _textKey(id), Text.equal, log).0;
         };
         
         // Restore system events
@@ -57,7 +57,7 @@ actor AuditStorage {
         
         // Clear stable variables
         whitelistedCanisters := [];
-        auditLogsStable := [];
+        auditEntriesStable := [];
         systemEventsStable := [];
         
         // Initialize service start time if not set
@@ -132,48 +132,37 @@ actor AuditStorage {
     };
     
     // ================ AUDIT LOG FUNCTIONS ================
-    public shared({ caller }) func logAuditEvent(
-        userId: Text,
-        action: Types.ActionType,
-        resourceType: Types.ResourceType,
-        resourceId: ?Text,
-        details: ?Text,
-        metadata: ?[(Text, Text)]
+    public shared({ caller }) func logAuditEntry(
+        entry: Types.AuditEntry
     ) : async Result.Result<Text, Text> {
         if (not _isWhitelisted(caller)) {
             return #err("Unauthorized: Caller not whitelisted");
         };
         
-        let logId = _generateId("audit");
-        let auditLog : Types.AuditLog = {
-            id = logId;
-            userId = userId;
-            action = action;
-            resourceType = resourceType;
-            resourceId = resourceId;
-            details = details;
-            metadata = metadata;
-            timestamp = Time.now();
-            canisterId = Principal.toText(caller);
-        };
-        
-        auditLogs := Trie.put(auditLogs, _textKey(logId), Text.equal, auditLog).0;
+        // The backend generates the ID, but we can overwrite it or validate it.
+        // For now, we'll trust the incoming ID.
+        let logId = entry.id;
+
+        // We can also overwrite the timestamp to prevent spoofing
+        let finalEntry = { entry with timestamp = Time.now(); canisterId = ?caller };
+
+        auditEntries := Trie.put(auditEntries, _textKey(logId), Text.equal, finalEntry).0;
         #ok(logId)
     };
     
     public query({ caller }) func getAuditLogs(
-        userId: ?Text,
+        userId: ?Principal,
         limit: ?Nat
-    ) : async Result.Result<[Types.AuditLog], Text> {
+    ) : async Result.Result<[Types.AuditEntry], Text> {
         if (not _isWhitelisted(caller)) {
             return #err("Unauthorized: Caller not whitelisted");
         };
         
-        let buffer = Buffer.Buffer<Types.AuditLog>(0);
+        let buffer = Buffer.Buffer<Types.AuditEntry>(0);
         let maxLimit = Option.get(limit, 100);
         var count = 0;
         
-        label logs for ((_, log) in Trie.iter(auditLogs)) {
+        label logs for ((_, log) in Trie.iter(auditEntries)) {
             if (count >= maxLimit) break logs;
             
             var shouldInclude = true;
@@ -223,16 +212,6 @@ actor AuditStorage {
         #ok(eventId)
     };
 
-    // Add whitelist for audit storage
-    public shared({ caller }) func addToAuditWhitelist(canisterId: Principal) : async Result.Result<(), Text> {
-        if (not Principal.isController(caller)) {
-            return #err("Unauthorized: Only controllers can manage whitelist");
-        };
-        
-        whitelistTrie := Trie.put(whitelistTrie, _principalKey(canisterId), Principal.equal, true).0;
-        #ok()
-    };
-    
     public query({ caller }) func getSystemEvents(
         eventType: ?Types.SystemEventType,
         limit: ?Nat
@@ -245,27 +224,39 @@ actor AuditStorage {
         let maxLimit = Option.get(limit, 100);
         var count = 0;
         
-        label events for ((_, event) in Trie.iter(systemEvents)) {
+        let filteredTrie = Trie.filter<Text, Types.SystemEvent>(
+            systemEvents,
+            func (k, v) = switch (eventType) {
+                case (?et) { v.eventType == et };
+                case null { true };
+            }
+        );
+
+        label events for ((_, event) in Trie.iter(filteredTrie)) {
             if (count >= maxLimit) break events;
-            
-            var shouldInclude = true;
-            
-            switch (eventType) {
-                case (?et) {
-                    if (event.eventType != et) {
-                        shouldInclude := false;
-                    };
-                };
-                case null { };
-            };
-            
-            if (shouldInclude) {
-                buffer.add(event);
-                count += 1;
-            };
+            buffer.add(event);
+            count += 1;
         };
         
         #ok(Buffer.toArray(buffer))
+    };
+
+    public query func getSystemEvent(id: Text) : async Result.Result<Types.SystemEvent, Text> {
+        // if (not _isWhitelisted(caller)) {
+        //     return #err("Unauthorized: Caller not whitelisted");
+        // };
+        
+        switch (Trie.get(systemEvents, _textKey(id), Text.equal)) {
+            case (?event) { #ok(event) };
+            case null { #err("Event not found") };
+        };
+    };
+
+    public query func getEntry(id: Text) : async Result.Result<Types.AuditEntry, Text> {
+        switch (Trie.get(auditEntries, _textKey(id), Text.equal)) {
+            case (?entry) { #ok(entry) };
+            case null { #err("Entry not found") };
+        };
     };
     
     // ================ STORAGE STATS ================
@@ -275,7 +266,7 @@ actor AuditStorage {
         };
         
         let stats : Types.StorageStats = {
-            totalAuditLogs = Trie.size(auditLogs);
+            totalAuditLogs = Trie.size(auditEntries);
             totalSystemEvents = Trie.size(systemEvents);
             totalUserActivities = 0; // Simplified for now
             totalSystemConfigs = 0; // Simplified for now
@@ -321,12 +312,12 @@ actor AuditStorage {
             uptime = Int.abs(uptime);
             lastActivity = null; // Could track last audit log
             resourceUsage = {
-                totalAuditLogs = Trie.size(auditLogs);
+                totalAuditLogs = Trie.size(auditEntries);
                 totalSystemEvents = Trie.size(systemEvents);
                 whitelistedCanisters = Trie.size(whitelistTrie);
                 memoryUsage = 0; // Placeholder
             };
-            capabilities = ["logAuditEvent", "getAuditLogs", "healthCheck", "getStorageStats"];
+            capabilities = ["logAuditEntry", "getAuditLogs", "healthCheck", "getStorageStats"];
             status = if (isHealthy) "healthy" else "degraded";
         }
     };
@@ -343,7 +334,7 @@ actor AuditStorage {
             name = "AuditStorage";
             version = SERVICE_VERSION;
             description = "ICTO V2 Centralized audit logging and system event storage";
-            endpoints = ["logAuditEvent", "getAuditLogs", "healthCheck", "getHealthInfo", "getServiceInfo"];
+            endpoints = ["logAuditEntry", "getAuditLogs", "healthCheck", "getHealthInfo", "getServiceInfo"];
             maintainer = "ICTO Development Team";
         }
     };

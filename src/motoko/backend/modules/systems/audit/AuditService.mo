@@ -154,7 +154,8 @@ module AuditService {
         actionData: AuditTypes.ActionData,
         projectId: ?Common.ProjectId,
         paymentId: ?Text,
-        serviceType: ?AuditTypes.ServiceType
+        serviceType: ?AuditTypes.ServiceType,
+        referenceId: ?AuditTypes.AuditId
     ) : async AuditTypes.AuditEntry {
         let timestamp = Time.now();
         let auditId = "audit_" # Principal.toText(userId) # "_" # Int.toText(timestamp);
@@ -171,6 +172,7 @@ module AuditService {
             actionStatus = #Initiated;
             actionData = actionData;
             projectId = projectId;
+            referenceId = referenceId;
             serviceType = serviceType;
             canisterId = null;
             paymentId = paymentId;
@@ -206,18 +208,8 @@ module AuditService {
     private func _logToExternal(state: AuditTypes.State, entry: AuditTypes.AuditEntry) : async () {
         switch (state.externalAuditStorage) {
             case (?externalAudit) {
-                
-                let details = actionDataToText(entry.actionData);
-
-                // Fire-and-forget call
-                ignore externalAudit.logAuditEvent(
-                    Principal.toText(entry.userId),
-                    entry.actionType,
-                    toExternalResourceType(entry.serviceType),
-                    entry.projectId,
-                    ?details,
-                    null // metadata not mapped currently
-                );
+                // Fire-and-forget call with the whole entry
+                ignore externalAudit.logAuditEntry(entry);
             };
             case null {};
         };
@@ -239,9 +231,29 @@ module AuditService {
                 };
                 state.entries := Trie.put(state.entries, key, Text.equal, updatedEntry).0;
                 
-                // Log the status update as a new, separate event to the external log
-                let statusUpdateLogData = #RawData("Status of audit '" # auditId # "' changed to '" # statusToText(status) # "'");
-                let statusUpdateEntry = await logAction(state, entry.userId, #UpdateSystemConfig, statusUpdateLogData, entry.projectId, entry.paymentId, entry.serviceType);
+                // Log the status update as a new, separate event to the external log, referencing the original.
+                // Note: The actionType here is generic. Could be more specific if needed.
+                let statusText = switch(status) {
+                    case(#Completed) "Completed";
+                    case(#Failed(msg)) "Failed(" # msg # ")";
+                    case(_) "Updated";
+                };
+
+                let statusUpdateLogData = #RawData("Status of audit '" # auditId # "' changed to '" # statusText # "'");
+                let statusUpdateEntry = await logAction(
+                    state,
+                    entry.userId,
+                    #UpdateSystemConfig, // This is a system action updating state
+                    statusUpdateLogData,
+                    entry.projectId,
+                    entry.paymentId,
+                    entry.serviceType,
+                    ?auditId // This creates the reference link
+                );
+
+                // Also update the original entry in the external storage
+                // This is "best effort" as it's a fire-and-forget
+                await _logToExternal(state, updatedEntry);
 
                 return ?updatedEntry;
             };

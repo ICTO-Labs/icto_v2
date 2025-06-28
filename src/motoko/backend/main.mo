@@ -196,7 +196,8 @@ actor Backend {
                 #RawData(Option.get(paymentResult.errorMessage, "Payment failed")),
                 request.projectId,
                 paymentResult.paymentRecordId,
-                ?#Backend
+                ?#Backend,
+                null // referenceId
             );
             return #err(Option.get(paymentResult.errorMessage, "Payment processing failed."));
         } else {
@@ -208,19 +209,22 @@ actor Backend {
                 #RawData("Payment of " # Nat.toText(paymentResult.paidAmount) # " successful."),
                 request.projectId,
                 paymentResult.paymentRecordId,
-                ?#Backend
+                ?#Backend,
+                null // referenceId
             );
         };
         Debug.print("Payment result: " # debug_show(paymentResult));
 
         // 4. Log the primary business action (token deployment)
-        let auditEntry = await AuditService.logAction(auditState, 
+        let auditEntry = await AuditService.logAction(
+            auditState, 
             caller, 
             #CreateToken, 
             #RawData("Initiating token deployment for " # symbol),
             request.projectId,
             paymentResult.paymentRecordId,
-            ?#TokenDeployer
+            ?#TokenDeployer,
+            null // referenceId
         );
         let auditId = auditEntry.id;
         Debug.print("Audit ID: " # debug_show(auditEntry));
@@ -335,7 +339,7 @@ actor Backend {
             case (#err(msg)) {
                 // Log failure and return
                 Debug.print("setCanisterIds: Admin access required");
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("setCanisterIds: Admin access required"), null, null, null);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("setCanisterIds: Admin access required"), null, null, null, null);
                 return;
             };
             case (#ok()) {};
@@ -356,7 +360,8 @@ actor Backend {
         microserviceState.setupCompleted := true;
 
         // 4. Log the action
-        ignore await AuditService.logAction(auditState, 
+        ignore await AuditService.logAction(
+            auditState,
             caller, 
             #UpdateSystemConfig,
             #AdminData({
@@ -367,7 +372,8 @@ actor Backend {
             }),
             null,
             null,
-            null
+            null,
+            null // referenceId
         );
     };
 
@@ -466,13 +472,13 @@ actor Backend {
         // Authorization Check
         switch (_onlySuperAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("forceResetMicroserviceSetup: Super-admin access required"), null, null, null);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("forceResetMicroserviceSetup: Super-admin access required"), null, null, null, null);
                 return;
             };
             case (#ok()) {};
         };
         microserviceState.setupCompleted := false;
-        ignore await AuditService.logAction(auditState, caller, #UpdateSystemConfig, #RawData("Forced microservice setup reset"), null, null, null);
+        ignore await AuditService.logAction(auditState, caller, #UpdateSystemConfig, #RawData("Forced microservice setup reset"), null, null, null, null);
     };
 
     // ==================================================================================================
@@ -514,7 +520,7 @@ actor Backend {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminSetConfigValue: Admin access required for key: " # key), null, null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminSetConfigValue: Admin access required for key: " # key), null, null, ?#Backend, null);
                 return #err(msg);
             };
             case (#ok) {};
@@ -536,7 +542,8 @@ actor Backend {
             }),
             null,
             null,
-            ?#Backend
+            ?#Backend,
+            null // referenceId
         );
 
         return result;
@@ -546,7 +553,7 @@ actor Backend {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminDeleteConfigValue: Admin access required for key: " # key), null, null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminDeleteConfigValue: Admin access required for key: " # key), null, null, ?#Backend, null);
                 return #err(msg);
             };
             case (#ok) {};
@@ -568,7 +575,8 @@ actor Backend {
             }),
             null,
             null,
-            ?#Backend
+            ?#Backend,
+            null // referenceId
         );
 
         return #ok(());
@@ -578,14 +586,14 @@ actor Backend {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminApproveRefund: Admin access required"), null, null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminApproveRefund: Admin access required"), null, null, ?#Backend, null);
                 return #err(msg);
             };
             case (#ok) {};
         };
         
         // 2. Log Action
-        ignore await AuditService.logAction(auditState, caller, #AdminAction("Approving refund " # refundId), #RawData("Approving refund " # refundId), null, null, ?#Backend);
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Approving refund " # refundId), #RawData("Approving refund " # refundId), null, null, ?#Backend, null);
 
         // 3. Delegate to service
         return await PaymentService.approveRefund(paymentState, refundId, caller, notes);
@@ -595,14 +603,14 @@ actor Backend {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminRejectRefund: Admin access required"), null, null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminRejectRefund: Admin access required"), null, null, ?#Backend, null);
                 return #err(msg);
             };
             case (#ok) {};
         };
 
         // 2. Log Action
-        ignore await AuditService.logAction(auditState, caller, #AdminAction("Rejecting refund " # refundId), #RawData("Rejecting refund " # refundId), null, null, ?#Backend);
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Rejecting refund " # refundId), #RawData("Rejecting refund " # refundId), null, null, ?#Backend, null);
 
         // 3. Delegate to service
         return await PaymentService.rejectRefund(paymentState, refundId, caller, reason);
@@ -612,14 +620,14 @@ actor Backend {
         // 1. Authorization
         switch(_onlyAdmin(caller)) {
             case (#err(msg)) {
-                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminProcessRefund: Admin access required"), null, null, ?#Backend);
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminProcessRefund: Admin access required"), null, null, ?#Backend, null);
                 return #err(msg);
             };
             case (#ok) {};
         };
 
         // 2. Log Action
-        ignore await AuditService.logAction(auditState, caller, #AdminAction("Processing refund " # refundId), #RawData("Processing refund " # refundId), null, null, ?#Backend);
+        ignore await AuditService.logAction(auditState, caller, #AdminAction("Processing refund " # refundId), #RawData("Processing refund " # refundId), null, null, ?#Backend, null);
 
         // 3. Delegate to service
         return await PaymentService.processRefund(paymentState, refundId, caller);

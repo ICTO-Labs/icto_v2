@@ -189,6 +189,7 @@ module {
         
         // Context information
         projectId: ?Text;
+        referenceId: ?AuditId;
         serviceType: ?ServiceType;
         canisterId: ?Principal;
         
@@ -237,7 +238,16 @@ module {
     public type ProjectId = Text;
     public type CanisterId = Text;
 
-
+    public type SystemEvent = {
+        id: Text;
+        eventType: SystemEventType;
+        description: Text;
+        severity: Severity;
+        metadata: ?[(Text, Text)];
+        timestamp: Time.Time;
+        canisterId: Text;
+    };
+    
     // ===== PAYMENT TRACKING =====
     
     public type PaymentInfo = {
@@ -268,45 +278,40 @@ module {
         #Refunded;
         #Expired;
     };
+
+    public type ServiceInfo = {
+        name: Text;
+        version: Text;
+        description: Text;
+        endpoints: [Text];
+        maintainer: Text;
+    };
+
+    public type StorageStats = {
+        totalAuditLogs: Nat;
+        totalSystemEvents: Nat;
+        totalUserActivities: Nat;
+        totalSystemConfigs: Nat;
+        whitelistedCanisters: Nat;
+    };
+
     // ================ AUDIT STORAGE ================
     public type AuditStorage = actor {
-        // Whitelist management
-        addToWhitelist : (Principal) -> async Result.Result<(), Text>;
-        removeFromWhitelist : (Principal) -> async Result.Result<(), Text>;
-        getWhitelistedCanisters : query () -> async [Principal];
-        
         // Audit logging
-        logAuditEvent : (
-            userId: Text,
-            action: ActionType,
-            resourceType: ResourceType,
-            resourceId: ?Text,
-            details: ?Text,
-            metadata: ?[(Text, Text)]
-        ) -> async Result.Result<Text, Text>;
+        logAuditEntry : (entry: AuditEntry) -> async Result.Result<Text, Text>;
         
-        // System event logging
-        logSystemEvent : (
-            eventType: SystemEventType,
-            description: Text,
-            severity: Severity,
-            metadata: ?[(Text, Text)]
-        ) -> async Result.Result<Text, Text>;
-
-        // Get audit event
-        getAuditEvent : (
-            userId: Text,
-            action: ActionType,
-            resourceType: ResourceType,
-            resourceId: ?Text,
-            details: ?Text,
-            metadata: ?[(Text, Text)]
-        ) -> async Result.Result<Text, Text>;
-
-        //Get all audit entries
-        getAuditLogs : (
-            offset: Nat,
-            limit: Nat
-        ) -> async [AuditEntry];
+        // Whitelist management
+        addToWhitelist: (canisterId: Principal) -> async Result.Result<(), Text>;
+        removeFromWhitelist: (canisterId: Principal) -> async Result.Result<(), Text>;
+        isWhitelisted: (caller: Principal) -> async Bool;
+        
+        // Data retrieval
+        getAuditLogs : (userId: ?Principal, limit: ?Nat) -> async Result.Result<[AuditEntry], Text>;
+        getSystemEvents: (eventType: ?SystemEventType, limit: ?Nat) -> async Result.Result<[SystemEvent], Text>;
+        
+        // Health and info
+        healthCheck : shared query () -> async Bool;
+        getServiceInfo: query () -> async ServiceInfo;
+        getStorageStats: query() -> async StorageStats;
     };
 } 

@@ -226,7 +226,7 @@ module PaymentService {
     ) : Nat {
         let serviceName = getServiceTypeFromAction(actionType);
         if (serviceName == "generic") { return 0; }; // No fee for generic actions
-        return getServiceFee(configState, serviceName # ".fee");
+        return getServiceFee(configState, serviceName);
     };
 
     private func getServiceTypeFromAction(actionType: Audit.ActionType) : Text {
@@ -424,6 +424,7 @@ module PaymentService {
             auditId = auditId;
             errorMessage = null;
         };
+        Debug.print("--- Initial payment record: " # debug_show(initialPaymentRecord));
         state.payments := Trie.put(state.payments, textKey(paymentId), Text.equal, initialPaymentRecord).0;
 
         // Persist initial record to external storage (fire-and-forget)
