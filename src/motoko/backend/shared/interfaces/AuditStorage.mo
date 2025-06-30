@@ -70,6 +70,7 @@ module {
         #PaymentProcessed;
         #PaymentFailed;
         #RefundProcessed;
+        #RefundRequested;
         
         // Admin Actions
         #AdminLogin;
@@ -77,6 +78,7 @@ module {
         #ServiceMaintenance;
         #UserManagement;
         #SystemUpgrade;
+        #StatusUpdate;
 
         // Access Control Actions
         #AccessDenied;

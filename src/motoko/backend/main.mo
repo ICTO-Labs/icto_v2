@@ -213,7 +213,7 @@ actor Backend {
                 null // referenceId
             );
         };
-        Debug.print("Payment result: " # debug_show(paymentResult));
+        Debug.print("✅ Payment result: " # debug_show(paymentResult));
 
         // 4. Log the primary business action (token deployment)
         let auditEntry = await AuditService.logAction(
@@ -227,7 +227,7 @@ actor Backend {
             null // referenceId
         );
         let auditId = auditEntry.id;
-        Debug.print("Audit ID: " # debug_show(auditEntry));
+        Debug.print("✅ Audit ID: " # auditId);
         // 5. Prepare for external deployment call
         // This service function now constructs the correct {config, deploymentConfig} structure
         let preparedCall = switch(
@@ -249,16 +249,19 @@ actor Backend {
             deployTokenWithConfig : (TokenDeployerTypes.TokenConfig, TokenDeployerTypes.DeploymentConfig, ?Principal) -> async Result.Result<Principal, Text>
         };
         let deploymentResult = await deployerActor.deployTokenWithConfig(preparedCall.args.config, preparedCall.args.deploymentConfig, null);
-
+        Debug.print("✅-------Deployment result: " # debug_show(deploymentResult));
         // 7. Process result
         switch(deploymentResult) {
             case (#err(msg)) {
+                Debug.print("❌ 💰 Start refund process for payment record ID: " # Option.get(paymentResult.paymentRecordId, ""));
                 ignore await AuditService.updateAuditStatus(auditState, auditId, #Failed(msg), ?msg);
                 
                 // Automatically create a refund request on failure
                 if (Option.isSome(paymentResult.paymentRecordId)) {
+                    Debug.print("❌ Creating refund request for payment record ID: " # Option.get(paymentResult.paymentRecordId, ""));
                     ignore PaymentService.createRefundRequest(
                         paymentState,
+                        auditState,
                         caller,
                         Option.get(paymentResult.paymentRecordId, ""),
                         #SystemError,
@@ -266,10 +269,11 @@ actor Backend {
                     );
                 };
 
-                return #err("Deployment failed: " # msg);
+                return #err("❌ Deployment failed: " # msg);
             };
             case (#ok(canisterId)) {
                 // Update state
+                Debug.print("Updating token symbol registry with symbol: " # symbol);
                 tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, {key=symbol; hash=Text.hash(symbol)}, Text.equal, canisterId).0;
 
                 // Update user record with deployment info
@@ -306,7 +310,7 @@ actor Backend {
                 );
 
                 // Update audit log
-                ignore await AuditService.updateAuditStatus(auditState, auditId, #Completed, ?("Successfully deployed token " # symbol));
+                await AuditService.updateAuditStatus(auditState, auditId, #Completed, ?("Successfully deployed token " # symbol));
 
                 return #ok({
                     canisterId = canisterId;
@@ -631,6 +635,12 @@ actor Backend {
 
         // 3. Delegate to service
         return await PaymentService.processRefund(paymentState, refundId, caller);
+    };
+
+    //Admin list all refunds requests
+    public shared({caller}) func adminGetUserRefundRequests(userId: Principal) : async ?PaymentTypes.RefundRequest {
+        if (not _isAdmin(caller)) { return null };
+        return await PaymentService.getRefundRequest(paymentState, Principal.toText(userId));
     };
 
     // ==================================================================================================

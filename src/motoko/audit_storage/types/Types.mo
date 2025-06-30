@@ -86,6 +86,7 @@ module Types {
         #ServiceMaintenance;
         #UserManagement;
         #SystemUpgrade;
+        #StatusUpdate;
 
         // Access Control Actions
         #AccessDenied;

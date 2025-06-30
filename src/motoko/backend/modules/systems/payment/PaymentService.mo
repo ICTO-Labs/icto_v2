@@ -17,6 +17,7 @@ import ICRC "../../../shared/types/ICRC";
 import InvoiceStorage "../../../shared/interfaces/InvoiceStorage";
 import ConfigService "../config/ConfigService";
 import ConfigTypes "../config/ConfigTypes";
+import AuditService "../audit/AuditService";
 
 
 module PaymentService {
@@ -532,68 +533,98 @@ module PaymentService {
 
     public func createRefundRequest(
         state: PaymentTypes.State,
-        userId: Common.UserId,
+        auditState: Audit.State,
+        user: Principal,
         paymentRecordId: PaymentTypes.PaymentRecordId,
         reason: PaymentTypes.RefundReason,
         description: Text
     ) : async Result.Result<PaymentTypes.RefundRequest, Text> {
         
-        switch(Trie.get(state.payments, textKey(paymentRecordId), Text.equal)) {
-            case null { return #err("Original payment record not found.") };
-            case (?p) {
-                if (p.userId != userId) { return #err("Refund requester is not the original payer.") };
-
-                let timestamp = Time.now();
-                let refundId = generateRefundId(userId, timestamp);
-
-                let refundRequest : PaymentTypes.RefundRequest = {
-                    id = refundId;
-                    userId = userId;
-                    originalPaymentRecordId = paymentRecordId;
-                    originalAmount = p.amount;
-                    refundAmount = p.amount; // Default to full refund
-                    reason = reason;
-                    description = description;
-                    isPartial = false;
-                    requestedAt = timestamp;
-                    requestedBy = userId;
-                    status = #Pending;
-                    approvedBy = null;
-                    approvedAt = null;
-                    processedAt = null;
-                    refundTransactionId = null;
-                    processingFee = 10_000; // ICP e8s
-                    auditId = null;
-                    statusHistory = [];
-                    notes = null;
-                };
-
-                // Store refund request
-                state.refunds := Trie.put(state.refunds, textKey(refundId), Text.equal, refundRequest).0;
-                
-                // Persist to external storage (fire-and-forget)
-                switch(state.invoiceStorageId) {
-                    case (?id) {
-                        let storageActor = actor(Principal.toText(id)) : InvoiceStorage.InvoiceStorage;
-                        ignore await storageActor.createRefund(toStorageRefundRequest(refundRequest));
-                    };
-                    case null {};
-                };
-
-                // Update indices
-                let userKey = Principal.toText(userId);
-                let existingUserRefunds = Option.get(Trie.get(state.userRefunds, textKey(userKey), Text.equal), []);
-                state.userRefunds := Trie.put(state.userRefunds, textKey(userKey), Text.equal, Array.append(existingUserRefunds, [refundId])).0;
-                
-                let statusKey = refundStatusToString(#Pending);
-                let existingStatusRefunds = Option.get(Trie.get(state.statusRefunds, textKey(statusKey), Text.equal), []);
-                state.statusRefunds := Trie.put(state.statusRefunds, textKey(statusKey), Text.equal, Array.append(existingStatusRefunds, [refundId])).0;
-                
-                state.totalRefunds += 1;
-                
-                return #ok(refundRequest);
+        Debug.print("--- createRefundRequest Initiated ---");
+        Debug.print("User: " # Principal.toText(user));
+        Debug.print("PaymentRecordId: " # paymentRecordId);
+        
+        let paymentRecord = switch(Trie.get(state.payments, textKey(paymentRecordId), Text.equal)) {
+            case null { 
+                Debug.print("[ERROR] Payment record not found for id: " # paymentRecordId);
+                return #err("Payment record not found") 
+            };
+            case (?p) { 
+                Debug.print("Found payment record: " # debug_show(p));
+                p 
+            };
+        };
+  
+        // Check for existing refunds for this payment
+        Debug.print("Checking for existing refunds...");
+        let userRefundsList = Option.get(Trie.get(state.userRefunds, textKey(Principal.toText(user)), Text.equal), []);
+        Debug.print("User has " # Nat.toText(userRefundsList.size()) # " existing refund requests.");
+        
+        if (Array.find(userRefundsList, func(id: PaymentTypes.RefundId): Bool {
+            switch (Trie.get(state.refunds, textKey(id), Text.equal)) {
+                case null { false };
+                case (?r) { r.originalPaymentRecordId == paymentRecordId };
             }
-        }
+            }) != null) {
+            Debug.print("[ERROR] A refund request for this payment already exists.");
+            return #err("A refund request for this payment already exists.");
+        };
+        Debug.print("No existing refund for this payment. Proceeding...");
+ 
+        let refundId = generateRefundId(user, Time.now());
+        Debug.print("Generated new refund ID: " # refundId);
+        
+        // Log the refund request action first
+        Debug.print("Logging refund request action to AuditService...");
+        let auditEntry = await AuditService.logAction(
+            auditState,
+            user,
+            #RefundRequested, // Or a new #RefundRequested action type
+            #RawData("Refund requested for payment " # paymentRecordId # ". Reason: " # description),
+            paymentRecord.auditId, // This links to the project via the original payment audit
+            ?paymentRecordId,
+            ?#Backend,
+            paymentRecord.auditId // This links the refund log back to the original action log
+        );
+        Debug.print("Audit log created with ID: " # auditEntry.id);
+
+        let newRefund : PaymentTypes.RefundRequest = {
+            id = refundId;
+            userId = user;
+            originalPaymentRecordId = paymentRecordId;
+            originalAmount = paymentRecord.amount;
+            refundAmount = paymentRecord.amount; // For now, only full refunds
+            reason = reason;
+            description = description;
+            isPartial = false;
+            requestedAt = Time.now();
+            requestedBy = user;
+            status = #Pending;
+            approvedBy = null;
+            approvedAt = null;
+            processedAt = null;
+            refundTransactionId = null;
+            processingFee = 0;
+            auditId = ?auditEntry.id;
+            statusHistory = [
+                { timestamp = Time.now(); updatedBy = user; oldStatus = #Pending; newStatus = #Pending; reason = ?"Request automatically created due to system error" }
+            ];
+            notes = ?description;
+        };
+        Debug.print("New refund request object created: " # debug_show(newRefund));
+  
+        // Update state
+        Debug.print("Updating state with new refund request...");
+        state.refunds := Trie.put(state.refunds, textKey(refundId), Text.equal, newRefund).0;
+        state.userRefunds := Trie.put(state.userRefunds, textKey(Principal.toText(user)), Text.equal, Array.append(userRefundsList, [refundId])).0;
+        state.totalRefunds += 1;
+        
+        let pendingRefunds = Option.get(Trie.get(state.statusRefunds, textKey("Pending"), Text.equal), []);
+        state.statusRefunds := Trie.put(state.statusRefunds, textKey("Pending"), Text.equal, Array.append(pendingRefunds, [refundId])).0;
+        
+        Debug.print("State update complete. Refund request successfully created.");
+        Debug.print("--- createRefundRequest Finished ---");
+        return #ok(newRefund);
     };
 
     // --- QUERY FUNCTIONS ---

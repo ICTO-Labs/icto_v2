@@ -25,11 +25,11 @@ module AuditService {
     // =================================================================================
 
     public func initState(owner: Principal) : AuditTypes.State {
-        AuditTypes.emptyState()
+        AuditTypes.emptyState(owner)
     };
 
     public func fromStableState(stableState: AuditTypes.StableState) : AuditTypes.State {
-        let state = AuditTypes.emptyState();
+        let state = AuditTypes.emptyState(stableState.backendId);
         let externalStorageActor : ?ExternalAudit.AuditStorage = 
             Option.map(stableState.externalAuditStorage, func(p: Principal): ExternalAudit.AuditStorage { return actor(Principal.toText(p)) });
         
@@ -41,6 +41,7 @@ module AuditService {
         
         state.totalEntries := stableState.totalEntries;
         state.externalAuditStorage := externalStorageActor;
+        state.backendId := stableState.backendId;
         return state;
     };
 
@@ -52,6 +53,7 @@ module AuditService {
             actionTypeIndex = Iter.toArray(Trie.iter(state.actionTypeIndex));
             dateIndex = Iter.toArray(Trie.iter(state.dateIndex));
             totalEntries = state.totalEntries;
+            backendId = state.backendId;
             externalAuditStorage = Option.map(state.externalAuditStorage, Principal.fromActor);
         }
     };
@@ -110,7 +112,14 @@ module AuditService {
             case (#ServiceMaintenance) "service_maintenance";
             case (#UserManagement) "user_management";
             case (#SystemUpgrade) "system_upgrade";
+            case (#StatusUpdate) "status_update";
+            case (#AccessDenied) "access_denied";
+            case (#AccessGranted) "access_granted";
+            case (#RevokeAccess) "revoke_access";
+            case (#AccessRevoked) "access_revoked";
+            case (#GrantAccess) "greant_access";
             case (#Custom(name)) "custom_" # name;
+            case (#ServiceFee(fee)) "service_fee_" # fee;
             case (#AdminAction(action)) "admin_action_" # action;
         }
     };
@@ -159,7 +168,7 @@ module AuditService {
     ) : async AuditTypes.AuditEntry {
         let timestamp = Time.now();
         let auditId = "audit_" # Principal.toText(userId) # "_" # Int.toText(timestamp);
-        
+        Debug.print("🔍 Audit ID: " # auditId # " Action Type: " # actionTypeToText(actionType));
         let entry : AuditTypes.AuditEntry = {
             id = auditId;
             timestamp = timestamp;
@@ -208,6 +217,7 @@ module AuditService {
     private func _logToExternal(state: AuditTypes.State, entry: AuditTypes.AuditEntry) : async () {
         switch (state.externalAuditStorage) {
             case (?externalAudit) {
+                Debug.print("🔍 Logging to external audit storage: " # entry.id # " " # actionTypeToText(entry.actionType));
                 // Fire-and-forget call with the whole entry
                 ignore externalAudit.logAuditEntry(entry);
             };
@@ -215,85 +225,46 @@ module AuditService {
         };
     };
     
+    // This function creates a NEW log entry to record a status change for an existing action.
+    // It does NOT modify the original log entry.
     public func updateAuditStatus(
         state: AuditTypes.State,
         auditId: AuditTypes.AuditId,
         status: AuditTypes.ActionStatus,
         errorMessage: ?Text
-    ) : async ?AuditTypes.AuditEntry {
-        let key = {key=auditId; hash=Text.hash(auditId)};
-        switch (Trie.get(state.entries, key, Text.equal)) {
-            case (?entry) {
-                let updatedEntry = {
-                    entry with
-                    actionStatus = status;
-                    errorMessage = errorMessage;
-                };
-                state.entries := Trie.put(state.entries, key, Text.equal, updatedEntry).0;
-                
-                // Log the status update as a new, separate event to the external log, referencing the original.
-                // Note: The actionType here is generic. Could be more specific if needed.
-                let statusText = switch(status) {
-                    case(#Completed) "Completed";
-                    case(#Failed(msg)) "Failed(" # msg # ")";
-                    case(_) "Updated";
-                };
+    ) : async () {
+        
+        let statusText = switch(status) {
+            case (#Initiated) "Initiated";
+            case (#InProgress) "In Progress";
+            case (#Completed) "Completed";
+            case (#Failed(msg)) "Failed: " # msg;
+            case (#Cancelled) "Cancelled";
+            case (#Timeout) "Timeout";
+        };
 
-                let statusUpdateLogData = #RawData("Status of audit '" # auditId # "' changed to '" # statusText # "'");
-                let statusUpdateEntry = await logAction(
-                    state,
-                    entry.userId,
-                    #UpdateSystemConfig, // This is a system action updating state
-                    statusUpdateLogData,
-                    entry.projectId,
-                    entry.paymentId,
-                    entry.serviceType,
-                    ?auditId // This creates the reference link
-                );
-
-                // Also update the original entry in the external storage
-                // This is "best effort" as it's a fire-and-forget
-                await _logToExternal(state, updatedEntry);
-
-                return ?updatedEntry;
-            };
-            case null { return null; };
-        }
+        // This creates the new, referenced log entry
+        Debug.print("🔍 Logging status update for original audit ID: " # auditId # " with status: " # statusText);
+        
+        // We log a *new* action of type #StatusUpdate that references the original audit ID.
+        // The original log remains unchanged to preserve history.
+        ignore await logAction(
+            state,
+            state.backendId, // The backend system itself is performing the status update
+            #StatusUpdate,
+            #RawData("Status updated to: " # statusText),
+            null, // projectId is not directly relevant for a status update log
+            null, // paymentRecordId is on the original log
+            ?#Backend,
+            ?auditId // Link back to the original action
+        );
     };
 
-    private func statusToText(status: AuditTypes.ActionStatus) : Text {
-        switch(status) {
-            case(#Initiated) "Initiated";
-            case(#InProgress) "InProgress";
-            case(#Completed) "Completed";
-            case(#Failed(msg)) "Failed(" # msg # ")";
-            case(#Cancelled) "Cancelled";
-            case(#Timeout) "Timeout";
-        }
-    };
-    
-    private func toExternalResourceType(serviceType: ?AuditTypes.ServiceType) : ExternalAudit.ResourceType {
-        switch (serviceType) {
-            case (?(#TokenDeployer)) #Token;
-            case (?(#LockDeployer)) #Lock;
-            case (?(#DistributionDeployer)) #Distribution;
-            case (?(#LaunchpadDeployer)) #Launchpad;
-            case (?(#InvoiceService)) #Payment;
-            case (?(#Backend)) #System;
-            case null #System; // Default if no service is specified
-        }
-    };
+    // ==================================================================================================
+    // INTERNAL HELPERS
+    // ==================================================================================================
 
-    private func actionDataToText(actionData: AuditTypes.ActionData) : Text {
-        // A simple text representation. Could be JSON for more detail.
-        switch(actionData) {
-            case (#RawData(txt)) txt;
-            case (#AdminData(d)) "Admin Action: " # d.adminAction;
-            case (#ProjectData(d)) "Project: " # d.projectName;
-            case (#TokenData(d)) "Token: " # d.tokenSymbol;
-            case (#PaymentData(d)) "Payment: " # Nat.toText(d.amount);
-            // Add other cases as needed
-            case (_) "Complex action data...";
-        }
+    private func getById(state: AuditTypes.State, auditId: AuditTypes.AuditId) : ?AuditTypes.AuditEntry {
+        Trie.get(state.entries, {key=auditId; hash=Text.hash(auditId)}, Text.equal)
     };
 }

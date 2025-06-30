@@ -36,6 +36,7 @@ module AuditTypes {
         var actionTypeIndex: Trie.Trie<Text, [AuditId]>; // actionType -> auditIds
         var dateIndex: Trie.Trie<Text, [AuditId]>; // date -> auditIds
         var totalEntries: Nat;
+        var backendId: Principal;
         
         // External audit storage reference
         var externalAuditStorage: ?ExternalAudit.AuditStorage;
@@ -48,10 +49,11 @@ module AuditTypes {
         actionTypeIndex: [(Text, [AuditId])];
         dateIndex: [(Text, [AuditId])];
         totalEntries: Nat;
+        backendId: Principal;
         externalAuditStorage: ?Principal; // Storing principal for upgrade
     };
 
-    public func emptyState() : State {
+    public func emptyState(backendId: Principal) : State {
         {
             var entries = Trie.empty();
             var userEntries = Trie.empty();
@@ -59,6 +61,7 @@ module AuditTypes {
             var actionTypeIndex = Trie.empty();
             var dateIndex = Trie.empty();
             var totalEntries = 0;
+            var backendId = backendId;
             var externalAuditStorage = null;
         }
     };
