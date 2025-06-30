@@ -8,8 +8,13 @@ import Principal "mo:base/Principal";
 import Time "mo:base/Time";
 import Result "mo:base/Result";
 import ICRC "./ICRC";
+import Nat "mo:base/Nat";
+import Nat8 "mo:base/Nat8";
+import Nat16 "mo:base/Nat16";
+import Nat64 "mo:base/Nat64";
 
-module {
+module TokenDeployer {
+
     // ================ CORE TOKEN TYPES ================
     
     public type TokenInfo = {
@@ -62,9 +67,8 @@ module {
     
     public type TokenStatus = {
         #Active;
-        #Paused;
-        #Deprecated;
-        #Upgrading;
+        #Archived;
+        #Faulty;
     };
 
     public type TokenRecord = {
@@ -109,25 +113,24 @@ module {
         name: Text;
         symbol: Text;
         decimals: Nat8;
-        totalSupply: Nat;
-        initialBalances : [(ICRC.Account, Nat)];
-        minter : ?ICRC.Account;
-        feeCollector : ?ICRC.Account;
-        transferFee: Nat;
-        description: ?Text;
         logo: ?Text;
+        minter: ?{ owner : Principal; subaccount : ?Blob };
+        feeCollector: ?{ owner : Principal; subaccount : ?Blob };
+        transferFee: Nat;
+        initialBalances: [({ owner : Principal; subaccount : ?Blob }, Nat)];
+        totalSupply: Nat;
+        description: ?Text;
         website: ?Text;
-        socialLinks: ?[(Text, Text)];
         projectId: ?Text;
     };
     
     public type DeploymentConfig = {
-        cyclesForInstall : ?Nat;
-        cyclesForArchive : ?Nat;
-        minCyclesInDeployer : ?Nat;
-        archiveOptions : ?ArchiveOptions;
-        enableCycleOps : ?Bool;
-        tokenOwner : Principal;
+        tokenOwner: Principal;
+        enableCycleOps: ?Bool;
+        cyclesForInstall: ?Nat;
+        cyclesForArchive: ?Nat;
+        minCyclesInDeployer: ?Nat;
+        archiveOptions: ?ArchiveOptions;
     };
 
     // Backup from backend/types/TokenDeployer
@@ -364,4 +367,20 @@ module {
     
     public type AdminResult = Result.Result<(), Text>;
     public type VersionResult = Result.Result<Text, Text>;
+
+    // Structured error type for deployment failures
+    public type DeploymentError = {
+        #Unauthorized;
+        #Validation: Text;
+        #InsufficientCycles: { balance: Nat; required: Nat };
+        #NoWasm;
+        #CreateFailed: { msg: Text; pendingId: Text };
+        #InstallFailed: { canisterId: Principal; msg: Text; pendingId: Text };
+        #OwnershipFailed: { canisterId: Principal; msg: Text; pendingId: Text };
+        #InternalError: Text;
+        #PendingDeploymentNotFound: Text;
+    };
+    
+    // Result type for the main deploy function
+    public type DeployResult = Result.Result<Principal, DeploymentError>;
 } 

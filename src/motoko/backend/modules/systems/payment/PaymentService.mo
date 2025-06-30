@@ -355,6 +355,37 @@ module PaymentService {
         }
     };
 
+    private func _processICRC1Transfer(
+        user: Principal,
+        amount: Nat,
+        paymentTokenId: Principal,
+        recipient: Principal,
+        memo: ?Nat64
+    ) : async Result.Result<Nat, ICRC.TransferError> {
+
+        let icrcLedger = actor(Principal.toText(paymentTokenId)) : ICRC.ICRCLedger;
+
+        // Execute transfer_from
+        let transferArgs : ICRC.TransferArgs = {
+            from_subaccount = null;
+            to = { owner = recipient; subaccount = null };
+            amount = amount;
+            fee = null;
+            memo = null;
+            created_at_time = null;
+        };
+
+        let transferResult = await icrcLedger.icrc1_transfer(transferArgs);
+
+        switch (transferResult) {
+            case (#Ok(blockHeight)) {
+                return #ok(blockHeight);
+            };
+            case (#Err(err)) {
+                return #err(err);
+            };
+        }
+    };
 
     public func validateAndProcessPayment(
         state: PaymentTypes.State,
@@ -723,6 +754,7 @@ module PaymentService {
         refund: PaymentTypes.RefundRequest,
         newStatus: PaymentTypes.RefundStatus,
         adminId: Common.UserId,
+        txId: ?Text,
         notes: ?Text
     ) : async PaymentTypes.RefundRequest {
         let oldStatus = refund.status;
@@ -740,6 +772,7 @@ module PaymentService {
         let updatedRefund = {
             refund with
             status = newStatus;
+            refundTransactionId = txId;
             statusHistory = Array.append(refund.statusHistory, [statusUpdate]);
             approvedBy = if (newStatus == #Approved) ?adminId else refund.approvedBy;
             approvedAt = if (newStatus == #Approved) ?(Time.now() : Int) else refund.approvedAt;
@@ -785,7 +818,7 @@ module PaymentService {
                     return #err("Refund is not in Pending state.")
                 };
                 
-                let updatedRefund = await _updateRefundStatus(state, refund, #Approved, adminId, notes);
+                let updatedRefund = await _updateRefundStatus(state, refund, #Approved, adminId, null, notes);
                 #ok(updatedRefund)
             };
         }
@@ -810,7 +843,7 @@ module PaymentService {
                     };
                 };
 
-                let updatedRefund = await _updateRefundStatus(state, refund, #Rejected(reason), adminId, ?reason);
+                let updatedRefund = await _updateRefundStatus(state, refund, #Rejected(reason), adminId, null, ?reason);
                 #ok(updatedRefund)
             };
         }
@@ -819,7 +852,9 @@ module PaymentService {
     public func processRefund(
         state: PaymentTypes.State,
         refundId: PaymentTypes.RefundId,
-        adminId: Common.UserId
+        adminId: Common.UserId,
+        configState: ConfigTypes.State,
+        auditState: Audit.State
     ) : async Result.Result<PaymentTypes.RefundRequest, Text> {
         let refundResult = await getRefundRequest(state, refundId);
         
@@ -830,36 +865,178 @@ module PaymentService {
                     return #err("Refund must be in Approved state to be processed.")
                 };
 
-                // In a real scenario, an ICRC-1 transfer would happen here.
-                // We simulate the success or failure of that transfer.
-                // For this refactoring, we'll assume success.
-                let transferSuccess = true;
+                 // 2. Perform the transfer
+                let paymentInfo = ConfigService.getPaymentInfo(configState);
+                let paymentToken = paymentInfo.defaultToken; // Assuming refund uses the default token for now
                 
-                let (finalStatus, finalNotes) = if (transferSuccess) {
-                    state.totalRefundedAmount += refund.refundAmount;
-                    (#Completed, ?"Refund transfer completed successfully.")
-                } else {
-                    (#Failed("Token transfer failed during refund processing."), ?"Refund transfer failed.")
-                };
+                let transferResult = await _processICRC1Transfer(
+                    refund.userId,
+                    refund.refundAmount,
+                    paymentToken,
+                    refund.userId,
+                    null
+                );
 
-                let updatedRefund = await _updateRefundStatus(state, refund, finalStatus, adminId, finalNotes);
-                
-                // Also update the original payment record
-                let payment = Trie.get(state.payments, textKey(refund.originalPaymentRecordId), Text.equal);
-                switch(payment) {
-                    case (?p) {
-                        let updatedPayment = {
-                            p with
-                            status = #Refunded(refund.id);
-                        };
-                        state.payments := Trie.put(state.payments, textKey(p.id), Text.equal, updatedPayment).0;
+                var finalStatus: PaymentTypes.RefundStatus = #Failed("Refund transfer failed.");
+                var finalTxId: ?Text = null;
+                var finalErrorMessage: ?Text = null;
+
+                switch(transferResult) {
+                    case (#ok(blockHeight)) {
+                        finalStatus := #Completed;
+                        finalTxId := ?Nat.toText(blockHeight);
+                        finalErrorMessage := null;
+
+                        //Log the refund completion to audit
+                        ignore await AuditService.logAction(
+                            auditState,
+                            adminId,
+                            #RefundProcessed,
+                            #RawData("Refund processed for payment " # refundId # ". Transaction ID: " # Nat.toText(blockHeight)),
+                            refund.auditId,
+                            ?refundId,
+                            ?#Backend,
+                            refund.auditId
+                        );
                     };
-                    case null {};
+                    case (#err(e)) {
+                        // A more detailed error message could be constructed here from 'e'
+                        let msg = "ICRC-1 transfer failed during refund process.";
+                        finalStatus := #Failed(msg);
+                        finalErrorMessage := ?msg;
+
+                        //Log the refund failure to audit
+                        ignore await AuditService.logAction(
+                            auditState,
+                            adminId,
+                            #RefundProcessed,
+                            #RawData("Refund processed failed for payment " # refundId # ". Error: " # debug_show(e)),
+                            refund.auditId,
+                            ?refundId,
+                            ?#Backend,
+                            refund.auditId
+                        );
+                    };
                 };
 
-                return #ok(updatedRefund);
+                // 3. Call the centralized status update function, which correctly handles all state changes
+                // including the status-based index. This replaces the manual (and incorrect) state updates.
+                let finalNotes = switch(finalErrorMessage) {
+                    case(?msg) { ?("Processing failed: " # msg) };
+                    case(null) { ?("Refund transfer completed successfully.") };
+                };
+                
+                let updatedReq = await _updateRefundStatus(
+                    state,
+                    refund,
+                    finalStatus,
+                    adminId,
+                    finalTxId,
+                    finalNotes
+                );
+
+                // 4. Update statistics and return
+                if (finalStatus == #Completed) {
+                    state.totalRefunds += 1;
+                    state.totalRefundedAmount += refund.refundAmount;
+                };
+
+                return #ok(updatedReq);
             };
         }
+    };
+
+    //Get all refund requests
+    public func getRefundRequests(
+        state: PaymentTypes.State,
+        userId: ?Common.UserId
+    ) : [PaymentTypes.RefundRequest] {
+        var refundRequests : [PaymentTypes.RefundRequest] = [];
+        for ((key, refundRequest) in Trie.iter(state.refunds)) {
+            switch (userId) {
+                case null {
+                    refundRequests := Array.append(refundRequests, [refundRequest]);
+                };
+                case (?userId) {
+                    if (Principal.equal(refundRequest.userId, userId)) {
+                        refundRequests := Array.append(refundRequests, [refundRequest]);
+                    };
+                };
+            };
+        };
+
+        refundRequests
+    };
+
+    public func getUserTransactionHistory(
+        state: PaymentTypes.State,
+        userId: Common.UserId
+    ) : [PaymentTypes.TransactionView] {
+        var history: [PaymentTypes.TransactionView] = [];
+
+        // 1. Process Payment Records
+        let paymentIds = Option.get(Trie.get(state.userPayments, textKey(Principal.toText(userId)), Text.equal), []);
+        for (paymentId in paymentIds.vals()) {
+            let paymentOpt = Trie.get(state.payments, textKey(paymentId), Text.equal);
+            if (Option.isSome(paymentOpt)) {
+                let payment = Option.unwrap(paymentOpt);
+                let view: PaymentTypes.TransactionView = {
+                    id = payment.id;
+                    transactionType = #Payment;
+                    status = switch (payment.status) {
+                        case (#Approved) { "Approved" };
+                        case (#Pending) { "Pending" };
+                        case (#Completed) { "Completed" };
+                        case (#Failed(_)) { "Failed" };
+                        case (#Refunded(_)) { "Refunded" };
+                    };
+                    amount = payment.amount;
+                    timestamp = payment.createdAt;
+                    details = "Payment for " # payment.serviceType;
+                    onChainTxId = payment.transactionId;
+                    relatedId = null;
+                };
+                history := Array.append(history, [view]);
+            };
+        };
+
+        // 2. Process Refund Records
+        let refundIds = Option.get(Trie.get(state.userRefunds, textKey(Principal.toText(userId)), Text.equal), []);
+        for (refundId in refundIds.vals()) {
+            let refundOpt = Trie.get(state.refunds, textKey(refundId), Text.equal);
+            if (Option.isSome(refundOpt)) {
+                let refund = Option.unwrap(refundOpt);
+                // Display all refunds, regardless of status
+                let view: PaymentTypes.TransactionView = {
+                    id = refund.id;
+                    transactionType = #Refund;
+                    status = switch (refund.status) {
+                        case (#Pending) { "Pending" };
+                        case (#Approved) { "Approved" };
+                        case (#Processing) { "Processing" };
+                        case (#Completed) { "Completed" };
+                        case (#Failed(_)) { "Failed" };
+                        case (#Cancelled) { "Cancelled" };
+                        case (#Rejected(_)) { "Rejected" };
+                    };
+                    amount = refund.refundAmount;
+                    timestamp = Option.get(refund.processedAt, refund.requestedAt);
+                    details = "Refund for payment: " # refund.originalPaymentRecordId;
+                    onChainTxId = refund.refundTransactionId;
+                    relatedId = ?refund.originalPaymentRecordId;
+                };
+                history := Array.append(history, [view]);
+            };
+        };
+
+        // 3. Sort the combined history by timestamp descending
+        let sortedHistory = Array.sort<PaymentTypes.TransactionView>(history, func(a, b) {
+            if (a.timestamp > b.timestamp) { return #greater };
+            if (a.timestamp < b.timestamp) { return #less };
+            return #equal;
+        });
+
+        return sortedHistory;
     };
 
 };

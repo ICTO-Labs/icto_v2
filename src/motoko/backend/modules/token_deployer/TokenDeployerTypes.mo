@@ -3,7 +3,7 @@ import Nat8 "mo:base/Nat8";
 import Principal "mo:base/Principal";
 import Nat64 "mo:base/Nat64";
 import Result "mo:base/Result";
-import Shared "../../../shared/types/TokenDeployer";
+import SharedTokenDeployer "../../../shared/types/TokenDeployer";
 import Common "../../../shared/types/Common";
 import ICRC "../../../shared/types/ICRC";
 
@@ -29,15 +29,14 @@ module TokenDeployerTypes {
     // --- CORE DEPLOYMENT TYPES ---
 
     // Re-export shared types for convenience
-    public type TokenConfig = Shared.TokenConfig;
-    public type DeploymentConfig = Shared.DeploymentConfig;
-    public type ArchiveOptions = Shared.ArchiveOptions;
+    public type TokenConfig = SharedTokenDeployer.TokenConfig;
+    public type DeploymentConfig = SharedTokenDeployer.DeploymentConfig;
+    public type ArchiveOptions = SharedTokenDeployer.ArchiveOptions;
     
-    public type TokenInfo = {
-        name: Text;
-        symbol: Text;
-        logo: ?Text;
-    };
+    // Structured error type for deployment failures
+    public type DeploymentError = SharedTokenDeployer.DeploymentError;
+
+    public type TokenInfo = SharedTokenDeployer.TokenInfo;
 
     // V2 Deployment Request structure for the backend
     // This aligns with what the `token_deployer` canister's `deployTokenWithConfig` function expects.
@@ -74,4 +73,4 @@ module TokenDeployerTypes {
         config: TokenConfig;
         owner: Principal;
     };
-};
+}; 

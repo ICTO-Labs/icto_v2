@@ -198,4 +198,17 @@ module PaymentTypes {
         paymentRecordId: ?PaymentRecordId;
     };
 
+    // --- VIEW TYPES ---
+    public type TransactionView = {
+        id: Text;                      // ID of the original payment or refund record
+        transactionType: { #Payment; #Refund }; // To distinguish for UI rendering (e.g., show '+' or '-')
+        status: Text;                  // A user-friendly status string (e.g., "Completed", "Processing", "Failed")
+        amount: Nat;                   // The absolute amount of the transaction
+        timestamp: Time.Time;          // The primary timestamp for sorting (createdAt for payments, processedAt for refunds)
+        details: Text;                 // A short, descriptive text (e.g., "Fee for Token Deployment", "Refund for failed deployment")
+        onChainTxId: ?Text;            // The on-chain transaction ID from the ledger (if available)
+        relatedId: ?Text;              // For a refund, this would be the ID of the original payment
+    };
+
+
 };

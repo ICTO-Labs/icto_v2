@@ -24,14 +24,15 @@ import Trie "mo:base/Trie";
 // V2 Shared Types and Utils
 import Common "../shared/types/Common";
 import ICRC "../shared/types/ICRC";
-import TokenDeployerTypes "../shared/types/TokenDeployer";
+import TokenDeployer "../shared/types/TokenDeployer";
 
 // V2 Shared Utils
+import Helpers "../shared/utils/Helpers";
 import IC "../shared/utils/IC";
 import SNSWasm "../shared/utils/SNSWasm";
 import Hex "../shared/utils/Hex";
 
-actor TokenDeployer {
+actor TokenDeployerModule {
     
     // ================ SERVICE CONFIGURATION ================
     private let SERVICE_VERSION : Text = "2.0.0";
@@ -40,23 +41,48 @@ actor TokenDeployer {
     
 
     
+    // ================ PENDING DEPLOYMENT TYPES (V2.1) ================
+    // Granular status for retrying failed deployments
+    public type PendingStatus = {
+        #Pending;                     // Initial state
+        #CreationFailed;
+        #InstallFailed : Principal;   // Stage failed, but canister was created
+        #OwnershipFailed : Principal; // Stage failed, but code was installed
+    };
+
+    // Record for tracking deployments that are in-flight or failed
+    public type PendingDeployment = {
+        id: Text;                     // Unique ID for the pending job
+        status: PendingStatus;
+        config: TokenConfig;
+        deploymentConfig: DeploymentConfig;
+        caller: Principal;            // The original backend caller
+        lastAttempt: Time.Time;
+        errorMessage: ?Text;
+        retryCount: Nat;
+    };
+    
+    // Structured error type for deployment failures (re-exported for clarity)
+    public type DeploymentError = TokenDeployer.DeploymentError;
+    
     // ================ TYPE ALIASES (V2 ONLY) ================
-    public type TokenConfig = TokenDeployerTypes.TokenConfig;
-    public type DeploymentConfig = TokenDeployerTypes.DeploymentConfig;
-    public type DeploymentResult = TokenDeployerTypes.DeploymentResult;
-    public type TokenInfo = TokenDeployerTypes.TokenInfo;
-    public type TokenStatus = TokenDeployerTypes.TokenStatus;
-    public type ServiceInfo = TokenDeployerTypes.ServiceInfo;
-    public type ArchiveOptions = TokenDeployerTypes.ArchiveOptions;
-    public type MetadataValue = TokenDeployerTypes.MetadataValue;
-    public type LedgerArg = TokenDeployerTypes.LedgerArg;
-    public type DeploymentResultToken = TokenDeployerTypes.DeploymentResultToken;
+    public type TokenConfig = TokenDeployer.TokenConfig;
+    public type DeploymentConfig = TokenDeployer.DeploymentConfig;
+    public type DeploymentResult = TokenDeployer.DeploymentResult;
+    public type TokenInfo = TokenDeployer.TokenInfo;
+    public type TokenStatus = TokenDeployer.TokenStatus;
+    public type ServiceInfo = TokenDeployer.ServiceInfo;
+    public type ArchiveOptions = TokenDeployer.ArchiveOptions;
+    public type MetadataValue = TokenDeployer.MetadataValue;
+    public type LedgerArg = TokenDeployer.LedgerArg;
+    public type DeploymentResultToken = TokenDeployer.DeploymentResultToken;
     
     // ================ STABLE VARIABLES ================
     
     // Core V2 storage - clean state management
     private stable var tokensStable : [(Text, TokenInfo)] = [];
     private stable var deploymentHistoryStable : [(Text, DeploymentResultToken)] = [];
+    private stable var pendingDeploymentsStable: [(Text, PendingDeployment)] = [];
     
     // Configuration - backend controlled
     private stable var deploymentFee : Nat = 100_000_000; // 1 ICP
@@ -85,6 +111,7 @@ actor TokenDeployer {
     private var tokens : Trie.Trie<Text, TokenInfo> = Trie.empty();
     private var deploymentHistory : Trie.Trie<Text, DeploymentResultToken> = Trie.empty();
     private var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
+    private var pendingDeployments: Trie.Trie<Text, PendingDeployment> = Trie.empty();
     
     // Timer for automatic WASM updates
     private stable var timerId : Nat = 0;
@@ -96,6 +123,7 @@ actor TokenDeployer {
         tokensStable := Trie.toArray<Text, TokenInfo, (Text, TokenInfo)>(tokens, func (k, v) = (k, v));
         deploymentHistoryStable := Trie.toArray<Text, DeploymentResultToken, (Text, DeploymentResultToken)>(deploymentHistory, func (k, v) = (k, v));
         whitelistedBackends := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelistTrie, func (k, v) = (k, v));
+        pendingDeploymentsStable := Trie.toArray<Text, PendingDeployment, (Text, PendingDeployment)>(pendingDeployments, func (k, v) = (k, v));
         Debug.print("TokenDeployer V2: Preupgrade completed");
     };
     
@@ -104,7 +132,7 @@ actor TokenDeployer {
         
         tokens := Trie.empty();
         for ((key, value) in tokensStable.vals()) {
-            tokens := Trie.put(tokens, textKey(key), Text.equal, value).0;
+            tokens := Trie.put(tokens, Helpers.textKey(key), Text.equal, value).0;
         };
         
         deploymentHistory := Trie.empty();
@@ -115,6 +143,11 @@ actor TokenDeployer {
         whitelistTrie := Trie.empty();
         for ((key, value) in whitelistedBackends.vals()) {
             whitelistTrie := Trie.put(whitelistTrie, principalKey(key), Principal.equal, value).0;
+        };
+        
+        pendingDeployments := Trie.empty();
+        for ((key, value) in pendingDeploymentsStable.vals()) {
+            pendingDeployments := Trie.put(pendingDeployments, textKey(key), Text.equal, value).0;
         };
         
         serviceStartTime := Time.now();
@@ -146,8 +179,7 @@ actor TokenDeployer {
     };
     
     private func isAdmin(caller : Principal) : Bool {
-        Principal.isController(caller) or 
-        Array.find<Text>(admins, func(admin : Text) = admin == Principal.toText(caller)) != null
+        Principal.isController(caller) or Array.find<Text>(admins, func(admin : Text) = admin == Principal.toText(caller)) != null
     };
     
     private func _isWhitelisted(caller : Principal) : Bool {
@@ -291,7 +323,7 @@ actor TokenDeployer {
         try {
             let { canister_id } = await (with cycles = installCycles) ic.create_canister({
                 settings = ?{
-                    controllers = ?[Principal.fromActor(TokenDeployer)];
+                    controllers = ?[Principal.fromActor(TokenDeployerModule)];
                     freezing_threshold = ?9_331_200; // 108 days
                     memory_allocation = null;
                     compute_allocation = null;
@@ -327,10 +359,245 @@ actor TokenDeployer {
         }
     };
     
-    // ================ TOKEN DEPLOYMENT (V2 ONLY) ================
+    // ================ TOKEN DEPLOYMENT (REFACTORED V2.1) ================
+
+    // Public entry point. Creates a pending job and starts execution.
+    // The actual work is done in _executeDeployment.
+    public shared({ caller }) func deployTokenWithConfig(
+        config : TokenConfig,
+        deploymentConfig : DeploymentConfig,
+        targetCanister : ?Principal
+    ) : async Result.Result<Principal, DeploymentError> {
+        Debug.print("TOKEN DEPLOYER - V2.1 DEPLOYMENT REQUEST: " # debug_show(config.symbol));
+
+        // 1. Authorization
+        if (not (isAdmin(caller) or _isWhitelisted(caller))) {
+            return #err(#Unauthorized);
+        };
+
+        // 2. Validation
+        if (Text.size(config.symbol) > 8 or Text.size(config.symbol) < 2) {
+            return #err(#Validation("Token symbol must be 2-8 characters"));
+        };
+        if (Text.size(config.name) > 32 or Text.size(config.name) < 3) {
+            return #err(#Validation("Token name must be 3-32 characters"));
+        };
+        switch (config.logo) {
+            case (?logo) {
+                if (Text.size(logo) > 30_000) return #err(#Validation("Logo too large (max 30KB)"));
+            };
+            case null {};
+        };
+        
+        let installCycles = Option.get(deploymentConfig.cyclesForInstall, cyclesForInstall);
+        let minCycles = Option.get(deploymentConfig.minCyclesInDeployer, minCyclesInDeployer);
+        let balance = Cycles.balance();
+        if (balance < installCycles + minCycles) {
+            return #err(#InsufficientCycles({ balance = balance; required = installCycles + minCycles }));
+        };
+        if (snsWasmData.size() == 0) {
+            return #err(#NoWasm);
+        };
+
+        // 3. Create and save a new PendingDeployment record
+        let pendingId = generateRequestId(caller);
+        let newPendingDeployment: PendingDeployment = {
+            id = pendingId;
+            status = #Pending;
+            config = config;
+            deploymentConfig = deploymentConfig;
+            caller = caller; // The backend principal
+            lastAttempt = Time.now();
+            errorMessage = null;
+            retryCount = 0;
+        };
+        pendingDeployments := Trie.put(pendingDeployments, textKey(pendingId), Text.equal, newPendingDeployment).0;
+        Debug.print("Created pending deployment record: " # pendingId);
+
+        // 4. Start the execution and return the result
+        return await _executeDeployment(pendingId, targetCanister);
+    };
+
+    // Orchestrates the actual deployment steps. Can be called by the main function or by an admin retry.
+    private func _executeDeployment(
+        pendingId: Text,
+        targetCanister: ?Principal // ONLY used for the very first deployment attempt
+    ) : async Result.Result<Principal, DeploymentError> {
+        
+        var pendingRecord = switch(Trie.get(pendingDeployments, textKey(pendingId), Text.equal)) {
+            case null { return #err(#InternalError("Pending record " # pendingId # " not found after creation.")) };
+            case (?record) { record };
+        };
+
+        // Configuration for this deployment
+        let config = pendingRecord.config;
+        let deploymentConfig = pendingRecord.deploymentConfig;
+        let deploymentStart = Time.now();
+        let installCycles = Option.get(deploymentConfig.cyclesForInstall, cyclesForInstall);
+        
+        var canisterId: Principal = Principal.fromText("aaaaa-aa");
+
+        // Determine the canister to work on, based on current status
+        switch (pendingRecord.status) {
+            case (#Pending) {
+                // First run: prioritize the explicitly passed targetCanister
+                if (Option.isSome(targetCanister)) {
+                    canisterId := Option.get(targetCanister, Principal.fromText("aaaaa-aa")); // Fallback should not be reached
+                    Debug.print("Deployment " # pendingId # ": Using pre-existing target canister " # Principal.toText(canisterId));
+                } else {
+                    // No pre-existing target, create a new one
+                    Debug.print("Deployment " # pendingId # ": Status is Pending. Creating new canister...");
+                    let canisterIdRes = await createCanister(installCycles);
+                    canisterId := switch(canisterIdRes) {
+                        case (#err(msg)) {
+                            _updatePendingStatus(pendingId, #CreationFailed, ?msg);
+                            return #err(#CreateFailed({ msg = "Canister creation failed: " # msg; pendingId = pendingId }));
+                        };
+                        case (#ok(id)) { id };
+                    };
+                };
+            };
+            case (#CreationFailed) {
+                // Retry after a creation failure
+                Debug.print("Deployment " # pendingId # ": Status is CreationFailed. Retrying canister creation...");
+                let canisterIdRes = await createCanister(installCycles);
+                canisterId := switch(canisterIdRes) {
+                    case (#err(msg)) {
+                        _updatePendingStatus(pendingId, #CreationFailed, ?msg); // Status remains CreationFailed
+                        return #err(#CreateFailed({ msg = "Canister creation retry failed: " # msg; pendingId = pendingId }));
+                    };
+                    case (#ok(id)) { id };
+                };
+            };
+            case (#InstallFailed(id) or #OwnershipFailed(id)) {
+                // Retry run: IGNORE targetCanister param, use the one from our state
+                Debug.print("Deployment " # pendingId # ": Resuming from canister " # Principal.toText(id));
+                canisterId := id;
+            };
+        };
+        
+        // --- STEP 2: INSTALL CODE (if needed) ---
+        var proceedToOwnership = false;
+        switch (pendingRecord.status) {
+            case (#OwnershipFailed(_)) {
+                Debug.print("Deployment " # pendingId # ": Skipping Step 2 (Install) as it was already successful.");
+                proceedToOwnership := true;
+            };
+            case (_) {
+                Debug.print("Deployment " # pendingId # ": Step 2 - Installing code on canister " # Principal.toText(canisterId));
+                let installRes = await installTokenCode(canisterId, config, deploymentConfig, false);
+                switch(installRes) {
+                    case (#err(msg)) {
+                        _updatePendingStatus(pendingId, #InstallFailed(canisterId), ?msg);
+                        return #err(#InstallFailed({ canisterId = canisterId; msg = msg; pendingId = pendingId }));
+                    };
+                    case (#ok()) {
+                        proceedToOwnership := true;
+                    };
+                };
+            };
+        };
+        
+        // --- STEP 3: TRANSFER OWNERSHIP ---
+        if (not proceedToOwnership) {
+            // This case should not be reached due to error handling above, but as a safeguard:
+            return #err(#InternalError("Logic flow broken before ownership transfer. PendingID: " # pendingId));
+        };
+
+        Debug.print("Deployment " # pendingId # ": Step 3 - Transferring ownership of " # Principal.toText(canisterId));
+        let enableCycleOps = Option.get(deploymentConfig.enableCycleOps, false);
+        let ownershipRes = await transferOwnership(canisterId, deploymentConfig.tokenOwner, enableCycleOps);
+        switch(ownershipRes) {
+            case (#err(msg)) {
+                _updatePendingStatus(pendingId, #OwnershipFailed(canisterId), ?msg);
+                return #err(#OwnershipFailed({ canisterId = canisterId; msg = msg; pendingId = pendingId }));
+            };
+            case (#ok()) {};
+        };
+        
+        // --- SUCCESS ---
+        Debug.print("Deployment " # pendingId # ": Success!");
+        _finalizeSuccessfulDeployment(pendingId, canisterId, deploymentStart, installCycles);
+        
+        // Clean up the pending record on success
+        pendingDeployments := Trie.remove(pendingDeployments, textKey(pendingId), Text.equal).0;
+
+        return #ok(canisterId);
+    };
+
+    // Helper to update the status of a pending deployment record.
+    private func _updatePendingStatus(pendingId: Text, newStatus: PendingStatus, error: ?Text) {
+        switch(Trie.get(pendingDeployments, textKey(pendingId), Text.equal)) {
+            case null {}; // Should not happen
+            case (?record) {
+                let updatedRecord: PendingDeployment = {
+                    record with
+                    status = newStatus;
+                    errorMessage = error;
+                    lastAttempt = Time.now();
+                    retryCount = record.retryCount + 1;
+                };
+                pendingDeployments := Trie.put(pendingDeployments, textKey(pendingId), Text.equal, updatedRecord).0;
+            };
+        };
+    };
+
+    // Helper to perform all state updates on a successful deployment.
+    private func _finalizeSuccessfulDeployment(pendingId: Text, canisterId: Principal, startTime: Time.Time, cyclesUsedVal: Nat) {
+        let pendingRecord = switch(Trie.get(pendingDeployments, textKey(pendingId), Text.equal)) {
+            case null { return };
+            case (?record) { record };
+        };
+
+        // Create and store TokenInfo
+        let tokenInfo : TokenInfo = {
+            name = pendingRecord.config.name;
+            symbol = pendingRecord.config.symbol;
+            canisterId = canisterId;
+            decimals = pendingRecord.config.decimals;
+            transferFee = pendingRecord.config.transferFee;
+            totalSupply = pendingRecord.config.totalSupply;
+            description = pendingRecord.config.description;
+            logo = pendingRecord.config.logo;
+            website = pendingRecord.config.website;
+            owner = pendingRecord.caller; // The backend
+            deployer = Principal.fromActor(TokenDeployerModule);
+            deployedAt = startTime;
+            moduleHash = Hex.encode(Blob.toArray(snsWasmVersion));
+            wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
+            standard = "ICRC-2";
+            features = [];
+            status = #Active;
+            projectId = pendingRecord.config.projectId;
+            launchpadId = null;
+            lockContracts = [];
+            enableCycleOps = Option.get(pendingRecord.deploymentConfig.enableCycleOps, false);
+            lastCycleCheck = Time.now();
+        };
+        tokens := Trie.put(tokens, textKey(Principal.toText(canisterId)), Text.equal, tokenInfo).0;
+
+        // Create and store DeploymentResultToken
+        let deploymentResult : DeploymentResultToken = {
+            id = pendingId;
+            success = true;
+            error = null;
+            canisterId = ?canisterId;
+            deployer = Principal.fromActor(TokenDeployerModule);
+            owner = pendingRecord.caller;
+            deployedAt = startTime;
+            deploymentTime = Time.now() - startTime;
+            cyclesUsed = cyclesUsedVal;
+            wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
+        };
+        deploymentHistory := Trie.put(deploymentHistory, textKey(pendingId), Text.equal, deploymentResult).0;
+        
+        // Update counters
+        totalDeployments += 1;
+        successfulDeployments += 1;
+    };
     
     // Primary deployment function - backend controlled
-    public shared({ caller }) func deployTokenWithConfig(
+    public shared({ caller }) func deployTokenWithConfig_OLD(
         config : TokenConfig,
         deploymentConfig : DeploymentConfig,
         targetCanister : ?Principal
@@ -407,7 +674,7 @@ actor TokenDeployer {
                     success = false;
                     error = ?error;
                     canisterId = null;
-                    deployer = Principal.fromActor(TokenDeployer);
+                    deployer = Principal.fromActor(TokenDeployerModule);
                     owner = caller;
                     deployedAt = deploymentStart;
                     deploymentTime = 0;
@@ -429,7 +696,7 @@ actor TokenDeployer {
                             success = false;
                             error = ?error;
                             canisterId = ?canister;
-                            deployer = Principal.fromActor(TokenDeployer);
+                            deployer = Principal.fromActor(TokenDeployerModule);
                             owner = caller;
                             deployedAt = deploymentStart;
                             deploymentTime = Time.now() - deploymentStart;
@@ -451,7 +718,7 @@ actor TokenDeployer {
                                     success = false;
                                     error = ?error;
                                     canisterId = ?canister;
-                                    deployer = Principal.fromActor(TokenDeployer);
+                                    deployer = Principal.fromActor(TokenDeployerModule);
                                     owner = caller;
                                     deployedAt = deploymentStart;
                                     deploymentTime = Time.now() - deploymentStart;
@@ -475,7 +742,7 @@ actor TokenDeployer {
                                     logo = config.logo;
                                     website = config.website;
                                     owner = caller;
-                                    deployer = Principal.fromActor(TokenDeployer);
+                                    deployer = Principal.fromActor(TokenDeployerModule);
                                     deployedAt = deploymentStart;
                                     moduleHash = Hex.encode(Blob.toArray(snsWasmVersion));
                                     wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
@@ -497,7 +764,7 @@ actor TokenDeployer {
                                     success = true;
                                     error = null;
                                     canisterId = ?canister;
-                                    deployer = Principal.fromActor(TokenDeployer);
+                                    deployer = Principal.fromActor(TokenDeployerModule);
                                     owner = caller;
                                     deployedAt = deploymentStart;
                                     deploymentTime = deploymentEnd - deploymentStart;
@@ -540,7 +807,7 @@ actor TokenDeployer {
                     if (config.initialBalances.size() > 0) {
                         { owner = config.initialBalances[0].0.owner; subaccount = null }
                     } else {
-                        { owner = Principal.fromActor(TokenDeployer); subaccount = null }
+                        { owner = Principal.fromActor(TokenDeployerModule); subaccount = null }
                     }
                 };
             };
@@ -557,7 +824,7 @@ actor TokenDeployer {
                         cycles_for_archive_creation = ?archiveCycles;
                         controller_id = deploymentConfig.tokenOwner;//Set token owner as controller of this canister
                         max_transactions_per_response = null;
-                        more_controller_ids = ?[Principal.fromActor(TokenDeployer)];
+                        more_controller_ids = ?[Principal.fromActor(TokenDeployerModule)];
                     }
                 };
             };
@@ -634,7 +901,7 @@ actor TokenDeployer {
     };
     
     public query func getTokenInfo(canisterId : Text) : async ?TokenInfo {
-        Trie.get(tokens, textKey(canisterId), Text.equal)
+        Trie.get(tokens, Helpers.textKey(canisterId), Text.equal)
     };
     
     public query func getTokensByOwner(owner : Principal, page : Nat, pageSize : Nat) : async [TokenInfo] {
@@ -679,6 +946,49 @@ actor TokenDeployer {
     
     public query func getTotalTokens() : async Nat {
         Trie.size(tokens)
+    };
+    
+    // ================ ADMIN FUNCTIONS (V2.1 additions) ================
+    
+    public shared({caller}) func getPendingDeployments() : async Result.Result<[PendingDeployment], DeploymentError> {
+        if(not isAdmin(caller)) {
+            return #err(#Unauthorized);
+        };
+        
+        let buffer = Buffer.Buffer<PendingDeployment>(0);
+        for ((_, pending) in Trie.iter(pendingDeployments)) {
+            buffer.add(pending);
+        };
+        #ok(Buffer.toArray(buffer))
+    };
+
+    public shared({caller}) func adminRetryDeployment(pendingId: Text) : async Result.Result<Principal, DeploymentError> {
+        if (not isAdmin(caller)) {
+            return #err(#Unauthorized);
+        };
+        
+        let pending = switch(Trie.get(pendingDeployments, textKey(pendingId), Text.equal)) {
+            case null { return #err(#PendingDeploymentNotFound("Pending deployment with ID " # pendingId # " not found")) };
+            case (?p) { p };
+        };
+
+        // The smart _executeDeployment function will handle resuming from the correct step.
+        Debug.print("Admin retrying deployment: " # pendingId # " from status: " # debug_show(pending.status));
+        let result : Result.Result<Principal, DeploymentError> = await _executeDeployment(pendingId, null);
+        return result;
+    };
+
+    public shared({caller}) func adminDeletePendingDeployment(pendingId: Text): async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can delete pending deployments");
+        };
+
+        if (Trie.get(pendingDeployments, textKey(pendingId), Text.equal) == null) {
+            return #err("Pending deployment with ID " # pendingId # " not found");
+        };
+
+        pendingDeployments := Trie.remove(pendingDeployments, textKey(pendingId), Text.equal).0;
+        #ok(())
     };
     
     // ================ ADMIN FUNCTIONS ================
