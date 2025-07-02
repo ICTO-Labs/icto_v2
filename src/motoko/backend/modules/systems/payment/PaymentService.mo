@@ -18,7 +18,7 @@ import InvoiceStorage "../../../shared/interfaces/InvoiceStorage";
 import ConfigService "../config/ConfigService";
 import ConfigTypes "../config/ConfigTypes";
 import AuditService "../audit/AuditService";
-
+import Helpers "../../../../shared/utils/Helpers";
 
 module PaymentService {
 
@@ -73,6 +73,7 @@ module PaymentService {
         switch(status) {
             case (#Pending) { #Pending };
             case (#Completed) { #Completed };
+            case (#Approved) { #Completed };
             case (#Failed(msg)) { #Failed(msg) };
             case (#Refunded(refundId)) { #Refunded(refundId) };
         }
@@ -207,8 +208,10 @@ module PaymentService {
 
     private func textKey(x : Text) : Trie.Key<Text> = { hash = Text.hash(x); key = x };
 
-    private func generatePaymentId(userId: Common.UserId, serviceType: Text) : PaymentTypes.PaymentRecordId {
-        "payment_" # Principal.toText(userId) # "_" # serviceType # "_" # Int.toText(Time.now())
+    private func generatePaymentId(userId: Common.UserId, serviceType: Text) : async PaymentTypes.PaymentRecordId {
+        let uuid = await Helpers.generateUUID();
+        "payment_" # serviceType # "_" # Principal.toText(userId) # "_" # uuid
+        // "payment_" # Principal.toText(userId) # "_" # serviceType # "_" # Int.toText(Time.now())
     };
 
     // New function to get fee for a specific service from ConfigService
@@ -231,15 +234,17 @@ module PaymentService {
     };
 
     private func getServiceTypeFromAction(actionType: Audit.ActionType) : Text {
-        switch (actionType) {
-            case (#CreateToken) "token_deployer";
-            case (#CreateLock) "lock_deployer";
-            case (#CreateDistribution) "distribution_deployer";
-            case (#CreateLaunchpad) "launchpad_deployer";
-            case (#CreateDAO) "dao_deployer";
-            case (#PipelineCompleted) "pipeline_engine";
-            case (_) "generic";
-        }
+        Debug.print("Getting service type for action: " # debug_show(actionType));
+        let serviceType = switch (actionType) {
+            case (#CreateToken) { "token_deployer" };
+            case (#CreateTemplate) { "template_deployer" };
+            case (#CreateLock) { "template_deployer" };
+            case (#CreateDistribution) { "template_deployer" };
+            case (#CreateLaunchpad) { "template_deployer" };
+            case (_) { "generic" };
+        };
+        Debug.print("Resolved service type: " # serviceType);
+        return serviceType;
     };
 
     // --- CORE PAYMENT LOGIC ---
@@ -414,7 +419,7 @@ module PaymentService {
         };
 
         let serviceType = getServiceTypeFromAction(actionType);
-        let paymentId = generatePaymentId(caller, serviceType);
+        let paymentId = await generatePaymentId(caller, serviceType);
         
         // Get config from ConfigService instead of local state
         if (paymentInfo.acceptedTokens.size() == 0 or not Principal.equal(paymentInfo.feeRecipient, backendPrincipal)) {
@@ -546,8 +551,9 @@ module PaymentService {
 
     // --- REFUND LOGIC ---
 
-    private func generateRefundId(userId: Common.UserId, timestamp: Common.Timestamp) : PaymentTypes.RefundId {
-        "refund_" # Principal.toText(userId) # "_" # Int.toText(timestamp)
+    private func generateRefundId(userId: Common.UserId) : async PaymentTypes.RefundId {
+        let uuid = await Helpers.generateUUID();
+        "refund_" # Principal.toText(userId) # "_" # uuid
     };
     
     private func refundStatusToString(status: PaymentTypes.RefundStatus) : Text {
@@ -602,20 +608,20 @@ module PaymentService {
         };
         Debug.print("No existing refund for this payment. Proceeding...");
  
-        let refundId = generateRefundId(user, Time.now());
+        let refundId = await generateRefundId(user);
         Debug.print("Generated new refund ID: " # refundId);
         
         // Log the refund request action first
-        Debug.print("Logging refund request action to AuditService...");
+        Debug.print("--- Logging refund request action to AuditService ---");
         let auditEntry = await AuditService.logAction(
             auditState,
             user,
-            #RefundRequested, // Or a new #RefundRequested action type
+            #RefundRequest,
             #RawData("Refund requested for payment " # paymentRecordId # ". Reason: " # description),
-            paymentRecord.auditId, // This links to the project via the original payment audit
+            null, // Use the correct projectId from original audit
             ?paymentRecordId,
             ?#Backend,
-            paymentRecord.auditId // This links the refund log back to the original action log
+            paymentRecord.auditId // Link back to original audit
         );
         Debug.print("Audit log created with ID: " # auditEntry.id);
 
@@ -652,10 +658,11 @@ module PaymentService {
         
         let pendingRefunds = Option.get(Trie.get(state.statusRefunds, textKey("Pending"), Text.equal), []);
         state.statusRefunds := Trie.put(state.statusRefunds, textKey("Pending"), Text.equal, Array.append(pendingRefunds, [refundId])).0;
-        
+
         Debug.print("State update complete. Refund request successfully created.");
         Debug.print("--- createRefundRequest Finished ---");
-        return #ok(newRefund);
+        
+        #ok(newRefund)
     };
 
     // --- QUERY FUNCTIONS ---
@@ -1037,6 +1044,22 @@ module PaymentService {
         });
 
         return sortedHistory;
+    };
+
+    // =================================================================================
+    // METRICS & STATS
+    // =================================================================================
+
+    public func getTotalPayments(state: PaymentTypes.State) : Nat {
+        Trie.size(state.payments)
+    };
+
+    public func getTotalRefunds(state: PaymentTypes.State) : Nat {
+        var total = 0;
+        for ((_, refunds) in Trie.iter(state.statusRefunds)) {
+            total += refunds.size();
+        };
+        total
     };
 
 };

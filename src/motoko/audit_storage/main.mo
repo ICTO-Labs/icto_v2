@@ -130,6 +130,15 @@ actor AuditStorage {
     public query func isWhitelisted(caller: Principal) : async Bool {
         _isWhitelisted(caller)
     };
+
+    // RESET AUDIT ENTRIES
+    public shared({ caller }) func resetAuditEntries() : async Result.Result<Text, Text> {
+        if (not Principal.isController(caller)) {
+            return #err("Unauthorized: Only controllers can reset audit entries");
+        };
+        auditEntries := Trie.empty();
+        #ok("Audit entries reset successfully")
+    };
     
     // ================ AUDIT LOG FUNCTIONS ================
     public shared({ caller }) func logAuditEntry(
@@ -141,6 +150,7 @@ actor AuditStorage {
         
         // The backend generates the ID, but we can overwrite it or validate it.
         // For now, we'll trust the incoming ID.
+        Debug.print("✅ Received audit entry from backend: " # entry.id);
         let logId = entry.id;
 
         // We can also overwrite the timestamp to prevent spoofing
@@ -154,9 +164,9 @@ actor AuditStorage {
         userId: ?Principal,
         limit: ?Nat
     ) : async Result.Result<[Types.AuditEntry], Text> {
-        if (not _isWhitelisted(caller)) {
-            return #err("Unauthorized: Caller not whitelisted");
-        };
+        // if (not _isWhitelisted(caller)) {
+        //     return #err("Unauthorized: Caller not whitelisted");
+        // };
         
         let buffer = Buffer.Buffer<Types.AuditEntry>(0);
         let maxLimit = Option.get(limit, 100);

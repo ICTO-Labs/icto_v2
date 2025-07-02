@@ -12,9 +12,7 @@ module MicroserviceTypes {
     // A record to hold all external service canister IDs.
     public type CanisterIds = {
         tokenDeployer: ?Principal;
-        launchpadDeployer: ?Principal;
-        lockDeployer: ?Principal;
-        distributionDeployer: ?Principal;
+        templateDeployer: ?Principal;
         invoiceStorage: ?Principal;
         auditStorage: ?Principal;
     };

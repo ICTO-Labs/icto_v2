@@ -12,20 +12,12 @@
             "main": "src/motoko/invoice_storage/main.mo",
             "type": "motoko"
         },
-        "launchpad_deployer": {
-            "main": "src/motoko/launchpad_deployer/main.mo",
-            "type": "motoko"
-        },
         "token_deployer": {
             "main": "src/motoko/token_deployer/main.mo",
             "type": "motoko"
         },
-        "lock_deployer": {
-            "main": "src/motoko/lock_deployer/main.mo",
-            "type": "motoko"
-        },
-        "distribution_deployer": {
-            "main": "src/motoko/distribution_deployer/main.mo",
+        "template_deployer": {
+            "main": "src/motoko/template_deployer/main.mo",
             "type": "motoko"
         },
         "icp_ledger": {

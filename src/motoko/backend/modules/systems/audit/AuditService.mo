@@ -11,12 +11,14 @@ import Int "mo:base/Int";
 import Nat "mo:base/Nat";
 import Debug "mo:base/Debug";
 import Iter "mo:base/Iter";
-
+import Error "mo:base/Error";
 import AuditTypes "AuditTypes";
 import Interfaces "../../../shared/types/Interfaces";
 import Common "../../../shared/types/Common";
 import ProjectTypes "../../../shared/types/ProjectTypes";
 import ExternalAudit "../../../shared/interfaces/AuditStorage";
+import Helpers "../../../../shared/utils/Helpers";
+import Buffer "mo:base/Buffer";
 
 module AuditService {
     
@@ -94,10 +96,7 @@ module AuditService {
             case (#UpdateProject) "update_project";
             case (#DeleteProject) "delete_project";
             case (#CreateToken) "create_token";
-            case (#CreateLock) "create_lock";
-            case (#CreateDistribution) "create_distribution";
-            case (#CreateLaunchpad) "create_launchpad";
-            case (#CreateDAO) "create_dao";
+            case (#CreateTemplate) "create_template";
             case (#StartPipeline) "start_pipeline";
             case (#StepCompleted) "step_completed";
             case (#StepFailed) "step_failed";
@@ -106,6 +105,8 @@ module AuditService {
             case (#FeeValidation) "fee_validation";
             case (#PaymentProcessed) "payment_processed";
             case (#PaymentFailed) "payment_failed";
+            case (#RefundRequest) "refund_request";
+            case (#RefundFailed) "refund_failed";
             case (#RefundProcessed) "refund_processed";
             case (#AdminLogin) "admin_login";
             case (#UpdateSystemConfig) "update_system_config";
@@ -167,14 +168,20 @@ module AuditService {
         referenceId: ?AuditTypes.AuditId
     ) : async AuditTypes.AuditEntry {
         let timestamp = Time.now();
-        let auditId = "audit_" # Principal.toText(userId) # "_" # Int.toText(timestamp);
-        Debug.print("🔍 Audit ID: " # auditId # " Action Type: " # actionTypeToText(actionType));
+        let auditId = await generateAuditId(userId);
+        Debug.print("🔍 Creating audit entry:");
+        Debug.print("  ID: " # auditId);
+        Debug.print("  Type: " # actionTypeToText(actionType));
+        Debug.print("  Project: " # debug_show(projectId));
+        Debug.print("  Payment: " # debug_show(paymentId));
+        // Debug.print("  Data: " # debug_show(actionData));
+
         let entry : AuditTypes.AuditEntry = {
             id = auditId;
             timestamp = timestamp;
             sessionId = null;
             userId = userId;
-            userRole = #User; 
+            userRole = if (Principal.isController(userId)) { #Admin } else { #User }; 
             ipAddress = null;
             userAgent = null;
             actionType = actionType;
@@ -190,9 +197,9 @@ module AuditService {
             gasUsed = null;
             errorCode = null;
             errorMessage = null;
-            tags = [];
-            severity = #Info;
-            isSystem = false;
+            tags = null;
+            severity = getSeverityForAction(actionType);
+            isSystem = isSystemAction(actionType);
         };
         
         // Store locally in backend
@@ -215,13 +222,20 @@ module AuditService {
     };
     
     private func _logToExternal(state: AuditTypes.State, entry: AuditTypes.AuditEntry) : async () {
+        Debug.print("🔍 Logging to external audit storage: " # entry.id);
         switch (state.externalAuditStorage) {
             case (?externalAudit) {
-                Debug.print("🔍 Logging to external audit storage: " # entry.id # " " # actionTypeToText(entry.actionType));
                 // Fire-and-forget call with the whole entry
-                ignore externalAudit.logAuditEntry(entry);
+                try{
+                    let _result = await externalAudit.logAuditEntry(entry);
+                    Debug.print("✅ ✅  External audit storage result: " # debug_show(_result));
+                } catch (e) {
+                    Debug.print("❌ Error logging to external audit storage: " # debug_show(Error.message(e)));
+                };
             };
-            case null {};
+            case null {
+                Debug.print("❌ No external audit storage found");
+            };
         };
     };
     
@@ -229,11 +243,11 @@ module AuditService {
     // It does NOT modify the original log entry.
     public func updateAuditStatus(
         state: AuditTypes.State,
+        caller: Principal,
         auditId: AuditTypes.AuditId,
         status: AuditTypes.ActionStatus,
-        errorMessage: ?Text
+        message: ?Text
     ) : async () {
-        
         let statusText = switch(status) {
             case (#Initiated) "Initiated";
             case (#InProgress) "In Progress";
@@ -241,22 +255,49 @@ module AuditService {
             case (#Failed(msg)) "Failed: " # msg;
             case (#Cancelled) "Cancelled";
             case (#Timeout) "Timeout";
+            case (#Approved) "Approved";
         };
 
-        // This creates the new, referenced log entry
-        Debug.print("🔍 Logging status update for original audit ID: " # auditId # " with status: " # statusText);
-        
-        // We log a *new* action of type #StatusUpdate that references the original audit ID.
-        // The original log remains unchanged to preserve history.
+        // First update the original entry
+        switch (Trie.get(state.entries, {key=auditId; hash=Text.hash(auditId)}, Text.equal)) {
+            case null {
+                Debug.print("❌ Audit entry not found: " # auditId);
+                return;
+            };
+            case (?entry) {
+                let updatedEntry : AuditTypes.AuditEntry = {
+                    entry with
+                    actionStatus = status;
+                    errorMessage = message;
+                };
+                state.entries := Trie.put(state.entries, {key=auditId; hash=Text.hash(auditId)}, Text.equal, updatedEntry).0;
+                
+                // Also update in external storage if available
+                switch (state.externalAuditStorage) {
+                    case (?externalAudit) {
+                        try {
+                            let _result = await externalAudit.logAuditEntry(updatedEntry);
+                            Debug.print("✅ External audit storage updated for " # auditId);
+                        } catch (e) {
+                            Debug.print("❌ Error updating external audit storage: " # Error.message(e));
+                        };
+                    };
+                    case null {};
+                };
+            };
+        };
+
+        // Then create a new status update log entry
+        Debug.print("🔍 Creating status update log for audit ID: " # auditId # " with status: " # statusText);
         ignore await logAction(
             state,
-            state.backendId, // The backend system itself is performing the status update
+            caller,
             #StatusUpdate,
-            #RawData("Status updated to: " # statusText),
-            null, // projectId is not directly relevant for a status update log
-            null, // paymentRecordId is on the original log
+            #RawData("Status updated to: " # statusText # ": " # debug_show(message)),
+            null,
+            null,
             ?#Backend,
-            ?auditId // Link back to the original action
+            ?auditId
         );
     };
 
@@ -264,7 +305,113 @@ module AuditService {
     // INTERNAL HELPERS
     // ==================================================================================================
 
-    private func getById(state: AuditTypes.State, auditId: AuditTypes.AuditId) : ?AuditTypes.AuditEntry {
+    public func getById(state: AuditTypes.State, auditId: AuditTypes.AuditId) : ?AuditTypes.AuditEntry {
         Trie.get(state.entries, {key=auditId; hash=Text.hash(auditId)}, Text.equal)
+    };
+
+    private func generateAuditId(userId: Common.UserId) : async AuditTypes.AuditId {
+        let uuid = await Helpers.generateUUID();
+        "audit_" # Principal.toText(userId) # "_" # uuid
+    };
+
+    private func getSeverityForAction(actionType: AuditTypes.ActionType) : AuditTypes.LogSeverity {
+        switch(actionType) {
+            case (#PaymentFailed) #Error;
+            case (#RefundFailed) #Error;
+            case (#AccessDenied) #Warning;
+            case (#SystemUpgrade) #Critical;
+            case (#AdminAction(_)) #Warning;
+            case _ #Info;
+        }
+    };
+
+    private func isSystemAction(actionType: AuditTypes.ActionType) : Bool {
+        switch(actionType) {
+            case (#SystemUpgrade) true;
+            case (#ServiceMaintenance) true;
+            case (#StatusUpdate) true;
+            case (#AdminAction(_)) true;
+            case _ false;
+        }
+    };
+
+    // =================================================================================
+    // QUERY FUNCTIONS
+    // =================================================================================
+
+    public func getUserAuditLogs(
+        state: AuditTypes.State,
+        userId: Common.UserId,
+        limit: Nat
+    ) : [AuditTypes.AuditEntry] {
+        let userKey = Principal.toText(userId);
+        switch (Trie.get(state.userEntries, {key = userKey; hash = Text.hash(userKey)}, Text.equal)) {
+            case null { [] };
+            case (?auditIds) {
+                let entries = Buffer.Buffer<AuditTypes.AuditEntry>(auditIds.size());
+                label l for (auditId in auditIds.vals()) {
+                    if (entries.size() >= limit) { break l; };
+                    switch (Trie.get(state.entries, {key = auditId; hash = Text.hash(auditId)}, Text.equal)) {
+                        case (?entry) { entries.add(entry); };
+                        case null {};
+                    };
+                };
+                Buffer.toArray(entries)
+            };
+        }
+    };
+
+    public func getFilteredAuditLogs(
+        state: AuditTypes.State,
+        userId: ?Common.UserId,
+        actionType: ?AuditTypes.ActionType,
+        fromDate: ?Int,
+        toDate: ?Int,
+        limit: ?Nat
+    ) : [AuditTypes.AuditEntry] {
+        let maxLimit = Option.get(limit, 100);
+        let entries = Buffer.Buffer<AuditTypes.AuditEntry>(maxLimit);
+
+        // Helper function to check if entry matches filters
+        func matchesFilters(entry: AuditTypes.AuditEntry) : Bool {
+            switch(userId) {
+                case (?uid) {
+                    if (not Principal.equal(entry.userId, uid)) { return false; };
+                };
+                case null {};
+            };
+
+            switch(actionType) {
+                case (?at) {
+                    if (entry.actionType != at) { return false; };
+                };
+                case null {};
+            };
+
+            switch(fromDate) {
+                case (?fd) {
+                    if (entry.timestamp < fd) { return false; };
+                };
+                case null {};
+            };
+
+            switch(toDate) {
+                case (?td) {
+                    if (entry.timestamp > td) { return false; };
+                };
+                case null {};
+            };
+
+            true
+        };
+
+        label l for ((_, entry) in Trie.iter(state.entries)) {
+            if (entries.size() >= maxLimit) { break l; };
+            if (matchesFilters(entry)) {
+                entries.add(entry);
+            };
+        };
+
+        Buffer.toArray(entries)
     };
 }

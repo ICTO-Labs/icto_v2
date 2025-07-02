@@ -57,10 +57,10 @@ module ConfigService {
         ignore set(state, "token_deployer.fee", "100000000", backendId);
         ignore set(state, "token_deployer.initial_cycles", "200000000", backendId);
 
-        // Launchpad
-        ignore set(state, "launchpad_deployer.enabled", "false", backendId);
-        ignore set(state, "launchpad_deployer.fee", "100000000", backendId);
-        ignore set(state, "launchpad_deployer.initial_cycles", "200000000", backendId);
+        // Template deployer
+        ignore set(state, "template_deployer.enabled", "false", backendId);
+        ignore set(state, "template_deployer.fee", "100000000", backendId);
+        ignore set(state, "template_deployer.initial_cycles", "200000000", backendId);
 
         // Lock
         ignore set(state, "lock_deployer.enabled", "false", backendId);
