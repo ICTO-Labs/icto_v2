@@ -61,6 +61,7 @@ actor Backend {
     private var microserviceState: MicroserviceTypes.State = MicroserviceService.initState();
     private var projectState: ProjectTypes.State = ProjectService.initState(stableBackend);
     private var tokenSymbolRegistry: Trie.Trie<Text, Principal> = Trie.empty();
+    private var defaultTokens: [Common.TokenInfo] = [];
 
     system func preupgrade() {
         stableConfigState := ?ConfigService.toStableState(configState);
@@ -769,7 +770,73 @@ actor Backend {
         );
     };
 
-        public shared query func getPaymentConfig() : async {
+    // Default tokens are the tokens that are accepted by the backend.
+    public shared query func getDefaultTokens() : async [Common.TokenInfo] {
+        return [
+            {
+                canisterId = "ryjl3-tyaaa-aaaaa-aaaba-cai";
+                symbol = "ICP";
+                name = "Internet Computer";
+                decimals = 8;
+                fee = 10000;
+                logoUrl = "https://apibucket.nyc3.digitaloceanspaces.com/token_logos/icp.webp";
+                metrics = {
+                    price = 0.0;
+                    volume = 0.0;
+                    marketCap = 0.0;
+                    totalSupply = 0;
+                };
+                standards = ["ICRC-1", "ICRC-2", "ICRC-3"];
+            },
+            // {
+            //     canisterId = "cngnf-vqaaa-aaaar-qag4q-cai";
+            //     symbol = "ckUSDT";
+            //     name = "ckUSDT";
+            //     decimals = 8;
+            //     fee = 10000;
+            //     logoUrl = ("https://apibucket.nyc3.digitaloceanspaces.com/token_logos/1-logo.svg");
+            //     metrics = {
+            //         price = 0.0;
+            //         volume = 0.0;
+            //         marketCap = 0.0;
+            //         totalSupply = 0;
+            //     };
+            //     standards = ["ICRC-1", "ICRC-2", "ICRC-3"];
+            // },
+            // {
+            //     canisterId = "ss2fx-dyaaa-aaaar-qacoq-cai";
+            //     symbol = "ckETH";
+            //     name = "ckETH";
+            //     decimals = 18;
+            //     fee = 2000000000000;
+            //     logoUrl = ("https://apibucket.nyc3.digitaloceanspaces.com/token_logos/8-logo.svg");
+            //     metrics = {
+            //         price = 0.0;
+            //         volume = 0.0;
+            //         marketCap = 0.0;
+            //         totalSupply = 0;
+            //     };
+            //     standards = ["ICRC-1", "ICRC-2", "ICRC-3"];
+            // },
+            // {
+            //     canisterId = "7pail-xaaaa-aaaas-aabmq-cai";
+            //     symbol = "BOB";
+            //     name = "BOB";
+            //     decimals = 8;
+            //     fee = 1000000;
+            //     logoUrl = ("https://apibucket.nyc3.digitaloceanspaces.com/token_logos/14-logo.webp");
+            //     metrics = {
+            //         price = 0.0;
+            //         volume = 0.0;
+            //         marketCap = 0.0;
+            //         totalSupply = 0;
+            //     };
+            //     standards = ["ICRC-1", "ICRC-2", "ICRC-3"];
+            // }
+        ] : [Common.TokenInfo];
+    };
+
+    public shared query func getPaymentConfig() : async {
         acceptedTokens: [Principal];
         feeRecipient: Principal;
         serviceFees: [(Text, Nat)];

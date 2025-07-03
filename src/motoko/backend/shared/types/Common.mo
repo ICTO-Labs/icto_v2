@@ -29,4 +29,24 @@ module {
         page: Nat;
         pageSize: Nat;
     };
+
+    // ===== TOKEN TYPES =====
+
+    public type TokenInfo = {
+        canisterId: Text;
+        symbol: Text;
+        name: Text;
+        decimals: Nat8;
+        fee: Nat;
+        logoUrl: Text;
+        metrics: TokenMetrics;
+        standards: [Text];
+    };
+
+    public type TokenMetrics = {
+        price: Float;
+        volume: Float;
+        marketCap: Float;
+        totalSupply: Nat;
+    };
 } 

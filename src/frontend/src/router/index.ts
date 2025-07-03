@@ -2,7 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  scrollBehavior(to, from, savedPosition) {
+  scrollBehavior(to: any, from: any, savedPosition: any) {
     return savedPosition || { left: 0, top: 0 }
   },
   routes: [
@@ -11,7 +11,7 @@ const router = createRouter({
       name: 'Ecommerce',
       component: () => import('../views/Ecommerce.vue'),
       meta: {
-        title: 'eCommerce Dashboard',
+        title: 'Dashboard',
       },
     },
     {
@@ -144,8 +144,8 @@ const router = createRouter({
 })
 
 export default router
-
-router.beforeEach((to, from, next) => {
-  document.title = `Vue.js ${to.meta.title} | TailAdmin - Vue.js Tailwind CSS Dashboard Template`
+router.beforeEach((to: any, from: any, next: any) => {
+  document.title = `${to.meta.title} | ICTO`
   next()
 })
+
