@@ -24,9 +24,7 @@ dfx deploy backend
 dfx deploy audit_storage
 dfx deploy invoice_storage
 dfx deploy token_deployer
-dfx deploy launchpad_deployer
-dfx deploy lock_deployer
-dfx deploy distribution_deployer
+dfx deploy template_deployer
 
 # Step 2: Get canister IDs
 echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
@@ -36,14 +34,13 @@ AUDIT_STORAGE_ID=$(dfx canister id audit_storage)
 INVOICE_STORAGE_ID=$(dfx canister id invoice_storage)
 
 # For services not yet implemented, use placeholder
-LAUNCHPAD_DEPLOYER_ID=$(dfx canister id launchpad_deployer)
-LOCK_DEPLOYER_ID=$(dfx canister id lock_deployer)
-DISTRIBUTION_DEPLOYER_ID=$(dfx canister id distribution_deployer)
+TEMPLATE_DEPLOYER_ID=$(dfx canister id template_deployer)
 
 echo -e "${GREEN}✅ Backend ID: ${BACKEND_ID}${NC}"
 echo -e "${GREEN}✅ Token Deployer ID: ${TOKEN_DEPLOYER_ID}${NC}"
 echo -e "${GREEN}✅ Audit Storage ID: ${AUDIT_STORAGE_ID}${NC}"
 echo -e "${GREEN}✅ Invoice Storage ID: ${INVOICE_STORAGE_ID}${NC}"
+echo -e "${GREEN}✅ Template Deployer ID: ${TEMPLATE_DEPLOYER_ID}${NC}"
 
 # Step 3: Add sufficient cycles to token_deployer BEFORE setup
 echo -e "\n${BLUE}💰 Step 3: Adding cycles to token_deployer...${NC}"
@@ -64,9 +61,7 @@ declare -a SERVICES=(
     "audit_storage"
     "invoice_storage" 
     "token_deployer"
-    "launchpad_deployer"
-    "lock_deployer"
-    "distribution_deployer"
+    "template_deployer"
 )
 
 # Status tracking (simple strings to avoid associative array issues)
@@ -168,9 +163,7 @@ SETUP_RESULT=$(dfx canister call backend setupMicroservices "(
   principal \"${AUDIT_STORAGE_ID}\",
   principal \"${INVOICE_STORAGE_ID}\",
   principal \"${TOKEN_DEPLOYER_ID}\",
-  principal \"${LAUNCHPAD_DEPLOYER_ID}\",
-  principal \"${LOCK_DEPLOYER_ID}\",
-  principal \"${DISTRIBUTION_DEPLOYER_ID}\"
+  principal \"${TEMPLATE_DEPLOYER_ID}\"
 )" 2>&1 || echo "FAILED")
 
 if [[ "$SETUP_RESULT" == *"FAILED"* ]] || [[ "$SETUP_RESULT" == *"err"* ]]; then

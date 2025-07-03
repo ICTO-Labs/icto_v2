@@ -6,6 +6,7 @@ import Text "mo:base/Text";
 import Option "mo:base/Option";
 import Nat "mo:base/Nat";
 import Iter "mo:base/Iter";
+import Buffer "mo:base/Buffer";
 
 import Common "../../../shared/types/Common";
 import UserTypes "UserTypes";
@@ -283,5 +284,41 @@ module UserService {
         );
         let profiles = Iter.toArray(profilesIter);
         profiles
+    };
+
+    // =================================================================================
+    // METRICS & STATS
+    // =================================================================================
+
+    public func getTotalUsers(state: UserTypes.State) : Nat {
+        Trie.size(state.userProfiles)
+    };
+
+    public func getTotalDeployments(state: UserTypes.State) : Nat {
+        var total = 0;
+        for ((_, deployments) in Trie.iter(state.deploymentRecords)) {
+            total += 1;
+        };
+        total
+    };
+
+    public func getUsers(
+        state: UserTypes.State,
+        offset: Nat,
+        limit: Nat
+    ) : [UserTypes.UserProfile] {
+        let profiles = Buffer.Buffer<UserTypes.UserProfile>(limit);
+        var current = 0;
+        
+        label l for ((_, profile) in Trie.iter(state.userProfiles)) {
+            if (current < offset) {
+                current += 1;
+                continue l;
+            };
+            if (profiles.size() >= limit) { break l; };
+            profiles.add(profile);
+        };
+
+        Buffer.toArray(profiles)
     };
 };

@@ -5,7 +5,8 @@ import Principal "mo:base/Principal";
 import Int "mo:base/Int";
 import Trie "mo:base/Trie";
 import Common "../../../shared/types/Common";
-import ExternalAudit "../../../shared/interfaces/AuditStorage";
+import AuditActor "../../../shared/interfaces/AuditStorage";
+import ExternalAudit "../../../shared/types/AuditTypes";
 
 module AuditTypes {
     // =================================================================================
@@ -39,7 +40,7 @@ module AuditTypes {
         var backendId: Principal;
         
         // External audit storage reference
-        var externalAuditStorage: ?ExternalAudit.AuditStorage;
+        var externalAuditStorage: ?AuditActor.AuditStorage;
     };
 
     public type StableState = {
