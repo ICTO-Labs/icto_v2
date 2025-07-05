@@ -79,7 +79,13 @@ export const useAuthStore = defineStore('auth', () => {
             isAuthenticating.value = true;
             const result = await pnp.connect(walletId);
             principal.value = result?.owner;
-            address.value = 'result?.address';
+            try {
+                address.value = await pnp.provider.getAccountId();
+            } catch (accIdError) {
+                console.error("Failed to get accountId after reconnect:", accIdError);
+                address.value = null; // Reset on error
+            }
+            // address.value = 'result?.address';
             if (!result?.owner) {
                 if (!isRetry && !isAutoConnect) {
                     console.warn(`Connection attempt failed for ${walletId}, retrying once...`);

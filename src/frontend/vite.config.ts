@@ -20,9 +20,4 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
-  define: {
-    'process.env': process.env,
-    'process.env.DFX_NETWORK': JSON.stringify(process.env.DFX_NETWORK),
-    'process.env.CANISTER_ID_BACKEND': JSON.stringify(process.env.CANISTER_ID_BACKEND),
-  },
 })

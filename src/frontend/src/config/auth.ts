@@ -6,11 +6,12 @@ import {
     idlFactory as backendIDL,
 } from "../../../declarations/backend";
 import type { _SERVICE as _BACKEND } from "../../../declarations/backend/backend.did.d.ts";
-import { canisterId as icpCanisterId } from "../../../declarations/icp_ledger";
 import { idlFactory as icrc2IDL } from "../../../declarations/icp_ledger/icp_ledger.did.js";
 import type { _SERVICE as _ICRC2_SERVICE } from "../../../declarations/icp_ledger/icp_ledger.did.d.ts";
-import { idlFactory as icpIDL } from "../../../declarations/icp_ledger/icp_ledger.did.js";
-import type { _SERVICE as _ICP_SERVICE } from "../../../declarations/icp_ledger/icp_ledger.did.d.ts";
+//Custom ICP ledger
+import { canisterId as icpCanisterId } from "../api/actor/icp_ledger";
+import { idlFactory as icpIDL } from "../api/actor/icp_ledger/icp_ledger.did.js";
+import type { _SERVICE as _ICP_SERVICE } from "../api/actor/icp_ledger/icp_ledger.did.d.ts";
 import { IDL } from "@dfinity/candid";
 
 
@@ -52,10 +53,10 @@ export const canisters: CanisterConfigs = {
 
 // --- PNP Initialization ---
 let globalPnp: PNP | null = null;
-const isDev = import.meta.env.DFX_NETWORK === "local";
-console.log('IS_DEV', isDev)
+const isDev = import.meta.env.VITE_DFX_NETWORK === "local";
+console.log('IS_DEV', import.meta.env.VITE_DFX_NETWORK)
 
-const frontendCanisterId = "3ldz4-aiaaa-aaaar-qaina-cai";
+const frontendCanisterId = import.meta.env.VITE_FRONTEND_CANISTER_ID;
 
 const delegationTargets = [
     backendCanisterId,
@@ -70,16 +71,21 @@ export function initializePNP(): PNP {
         // Create a stable configuration object
         const config = {
             dfxNetwork: 'local',
+            hostUrl: import.meta.env.DFX_NETWORK !== "ic" ? "http://localhost:4943" : "https://icp0.io",
             replicaPort: 4943, // Replica port for local development
             frontendCanisterId,
             timeout: BigInt(30 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 30 days
             delegationTimeout: BigInt(30 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 30 days
             delegationTargets,
-            derivationOrigin: "https://icto.app",
+            derivationOrigin: isDev ? "http://localhost:4943" : "https://" + frontendCanisterId + ".icp0.io",
+            identityProvider: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
+
             adapters: {
                 ii: {
                     enabled: true,
-                    localIdentityCanisterId: "rdmx6-jaaaa-aaaaa-aaadq-cai",
+                    config: {
+                        identityProvider: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
+                    }
                 },
                 plug: {
                     enabled: true,

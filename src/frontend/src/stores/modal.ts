@@ -7,14 +7,19 @@ interface ModalState {
         isOpen: boolean
         provider: string | null
     }
-    tokenDeploy: {
+    receiveToken: {
         isOpen: boolean
         config: any | null
     }
-    payment: {
+    sendToken: {
         isOpen: boolean
-        amount: bigint
-        action: string | null
+        config: any | null
+        data: any | null
+    }
+    confirmSendToken: {
+        isOpen: boolean
+        config: any | null
+        data: any | null
     }
     createLock: {
         isOpen: boolean;
@@ -29,14 +34,19 @@ export const useModalStore = defineStore('modal', () => {
             isOpen: false,
             provider: null
         },
-        tokenDeploy: {
+        receiveToken: {
             isOpen: false,
             config: null
         },
-        payment: {
+        sendToken: {
             isOpen: false,
-            amount: 0n,
-            action: null
+            config: null,
+            data: null
+        },
+        confirmSendToken: {
+            isOpen: false,
+            config: null,
+            data: null,
         },
         createLock: {
             isOpen: false,
@@ -46,9 +56,15 @@ export const useModalStore = defineStore('modal', () => {
     const isOpen = computed(() => (name: keyof ModalState) => state.value[name].isOpen)
 
     function open(name: keyof ModalState, data?: any) {
-        state.value[name].isOpen = true
         if (data) {
-            Object.assign(state.value[name], data)
+            console.log('data send to modal', data)
+            state.value[name] = {
+                ...state.value[name],
+                ...data,
+                isOpen: true
+            }
+        } else {
+            state.value[name].isOpen = true
         }
     }
 

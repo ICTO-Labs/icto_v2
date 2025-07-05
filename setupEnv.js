@@ -55,7 +55,11 @@ function initCanisterEnv() {
             return prev;
         }, {})
         : undefined;
-
+    //Add DFX_NETWORK to localMap
+    if(localMap){
+        localMap["VITE_DFX_NETWORK"] = network;
+    }
+    console.log('localMap', localMap);
     const prodMap = prodCanisters
         ? Object.entries(prodCanisters).reduce((prev, current) => {
             const [canisterName, canisterDetails] = current;
@@ -67,6 +71,10 @@ function initCanisterEnv() {
             return prev;
         }, {})
         : undefined;
+    //Add DFX_NETWORK to prodMap
+    if(prodMap){
+        prodMap["VITE_DFX_NETWORK"] = network;
+    }
 
     return [localMap, prodMap];
 }

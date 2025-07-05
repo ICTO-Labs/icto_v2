@@ -17,7 +17,9 @@ export interface Token {
   symbol: string;
   decimals: number;
   fee: number;
-  logoUrl: string | null;
+  balance?: bigint;
+  color?: string;
+  logoUrl?: string;
   standards: string[];
   metrics: TokenMetrics;
   canisterId: string;

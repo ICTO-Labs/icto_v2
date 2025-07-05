@@ -3,7 +3,9 @@
   <ThemeProvider>
     <SidebarProvider>
       <RouterView />
+      <AppDialog />
       <ModalManager />
+      <AppAssets />
     </SidebarProvider>
   </ThemeProvider>
 </template>
@@ -14,13 +16,19 @@ import { useAuthStore } from './stores/auth';
 import { Toaster, toast } from 'vue-sonner'
 import 'vue-sonner/style.css'
 
-import ThemeProvider from './components/layout/ThemeProvider.vue'
-import SidebarProvider from './components/layout/SidebarProvider.vue'
-import ModalManager from './modals/core/ModalManager.vue'
+import ThemeProvider from '@/components/layout/ThemeProvider.vue'
+import SidebarProvider from '@/components/layout/SidebarProvider.vue'
+import ModalManager from '@/modals/core/ModalManager.vue'
+import AppDialog from '@/components/common/AppDialog.vue'
+import AppAssets from '@/components/layout/AppAssets.vue'
+import { createAssetsContext } from '@/composables/useAssets'
 
 const authStore = useAuthStore();
 
 onMounted(() => {
   authStore.initialize();
 });
+
+// Initialize assets context
+createAssetsContext()
 </script>

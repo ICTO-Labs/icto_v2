@@ -1,7 +1,10 @@
-import { useAuthStore, icrcActor } from "@/stores/auth";
+import { useAuthStore, icrcActor, icpActor } from "@/stores/auth";
 import type { Token } from "@/types/token";
+import type { IcrcAccount, IcrcTransferArg } from "@dfinity/ledger-icrc";
 import { Principal } from "@dfinity/principal";
 import { hexStringToUint8Array } from "@dfinity/utils";
+import { hex2Bytes } from "@/utils/common";
+import type { TransferArgs } from "@dfinity/ledger-icp/dist/candid/ledger";
 
 export class IcrcService {
     private static MAX_CONCURRENT_REQUESTS = 25;
@@ -46,10 +49,9 @@ export class IcrcService {
                 canisterId: token.canisterId.toString(),
                 anon: true,
             });
-
             // Get default balance with retry logic
             const defaultBalance = await actor.icrc1_balance_of({
-                owner: principal,
+                owner: Principal.fromText(principal.toString()),
                 subaccount: [],
             });
 
@@ -88,12 +90,12 @@ export class IcrcService {
 
         if (pendingPromises.length === tokens.length) {
             // All tokens are already being fetched, wait for them
-                const results = await Promise.all(pendingPromises);
-                return new Map([
-                    ...results
+            const results = await Promise.all(pendingPromises);
+            return new Map([
+                ...results
                     .filter((m): m is NonNullable<typeof m> => m != null)
                     .flatMap((m) => [...m.entries()])
-                ]);
+            ]);
         }
 
         // Some or none of the tokens are being fetched, do a fresh fetch
@@ -181,5 +183,117 @@ export class IcrcService {
         // Process all subnets with higher concurrency
         await this.withConcurrencyLimit(subnetOperations, 25);
         return results;
+    }
+
+    public static async getTokenFee(token: Token): Promise<bigint> {
+        try {
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: true
+            });
+            return await actor.icrc1_fee();
+        } catch (error) {
+            console.error(`Error getting token fee for ${token.symbol}:`, error);
+            return BigInt(10000); // Fallback to default fee
+        }
+    }
+
+    public static async transfer(
+        token: Token,
+        to: string | Principal | IcrcAccount,
+        amount: bigint,
+        opts: {
+            memo?: Uint8Array | number[];
+            fee?: bigint;
+            fromSubaccount?: Uint8Array | number[];
+            createdAtTime?: bigint;
+        } = {},
+    ): Promise<any> {
+        try {
+            const auth = useAuthStore();
+            // If it's an ICP transfer to a legacy Account ID string
+            if (
+                token.symbol === "ICP" &&
+                typeof to === "string" &&
+                to.length === 64 &&
+                !to.includes("-")
+            ) {
+                const wallet = auth.pnp.adapter.id;
+                if (wallet === "oisy") {
+                    return { Err: "Oisy subaccount transfer is temporarily disabled." };
+                }
+                const ledgerActor = icpActor({ requiresSigning: true });
+
+                const transfer_args: TransferArgs = {
+                    to: hex2Bytes(to),
+                    amount: { e8s: amount },
+                    fee: { e8s: opts.fee ?? BigInt(token.fee ?? 10000) },
+                    memo: 0n,
+                    from_subaccount: opts.fromSubaccount
+                        ? [Array.from(opts.fromSubaccount)]
+                        : [],
+                    created_at_time: opts.createdAtTime
+                        ? [{ timestamp_nanos: opts.createdAtTime }]
+                        : [],
+                };
+
+                const result = await ledgerActor.transfer(transfer_args);
+                if ("Err" in result) {
+                    const stringifiedError = JSON.stringify(result.Err, (_, value) =>
+                        typeof value === "bigint" ? value.toString() : value,
+                    );
+                    return { Err: JSON.parse(stringifiedError) };
+                }
+                return { Ok: BigInt(result.Ok) };
+            }
+
+            // For all ICRC standard transfers (Principal or ICRC1 Account)
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: false,
+                requiresSigning: true,
+            });
+
+            let recipientAccount: {
+                owner: Principal;
+                subaccount: [] | [Uint8Array | number[]];
+            };
+
+            if (typeof to === "string") {
+                recipientAccount = {
+                    owner: Principal.fromText(to),
+                    subaccount: [],
+                };
+            } else if (to instanceof Principal) {
+                recipientAccount = { owner: Principal.fromText(to.toString()), subaccount: [] };
+            } else {
+                recipientAccount = {
+                    owner: Principal.fromText(to.owner.toString()),
+                    subaccount: to.subaccount ? [to.subaccount] : [],
+                };
+            }
+
+            const transferFee = opts.fee ?? (await this.getTokenFee(token));
+
+            const _transferArgs: IcrcTransferArg = {
+                to: recipientAccount,
+                amount: amount,
+                fee: [transferFee],
+                memo: [],
+                from_subaccount: [],
+                created_at_time: [],
+            }
+
+            console.log('Transfer Args:', _transferArgs)
+
+            const result = await actor.icrc1_transfer(_transferArgs);
+            return result;
+        } catch (error) {
+            console.error("Transfer error:", error);
+            const stringifiedError = JSON.stringify(error, (_, value) =>
+                typeof value === "bigint" ? value.toString() : value,
+            );
+            return { Err: JSON.parse(stringifiedError) };
+        }
     }
 }

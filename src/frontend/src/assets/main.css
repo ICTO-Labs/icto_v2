@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap')
+@import url('https://fonts.googleapis.com/css?family=Poppins:300,400,500,600,700&display=swap')
 layer(base);
 
 @import 'tailwindcss';
@@ -7,7 +7,7 @@ layer(base);
 
 @theme {
   --font-*: initial;
-  --font-outfit: Roboto, sans-serif;
+  --font-outfit: Poppins, sans-serif;
 
   --breakpoint-*: initial;
   --breakpoint-2xsm: 375px;

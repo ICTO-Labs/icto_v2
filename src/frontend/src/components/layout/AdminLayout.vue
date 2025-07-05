@@ -1,6 +1,7 @@
 <template>
   <div class="min-h-screen xl:flex">
     <app-sidebar />
+    <app-assets v-if="isAssetsExpanded" />
     <Backdrop />
     <div
       class="flex-1 transition-all duration-300 ease-in-out"
@@ -17,7 +18,10 @@
 <script setup>
 import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
+import AppAssets from './AppAssets.vue'
 import { useSidebar } from '@/composables/useSidebar'
+import { useAssets } from '@/composables/useAssets'
 import Backdrop from './Backdrop.vue'
 const { isExpanded, isHovered } = useSidebar()
+const { isExpanded: isAssetsExpanded } = useAssets()
 </script>
