@@ -1,0 +1,100 @@
+import type { Token } from './token'
+
+export interface ModalState {
+    deployToken: {
+        isOpen: boolean
+        data?: any
+    }
+    tokenFilter: {
+        isOpen: boolean
+        data?: any
+    }
+    sendToken: {
+        isOpen: boolean
+        data?: {
+            token: Token
+            amount?: string
+            toPrincipal?: string
+        }
+    }
+    confirmSendToken: {
+        isOpen: boolean
+        data?: {
+            token: Token
+            amount: string
+            tokenFee: string
+            toPrincipal: string
+            tokenBalance: string
+        }
+    }
+    transferOwnership: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    pauseToken: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    configureFees: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    deleteToken: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    topUpCycles: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    mintTokens: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    burnTokens: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    receiveToken: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    wallet: {
+        isOpen: boolean
+        data?: any
+    }
+    tokenSettings: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    tokenMint: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+    tokenBurn: {
+        isOpen: boolean
+        data?: {
+            token: Token
+        }
+    }
+} 

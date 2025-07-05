@@ -1,81 +1,106 @@
 // stores/modal.ts
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
-
-interface ModalState {
-    wallet: {
-        isOpen: boolean
-        provider: string | null
-    }
-    receiveToken: {
-        isOpen: boolean
-        config: any | null
-    }
-    sendToken: {
-        isOpen: boolean
-        config: any | null
-        data: any | null
-    }
-    confirmSendToken: {
-        isOpen: boolean
-        config: any | null
-        data: any | null
-    }
-    createLock: {
-        isOpen: boolean;
-    }
-}
-
-export type ModalStoreType = ReturnType<typeof useModalStore>;
+import { ref } from 'vue'
+import type { ModalState } from '@/types/modal'
 
 export const useModalStore = defineStore('modal', () => {
     const state = ref<ModalState>({
-        wallet: {
+        deployToken: {
             isOpen: false,
-            provider: null
+            data: undefined
         },
-        receiveToken: {
+        tokenFilter: {
             isOpen: false,
-            config: null
+            data: undefined
         },
         sendToken: {
             isOpen: false,
-            config: null,
-            data: null
+            data: undefined
         },
         confirmSendToken: {
             isOpen: false,
-            config: null,
-            data: null,
+            data: undefined
         },
-        createLock: {
+        transferOwnership: {
             isOpen: false,
+            data: undefined
+        },
+        pauseToken: {
+            isOpen: false,
+            data: undefined
+        },
+        configureFees: {
+            isOpen: false,
+            data: undefined
+        },
+        deleteToken: {
+            isOpen: false,
+            data: undefined
+        },
+        topUpCycles: {
+            isOpen: false,
+            data: undefined
+        },
+        mintTokens: {
+            isOpen: false,
+            data: undefined
+        },
+        burnTokens: {
+            isOpen: false,
+            data: undefined
+        },
+        receiveToken: {
+            isOpen: false,
+            data: undefined
+        },
+        wallet: {
+            isOpen: false,
+            data: undefined
+        },
+        tokenSettings: {
+            isOpen: false,
+            data: undefined
+        },
+        tokenMint: {
+            isOpen: false,
+            data: undefined
+        },
+        tokenBurn: {
+            isOpen: false,
+            data: undefined
         }
     })
 
-    const isOpen = computed(() => (name: keyof ModalState) => state.value[name].isOpen)
+    function isOpen(name: keyof ModalState): boolean {
+        return !!state.value[name]?.isOpen
+    }
 
-    function open(name: keyof ModalState, data?: any) {
-        if (data) {
-            console.log('data send to modal', data)
-            state.value[name] = {
-                ...state.value[name],
-                ...data,
-                isOpen: true
-            }
-        } else {
+    function open(name: keyof ModalState, data?: any): void {
+        console.log('open modal', name, data)
+        if (state.value[name]) {
             state.value[name].isOpen = true
+            if (data) {
+                state.value[name].data = data
+            }
         }
     }
 
-    function close(name: keyof ModalState) {
-        state.value[name].isOpen = false
+    function close(name: keyof ModalState): void {
+        if (state.value[name]) {
+            state.value[name].isOpen = false
+            state.value[name].data = undefined
+        }
+    }
+
+    function getData<T extends { token: any }>(name: keyof ModalState): T | undefined {
+        return state.value[name]?.data as T | undefined
     }
 
     return {
         state,
         isOpen,
         open,
-        close
+        close,
+        getData
     }
 }) 

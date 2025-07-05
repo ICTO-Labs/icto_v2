@@ -81,7 +81,11 @@ const modalStore = useModalStore()
 const authStore = useAuthStore()
 
 // Get token from modal store
-const token = computed(() => modalStore.state.receiveToken.token)
+const token = computed(() => {
+	const modalData = modalStore.state?.receiveToken?.data
+	if (!modalData) return null
+	return modalData.token || null
+})
 
 
 </script>

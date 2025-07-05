@@ -125,12 +125,12 @@ const { alertDialog, successDialog, errorDialog } = useDialog()
 // Get token from modal store
 const token = computed(() => {
     const modalData = modalStore.state?.confirmSendToken?.data
-    console.log('Modal Data:', modalData)
-    return modalData?.token || {}
+    if (!modalData?.data) return null
+    return modalData.data.token || null
 })
-const amount = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.amount || '0'))
-const toPrincipal = computed(() => modalStore.state?.confirmSendToken?.data?.toPrincipal || '')
-const tokenFee = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.tokenFee || '0'))
+const amount = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.data?.amount || '0'))
+const toPrincipal = computed(() => modalStore.state?.confirmSendToken?.data?.data?.toPrincipal || '')
+const tokenFee = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.data?.tokenFee || '0'))
 const loading = ref(false)
 
 const handleBalanceUpdate = (balance: bigint) => {

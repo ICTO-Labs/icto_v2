@@ -251,142 +251,171 @@ export function calculatePercentageAmount(
         totalFeeInSmallestUnits,
     );
 
-    // If balance is less than fees, return 0
-    if (availableBalanceInSmallestUnits.isLessThanOrEqualTo(0)) {
-        return "0";
-    }
-
-    // Convert to human-readable format for percentage calculation
-    const availableBalance = availableBalanceInSmallestUnits.dividedBy(
-        new BigNumber(10).pow(token.decimals),
-    );
-    const percentageAmount = availableBalance
+    // Calculate percentage amount
+    const percentageAmount = availableBalanceInSmallestUnits
         .multipliedBy(percentage)
-        .dividedBy(100);
+        .dividedBy(100)
+        .integerValue(BigNumber.ROUND_DOWN);
 
-    return percentageAmount.toFixed(token.decimals);
+    return percentageAmount.toString();
 }
 
-export function toShortNumber(
+/**
+ * Format a number with appropriate suffix (K, M, B) based on size.
+ */
+export function formatShortNumber(
     value: number | string,
     token?: Token,
 ): string {
-    if (!value) return "0.00";
-    if (!token || !token.decimals) return "0.00";
-    const valueNumber =
-        typeof value === "string" ? Number(value.replace(/,/g, "")) : value;
-    const tokenDecimals = token.decimals;
-    const tokenDecimalsMultiplier = new BigNumber(10).pow(tokenDecimals);
-    const valueNumberWithDecimals = new BigNumber(valueNumber).div(
-        tokenDecimalsMultiplier,
-    );
+    const num = new BigNumber(value);
+    if (num.isNaN()) return "0";
 
-    // format to abbreviations (K, M, B, T)
-    if (valueNumberWithDecimals.gt(1_000_000_000)) {
-        return `${valueNumberWithDecimals.dividedBy(1_000_000_000).toFormat(2)}B`;
+    const absNum = num.abs();
+    if (absNum.isGreaterThanOrEqualTo(1e9)) {
+        return num.dividedBy(1e9).toFixed(2) + "B";
     }
-    if (valueNumberWithDecimals.gt(1000000)) {
-        return `${valueNumberWithDecimals.dividedBy(1_000_000).toFormat(2)}M`;
+    if (absNum.isGreaterThanOrEqualTo(1e6)) {
+        return num.dividedBy(1e6).toFixed(2) + "M";
     }
-    if (valueNumberWithDecimals.gt(1000)) {
-        return `${valueNumberWithDecimals.dividedBy(1_000).toFormat(2)}K`;
+    if (absNum.isGreaterThanOrEqualTo(1e3)) {
+        return num.dividedBy(1e3).toFixed(2) + "K";
     }
-    return `${valueNumberWithDecimals.toFormat(2)}`;
+
+    // For small numbers, respect token decimals if provided
+    if (token?.decimals) {
+        return num.toFixed(token.decimals);
+    }
+
+    return num.toFixed(2);
 }
 
 /**
- * Formats a USD value with appropriate decimal places and suffixes
- * @param value The USD value to format
- * @returns Formatted USD string
+ * Format a USD value with appropriate suffix (K, M, B) and $ symbol.
  */
 export function formatUsdValue(value: number | string, showLessThanCent: boolean = false): string {
-    if (!value) return "$0.00";
-    const valueNumber = typeof value === 'string' ? Number(value.replace(/,/g, '')) : value;
+    const num = new BigNumber(value);
+    if (num.isNaN()) return "$0.00";
 
-    // For extremely small values (< 0.00001), show scientific notation
-    if (valueNumber < 0.01 && valueNumber > 0 && !showLessThanCent) {
-        return `< $0.01`;
-    }
-    
-    // For very small values (< 0.01), show up to 6 decimals
-    if (valueNumber < 0.01 && valueNumber > 0) {
-        return `$${valueNumber.toFixed(6).replace(/\.?0+$/, '')}`;
+    if (num.isLessThan(0.01)) {
+        return showLessThanCent ? "< $0.01" : "$0.00";
     }
 
-    // For small values (0.01 to 1), show up to 4 decimals
-    if (valueNumber < 1 && valueNumber >= 0.01) {
-        return `$${valueNumber.toFixed(4).replace(/\.?0+$/, '')}`;
+    if (num.isGreaterThanOrEqualTo(1e9)) {
+        return "$" + num.dividedBy(1e9).toFixed(2) + "B";
+    }
+    if (num.isGreaterThanOrEqualTo(1e6)) {
+        return "$" + num.dividedBy(1e6).toFixed(2) + "M";
+    }
+    if (num.isGreaterThanOrEqualTo(1e3)) {
+        return "$" + num.dividedBy(1e3).toFixed(2) + "K";
     }
 
-    if (valueNumber >= 1_000_000_000) {
-        return `$${(valueNumber / 1000000000).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 3 })}B`;
-    }
-    if (valueNumber >= 1000000) {
-        return `$${(valueNumber / 1000000).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })}M`;
-    }
-    if (valueNumber >= 1000) {
-        return `$${(valueNumber / 1000).toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 2 })}K`;
-    }
-    
-    // For normal values (>= 1), show 2 decimals
-    return `$${valueNumber.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return "$" + num.toFixed(2);
 }
 
-/**
- * Calculates and formats the USD value of a token amount
- * @param rawBalance The raw balance as a string (big integer format)
- * @param price The token price in USD
- * @param decimals The number of decimals for the token
- * @returns Formatted USD value string
- */
 export function formatTokenValue(rawBalance: string, price: number | undefined, decimals: number = 8): string {
-    if (!rawBalance || !price) return "$0.00";
-    const actualBalance = Number(rawBalance) / Math.pow(10, decimals);
-    const value = actualBalance * (price ?? 0);
-    return formatUsdValue(value);
+    if (!price) return "$0.00";
+    const balance = new BigNumber(rawBalance).dividedBy(new BigNumber(10).pow(decimals));
+    return formatUsdValue(balance.multipliedBy(price).toString());
 }
 
-/**
- * Converts a human-readable amount to raw token amount (considering decimals)
- * @param amount The amount in human-readable format
- * @param decimals The number of decimals for the token
- * @returns Raw amount as a string (big integer format)
- */
 export function toRawAmount(amount: string | number, decimals: number = 8): string {
-    if (!amount) return "0";
-    const value = typeof amount === 'string' ? parseFloat(amount) : amount;
-    return (value * Math.pow(10, decimals)).toFixed(0);
+    const bigAmount = new BigNumber(amount);
+    if (bigAmount.isNaN() || bigAmount.isZero()) return "0";
+    return bigAmount.multipliedBy(new BigNumber(10).pow(decimals)).toString();
 }
 
-/**
- * Converts a raw token amount to human-readable format
- * @param rawAmount The raw amount as a string (big integer format)
- * @param decimals The number of decimals for the token
- * @returns Human-readable amount as a number
- */
 export function fromRawAmount(rawAmount: string, decimals: number = 8): number {
-    if (!rawAmount) return 0;
-    return Number(rawAmount) / Math.pow(10, decimals);
+    return new BigNumber(rawAmount).dividedBy(new BigNumber(10).pow(decimals)).toNumber();
 }
 
 export function formatTokenBalance(amount: string | bigint, decimals: number): string {
-    if (!amount) return '0';
+    const bigAmount = new BigNumber(amount.toString());
+    const formatted = bigAmount.dividedBy(new BigNumber(10).pow(decimals));
     
-    const value = typeof amount === 'string' ? BigInt(amount) : amount;
-    const divisor = BigInt(10 ** decimals);
-    const integerPart = value / divisor;
-    const fractionalPart = value % divisor;
-    
-    let result = integerPart.toString();
-    
-    if (fractionalPart > 0) {
-        let fraction = fractionalPart.toString().padStart(decimals, '0');
-        // Remove trailing zeros
-        fraction = fraction.replace(/0+$/, '');
-        if (fraction.length > 0) {
-            result += '.' + fraction;
-        }
+    if (formatted.isLessThan(0.000001)) {
+        return "< 0.000001";
     }
     
-    return result;
+    return formatted.toFormat(6).replace(/\.?0+$/, "");
+}
+
+/**
+ * Formats a token balance with appropriate suffixes (K, M, B) based on size.
+ * Handles very small numbers with more precision.
+ * 
+ * @param amount The token amount as bigint, number or string
+ * @param decimals Number of decimals for the token (default: 8)
+ * @returns Formatted balance string with appropriate suffix
+ */
+export const formatBalanceWithSuffix = (amount: bigint | number | string, decimals: number = 8): string => {
+    const bigAmount = new BigNumber(amount.toString());
+    const formatted = bigAmount.dividedBy(new BigNumber(10).pow(decimals));
+    
+    if (formatted.isLessThan(0.000001)) {
+        return "< 0.000001";
+    }
+    
+    if (formatted.isLessThan(1)) {
+        return formatted.toFormat(6).replace(/\.?0+$/, "");
+    }
+    
+    if (formatted.isLessThan(1000)) {
+        return formatted.toFormat(4).replace(/\.?0+$/, "");
+    }
+    
+    if (formatted.isLessThan(1000000)) {
+        return formatted.dividedBy(1000).toFormat(2) + "K";
+    }
+    
+    if (formatted.isLessThan(1000000000)) {
+        return formatted.dividedBy(1000000).toFormat(2) + "M";
+    }
+    
+    return formatted.dividedBy(1000000000).toFormat(2) + "B";
+};
+
+export const formatCurrency = (value: number | string, currency: string = 'USD'): string => {
+    const formatter = new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+    return formatter.format(Number(value));
+};
+
+export const formatNumber = (value: number | string, options: Intl.NumberFormatOptions = {}): string => {
+    const formatter = new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+        ...options
+    });
+    return formatter.format(Number(value));
+};
+
+export const formatPercent = (value: number | string): string => {
+    const num = Number(value);
+    if (isNaN(num)) return '0%';
+
+    const formatter = new Intl.NumberFormat('en-US', {
+        style: 'percent',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+    });
+
+    return formatter.format(num / 100);
+};
+
+export const formatCycles = (value: bigint | number): string => {
+    const bn = new BigNumber(value.toString())
+    const units = ['', 'K', 'M', 'B', 'T']
+    let unitIndex = 0
+
+    while (bn.gte(1000) && unitIndex < units.length - 1) {
+        bn.div(1000)
+        unitIndex++
+    }
+
+    return `${bn.toFormat(2)} ${units[unitIndex]} cycles`
 }

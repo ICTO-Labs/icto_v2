@@ -113,19 +113,20 @@ const modalStore = useModalStore()
 // Get token from modal store
 const token = computed(() => {
     const modalData = modalStore.state?.sendToken?.data
-    if (modalData?.token) {
-        tokenBalance.value = modalData.token.balance || 0n
+    if (!modalData?.data) return null
+    const tokenData = modalData.data.token
+    if (tokenData) {
+        tokenBalance.value = tokenData.balance || 0n
         // If we have amount from previous state, set it
-        if (modalData.amount) {
-            amount.value = formatBalance(BigInt(modalData.amount), modalData.token.decimals || 8)
+        if (modalData.data.amount) {
+            amount.value = formatBalance(BigInt(modalData.data.amount), tokenData.decimals || 8)
         }
         // If we have principal from previous state, set it
-        if (modalData.toPrincipal) {
-            toPrincipal.value = modalData.toPrincipal
+        if (modalData.data.toPrincipal) {
+            toPrincipal.value = modalData.data.toPrincipal
         }
-        return modalData.token
     }
-    return {}
+    return tokenData || null
 })
 
 // Form state

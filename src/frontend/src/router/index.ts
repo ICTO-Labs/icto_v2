@@ -15,6 +15,20 @@ const router = createRouter({
       },
     },
     {
+      path: '/token',
+      name: 'Token',
+      component: () => import('../views/Token/Overview.vue'),
+      meta: {
+        title: 'Token',
+        requiresAuth: true
+      },
+    },
+    {
+      path: '/token/:id',
+      component: () => import('../views/Token/TokenDetail.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/calendar',
       name: 'Calendar',
       component: () => import('../views/Others/Calendar.vue'),
