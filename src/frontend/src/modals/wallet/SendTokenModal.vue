@@ -8,25 +8,11 @@
         <template #body>
             <div class="flex flex-col gap-6 p-4">
                 <!-- Token Info -->
-                <div class="flex flex-col gap-4 items-center justify-center p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-                    <div class="w-16 h-16 rounded-full flex items-center justify-center" :class="token?.color || 'bg-gray-200'">
-                        <img v-if="token?.logoUrl" :src="token.logoUrl" :alt="token?.symbol" class="w-16 h-16 rounded-full" />
-                        <span v-else class="text-2xl font-bold">{{ token?.symbol?.[0] }}</span>
-                    </div>
-                    <div class="text-center">
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-white">{{ token?.name }}</h3>
-                        <div class="text-sm text-gray-500 dark:text-gray-400 flex justify-between items-center gap-4">
-                            <div class="items-center gap-4 flex-1 flex justify-between">
-                                <span>Your Balance: {{ formatBalance(tokenBalance, token?.decimals || 8) }} {{ token?.symbol }}</span>
-                                <button @click="handleRefreshBalance" class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-2 hover:text-gray-600 dark:hover:text-gray-300 hover:underline">
-                                    <RefreshCcwIcon class="w-4 h-4" /> 
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <TokenBalance 
+                    :token="token" 
+                    @balance-update="handleBalanceUpdate"
+                />
 
-                
                 <!-- Principal Input -->
                 <div class="space-y-2">
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -107,16 +93,13 @@
 
 <script setup lang="ts">
 // @ts-nocheck
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import BaseModal from '@/modals/core/BaseModal.vue'
 import { validateTokenAmount, validateAddress } from '@/utils/validation'
 import { formatBalance } from '@/utils/numberFormat'
-import { RefreshCcwIcon } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
-import { IcrcService } from '@/api/services/icrc'
-import { useAuthStore } from '@/stores/auth'
-
+import TokenBalance from '@/components/token/TokenBalance.vue'
 const props = defineProps({
     loading: {
         type: Boolean,
@@ -127,7 +110,6 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const modalStore = useModalStore()
-const authStore = useAuthStore()
 // Get token from modal store
 const token = computed(() => {
     const modalData = modalStore.state?.sendToken?.data
@@ -175,17 +157,6 @@ const handleAmountInput = (e: Event) => {
         amount.value = input
     }
 }
-const handleRefreshBalance = async () => {
-    // tokenBalance.value = 10n * BigInt(10 ** (token.value?.decimals || 8))
-    try {
-        const balance = await IcrcService.getIcrc1Balance(token.value, authStore.principal)
-        tokenBalance.value = balance
-        toast.success('Balance updated')
-    } catch (error) {
-        console.error('Error refreshing balance:', error)
-        toast.error('Error refreshing balance')
-    }
-}
 const handlePrincipalInput = (e: Event) => {
     toPrincipal.value = (e.target as HTMLInputElement).value.trim()
 }
@@ -226,9 +197,13 @@ const handlePreview = () => {
     })
     modalStore.close('sendToken')
 }
-onMounted(() => {
-    handleRefreshBalance()
-})
+const handleBalanceUpdate = (balance: bigint) => {
+    tokenBalance.value = balance
+    if (balance < (amount.value + tokenFee.value)) {
+        toast.error('Insufficient balance for this transaction')
+    }
+}
+
 </script>
 
 <style scoped>

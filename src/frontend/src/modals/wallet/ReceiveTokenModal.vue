@@ -9,18 +9,7 @@
 		<template #body>
 			<div class="flex flex-col gap-6 p-4">
 				<!-- Token Info -->
-				<div class="flex flex-col gap-4 items-center justify-center p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-					<div class="w-16 h-16 rounded-full flex items-center justify-center" :class="token?.color || 'bg-gray-200'">
-						<img v-if="token?.logoUrl" :src="token.logoUrl" :alt="token?.symbol" class="w-12 h-12" />
-						<span v-else class="text-2xl font-bold">{{ token?.symbol?.[0] }}</span>
-					</div>
-					<div class="text-center">
-						<h3 class="text-lg font-medium text-gray-900 dark:text-white">{{ token?.name }}</h3>
-						<p class="text-sm text-gray-500 dark:text-gray-400">
-							Balance: {{ formatBalance(token?.balance || 0n, token?.decimals || 8) }} {{ token?.symbol }}
-						</p>
-					</div>
-				</div>
+				<TokenBalance :token="token" />
 
 				<!-- Principal ID -->
 				<div class="space-y-2">
@@ -34,12 +23,7 @@
 							readonly
 							class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2.5 pr-16 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
 						/>
-						<button
-							@click="copyPrincipal"
-							class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-600 dark:text-gray-300 dark:hover:bg-gray-500"
-						>
-							COPY
-						</button>
+						<LabelCopyIcon :data="authStore.principal" :class="`absolute right-2 top-1/2 -translate-y-1/2`" />
 					</div>
 				</div>
 
@@ -55,12 +39,7 @@
 							readonly
 							class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2.5 pr-16 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
 						/>
-						<button
-							@click="copyAccount"
-							class="absolute right-2 top-1/2 -translate-y-1/2 rounded-md bg-gray-100 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-gray-200 dark:bg-gray-600 dark:text-gray-300 dark:hover:bg-gray-500"
-						>
-							COPY
-						</button>
+						<LabelCopyIcon :data="authStore.address" :class="`absolute right-2 top-1/2 -translate-y-1/2`" />
 					</div>
 				</div>
 
@@ -96,20 +75,15 @@ import BaseModal from '@/modals/core/BaseModal.vue'
 import { AlertTriangleIcon } from 'lucide-vue-next'
 import { formatBalance } from '@/utils/numberFormat'
 import { copyToClipboard } from '@/utils/common'
-
+import { LabelCopyIcon } from '@/icons'
+import TokenBalance from '@/components/token/TokenBalance.vue'
 const modalStore = useModalStore()
 const authStore = useAuthStore()
 
 // Get token from modal store
 const token = computed(() => modalStore.state.receiveToken.token)
 
-const copyPrincipal = () => {
-	copyToClipboard(authStore.principal || '', 'Principal ID')
-}
 
-const copyAccount = () => {
-	copyToClipboard(authStore.address || '', 'Account ID')
-}
 </script>
 
 <style scoped>

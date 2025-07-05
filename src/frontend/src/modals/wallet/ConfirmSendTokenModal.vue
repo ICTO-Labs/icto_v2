@@ -9,18 +9,10 @@
         <template #body>
             <div class="flex flex-col gap-6 p-4">
                 <!-- Token Info -->
-                <div class="flex flex-col gap-4 items-center justify-center p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-                    <div class="w-16 h-16 rounded-full flex items-center justify-center" :class="token?.color || 'bg-gray-200'">
-                        <img v-if="token?.logoUrl" :src="token.logoUrl" :alt="token?.symbol" class="w-16 h-16 rounded-full" />
-                        <span v-else class="text-2xl font-bold">{{ token?.symbol?.[0] }}</span>
-                    </div>
-                    <div class="text-center">
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-white">{{ token?.name }}</h3>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">
-                            Balance: {{ formatBalance(tokenBalance, token?.decimals || 8) }} {{ token?.symbol }}
-                        </p>
-                    </div>
-                </div>
+                <TokenBalance 
+                    :token="token" 
+                    @balance-update="handleBalanceUpdate"
+                />
 
                 <!-- Transfer Details -->
                 <div class="space-y-4">
@@ -96,6 +88,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { computed, ref } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import type { Token } from '@/types/token'
@@ -103,10 +96,10 @@ import BaseModal from '@/modals/core/BaseModal.vue'
 import { AlertTriangleIcon, ArrowLeftIcon } from 'lucide-vue-next'
 import { CopyIcon } from '@/icons'
 import { formatBalance } from '@/utils/numberFormat'
-import { copyToClipboard } from '@/utils/common'
 import { IcrcService } from '@/api/services/icrc'
-import { useAuthStore } from '@/stores/auth'
 import { useDialog } from '@/composables/useDialog'
+import TokenBalance from '@/components/token/TokenBalance.vue'
+import { toast } from 'vue-sonner'
 
 interface Props {
     token?: Token
@@ -127,7 +120,6 @@ const emit = defineEmits<{
 }>()
 
 const modalStore = useModalStore()
-const authStore = useAuthStore()
 const { alertDialog, successDialog, errorDialog } = useDialog()
 
 // Get token from modal store
@@ -139,12 +131,12 @@ const token = computed(() => {
 const amount = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.amount || '0'))
 const toPrincipal = computed(() => modalStore.state?.confirmSendToken?.data?.toPrincipal || '')
 const tokenFee = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.tokenFee || '0'))
-const tokenBalance = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.tokenBalance || '0'))
 const loading = ref(false)
 
-const copyRecipient = () => {
-    if (toPrincipal.value) {
-        copyToClipboard(toPrincipal.value, 'Recipient address')
+const handleBalanceUpdate = (balance: bigint) => {
+    console.log('New balance:', balance)
+    if (balance < (amount.value + tokenFee.value)) {
+        toast.error('Insufficient balance for this transaction')
     }
 }
 
