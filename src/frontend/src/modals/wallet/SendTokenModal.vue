@@ -28,7 +28,7 @@
                             @blur="principalFocused = false && handlePrincipalInput"
                             class="block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 pr-16 text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-500 dark:focus:ring-blue-500"
                             :class="{'border-red-500 dark:border-red-500': !principalValidation.isValid}"
-                            placeholder="Enter principal ID" tab-index="0"
+                            placeholder="Enter principal ID" tabindex="1"
                         />
                         <button
                             @click="pastePrincipal"

@@ -18,6 +18,7 @@
                             min="0"
                             step="0.0001"
                             placeholder="e.g. 1000"
+                            tabindex="1"
                             class="block w-full rounded-lg border-gray-300 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
                         />
                     </div>
@@ -126,6 +127,8 @@ import { parseTokenAmount } from '@/utils/numberFormat'
 import { LoaderIcon } from 'lucide-vue-next'
 import BaseModal from '../core/BaseModal.vue'
 import { validateAddress } from '@/utils/validation'
+import { useSwal } from '@/composables/useSwal2'
+import { toast } from 'vue-sonner'
 
 interface TokenData {
     token: {
@@ -161,9 +164,18 @@ const handleMint = async () => {
     try {
         isLoading.value = true
         // TODO: Implement mint logic
-        console.log('amount', amount.value, parseTokenAmount(amount.value, tokenData.value?.token.decimals || 8))
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        handleClose()
+        await useSwal.fire({
+            title: 'Are you sure?',
+            text: `Are you sure you want to mint ${parseTokenAmount(amount.value, tokenData.value?.token.decimals || 8)} ${tokenData.value?.token.symbol}?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Let\'s Go!'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                toast.success(`Minted ${parseTokenAmount(amount.value, tokenData.value?.token.decimals || 8)} ${tokenData.value?.token.symbol}`)
+                handleClose()
+            }
+        })
     } catch (error) {
         console.error('Failed to mint tokens:', error)
     } finally {

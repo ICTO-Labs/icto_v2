@@ -89,11 +89,10 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { storeToRefs } from 'pinia'
 import { useModalStore } from '@/stores/modal'
-import { useDialog } from '@/composables/useDialog'
 import { shortAccount, shortPrincipal, copyToClipboard } from '@/utils/common'
 import { toast } from 'vue-sonner'
 import { useAssets } from '@/composables/useAssets'
-const { alertDialog, successDialog, errorDialog, warningDialog, confirmDialog, openDialog } = useDialog()
+import { useSwal } from '@/composables/useSwal2'
 const authStore = useAuthStore()
 const { isConnected, selectedWalletId, principal, address, disconnectWallet } = storeToRefs(authStore)
 const modalStore = useModalStore()
@@ -108,10 +107,6 @@ const menuItems = [
 
 const { toggleAssets, isOpen } = useAssets()
 
-// Debug watcher
-watch(isOpen, (newValue) => {
-	console.log('UserMenu - Assets panel isOpen changed:', newValue)
-})
 
 const handleAssetsClick = () => {
 	toggleAssets()
@@ -135,21 +130,29 @@ const closeDropdown = () => {
 const handleDisconnectWallet = async () => {
 
 	try {
-		const confirmed = await confirmDialog({
-			title: 'Confirm',
-			message: 'Are you sure you want to disconnect your wallet?',
-			type: 'warning',
-			confirmText: 'Disconnect',
-			cancelText: 'Cancel'
+		await useSwal.fire({
+			title: 'Are you sure?',
+			text: 'Are you sure you want to disconnect your wallet?',
+			icon: 'warning',
+			showCancelButton: true,
+			confirmButtonColor: '#3085d6',
+			cancelButtonColor: '#d33',
+			confirmButtonText: 'Disconnect'
+		}).then((result) => {
+			if (result.isConfirmed) {
+				authStore.disconnectWallet()
+				closeDropdown()
+			}
 		})
-
-		if (confirmed) {
-			await authStore.disconnectWallet()
-			closeDropdown()
-		}
 	} catch (error) {
 		console.error('Error disconnecting wallet:', error)
-		await errorDialog('Error disconnecting wallet')
+		useSwal.fire({
+			title: 'Error',
+			text: 'Error disconnecting wallet',
+			icon: 'error',
+			showCancelButton: false,
+			confirmButtonText: 'OK'
+		})
 	}
 }
 

@@ -217,7 +217,7 @@ const tokens = ref([
         canisterId: '1',
         name: 'ICTO Token',
         symbol: 'ICTO',
-        logo: '/images/tokens/icto.png',
+        logo: '/images/logo/logo-icon.svg',
         price: 1.23,
         priceChange: 5.67,
         volume24h: 1234567,

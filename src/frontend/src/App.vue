@@ -3,7 +3,6 @@
   <ThemeProvider>
     <SidebarProvider>
       <RouterView />
-      <AppDialog />
       <AppAssets />
       <ModalManager />
     </SidebarProvider>
@@ -19,7 +18,6 @@ import 'vue-sonner/style.css'
 import ThemeProvider from '@/components/layout/ThemeProvider.vue'
 import SidebarProvider from '@/components/layout/SidebarProvider.vue'
 import ModalManager from '@/modals/core/ModalManager.vue'
-import AppDialog from '@/components/common/AppDialog.vue'
 import AppAssets from '@/components/layout/AppAssets.vue'
 import { createAssetsContext } from '@/composables/useAssets'
 

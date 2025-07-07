@@ -2,17 +2,6 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent } from 'vue'
 import { useModalStore } from '@/stores/modal'
-import ConnectWallet from '@/modals/wallet/ConnectWallet.vue'
-import ReceiveToken from '@/modals/wallet/ReceiveTokenModal.vue'
-import SendToken from '@/modals/wallet/SendTokenModal.vue'
-import ConfirmSendToken from '@/modals/wallet/ConfirmSendTokenModal.vue'
-import DeployToken from '@/modals/token/DeployTokenModal.vue'
-// import PaymentApproval from '@/modals/payment/PaymentApproval.vue'
-import CreateLock from '@/modals/lock/CreateLock.vue'
-import MintTokenModal from '../token/MintTokenModal.vue'
-import BurnTokenModal from '../token/BurnTokenModal.vue'
-import TokenSettingsModal from '../token/TokenSettingsModal.vue'
-import TopUpCyclesModal from '../token/TopUpCyclesModal.vue'
 import type { ModalState } from '@/types/modal'
 // TODO: Uncomment these once the components are created
 // import PaymentApproval from '../payment/PaymentApproval.vue'

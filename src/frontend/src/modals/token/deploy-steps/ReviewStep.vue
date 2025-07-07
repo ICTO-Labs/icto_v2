@@ -191,8 +191,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { AlertTriangleIcon, CheckCircleIcon, XCircleIcon, ImageIcon } from 'lucide-vue-next'
-import { useDialog } from '@/composables/useDialog'
 import { useWalletStore } from '@/stores/wallet'
+import { toast } from 'vue-sonner'
 
 interface Features {
     mintable: boolean
@@ -227,7 +227,6 @@ const emit = defineEmits<{
     (e: 'validate', valid: boolean, paid: boolean): void
 }>()
 
-const { errorDialog } = useDialog()
 const walletStore = useWalletStore()
 
 const isProcessing = ref(false)
@@ -249,7 +248,7 @@ const handlePayment = async () => {
 
         // Check wallet connection
         if (!walletStore.isConnected) {
-            await errorDialog('Please connect your wallet first')
+            toast.error('Please connect your wallet first')
             return
         }
 
@@ -274,7 +273,7 @@ const handlePayment = async () => {
                 status: 'failed'
             }
         })
-        await errorDialog('Payment failed: ' + error)
+        toast.error('Payment failed: ' + error)
     } finally {
         isProcessing.value = false
     }

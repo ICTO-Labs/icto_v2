@@ -59,8 +59,8 @@
 <script setup lang="ts">
   import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
   import { XIcon } from 'lucide-vue-next'
-  import { useDialog } from '@/composables/useDialog'
-  const { isOpen } = useDialog()
+  import { useModalStore } from '@/stores/modal'
+  const modalStore = useModalStore()
   defineProps<{
     show: boolean
     title: string
@@ -79,11 +79,6 @@
     emit('close')
 }
   const handleClose = (event: MouseEvent) => {
-    //Check if AppDialog is open
-    console.log('>>> handleClose', isOpen.value)
-    if (isOpen.value) {
-        return
-    }
     emit('close')
 }
 

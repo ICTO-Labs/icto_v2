@@ -18,6 +18,7 @@
                             min="0"
                             step="0.0001"
                             placeholder="e.g. 1000"
+                            tabindex="1"
                             class="block w-full rounded-lg border-gray-300 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
                         />
                     </div>
@@ -109,9 +110,9 @@ import { useModalStore } from '@/stores/modal'
 import { formatNumber } from '@/utils/numberFormat'
 import { LoaderIcon } from 'lucide-vue-next'
 import BaseModal from '../core/BaseModal.vue'
-import { useDialog } from '@/composables/useDialog'
 import { toast } from 'vue-sonner'
-const { confirmDialog } = useDialog()
+import { useSwal } from '@/composables/useSwal2'
+
 interface TokenData {
     token: {
         name: string;
@@ -162,17 +163,19 @@ const handleBurn = async () => {
     try {
         // TODO: Implement burn logic
         console.log('confirmDialog')
-        let confirmed = await confirmDialog({
-            title: 'Burn Tokens',
-            message: `Are you sure you want to burn ${formatNumber(amount.value)} ${tokenData.value?.token.symbol}? Note: This action cannot be undone.`,
-            type: 'confirm',
-            confirmText: 'Burn',
-            cancelText: 'Cancel'
+        await useSwal.fire({
+            title: 'Are you sure?',
+            text: `Are you sure you want to burn ${formatNumber(amount.value)} ${tokenData.value?.token.symbol}? Note: This action cannot be undone.`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#3085d6',
+            cancelButtonColor: '#d33',
+            confirmButtonText: 'Yes, Let\'s Go!'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                toast.success(`Burned ${formatNumber(amount.value)} ${tokenData.value?.token.symbol}`)
+            }
         })
-        console.log('confirmed', confirmed)
-        if (confirmed) {
-            toast.success(`Burned ${formatNumber(amount.value)} ${tokenData.value?.token.symbol}`)
-        }
     } catch (error) {
         console.error('Failed to burn tokens:', error)
     } finally {

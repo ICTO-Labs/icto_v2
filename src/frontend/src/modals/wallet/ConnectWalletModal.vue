@@ -47,11 +47,9 @@ import { useModalStore } from '@/stores/modal'
 import { useAuthStore } from '@/stores/auth'
 import { useWalletStore } from '@/stores/wallet'
 import BaseModal from '@/modals/core/BaseModal.vue'
-import { useDialog } from '@/composables/useDialog'
 import { RefreshCcwIcon } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 const modalStore = useModalStore()
-const { successDialog, errorDialog } = useDialog()
 
 onMounted(() => {
 	walletStore.loadWallets()
@@ -75,10 +73,10 @@ const connect = async (walletId: string) => {
 			toast.success('Wallet connected successfully')
 			modalStore.close('wallet')
 		} else {
-			errorDialog(result.error || 'Failed to connect wallet', 'Error')
+			toast.error(result.error || 'Failed to connect wallet')
 		}
 	} catch (error) {
-		await errorDialog('Failed to connect wallet: ' + (error as Error).message, 'Error')
+		toast.error('Failed to connect wallet: ' + (error as Error).message)
 	} finally {
 		loading.value = loading.value.filter(id => id !== walletId)
 	}

@@ -101,8 +101,7 @@ import { ref, computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import BaseModal from '@/modals/core/BaseModal.vue'
 import { CheckIcon } from 'lucide-vue-next'
-import { useDialog } from '@/composables/useDialog'
-
+import { toast } from 'vue-sonner'
 // Step components
 import StandardSelectionStep from './deploy-steps/StandardSelectionStep.vue'
 import BasicInfoStep from './deploy-steps/BasicInfoStep.vue'
@@ -117,7 +116,6 @@ const steps = [
 ]
 
 const modalStore = useModalStore()
-const { errorDialog, successDialog } = useDialog()
 
 const currentStep = ref(0)
 const isDeploying = ref(false)
@@ -168,7 +166,7 @@ const prevStep = () => {
 
 const handleDeploy = async () => {
     if (!isPaid.value) {
-        await errorDialog('Please complete the payment first')
+        toast.error('Please complete the payment first')
         return
     }
 
@@ -176,10 +174,10 @@ const handleDeploy = async () => {
         isDeploying.value = true
         // TODO: Implement token deployment logic
         await new Promise(resolve => setTimeout(resolve, 2000))
-        await successDialog('Token deployed successfully!')
+        toast.success('Token deployed successfully!')
         modalStore.close('deployToken')
     } catch (error) {
-        await errorDialog('Failed to deploy token: ' + error)
+        toast.error('Failed to deploy token: ' + error)
     } finally {
         isDeploying.value = false
     }
