@@ -1,0 +1,49 @@
+/* Custom font size for main dialog */
+
+.custom-font-swal {
+    font-size: 0.875rem !important;
+}
+
+/* Custom font size for title */
+.custom-title-swal {
+    font-size: 18px !important;
+    font-weight: 600;
+    color: #2d3748;
+}
+
+/* Custom font size for content */
+.custom-content-swal {
+    font-size: 12px !important;
+    line-height: 1.6;
+    color: #4a5568;
+}
+.custom-confirm-btn {
+    font-size: 0.875rem !important;
+    background-color: oklch(57.7% 0.245 27.325) !important;
+    color: #fff !important;
+    border: 1px solid oklch(50.5% 0.213 27.518) !important;
+    border-radius: 0.5rem !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+    &:hover {
+        background-color: oklch(50.5% 0.213 27.518) !important;
+        border-color: oklch(50.5% 0.213 27.518) !important;
+    }
+}
+.custom-cancel-btn {
+    font-size: 0.875rem !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    border: 1px solid #d0d5dd !important;
+    border-radius: 0.5rem !important;
+    cursor: pointer !important;
+    transition: all 0.3s ease !important;
+    --tw-shadow: 0 1px 3px 0 var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 1px 2px -1px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+    &:hover {
+        background-color: #f9fafb !important;
+        border-color: #d0d5dd !important;
+    }
+}
