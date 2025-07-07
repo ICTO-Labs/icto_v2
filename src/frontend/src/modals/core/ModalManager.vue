@@ -27,16 +27,18 @@ const modalComponents = {
     burnTokens: defineAsyncComponent(() => import('../token/BurnTokenModal.vue')),
     tokenSettings: defineAsyncComponent(() => import('../token/TokenSettingsModal.vue')),
     topUpCycles: defineAsyncComponent(() => import('../token/TopUpCyclesModal.vue')),
-    
+
     // Wallet modals
     wallet: defineAsyncComponent(() => import('../wallet/ConnectWalletModal.vue')),
     sendToken: defineAsyncComponent(() => import('../wallet/SendTokenModal.vue')),
     receiveToken: defineAsyncComponent(() => import('../wallet/ReceiveTokenModal.vue')),
-    confirmSend: defineAsyncComponent(() => import('../wallet/ConfirmSendTokenModal.vue')),
-    
+    confirmSendToken: defineAsyncComponent(() => import('../wallet/ConfirmSendTokenModal.vue')),
+    addNewToken: defineAsyncComponent(() => 
+        import('../token/AddNewTokenModal.vue')
+    ),
     // Lock modals
     createLock: defineAsyncComponent(() => import('../lock/CreateLock.vue')),
-    
+
     // Filter modals
     // tokenFilter: defineAsyncComponent(() => import('../filter/TokenFilterModal.vue'))
 } as const
@@ -44,7 +46,7 @@ const modalComponents = {
 const currentModal = computed(() => {
     const activeModal = Object.entries(modalStore.state).find(([_, state]) => state.isOpen)
     if (!activeModal) return null
-    
+
     const [modalName] = activeModal
     return modalComponents[modalName as keyof typeof modalComponents]
 })
@@ -52,7 +54,7 @@ const currentModal = computed(() => {
 const modalProps = computed(() => {
     const activeModal = Object.entries(modalStore.state).find(([_, state]) => state.isOpen)
     if (!activeModal) return {}
-    
+
     const [_, state] = activeModal
     return {
         show: true,
@@ -63,23 +65,18 @@ const modalProps = computed(() => {
 const handleClose = () => {
     const activeModal = Object.entries(modalStore.state).find(([_, state]) => state.isOpen)
     if (!activeModal) return
-    
+
     const [modalName] = activeModal
     modalStore.close(modalName as keyof ModalState)
 }
 </script>
 
 <template>
-  <div class="modal-manager">
-    <div>
-        <Suspense>
-            <component
-                v-if="currentModal"
-                :is="currentModal"
-                v-bind="modalProps"
-                @close="handleClose"
-            />
-        </Suspense>
+    <div class="modal-manager">
+        <div>
+            <Suspense>
+                <component v-if="currentModal" :is="currentModal" v-bind="modalProps" @close="handleClose" />
+            </Suspense>
+        </div>
     </div>
-  </div>
-</template> 
+</template>

@@ -164,11 +164,11 @@ const openWalletModal = () => {
 
 
 onMounted(() => {
-	document.addEventListener('click', handleClickOutside)
+	// document.addEventListener('click', handleClickOutside)
 })
 
 onUnmounted(() => {
-	document.removeEventListener('click', handleClickOutside)
+	// document.removeEventListener('click', handleClickOutside)
 })
 
 watch(isConnected, (newVal) => {

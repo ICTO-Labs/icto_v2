@@ -7,7 +7,7 @@
         :loading="loading"
     >
         <template #body>
-            <div class="flex flex-col gap-6 p-4">
+            <div class="flex flex-col gap-6 p-2">
                 <!-- Token Info -->
                 <TokenBalance 
                     :token="token" 
@@ -61,27 +61,28 @@
                         Please verify all details carefully. Transactions cannot be reversed once confirmed.
                     </p>
                 </div>
-
-                <!-- Actions -->
-                <div class="flex gap-3 mt-6">
-                    <button
-                        @click="handleBack"
-                        class="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-center text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:hover:border-gray-600 dark:hover:bg-gray-700 dark:focus:ring-gray-700"
-                    >
-                        <div class="flex items-center justify-center gap-2">
-                            <ArrowLeftIcon class="h-4 w-4" />
-                            <span>Back</span>
-                        </div>
-                    </button>
-                    <button
-                        @click="handleConfirm"
-                        :disabled="loading"
-                        class="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800"
-                    >
-                        <span v-if="loading">Processing...</span>
-                        <span v-else>Confirm Transfer</span>
-                    </button>
-                </div>
+            </div>
+        </template>
+        <template #footer>
+            <!-- Actions -->
+            <div class="flex gap-3">
+                <button
+                    @click="handleBack"
+                    class="flex-1 rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-center text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-4 focus:ring-gray-200 dark:border-gray-600 dark:bg-gray-800 dark:text-white dark:hover:border-gray-600 dark:hover:bg-gray-700 dark:focus:ring-gray-700"
+                >
+                    <div class="flex items-center justify-center gap-2">
+                        <ArrowLeftIcon class="h-4 w-4" />
+                        <span>Back</span>
+                    </div>
+                </button>
+                <button
+                    @click="handleConfirm"
+                    :disabled="loading"
+                    class="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800"
+                >
+                    <span v-if="loading">Processing...</span>
+                    <span v-else>Confirm Transfer</span>
+                </button>
             </div>
         </template>
     </BaseModal>
@@ -125,12 +126,12 @@ const { alertDialog, successDialog, errorDialog } = useDialog()
 // Get token from modal store
 const token = computed(() => {
     const modalData = modalStore.state?.confirmSendToken?.data
-    if (!modalData?.data) return null
-    return modalData.data.token || null
+    if (!modalData) return null
+    return modalData.token || null
 })
-const amount = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.data?.amount || '0'))
-const toPrincipal = computed(() => modalStore.state?.confirmSendToken?.data?.data?.toPrincipal || '')
-const tokenFee = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.data?.tokenFee || '0'))
+const amount = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.amount || '0'))
+const toPrincipal = computed(() => modalStore.state?.confirmSendToken?.data?.toPrincipal || '')
+const tokenFee = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.tokenFee || '0'))
 const loading = ref(false)
 
 const handleBalanceUpdate = (balance: bigint) => {
@@ -142,8 +143,7 @@ const handleBalanceUpdate = (balance: bigint) => {
 
 const handleBack = () => {
     // Close current modal
-    modalStore.close('confirmSendToken')
-    
+    console.log('handleBack', token.value)
     // Reopen send token modal with current data
     modalStore.open('sendToken', {
         data: {
@@ -152,6 +152,8 @@ const handleBack = () => {
             toPrincipal: toPrincipal.value,
         }
     })
+    modalStore.close('confirmSendToken')
+
 }
 
 const handleConfirm = async () => {

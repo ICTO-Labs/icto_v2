@@ -2,7 +2,7 @@
 <template>
 	<BaseModal 
 		:title="`Receive ${token?.symbol || 'Token'}`"
-		:is-open="modalStore.isOpen('receiveToken')" 
+		:show="modalStore.isOpen('receiveToken')" 
 		@close="modalStore.close('receiveToken')"
 		width="max-w-lg"
 	>
@@ -20,7 +20,7 @@
 						<input
 							type="text"
 							:value="authStore.principal"
-							readonly
+							
 							class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2.5 pr-16 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
 						/>
 						<LabelCopyIcon :data="authStore.principal" :class="`absolute right-2 top-1/2 -translate-y-1/2`" />

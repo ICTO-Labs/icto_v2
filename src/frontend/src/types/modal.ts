@@ -12,19 +12,15 @@ export interface ModalState {
     sendToken: {
         isOpen: boolean
         data?: {
-            token: Token
-            amount?: string
-            toPrincipal?: string
+            token?: Token
         }
     }
     confirmSendToken: {
         isOpen: boolean
         data?: {
-            token: Token
-            amount: string
-            tokenFee: string
-            toPrincipal: string
-            tokenBalance: string
+            token?: Token
+            amount?: string
+            to?: string
         }
     }
     transferOwnership: {
@@ -72,7 +68,7 @@ export interface ModalState {
     receiveToken: {
         isOpen: boolean
         data?: {
-            token: Token
+            token?: Token
         }
     }
     wallet: {
@@ -95,6 +91,12 @@ export interface ModalState {
         isOpen: boolean
         data?: {
             token: Token
+        }
+    }
+    addNewToken: {
+        isOpen: boolean
+        data?: {
+            canisterId?: string
         }
     }
 } 

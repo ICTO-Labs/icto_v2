@@ -21,6 +21,10 @@ export const useModalStore = defineStore('modal', () => {
             isOpen: false,
             data: undefined
         },
+        addNewToken: {
+            isOpen: false,
+            data: undefined
+        },
         transferOwnership: {
             isOpen: false,
             data: undefined

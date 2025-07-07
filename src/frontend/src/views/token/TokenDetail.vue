@@ -29,6 +29,9 @@
                                 <span class="text-sm text-gray-500 dark:text-gray-400">
                                     Canister ID: {{ token.canisterId }}
                                 </span>
+                                <a href="javascript:void(0)" @click="openSettingsModal">
+                                    <InfoIcon class="h-4 w-4 mr- 2 text-gray-500" />
+                                </a>
                             </div>
                         </div>
                     </div>
@@ -50,11 +53,11 @@
                             Burn Tokens
                         </button>
                         <button
-                            @click="openSettingsModal"
+                            @click="$router.back()"
                             class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
                         >
-                            <SettingsIcon class="h-4 w-4 mr-2" />
-                            Settings
+                            <CircleArrowLeftIcon class="h-4 w-4 mr-2" />
+                            Back
                         </button>
                     </div>
                 </div>
@@ -292,7 +295,9 @@ import {
     CoinsIcon, 
     FlameIcon, 
     SettingsIcon,
-    UserIcon
+    UserIcon,
+    CircleArrowLeftIcon,
+    InfoIcon
 } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 
@@ -305,7 +310,7 @@ const token = ref({
     canisterId: route.params.id,
     name: 'ICTO Token',
     symbol: 'ICTO',
-    logo: '/images/tokens/icto.png',
+    logo: '/images/logo/logo-icon.svg',
     standard: 'ICRC-2',
     totalSupply: '100000000',
     decimals: 8,

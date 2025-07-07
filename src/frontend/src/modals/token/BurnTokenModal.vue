@@ -9,7 +9,7 @@
             <div class="space-y-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Amount to Burn
+                        Amount {{ tokenData?.token.symbol }} to burn
                     </label>
                     <div class="mt-2">
                         <input
@@ -28,10 +28,10 @@
                         Memo (Optional)
                     </label>
                     <div class="mt-2">
-                        <textarea
+                        <input
+                            type="text"
                             v-model="memo"
-                            rows="3"
-                            placeholder="Add a note about this burn operation"
+                            placeholder="Schedule burn"
                             class="block w-full rounded-lg border-gray-300 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:text-sm"
                         />
                     </div>
@@ -57,21 +57,21 @@
                             </dd>
                         </div>
                         <div class="flex justify-between">
-                            <dt class="text-sm text-gray-500 dark:text-gray-400">Amount</dt>
+                            <dt class="text-sm text-gray-500 dark:text-gray-400">Amount to burn</dt>
                             <dd class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ formatBalance(amount || 0, tokenData?.token.decimals || 8) }} {{ tokenData?.token.symbol }}
+                                {{ formatNumber(amount) }} {{ tokenData?.token.symbol }}
                             </dd>
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-sm text-gray-500 dark:text-gray-400">Current Supply</dt>
                             <dd class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ formatBalance(tokenData?.token.totalSupply || 0, tokenData?.token.decimals || 8) }} {{ tokenData?.token.symbol }}
+                                {{ formatNumber(tokenData?.token.totalSupply || 0) }} {{ tokenData?.token.symbol }}
                             </dd>
                         </div>
                         <div class="flex justify-between">
                             <dt class="text-sm text-gray-500 dark:text-gray-400">New Supply After Burn</dt>
-                            <dd class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ formatBalance(newSupply, tokenData?.token.decimals || 8) }} {{ tokenData?.token.symbol }}
+                            <dd class="text-sm font-medium text-red-900 dark:text-white">
+                                {{ newSupply }} {{ tokenData?.token.symbol }}
                             </dd>
                         </div>
                     </dl>
@@ -94,13 +94,8 @@
                     :disabled="!isValid || isLoading"
                     @click="handleBurn"
                 >
-                    <span v-if="isLoading">
-                        <LoaderIcon class="animate-spin h-4 w-4 mr-2" />
-                        Burning...
-                    </span>
-                    <span v-else>
-                        Burn Tokens
-                    </span>
+                    <LoaderIcon class="animate-spin h-4 w-4 mr-2" v-if="isLoading" />
+                    Burn Tokens
                 </button>
             </div>
         </template>
@@ -108,12 +103,15 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { ref, computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
-import { formatBalance } from '@/utils/numberFormat'
+import { formatNumber } from '@/utils/numberFormat'
 import { LoaderIcon } from 'lucide-vue-next'
 import BaseModal from '../core/BaseModal.vue'
-
+import { useDialog } from '@/composables/useDialog'
+import { toast } from 'vue-sonner'
+const { confirmDialog } = useDialog()
 interface TokenData {
     token: {
         name: string;
@@ -146,9 +144,10 @@ const newSupply = computed(() => {
     if (!amount.value || !tokenData.value) return 0n
     try {
         const burnAmount = BigInt(amount.value)
-        return tokenData.value.token.totalSupply - burnAmount
-    } catch {
-        return tokenData.value.token.totalSupply
+        return formatNumber(BigInt(tokenData.value.token.totalSupply) - burnAmount)
+    } catch(error) {
+        console.error('Failed to calculate new supply', amount.value, tokenData.value, error)
+        return formatNumber(tokenData.value.token.totalSupply)
     }
 })
 
@@ -158,12 +157,22 @@ const handleClose = () => {
 
 const handleBurn = async () => {
     if (!isValid.value || isLoading.value) return
-
+    isLoading.value = true
+    console.log('handleBurn', isValid.value, isLoading.value)
     try {
-        isLoading.value = true
         // TODO: Implement burn logic
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        handleClose()
+        console.log('confirmDialog')
+        let confirmed = await confirmDialog({
+            title: 'Burn Tokens',
+            message: `Are you sure you want to burn ${formatNumber(amount.value)} ${tokenData.value?.token.symbol}? Note: This action cannot be undone.`,
+            type: 'confirm',
+            confirmText: 'Burn',
+            cancelText: 'Cancel'
+        })
+        console.log('confirmed', confirmed)
+        if (confirmed) {
+            toast.success(`Burned ${formatNumber(amount.value)} ${tokenData.value?.token.symbol}`)
+        }
     } catch (error) {
         console.error('Failed to burn tokens:', error)
     } finally {

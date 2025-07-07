@@ -4,8 +4,8 @@
     <SidebarProvider>
       <RouterView />
       <AppDialog />
-      <ModalManager />
       <AppAssets />
+      <ModalManager />
     </SidebarProvider>
   </ThemeProvider>
 </template>

@@ -1,7 +1,7 @@
 <template>
   <aside
     :class="[
-      'fixed mt-16 flex flex-col lg:mt-0 top-0 px-5 left-0 bg-white dark:bg-gray-900 dark:border-gray-800 text-gray-900 h-screen transition-all duration-300 ease-in-out z-99999 border-r border-gray-200',
+      'fixed mt-16 flex flex-col lg:mt-0 top-0 px-5 left-0 bg-white dark:bg-gray-900 dark:border-gray-800 text-gray-900 h-screen transition-all duration-300 ease-in-out z-40 border-r border-gray-200',
       {
         'lg:w-[290px]': isExpanded || isMobileOpen || isHovered,
         'lg:w-[90px]': !isExpanded && !isHovered,
@@ -232,6 +232,7 @@ import {
 } from "../../icons";
 import SidebarWidget from "./SidebarWidget.vue";
 import BoxCubeIcon from "@/icons/BoxCubeIcon.vue";
+import { CoinsIcon, LockIcon, SendIcon, RocketIcon, GoalIcon, CodeSquareIcon, ShieldIcon, FingerprintIcon } from "lucide-vue-next";
 import { useSidebar } from "@/composables/useSidebar";
 
 const route = useRoute();
@@ -245,55 +246,55 @@ const menuGroups = [
       {
         icon: GridIcon,
         name: "Dashboard",
-        subItems: [{ name: "Ecommerce", path: "/", pro: false }],
+        path: "/",
       },
       {
-        icon: CalenderIcon,
-        name: "Calendar",
-        path: "/calendar",
+        icon: CoinsIcon,
+        name: "Tokens",
+        path: "/tokens",
       },
       {
-        icon: UserCircleIcon,
-        name: "User Profile",
-        path: "/profile",
+        icon: SendIcon,
+        name: "Distribution",
+        path: "/distribution",
       },
 
       {
-        name: "Forms",
-        icon: ListIcon,
+        name: "Lock",
+        icon: LockIcon,
         subItems: [
-          { name: "Form Elements", path: "/form-elements", pro: false },
+          { name: "Lock Elements", path: "/lock-elements", pro: false },
         ],
       },
       {
-        name: "Tables",
-        icon: TableIcon,
-        subItems: [{ name: "Basic Tables", path: "/basic-tables", pro: false }],
+        name: "Airdrop",
+        icon: GoalIcon,
+        subItems: [{ name: "Airdrop Elements", path: "/airdrop-elements", pro: false }],
       },
       {
-        name: "Pages",
-        icon: PageIcon,
+        name: "Launchpad",
+        icon: RocketIcon,
         subItems: [
-          { name: "Black Page", path: "/blank", pro: false },
-          { name: "404 Page", path: "/error-404", pro: false },
+          { name: "Active Projects", path: "/launchpad-elements", pro: false },
+          { name: "Completed Projects", path: "/launchpad-elements", pro: false },
         ],
       },
     ],
   },
   {
-    title: "Others",
+    title: "Security",
     items: [
       {
-        icon: PieChartIcon,
-        name: "Charts",
+        icon: FingerprintIcon,
+        name: "Multisig",
         subItems: [
-          { name: "Line Chart", path: "/line-chart", pro: false },
-          { name: "Bar Chart", path: "/bar-chart", pro: false },
+          { name: "Multisig Elements", path: "/multisig-elements", pro: false },
+          { name: "Multisig Elements", path: "/multisig-elements", pro: false },
         ],
       },
       {
-        icon: BoxCubeIcon,
-        name: "Ui Elements",
+        icon: PlugInIcon,
+        name: "Mini DAO",
         subItems: [
           { name: "Alerts", path: "/alerts", pro: false },
           { name: "Avatars", path: "/avatars", pro: false },
@@ -304,8 +305,8 @@ const menuGroups = [
         ],
       },
       {
-        icon: PlugInIcon,
-        name: "Authentication",
+        icon: CodeSquareIcon,
+        name: "SNS tools",
         subItems: [
           { name: "Signin", path: "/signin", pro: false },
           { name: "Signup", path: "/signup", pro: false },

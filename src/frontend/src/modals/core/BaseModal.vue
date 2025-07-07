@@ -1,6 +1,6 @@
 <template>
   <TransitionRoot appear :show="show" as="template">
-    <Dialog as="div" @close="$emit('close')" class="relative z-1000000">
+    <Dialog as="div" @close="handleClose as any" class="relative z-60" style="z-index: 60">
       <TransitionChild
         as="template"
         enter="duration-300 ease-out"
@@ -10,10 +10,10 @@
         leave-from="opacity-100"
         leave-to="opacity-0"
       >
-        <div class="fixed inset-0 bg-black/25 dark:bg-black/50" />
+        <div class="fixed inset-0 bg-black/25 dark:bg-black/50 modal-base-modal z-55" />
       </TransitionChild>
 
-      <div class="fixed inset-0 overflow-y-auto">
+      <div class="fixed inset-0 overflow-y-auto z-60">
         <div class="flex min-h-full items-center justify-center p-4 text-center">
           <TransitionChild
             as="template"
@@ -57,23 +57,36 @@
 </template>
 
 <script setup lang="ts">
-import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
-import { XIcon } from 'lucide-vue-next'
+  import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
+  import { XIcon } from 'lucide-vue-next'
+  import { useDialog } from '@/composables/useDialog'
+  const { isOpen } = useDialog()
+  defineProps<{
+    show: boolean
+    title: string
+    width?: string
+  }>()
 
-defineProps<{
-  show: boolean
-  title: string
-  width?: string
-}>()
+  const emit = defineEmits<{
+    (e: 'close'): void
+  }>()
 
-defineEmits<{
-  (e: 'close'): void
-}>()
+  defineSlots<{
+    body: () => any
+    footer: () => any
+  }>()
+  const handleBackdropClick = () => {
+    emit('close')
+}
+  const handleClose = (event: MouseEvent) => {
+    //Check if AppDialog is open
+    console.log('>>> handleClose', isOpen.value)
+    if (isOpen.value) {
+        return
+    }
+    emit('close')
+}
 
-defineSlots<{
-  body: () => any
-  footer: () => any
-}>()
 </script>
 
 <style scoped>

@@ -35,6 +35,7 @@ export async function fetchBalance(
     principalId?: string,
     forceRefresh = false,
 ): Promise<TokenBalanceBase> {
+    console.log('>>> fetchBalance', token, principalId, forceRefresh)
     try {
         if (!token?.canisterId || !principalId) {
             return {

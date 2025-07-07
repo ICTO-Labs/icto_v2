@@ -105,6 +105,7 @@ export const useAuthStore = defineStore('auth', () => {
 
             // Load balances in background
             setTimeout(async () => {
+                console.log('>>> fetchBalances', tokens.value, result.owner?.toString(), true)
                 try {
                     await userTokensStore.setPrincipal(result.owner);
                     await userTokensStore.refreshTokenData();

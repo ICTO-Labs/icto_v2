@@ -1,12 +1,13 @@
 <template>
-    <TransitionRoot appear :show="isOpen" as="template" class="z-1000">
-        <Dialog as="div" class="relative z-100000" @close="handleClose">
+    <Teleport to="body">
+    <TransitionRoot appear :show="isOpen" as="template" class="z-50" style="z-index: 50">
+        <Dialog as="div" :static="true" class="relative z-50" @close="handleClose as any">
             <TransitionChild as="template" enter="ease-out duration-300" enter-from="opacity-0" enter-to="opacity-100"
                 leave="ease-in duration-200" leave-from="opacity-100" leave-to="opacity-0">
-                <div class="fixed inset-0 bg-black/30" />
+                <div class="fixed inset-0 bg-black/30 modal-app-assets z-40" />
             </TransitionChild>
 
-            <div class="fixed inset-0 overflow-y-auto">
+            <div class="fixed inset-0 overflow-y-auto z-50">
                 <div class="flex min-h-full items-end justify-end">
                     <TransitionChild as="template" enter="transform transition ease-in-out duration-300"
                         enter-from="translate-x-full" enter-to="translate-x-0"
@@ -100,15 +101,15 @@
                                             </div>
                                             <div>
                                                 <p class="text-sm dark:text-white">{{ token.name }}</p>
-                                                <p class="text-xs text-gray-500 dark:text-gray-400">{{ token.symbol }} · {{ maskedValue(token.amount) }}</p>
+                                                <p class="text-xs text-gray-500 dark:text-gray-400">{{ token.symbol }} · {{ maskedValue(token.balance?.toString() || '0') }}</p>
                                             </div>
                                         </div>
                                         <!-- Token Value (visible when not hovering) -->
                                         <div class="text-right group-hover:hidden">
-                                            <p class="text-sm font-medium dark:text-white">{{ maskedValue(token.value) }}</p>
-                                            <p :class="['text-xs', token.change.startsWith('-') ? 'text-red-500' : 'text-green-500']">
-                                                {{ token.change }}
-                                            </p>
+                                            <p class="text-sm font-medium dark:text-white">{{ maskedValue(token?.metrics?.price?.toString() || '0') }}</p>
+                                            <!-- <p :class="['text-xs', token?.metrics?.change?.toString()?.startsWith('-') ? 'text-red-500' : 'text-green-500']">
+                                                {{ token?.metrics?.change || '0' }}
+                                            </p> -->
                                         </div>
                                         <!-- Action Buttons (visible on hover) -->
                                         <div class="hidden group-hover:flex items-center gap-2">
@@ -122,7 +123,20 @@
                                                 <ArrowDownIcon class="w-4 h-4" />
                                                 <span>Receive</span>
                                             </button>
+                                            <button @click="handleRemoveToken(token)"
+                                                class="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
+                                                <TrashIcon class="w-4 h-4" />
+                                            </button>
                                         </div>
+                                    </div>
+
+                                    <!-- Add New Token Button -->
+                                    <div class="mt-4 border-t dark:border-gray-700 pt-4">
+                                        <button @click="handleAddNewToken"
+                                            class="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/50 dark:hover:bg-gray-700 rounded-lg transition-colors">
+                                            <PlusCircleIcon class="w-4 h-4" />
+                                            <span>Add New Token</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -132,6 +146,7 @@
             </div>
         </Dialog>
     </TransitionRoot>
+</Teleport>
 </template>
 
 <script setup lang="ts">
@@ -142,12 +157,17 @@ import { useModalStore } from '@/stores/modal'
 import { CopyIcon } from '@/icons'
 import { 
     LogOutIcon, XIcon, ArrowLeftIcon, EyeIcon, EyeOffIcon,
-    ArrowUpIcon, ArrowDownIcon, RefreshCcwIcon, ShuffleIcon 
+    ArrowUpIcon, ArrowDownIcon, RefreshCcwIcon, ShuffleIcon, PlusCircleIcon, TrashIcon,
 } from 'lucide-vue-next'
 import { watch, computed, ref } from 'vue'
+import { storeToRefs } from 'pinia'
 import { shortAccount, shortPrincipal, copyToClipboard } from '@/utils/common'
 import { useDialog } from '@/composables/useDialog'
 import type { Token } from '@/types/token'
+import { useUserTokensStore } from '@/stores/userTokens'
+import { MODALS_LIST_ON_ASSETS_OPEN } from '@/config/constants'
+const userTokensStore = useUserTokensStore();
+const { tokens } = storeToRefs(userTokensStore);
 
 const authStore = useAuthStore()
 const modalStore = useModalStore()
@@ -160,10 +180,21 @@ const shortAccountValue = computed(() => shortAccount(authStore.address || ''))
 
 // Check if any child modal is open
 const hasOpenChildModal = computed(() => {
-    return modalStore.state.sendToken.isOpen || 
-           modalStore.state.receiveToken.isOpen || 
-           modalStore.state.confirmSendToken.isOpen
+    return MODALS_LIST_ON_ASSETS_OPEN.some(modal => modalStore.isOpen(modal as any))
 })
+
+// Handle remove token
+const handleRemoveToken = async (token: any) => {
+    const confirmed = await confirmDialog({
+        title: 'Confirm',
+        message: 'Are you sure you want to remove this token? You can always add it back later!',
+        confirmText: 'Remove',
+        cancelText: 'Cancel',
+    })
+    if (confirmed) {
+        userTokensStore.disableToken(token.canisterId)
+    }
+}
 
 // Modified close handler
 const handleClose = async () => {
@@ -192,13 +223,6 @@ const handleDisconnect = async () => {
     }
 }
 
-const copyPrincipal = () => {
-    copyToClipboard(authStore.principal || '', 'principal id')
-}
-
-const copyAccount = () => {
-    copyToClipboard(authStore.address || '', 'account address')
-}
 
 const showBalance = ref(true)
 
@@ -239,12 +263,11 @@ const handleReceive = (token: any) => {
     modalStore.open('receiveToken', { token: _formattedToken })
 }
 
-const handleTransferSuccess = (txId: string) => {
-    console.log('Transfer successful:', txId)
-    // Refresh balance or show success message
+const handleAddNewToken = () => {
+    modalStore.open('addNewToken')
 }
 
-const tokens = [
+const tokens1 = [
     { name: 'Internet Computer', logoUrl: 'https://apibucket.nyc3.digitaloceanspaces.com/token_logos/icp.webp', canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai', symbol: 'ICP', fee: 10000, decimals: 8, amount: '0.0183', value: '$0.09', change: '+3.43%', color: 'bg-purple-500' },
     { name: 'ckBTC', logoUrl: 'https://apibucket.nyc3.digitaloceanspaces.com/token_logos/4-logo.svg', canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai', symbol: 'ckBTC', decimals: 8, amount: '0', value: '$0.00', change: '+1.83%', color: 'bg-orange-500' },
     { name: 'ORIGYN', logoUrl: 'https://plug-cdn.s3.amazonaws.com/dab-collections/OrigynSNS.jpg', canisterId: 'lkwrt-vyaaa-aaaaq-aadhq-cai', symbol: 'OGY', decimals: 8, amount: '0', value: '$0.00', change: '+6.74%', color: 'bg-yellow-500' },

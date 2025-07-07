@@ -385,13 +385,13 @@ export const formatCurrency = (value: number | string, currency: string = 'USD')
     return formatter.format(Number(value));
 };
 
-export const formatNumber = (value: number | string, options: Intl.NumberFormatOptions = {}): string => {
+export const formatNumber = (value: number | string | bigint | BigNumber, options: Intl.NumberFormatOptions = {}): string => {
     const formatter = new Intl.NumberFormat('en-US', {
         minimumFractionDigits: 0,
         maximumFractionDigits: 2,
         ...options
     });
-    return formatter.format(Number(value));
+    return formatter.format(typeof value === 'bigint' ? Number(value) : Number(value));
 };
 
 export const formatPercent = (value: number | string): string => {

@@ -1,7 +1,7 @@
 <template>
     <BaseModal 
         :title="`Send ${token?.symbol || 'Token'}`"
-        :is-open="modalStore.isOpen('sendToken')" 
+        :show="modalStore.isOpen('sendToken')" 
         @close="modalStore.close('sendToken')"
         width="max-w-lg"
     >
@@ -22,12 +22,13 @@
                         <input
                             type="text"
                             v-model="toPrincipal"
+                            ref="principalInput"
                             @input="handlePrincipalInput"
                             @focus="principalFocused = true && handlePrincipalInput"
                             @blur="principalFocused = false && handlePrincipalInput"
                             class="block w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 pr-16 text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400 dark:focus:border-blue-500 dark:focus:ring-blue-500"
                             :class="{'border-red-500 dark:border-red-500': !principalValidation.isValid}"
-                            placeholder="Enter principal ID" tab-index="1"
+                            placeholder="Enter principal ID" tab-index="0"
                         />
                         <button
                             @click="pastePrincipal"
@@ -77,23 +78,23 @@
                         {{ amountValidation.errorMessage }}
                     </p>
                 </div>
-
-                <!-- Action Button -->
-                <button
-                    @click="handlePreview"
-                    :disabled="!isValid || props.loading"
-                    class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800" tabindex="3"
-                >
-                    Preview Transfer
-                </button>
             </div>
+        </template>
+        <template #footer>
+            <button
+                @click="handlePreview"
+                :disabled="!isValid || props.loading"
+                class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800" tabindex="3"
+            >
+                Preview Transfer
+            </button>
         </template>
     </BaseModal>
 </template>
 
 <script setup lang="ts">
 // @ts-nocheck
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import BaseModal from '@/modals/core/BaseModal.vue'
 import { validateTokenAmount, validateAddress } from '@/utils/validation'
@@ -108,7 +109,7 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['close'])
-
+const initialFocusRef = ref(null)
 const modalStore = useModalStore()
 // Get token from modal store
 const token = computed(() => {
@@ -188,13 +189,11 @@ const handlePreview = () => {
     const amountInBaseUnits = BigInt(Math.floor(parseFloat(amount.value) * Math.pow(10, decimals)))
 
     modalStore.open('confirmSendToken', {
-        data: {
-            token: token.value,
-            amount: amountInBaseUnits.toString(),
-            tokenFee: tokenFee.value.toString(),
-            toPrincipal: toPrincipal.value.trim(),
-            tokenBalance: tokenBalance.value.toString(),
-        }
+        token: token.value,
+        amount: amountInBaseUnits.toString(),
+        tokenFee: tokenFee.value.toString(),
+        toPrincipal: toPrincipal.value.trim(),
+        tokenBalance: tokenBalance.value.toString(),
     })
     modalStore.close('sendToken')
 }

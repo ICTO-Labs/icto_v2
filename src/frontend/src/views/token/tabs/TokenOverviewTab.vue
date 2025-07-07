@@ -277,7 +277,7 @@ const refreshTokens = async () => {
 }
 
 const viewToken = (token: any) => {
-    router.push(`/token/${token.canisterId}`)
+    router.push(`/tokens/${token.canisterId}`)
 }
 
 defineEmits<{

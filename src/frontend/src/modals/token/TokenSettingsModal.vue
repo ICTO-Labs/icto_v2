@@ -130,6 +130,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import { formatBalance } from '@/utils/numberFormat'

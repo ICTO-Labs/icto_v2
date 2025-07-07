@@ -120,6 +120,7 @@
 </template>
 
 <script setup lang="ts">
+// @ts-nocheck
 import { ref, computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import { formatCycles } from '@/utils/numberFormat'

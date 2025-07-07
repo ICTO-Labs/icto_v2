@@ -28,14 +28,18 @@ const defaultTokens = () => {
         PANDA: "druyg-tyaaa-aaaaq-aactq-cai",
         DCD: "xsi2v-cyaaa-aaaaq-aabfq-cai"
     };
-    };
-    
-    export const DEFAULT_TOKENS = defaultTokens();
-    
-    export const ICTO_BACKEND_CANISTER_ID = import.meta.env.VITE_BACKEND_CANISTER_ID;
-    
-    // Token Canister IDs
-    export const CKUSDC_CANISTER_ID = 'xevnm-gaaaa-aaaar-qafnq-cai';
-    export const CKUSDT_CANISTER_ID = import.meta.env.VITE_CANISTER_ID_CKUSDT_LEDGER;
-    export const ICP_CANISTER_ID = import.meta.env.VITE_CANISTER_ID_ICP_LEDGER;
-    export const DEFAULT_DIALOG_CLOSE_DELAY = 3000;
+};
+
+export const DEFAULT_TOKENS = defaultTokens();
+
+export const KEEP_MODALS_ON_ASSETS_OPEN = true;
+export const MODALS_LIST_ON_ASSETS_OPEN = ['addNewToken', 'sendToken', 'receiveToken', 'confirmSendToken'];
+
+
+export const ICTO_BACKEND_CANISTER_ID = import.meta.env.VITE_BACKEND_CANISTER_ID;
+
+// Token Canister IDs
+export const CKUSDC_CANISTER_ID = 'xevnm-gaaaa-aaaar-qafnq-cai';
+export const CKUSDT_CANISTER_ID = import.meta.env.VITE_CANISTER_ID_CKUSDT_LEDGER;
+export const ICP_CANISTER_ID = import.meta.env.VITE_CANISTER_ID_ICP_LEDGER;
+export const DEFAULT_DIALOG_CLOSE_DELAY = 3000;

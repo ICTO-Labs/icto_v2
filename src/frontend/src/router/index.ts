@@ -15,18 +15,19 @@ const router = createRouter({
       },
     },
     {
-      path: '/token',
-      name: 'Token',
+      path: '/tokens',
+      name: 'Tokens',
       component: () => import('../views/Token/Overview.vue'),
       meta: {
-        title: 'Token',
-        requiresAuth: true
+        title: 'Tokens Center',
       },
     },
     {
-      path: '/token/:id',
+      path: '/tokens/:id',
       component: () => import('../views/Token/TokenDetail.vue'),
-      meta: { requiresAuth: true }
+      meta: { 
+        title: 'Token Detail',
+      }
     },
     {
       path: '/calendar',
