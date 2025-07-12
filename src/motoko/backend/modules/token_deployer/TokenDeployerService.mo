@@ -51,7 +51,10 @@ module TokenDeployerService {
                         
                         let preparedArgs = {
                             config = tokenConfig;
-                            deploymentConfig = deploymentConfig;
+                            deploymentConfig = {
+                                deploymentConfig with
+                                tokenOwner = ?caller; // Set the caller as the token owner, not from the frontend
+                            };
                             targetCanister = null; // Backend always creates new canisters
                         };
 

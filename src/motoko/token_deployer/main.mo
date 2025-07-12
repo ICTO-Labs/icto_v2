@@ -506,7 +506,7 @@ actor TokenDeployerModule {
 
         Debug.print("Deployment " # pendingId # ": Step 3 - Transferring ownership of " # Principal.toText(canisterId));
         let enableCycleOps = Option.get(deploymentConfig.enableCycleOps, false);
-        let ownershipRes = await transferOwnership(canisterId, deploymentConfig.tokenOwner, enableCycleOps);
+        let ownershipRes = await transferOwnership(canisterId, Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenDeployerModule)), enableCycleOps);
         switch(ownershipRes) {
             case (#err(msg)) {
                 _updatePendingStatus(pendingId, #OwnershipFailed(canisterId), ?msg);
@@ -708,7 +708,7 @@ actor TokenDeployerModule {
                     };
                     case (#ok()) {
                         // Transfer ownership
-                        let ownershipResult = await transferOwnership(canister, deploymentConfig.tokenOwner, enableCycleOps);
+                        let ownershipResult = await transferOwnership(canister, Option.get(deploymentConfig.tokenOwner, caller), enableCycleOps);
                         
                         switch (ownershipResult) {
                             case (#err(error)) {
@@ -822,7 +822,7 @@ actor TokenDeployerModule {
                         node_max_memory_size_bytes = ?(1024 * 1024 * 1024);
                         max_message_size_bytes = ?(128 * 1024);
                         cycles_for_archive_creation = ?archiveCycles;
-                        controller_id = deploymentConfig.tokenOwner;//Set token owner as controller of this canister
+                        controller_id = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenDeployerModule));//Set token owner as controller of this canister
                         max_transactions_per_response = null;
                         more_controller_ids = ?[Principal.fromActor(TokenDeployerModule)];
                     }

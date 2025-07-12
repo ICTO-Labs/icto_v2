@@ -77,6 +77,12 @@
                         </div>
                     </dl>
                 </div>
+                <div class="flex justify-start bg-red-50 dark:bg-red-900/20 rounded-lg" v-if="errorMessage">
+                    <p class="text-sm text-red-500 dark:text-red-400 rounded-lg p-2 flex items-center">
+                        <OctagonAlertIcon class="w-4 h-4 mr-2 text-red-500 dark:text-red-400" />
+                        {{ errorMessage }}
+                    </p>
+                </div>
             </div>
         </template>
 
@@ -108,7 +114,7 @@
 import { ref, computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import { formatNumber } from '@/utils/numberFormat'
-import { LoaderIcon } from 'lucide-vue-next'
+import { LoaderIcon, OctagonAlertIcon } from 'lucide-vue-next'
 import BaseModal from '../core/BaseModal.vue'
 import { toast } from 'vue-sonner'
 import { useSwal } from '@/composables/useSwal2'
@@ -130,13 +136,20 @@ const tokenData = computed<TokenData | undefined>(() => modalStore.getData('burn
 const amount = ref('')
 const memo = ref('')
 const isLoading = ref(false)
-
+const errorMessage = ref('')
 const isValid = computed(() => {
+    errorMessage.value = ''
     if (!amount.value || !tokenData.value) return false
     try {
         const burnAmount = BigInt(amount.value)
-        return burnAmount > 0n && burnAmount <= tokenData.value.token.totalSupply
+        if (burnAmount > tokenData.value.token.totalSupply) {
+            tokenData.value.token.totalSupply = 0n
+            errorMessage.value = 'Insufficient supply to burn'
+            return false
+        }
+        return true
     } catch {
+        errorMessage.value = 'Invalid amount'
         return false
     }
 })

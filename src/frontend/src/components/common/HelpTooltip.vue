@@ -40,7 +40,7 @@ const props = defineProps({
         },
         position: {
             type: String,
-            default: 'bottom',
+            default: 'top',
             validator: (value: string) => ['top', 'bottom', 'left', 'right'].includes(value)
         },
         hideDelay: {

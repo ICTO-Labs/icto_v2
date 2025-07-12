@@ -17,7 +17,7 @@ const router = createRouter({
     {
       path: '/tokens',
       name: 'Tokens',
-      component: () => import('../views/Token/Overview.vue'),
+      component: () => import('../views/Token/Index.vue'),
       meta: {
         title: 'Tokens Center',
       },

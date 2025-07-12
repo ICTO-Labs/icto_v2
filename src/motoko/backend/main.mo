@@ -221,7 +221,7 @@ actor Backend {
                         tokenName = req.tokenConfig.name;
                         tokenSymbol = req.tokenConfig.symbol;
                         totalSupply = req.tokenConfig.totalSupply;
-                        standard = "ICRC1";
+                        standard = "ICRC2";
                         deploymentConfig = debug_show(req.deploymentConfig);
                     });
                     case (#Template(_)) #Template("template");

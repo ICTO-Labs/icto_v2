@@ -125,7 +125,7 @@ module TokenDeployer {
     };
     
     public type DeploymentConfig = {
-        tokenOwner: Principal;
+        tokenOwner: ?Principal;
         enableCycleOps: ?Bool;
         cyclesForInstall: ?Nat;
         cyclesForArchive: ?Nat;
