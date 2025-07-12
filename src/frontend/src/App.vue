@@ -5,6 +5,17 @@
       <RouterView />
       <AppAssets />
       <ModalManager />
+      <ProgressDialog
+        :visible="progress.visible.value"
+        :steps="progress.steps.value"
+        :current-step="progress.currentStep.value"
+        :loading="progress.loading.value"
+        :error="progress.error.value || undefined"
+        :title="progress.title.value"
+        :subtitle="progress.subtitle.value"
+        @close="progress.close"
+        :on-retry-step="progress.onRetryStep.value"
+      />
     </SidebarProvider>
   </ThemeProvider>
 </template>
@@ -20,6 +31,9 @@ import SidebarProvider from '@/components/layout/SidebarProvider.vue'
 import ModalManager from '@/modals/core/ModalManager.vue'
 import AppAssets from '@/components/layout/AppAssets.vue'
 import { createAssetsContext } from '@/composables/useAssets'
+import { ProgressDialog } from '@/components/common'
+import { useProgressDialog } from '@/composables/useProgressDialog'
+const progress = useProgressDialog()
 
 const authStore = useAuthStore();
 
