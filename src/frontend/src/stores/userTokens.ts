@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { backendService } from '@/api/services/backend';
+import { IcrcService } from '@/api/services/icrc';
 import { DEFAULT_TOKENS } from '@/config/constants';
 import { BackendUtils } from '@/utils/backend';
 import type { Token } from '@/types/token';
+import { useAuthStore } from './auth';
 
 interface SyncTokensResult {
     tokensToAdd: Token[];
@@ -34,6 +36,24 @@ const tokenDetailsCache = new Map<string, Token>();
 // Helper to create namespaced storage keys
 const getStorageKey = (key: string) => `${AUTH_NAMESPACE}:${key}`;
 
+// Custom replacer and reviver for BigInt
+const json = {
+    stringify(value: any): string {
+        const replacer = (key: string, value: any) =>
+            typeof value === 'bigint' ? `BIGINT::${value.toString()}` : value;
+        return JSON.stringify(value, replacer);
+    },
+    parse(text: string): any {
+        const reviver = (key: string, value: any) => {
+            if (typeof value === 'string' && value.startsWith('BIGINT::')) {
+                return BigInt(value.substring(8));
+            }
+            return value;
+        };
+        return JSON.parse(text, reviver);
+    }
+};
+
 // Storage operations
 const storage = {
     get(key: keyof typeof STORAGE_KEYS): string | null {
@@ -47,7 +67,7 @@ const storage = {
 
     set(key: keyof typeof STORAGE_KEYS, value: any): void {
         try {
-            localStorage.setItem(getStorageKey(STORAGE_KEYS[key]), JSON.stringify(value));
+            localStorage.setItem(getStorageKey(STORAGE_KEYS[key]), json.stringify(value));
         } catch (error) {
             console.error(`Error setting ${key} in storage:`, error);
         }
@@ -63,6 +83,8 @@ const storage = {
         }
     }
 };
+
+import type { Principal } from '@dfinity/principal';
 
 export const useUserTokensStore = defineStore('userTokens', () => {
     // State
@@ -111,11 +133,11 @@ export const useUserTokensStore = defineStore('userTokens', () => {
         const storedEnabledTokens = storage.get('ENABLED_TOKENS');
 
         if (storedTokens) {
-            tokenData.value = new Map(JSON.parse(storedTokens));
+            tokenData.value = new Map(json.parse(storedTokens));
         }
 
         if (storedEnabledTokens) {
-            enabledTokens.value = new Set(JSON.parse(storedEnabledTokens));
+            enabledTokens.value = new Set(json.parse(storedEnabledTokens));
         }
 
         if (!enabledTokens.value.size) {
@@ -138,35 +160,51 @@ export const useUserTokensStore = defineStore('userTokens', () => {
     }
 
     async function getTokenDetails(canisterId: string): Promise<Token | null> {
-        if (tokenDetailsCache.has(canisterId)) {
-            return tokenDetailsCache.get(canisterId.toString()) || null;
+        const normalizedId = canisterId.toString();
+
+        // 1. Check local cache first
+        if (tokenDetailsCache.has(normalizedId)) {
+            return tokenDetailsCache.get(normalizedId) || null;
+        }
+        if (tokenData.value.has(normalizedId)) {
+            const token = tokenData.value.get(normalizedId)!;
+            tokenDetailsCache.set(normalizedId, token);
+            return token;
         }
 
-        if (tokenData.value.has(canisterId)) {
-            const token = tokenData.value.get(canisterId) as Token;
-            if (token) {
-                tokenDetailsCache.set(canisterId.toString(), token);
-                return token;
-            }
-        }
-
+        // 2. Try fetching from the backend service (for known/popular tokens)
         try {
-            const [token] = await backendService.getDefaultTokens([canisterId]) as Token[];
-            if (token) {
-                tokenDetailsCache.set(canisterId.toString(), token);
-                tokenData.value.set(canisterId.toString(), token);
-                await debouncedUpdateStorage();
-                return token;
+            const [tokenFromBackend] = await backendService.getDefaultTokens([normalizedId]);
+            // Ensure the returned token matches the requested canister ID
+            if (tokenFromBackend && tokenFromBackend.canisterId.toString() === normalizedId) {
+                tokenDetailsCache.set(normalizedId, tokenFromBackend);
+                return tokenFromBackend;
             }
         } catch (error) {
-            console.error(`[UserTokens] Error fetching token details for ${canisterId}:`, error);
+            console.warn(`[UserTokens] Could not fetch ${normalizedId} from backend, will try ICRC.`, error);
         }
 
+        // 3. Fallback to direct ICRC canister query
+        try {
+            const tokenFromCanister = await IcrcService.getIcrc1Metadata(normalizedId);
+            if (tokenFromCanister) {
+                tokenDetailsCache.set(normalizedId, tokenFromCanister);
+                return tokenFromCanister;
+            }
+        } catch (error) {
+            console.error(`[UserTokens] ICRC metadata fetch failed for ${normalizedId}:`, error);
+        }
+
+        // 4. If all fails, return null
         return null;
     }
 
     async function enableToken(token: Token) {
         if (!token?.canisterId) return;
+
+        if (enabledTokens.value.has(token.canisterId.toString())) {
+            throw new Error('Token already exists.');
+        }
 
         enabledTokens.value.add(token.canisterId.toString());
         tokenData.value.set(token.canisterId.toString(), token);
@@ -222,7 +260,42 @@ export const useUserTokensStore = defineStore('userTokens', () => {
         storage.clear();
     }
 
-    return {
+    async function refreshAllBalances(): Promise<void> {
+        const authStore = useAuthStore();
+        const principal = authStore.principal;
+
+        if (!principal) {
+            console.warn("[UserTokens] Cannot refresh balances without a principal.");
+            return;
+        }
+
+        const enabledTokens = enabledTokensList.value;
+        if (enabledTokens.length === 0) {
+            return; // Nothing to refresh
+        }
+
+        try {
+            const balances = await IcrcService.batchGetBalances(enabledTokens, principal.toString());
+            
+            balances.forEach((balance, canisterId) => {
+                const token = tokenData.value.get(canisterId);
+                if (token) {
+                    const updatedToken = {
+                        ...token,
+                        balance: balance, // Update the balance
+                    };
+                    tokenData.value.set(canisterId, updatedToken);
+                }
+            });
+
+            await debouncedUpdateStorage();
+            console.log("[UserTokens] Balances refreshed successfully.");
+        } catch (error) {
+            console.error("[UserTokens] Error refreshing balances:", error);
+        }
+    }
+
+    return { 
         // State
         enabledTokens,
         tokenData,
@@ -236,6 +309,7 @@ export const useUserTokensStore = defineStore('userTokens', () => {
         initialize,
         setPrincipal,
         getTokenDetails,
+        refreshAllBalances,
         enableToken,
         disableToken,
         refreshTokenData,

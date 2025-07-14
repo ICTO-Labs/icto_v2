@@ -30,8 +30,7 @@ const handleRefreshBalance = async (showNoti: boolean = true) => {
     try {
         isRefreshing.value = true
         const balance = await IcrcService.getIcrc1Balance(props.token, Principal.fromText(authStore.principal as string))
-        
-        if (balance && typeof balance === 'bigint') {
+        if (typeof balance === 'bigint') {
             tokenBalance.value = balance
             emit('balanceUpdate', balance)
             console.log('balance', balance)
@@ -39,7 +38,7 @@ const handleRefreshBalance = async (showNoti: boolean = true) => {
                 toast.success('Balance updated')
             }
         } else {
-            throw new Error('Invalid balance response')
+            throw new Error('Invalid balance response: ' + balance)
         }
     } catch (error) {
         console.error('Error refreshing balance:', error)

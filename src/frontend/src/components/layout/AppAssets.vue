@@ -67,12 +67,12 @@
                                         <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 text-xs">
                                             <span class="text-gray-400 dark:text-gray-500">Principal ID:</span>
                                             <span class="font-mono truncate max-w-[120px]">{{ shortPrincipalValue }}</span>
-                                            <CopyIcon :data="shortPrincipalValue" class="w-3.5 h-3.5" />
+                                            <CopyIcon :data="principalValue || ''" class="w-3.5 h-3.5" />
                                         </div>
                                         <div class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300 text-xs">
                                             <span class="text-gray-400 dark:text-gray-500">Account ID:</span>
                                             <span class="font-mono truncate max-w-[120px]">{{ shortAccountValue }}</span>
-                                            <CopyIcon :data="shortAccountValue" class="w-3.5 h-3.5" />
+                                            <CopyIcon :data="addressValue || ''" class="w-3.5 h-3.5" />
                                         </div>
                                     </div>
                                 </div>
@@ -88,8 +88,10 @@
                                             <ShuffleIcon class="w-3.5 h-3.5" /> Sync
                                         </button>
                                         <button 
-                                            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-                                            <RefreshCcwIcon class="w-3.5 h-3.5" /> Reload balance
+                                            @click="handleRefreshBalances"
+                                            :disabled="isRefreshing"
+                                            class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">
+                                            <RefreshCcwIcon :class="{ 'animate-spin': isRefreshing }" class="w-3.5 h-3.5" /> Reload balance
                                         </button>
                                     </div>
                                 </div>
@@ -102,12 +104,12 @@
                                         </div>
                                         <div>
                                             <p class="text-sm dark:text-white">{{ token.name }}</p>
-                                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ token.symbol }} · {{ maskedValue(token.balance?.toString() || '0') }}</p>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400">{{ token.symbol }} · {{ maskedValue(formatBalance(token.balance ?? 0, token.decimals)) }}</p>
                                         </div>
                                     </div>
                                     <!-- Token Value (visible when not hovering) -->
                                     <div class="text-right group-hover:hidden">
-                                        <p class="text-sm font-medium dark:text-white">{{ maskedValue(token?.metrics?.price?.toString() || '0') }}</p>
+                                        <p class="text-sm font-medium dark:text-white">${{ formatToNonZeroDecimal(token?.metrics?.price ?? 0) }}</p>
                                     </div>
                                     <!-- Action Buttons (visible on hover) -->
                                     <div class="hidden group-hover:flex items-center gap-2">
@@ -146,33 +148,49 @@
 </template>
 
 <script setup lang="ts">
-import { Transition, onMounted, onUnmounted } from 'vue'
-import { useAssets } from '@/composables/useAssets'
-import { useAuthStore } from '@/stores/auth'
-import { useModalStore } from '@/stores/modal'
-import { CopyIcon } from '@/icons'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
+import { storeToRefs } from 'pinia';
+import { useAuthStore } from '@/stores/auth';
+import { useModalStore } from '@/stores/modal';
+import { useUserTokensStore } from '@/stores/userTokens';
+import { useAssets } from '@/composables/useAssets';
+import { copyToClipboard, shortAccount, shortPrincipal } from '@/utils/common';
+import { formatBalance, formatToNonZeroDecimal } from '@/utils/numberFormat';
+import { useSwal } from '@/composables/useSwal2';
+import type { SweetAlertResult } from 'sweetalert2';
 import { 
-    LogOutIcon, XIcon, ArrowLeftIcon, EyeIcon, EyeOffIcon,
-    ArrowUpIcon, ArrowDownIcon, RefreshCcwIcon, ShuffleIcon, PlusCircleIcon, TrashIcon 
-} from 'lucide-vue-next'
-import { watch, computed, ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import { shortAccount, shortPrincipal, copyToClipboard } from '@/utils/common'
-import type { Token } from '@/types/token'
-import { useUserTokensStore } from '@/stores/userTokens'
-import { MODALS_LIST_ON_ASSETS_OPEN } from '@/config/constants'
-import { useSwal } from '@/composables/useSwal2'
+    RefreshCcwIcon, EyeIcon, EyeOffIcon, ArrowLeftIcon, 
+    LogOutIcon, XIcon, ShuffleIcon, ArrowUpIcon, ArrowDownIcon, PlusCircleIcon, TrashIcon 
+} from 'lucide-vue-next';
+import type { Token } from '@/types/token';
+import { CopyIcon } from '@/icons';
+import { MODALS_LIST_ON_ASSETS_OPEN } from '@/config/constants';
 
 const userTokensStore = useUserTokensStore();
-const { tokens } = storeToRefs(userTokensStore);
+const isRefreshing = ref(false);
+const { enabledTokensList: tokens } = storeToRefs(userTokensStore);
+
+async function handleRefreshBalances() {
+    isRefreshing.value = true;
+    try {
+        await userTokensStore.refreshAllBalances();
+    } catch (error) {
+        console.error("Failed to refresh balances:", error);
+        // Optionally, show an error message to the user
+    } finally {
+        isRefreshing.value = false;
+    }
+};
 
 const authStore = useAuthStore()
 const modalStore = useModalStore()
 const { isOpen, totalValue, totalAssets, closeAssets } = useAssets()
 
 // Computed values for wallet info
-const shortPrincipalValue = computed(() => shortPrincipal(authStore.principal || ''))
-const shortAccountValue = computed(() => shortAccount(authStore.address || ''))
+const principalValue = computed(() => authStore.principal)
+const addressValue = computed(() => authStore.address)
+const shortPrincipalValue = computed(() => shortPrincipal(principalValue.value || ''))
+const shortAccountValue = computed(() => shortAccount(addressValue.value || ''))
 
 // Check if any child modal is open
 const hasOpenChildModal = computed(() => {
@@ -190,7 +208,7 @@ const handleRemoveToken = async (token: any) => {
         confirmButtonColor: '#3085d6',
         cancelButtonColor: '#d33',
         confirmButtonText: 'Remove'
-        }).then((result) => {
+        }).then((result: SweetAlertResult) => {
         if (result.isConfirmed) {
             userTokensStore.disableToken(token.canisterId)
             useSwal.fire('Removed!', 'Token removed successfully.', 'success')
@@ -221,7 +239,7 @@ const handleDisconnect = async () => {
         confirmButtonColor: '#3085d6',
         cancelButtonColor: '#d33',
         confirmButtonText: 'Disconnect'
-    }).then((result) => {
+    }).then((result: SweetAlertResult) => {
         if (result.isConfirmed) {
             authStore.disconnectWallet()
             closeAssets()

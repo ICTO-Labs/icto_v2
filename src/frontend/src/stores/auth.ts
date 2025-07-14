@@ -109,7 +109,7 @@ export const useAuthStore = defineStore('auth', () => {
                 try {
                     await userTokensStore.setPrincipal(result.owner);
                     await userTokensStore.refreshTokenData();
-                    await fetchBalances(tokens.value, result.owner?.toString(), true);
+                    await userTokensStore.refreshAllBalances();
                 } catch (error) {
                     console.error("Error loading balances:", error);
                 }

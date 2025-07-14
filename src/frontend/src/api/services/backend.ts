@@ -24,8 +24,17 @@ export class backendService {
         if (cached && (now - cached.timestamp) < this.CACHE_TTL) {
             return cached.promise;
         }
-        const tokens = await backendActor({ anon: true }).getDefaultTokens();
-        const serializedTokens = tokens.map(token => BackendUtils.serializeTokenMetadata(token));
-        return serializedTokens;
+        const allTokens = await backendActor({ anon: true }).getDefaultTokens();
+        const serializedTokens = allTokens.map(token => BackendUtils.serializeTokenMetadata(token));
+
+        // Filter out any null/undefined tokens from serialization before further processing
+        const validSerializedTokens = serializedTokens.filter((token): token is Token => !!token);
+
+        // Filter the results to only include the requested canister IDs
+        const filteredTokens = validSerializedTokens.filter(token => 
+            validCanisterIds.includes(token.canisterId.toString())
+        );
+
+        return filteredTokens;
     }
 }

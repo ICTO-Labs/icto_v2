@@ -6,6 +6,8 @@ import { hexStringToUint8Array } from "@dfinity/utils";
 import { hex2Bytes } from "@/utils/common";
 import type { TransferArgs } from "@dfinity/ledger-icp/dist/candid/ledger";
 
+import type { IcrcTokenMetadataResponse } from "@dfinity/ledger-icrc";
+
 export class IcrcService {
     private static MAX_CONCURRENT_REQUESTS = 25;
 
@@ -37,6 +39,46 @@ export class IcrcService {
 
         await Promise.all(executing);
         return results;
+    }
+
+    public static async getIcrc1Metadata(canisterId: string): Promise<Token | null> {
+        try {
+            const actor = icrcActor({
+                canisterId: canisterId.toString(),
+                anon: true,
+            });
+
+            const metadata = await actor.icrc1_metadata();
+            const fee = await actor.icrc1_fee();
+            const standards = await actor.icrc1_supported_standards();
+
+            const token: Partial<Token> = {
+                canisterId: canisterId.toString(),
+                fee: Number(fee),
+                standards: standards.map((standard) => standard.name),
+            };
+
+            metadata.forEach(([key, value]) => {
+                if ('Text' in value) {
+                    if (key === 'icrc1:name') token.name = value.Text;
+                    if (key === 'icrc1:symbol') token.symbol = value.Text;
+                    if (key === 'icrc1:logo') token.logoUrl = value.Text;
+                } else if ('Nat' in value) {
+                    if (key === 'icrc1:decimals') token.decimals = Number(value.Nat);
+                }
+            });
+
+            // Basic validation
+            if (!token.name || !token.symbol || typeof token.decimals === 'undefined') {
+                console.error(`Incomplete metadata for canister ${canisterId}`);
+                return null;
+            }
+
+            return token as Token;
+        } catch (error) {
+            console.error(`Error getting ICRC1 metadata for ${canisterId}:`, error);
+            return null;
+        }
     }
     public static async getIcrc1Balance(
         token: Token,
