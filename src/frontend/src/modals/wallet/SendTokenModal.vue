@@ -66,13 +66,17 @@
                             MAX
                         </button>
                     </div>
-                    <div class="flex justify-between items-center">
+                    <div class="flex justify-between items-center" v-if="!isMintAccount">
                         <span class="text-xs text-gray-500 dark:text-gray-400">
                             Available: <span class="font-semibold">{{ formatBalance(tokenBalance - tokenFee, token?.decimals || 8) }} {{ token?.symbol }}</span>
                         </span>
                         <span class="text-xs text-gray-500 dark:text-gray-400">
                             Network Fee: <span class="font-semibold">{{ formatBalance(tokenFee, token?.decimals || 8) }} {{ token?.symbol }}</span>
                         </span>
+                    </div>
+                    <div v-else class="text-xs text-yellow-500 dark:text-yellow-400 flex items-center">
+                        <AlertOctagon class="w-4 h-4 inline-block mr-1" />
+                        <span>You are using a minting account</span>
                     </div>
                     <p v-if="!amountValidation.isValid" class="mt-1 text-sm text-red-500">
                         {{ amountValidation.errorMessage }}
@@ -86,7 +90,7 @@
                 :disabled="!isValid || props.loading"
                 class="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800" tabindex="3"
             >
-                Preview Transfer
+                {{ isMintAccount ? 'Preview Mint' : 'Preview Transfer' }}
             </button>
         </template>
     </BaseModal>
@@ -101,6 +105,9 @@ import { validateTokenAmount, validateAddress } from '@/utils/validation'
 import { formatBalance } from '@/utils/numberFormat'
 import { toast } from 'vue-sonner'
 import TokenBalance from '@/components/token/TokenBalance.vue'
+import { IcrcService } from '@/api/services/icrc'
+import { useAuthStore } from '@/stores/auth'
+import { AlertOctagon } from 'lucide-vue-next'
 const props = defineProps({
     loading: {
         type: Boolean,
@@ -130,14 +137,22 @@ const token = computed(() => {
     return tokenData || null
 })
 
+const auth = useAuthStore()
+
 // Form state
 const amount = ref('')
 const toPrincipal = ref('')
 const amountFocused = ref(false)
 const principalFocused = ref(false)
 const tokenBalance = ref(0n)
+const isMintAccount = ref(false)
 // Validation
-const amountValidation = computed(() => validateTokenAmount(amount.value, tokenBalance.value, token.value?.decimals || 0))
+const amountValidation = computed(() => {
+    if (isMintAccount.value) {
+        return { isValid: true, errorMessage: '' }
+    }
+    return validateTokenAmount(amount.value, tokenBalance.value, token.value?.decimals || 0)
+})
 const principalValidation = computed(() => validateAddress(toPrincipal.value, token.value?.symbol || '', token.value?.name || ''))
 const isValid = computed(() => amountValidation.value.isValid && principalValidation.value.isValid)
 
@@ -194,16 +209,20 @@ const handlePreview = () => {
         tokenFee: tokenFee.value.toString(),
         toPrincipal: toPrincipal.value.trim(),
         tokenBalance: tokenBalance.value.toString(),
+        isMinting: isMintAccount.value // send flag to confirm send token modal
     })
     modalStore.close('sendToken')
 }
 const handleBalanceUpdate = (balance: bigint) => {
     tokenBalance.value = balance
-    if (balance < (amount.value + tokenFee.value)) {
+    if (balance < (amount.value + tokenFee.value) && !isMintAccount.value) {
         toast.error('Insufficient balance for this transaction')
     }
 }
-
+onMounted(async () => {
+    isMintAccount.value = await IcrcService.isMintAccount(token.value, auth.principal)
+    console.log('Is Mint Account:', isMintAccount.value)
+})
 </script>
 
 <style scoped>

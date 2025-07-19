@@ -1,10 +1,10 @@
 import { useAuthStore, icrcActor, icpActor } from "@/stores/auth";
 import type { Token } from "@/types/token";
-import type { IcrcAccount, IcrcTransferArg } from "@dfinity/ledger-icrc";
+import type { IcrcAccount, IcrcTransferArg, ApproveParams } from "@dfinity/ledger-icrc";
 import { Principal } from "@dfinity/principal";
 import { hexStringToUint8Array } from "@dfinity/utils";
 import { hex2Bytes } from "@/utils/common";
-import type { TransferArgs } from "@dfinity/ledger-icp/dist/candid/ledger";
+import type { AllowanceArgs, ApproveArgs, TransferArgs } from "@dfinity/ledger-icp/dist/candid/ledger";
 
 import type { IcrcTokenMetadataResponse } from "@dfinity/ledger-icrc";
 
@@ -240,6 +240,86 @@ export class IcrcService {
         }
     }
 
+    public static async icrc2Approve(
+        token: Token,
+        spender: Principal,
+        amount: bigint,
+        opts: {
+            memo?: Uint8Array;
+            fee?: bigint;
+            fromSubaccount?: number[];
+            createdAtTime?: bigint;
+            expiresAt?: bigint;
+            expectedAllowance?: bigint;
+        } = {},
+    ): Promise<any> {
+        try {
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: false,
+                requiresSigning: true,
+            });
+
+            const approveFee = opts.fee ?? BigInt(await this.getTokenFee(token));
+            console.log('approveFee', approveFee);
+            
+            const approveArgs: ApproveArgs = {
+                spender: {
+                    owner: spender,
+                    subaccount: [],
+                },
+                amount,
+                fee: approveFee ? [approveFee] : [],
+                memo: opts.memo ? [opts.memo] : [],
+                from_subaccount: opts.fromSubaccount ? [opts.fromSubaccount] : [],
+                created_at_time: opts.createdAtTime ? [opts.createdAtTime] : [],
+                expires_at: opts.expiresAt ? [opts.expiresAt] : [],
+                expected_allowance: opts.expectedAllowance ? [opts.expectedAllowance] : [],
+            };
+
+            console.log('ICRC2 Approve Args:', approveArgs);
+
+            const result = await actor.icrc2_approve(approveArgs);
+            return result;
+        } catch (error) {
+            console.error("ICRC2 Approve error:", error);
+            const stringifiedError = JSON.stringify(error, (_, value) =>
+                typeof value === "bigint" ? value.toString() : value,
+            );
+            return { Err: JSON.parse(stringifiedError) };
+        }
+    }
+
+    public static async getIcrc2Allowance(
+        token: Token,
+        owner: Principal,
+        spender: Principal,
+        fromSubaccount?: Uint8Array | number[]
+    ): Promise<bigint> {
+        try {
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: true,
+            });
+
+            const allowanceArgs: AllowanceArgs = {
+                account: {
+                    owner: owner,
+                    subaccount: fromSubaccount ? [fromSubaccount] as [Uint8Array | number[]] : [],
+                },
+                spender: {
+                    owner: spender,
+                    subaccount: [],
+                },
+            };
+            const result = await actor.icrc2_allowance(allowanceArgs);
+            return result.allowance;
+        } catch (error) {
+            console.error(`Error getting ICRC2 allowance for ${token.symbol}:`, error);
+            return BigInt(0);
+        }
+    }
+
     public static async transfer(
         token: Token,
         to: string | Principal | IcrcAccount,
@@ -336,6 +416,39 @@ export class IcrcService {
                 typeof value === "bigint" ? value.toString() : value,
             );
             return { Err: JSON.parse(stringifiedError) };
+        }
+    }
+
+    //Check if principal is a mint account
+    public static async isMintAccount(token: Token, principal: Principal): Promise<boolean> {
+        try {
+            // Validate input
+            if (!token?.canisterId) {
+                throw new Error('Invalid token: canisterId is required');
+            }
+            
+            if (!principal) {
+                throw new Error('Invalid principal: principal is required');
+            }    
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: true,
+            });
+            const result = await actor.icrc1_minting_account();
+            if (!result || !Array.isArray(result)) {
+                console.warn('No minting accounts found or invalid response:', result);
+                return false;
+            }
+            const isMintAccount = result.some((account) => {
+                if (!account?.owner) {
+                    return false;
+                }
+                return account.owner.toString() === principal.toString();
+            });
+            return isMintAccount;
+        } catch (error) {
+            console.error('Error checking if principal is a mint account:', error);
+            return false;
         }
     }
 }

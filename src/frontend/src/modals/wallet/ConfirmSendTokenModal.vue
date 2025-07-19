@@ -1,6 +1,6 @@
 <template>
     <BaseModal 
-        title="Confirm Transfer"
+        :title="isMinting ? 'Confirm Mint' : 'Confirm Transfer'"
         :is-open="modalStore.isOpen('confirmSendToken')" 
         @close="modalStore.close('confirmSendToken')"
         width="max-w-lg"
@@ -26,9 +26,17 @@
 
                     <!-- Network Fee -->
                     <div class="flex justify-between items-center">
-                        <span class="text-gray-500 dark:text-gray-400">Network Fee</span>
+                        <span class="text-gray-500 dark:text-gray-400">
+                            Network Fee
+                            <span v-if="isMinting" class="text-xs text-yellow-500 dark:text-yellow-400">
+                                MINT
+                            </span>
+                        </span>
                         <span class="font-medium text-gray-900 dark:text-white">
-                            {{ formatBalance(tokenFee, token?.decimals || 8) }} {{ token?.symbol }}
+                            <span v-if="isMinting">0 {{ token?.symbol }}</span>
+                            <span v-else>
+                                {{ formatBalance(tokenFee, token?.decimals || 8) }} {{ token?.symbol }}
+                            </span>
                         </span>
                     </div>
 
@@ -36,7 +44,10 @@
                     <div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-700">
                         <span class="text-gray-500 dark:text-gray-400">Total</span>
                         <span class="font-medium text-gray-900 dark:text-white">
-                            {{ formatBalance(amount + tokenFee, token?.decimals || 8) }} {{ token?.symbol }}
+                            <span v-if="isMinting">{{ formatBalance(amount, token?.decimals || 8) }} {{ token?.symbol }}</span>
+                            <span v-else>
+                                {{ formatBalance(amount + tokenFee, token?.decimals || 8) }} {{ token?.symbol }}
+                            </span>
                         </span>
                     </div>
                 </div>
@@ -55,7 +66,13 @@
                 </div>
 
                 <!-- Warning -->
-                <div class="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-900/20">
+                <div v-if="isMinting" class="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-900/20">
+                    <AlertTriangleIcon class="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
+                    <p class="text-sm text-yellow-700 dark:text-yellow-400">
+                        You are minting new tokens to this account. This action will increase the total supply. Please confirm carefully.
+                    </p>
+                </div>
+                <div v-else class="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-900/20">
                     <AlertTriangleIcon class="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
                     <p class="text-sm text-yellow-700 dark:text-yellow-400">
                         Please verify all details carefully. Transactions cannot be reversed once confirmed.
@@ -81,7 +98,7 @@
                     class="flex-1 rounded-lg bg-blue-600 px-4 py-2.5 text-center text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600 dark:focus:ring-blue-800"
                 >
                     <span v-if="loading">Processing...</span>
-                    <span v-else>Confirm Transfer</span>
+                    <span v-else>{{ isMinting ? 'Confirm Mint' : 'Confirm Transfer' }}</span>
                 </button>
             </div>
         </template>
@@ -98,9 +115,10 @@ import { AlertTriangleIcon, ArrowLeftIcon } from 'lucide-vue-next'
 import { CopyIcon } from '@/icons'
 import { formatBalance } from '@/utils/numberFormat'
 import { IcrcService } from '@/api/services/icrc'
-import { useDialog } from '@/composables/useDialog'
 import TokenBalance from '@/components/token/TokenBalance.vue'
 import { toast } from 'vue-sonner'
+import { useSwal } from '@/composables/useSwal2'
+import { handleTransferResult } from '@/utils/icrc'
 
 interface Props {
     token?: Token
@@ -121,7 +139,6 @@ const emit = defineEmits<{
 }>()
 
 const modalStore = useModalStore()
-const { alertDialog, successDialog, errorDialog } = useDialog()
 
 // Get token from modal store
 const token = computed(() => {
@@ -132,11 +149,13 @@ const token = computed(() => {
 const amount = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.amount || '0'))
 const toPrincipal = computed(() => modalStore.state?.confirmSendToken?.data?.toPrincipal || '')
 const tokenFee = computed(() => BigInt(modalStore.state?.confirmSendToken?.data?.tokenFee || '0'))
+const isMinting = computed(() => modalStore.state?.confirmSendToken?.data?.isMinting || false)
 const loading = ref(false)
+
 
 const handleBalanceUpdate = (balance: bigint) => {
     console.log('New balance:', balance)
-    if (balance < (amount.value + tokenFee.value)) {
+    if (balance < (amount.value + tokenFee.value) && !isMinting.value) {
         toast.error('Insufficient balance for this transaction')
     }
 }
@@ -162,20 +181,39 @@ const handleConfirm = async () => {
         loading.value = true
         const transferResult = await IcrcService.transfer(token.value, toPrincipal.value, amount.value, {
             memo: [],
-            fee: tokenFee.value,
+            fee: isMinting.value ? 0n : tokenFee.value,
             fromSubaccount: [],
             createdAtTime: 0n
         })
         console.log('Transfer Result:', transferResult)
-        if("Ok" in transferResult){
-            await successDialog('Transfer successful, txId: ' + transferResult.Ok.toString(), 'Success')
+        const transferResultData = handleTransferResult(transferResult)
+        if(transferResultData.success){
+            await useSwal.fire({
+                title: 'Transfer successful',
+                text: 'Transfer successful, txId: ' + transferResultData.data.toString(),
+                icon: 'success',
+                showCancelButton: false,
+                confirmButtonText: 'OK'
+            })
             modalStore.close('confirmSendToken')
         }else{
-            await errorDialog('Transfer failed: ' + JSON.stringify(transferResult.Err), 'Error')
+            await useSwal.fire({
+                title: 'Transfer failed',
+                text: transferResultData.error.message,
+                icon: 'error',
+                showCancelButton: false,
+                confirmButtonText: 'OK'
+            })
         }
     } catch (error) {
         console.error('Error confirming transfer:', error)
-        await errorDialog('Error confirming transfer: ' + JSON.stringify(error), 'Error')
+        await useSwal.fire({
+            title: 'Transfer failed',
+            text: error.message,
+            icon: 'error',
+            showCancelButton: false,
+            confirmButtonText: 'OK'
+        })
     } finally {
         loading.value = false
     }

@@ -104,15 +104,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import BaseModal from '@/modals/core/BaseModal.vue'
 import { RefreshCcwIcon } from 'lucide-vue-next'
-// import { debounce } from '@/utils/debounce'
 import type { Token } from '@/types/token'
 import { useUserTokensStore } from '@/stores/userTokens'
 import { useAuthStore } from '@/stores/auth'
 import BigNumber from 'bignumber.js'
+import { BackendUtils } from '@/utils/backend';
 
 const modalStore = useModalStore()
 const userTokensStore = useUserTokensStore()
@@ -123,93 +123,59 @@ const isAddingCustomToken = ref(false)
 const customTokenError = ref('')
 const isLoadingPreview = ref(false)
 const previewToken = ref<Token | null>(null)
-const lastPreviewedCanisterId = ref('')
-
-// Format canister ID
-function formatCanisterId(canisterId: string): string | null {
-    const trimmed = canisterId.trim()
-    if (trimmed.startsWith('IC.')) {
-        return trimmed
-    }
-    if (trimmed.includes('-')) {
-        return `IC.${trimmed}`
-    }
-    return null
-}
 
 // Format fee display
 function formatFee(fee: number) {
-    return new BigNumber(fee).div(new BigNumber(10).pow(8)).toString()
+    // Assuming fee is provided in the smallest unit, and decimals are known (e.g., 8 for ICP)
+    // This might need adjustment based on the actual token's decimals
+    return new BigNumber(fee).div(new BigNumber(10).pow(previewToken.value?.decimals || 8)).toString()
 }
 
 // Load token preview
-async function loadTokenPreview(forceRefresh = false) {
-    if (!customTokenCanisterId.value.trim()) {
+const loadTokenPreview = async (forceRefresh = false) => {
+    const canisterId = customTokenCanisterId.value.trim();
+    if (!canisterId) {
         customTokenError.value = ''
         previewToken.value = null
         return
     }
 
-    const formattedCanisterId = formatCanisterId(customTokenCanisterId.value)
-    if (!formattedCanisterId) {
-        customTokenError.value = 'Invalid canister ID format. Expected format: xxxxx-xxxxx-xxxxx-xxxxx-xxx'
-        previewToken.value = null
-        return
-    }
-
-    const canisterId = formattedCanisterId.startsWith('IC.') 
-        ? formattedCanisterId.substring(3) 
-        : formattedCanisterId
-
-    if (!forceRefresh && canisterId === lastPreviewedCanisterId.value && previewToken.value !== null) {
-        return
+    if (!forceRefresh && canisterId === previewToken.value?.canisterId) {
+        return;
     }
 
     isLoadingPreview.value = true
     customTokenError.value = ''
+    if (!forceRefresh) {
+        previewToken.value = null; // Clear previous preview unless forcing a refresh of the same ID
+    }
 
     try {
-        // TODO: Implement token metadata fetching
         const token = await userTokensStore.getTokenDetails(canisterId)
         if (token) {
             previewToken.value = token
-            lastPreviewedCanisterId.value = canisterId
         } else {
-            customTokenError.value = 'Could not fetch token metadata. Please check the canister ID.'
+            customTokenError.value = 'Token not found. Please check the canister ID.'
             previewToken.value = null
         }
     } catch (error) {
         console.error('Error fetching token preview:', error)
         customTokenError.value = error instanceof Error 
             ? error.message 
-            : 'Failed to fetch token preview. Please check the canister ID.'
+            : 'Failed to fetch token preview.'
         previewToken.value = null
     } finally {
         isLoadingPreview.value = false
     }
 }
 
-// Create debounced preview function
-// const debouncedPreview = debounce(() => loadTokenPreview(false), 500)
-
-// Reset preview if canister ID changes significantly
-function resetPreviewIfNeeded(newCanisterId: string) {
-    if (lastPreviewedCanisterId.value && newCanisterId) {
-        const strippedNew = newCanisterId.replace(/[^a-zA-Z0-9]/g, '')
-        const strippedLast = lastPreviewedCanisterId.value.replace(/[^a-zA-Z0-9]/g, '')
-        
-        if (strippedNew !== strippedLast) {
-            previewToken.value = null
-            lastPreviewedCanisterId.value = ''
-        }
-    }
-}
+// Debounced preview function
+const debouncedPreview = BackendUtils.debounce(() => loadTokenPreview(false), 300)
 
 // Watch for canister ID changes
 watch(customTokenCanisterId, (newValue) => {
     if (newValue.trim()) {
-        resetPreviewIfNeeded(newValue)
-        // debouncedPreview()
+        debouncedPreview()
     } else {
         previewToken.value = null
         customTokenError.value = ''
@@ -218,19 +184,13 @@ watch(customTokenCanisterId, (newValue) => {
 
 // Handle adding new token
 async function handleAddNewToken() {
-    if (!customTokenCanisterId.value.trim()) {
-        customTokenError.value = 'Please enter a valid canister ID'
-        return
-    }
-
-    const formattedCanisterId = formatCanisterId(customTokenCanisterId.value)
-    if (!formattedCanisterId) {
-        customTokenError.value = 'Invalid canister ID format. Expected format: xxxxx-xxxxx-xxxxx-xxxxx-xxx'
+    if (!previewToken.value) {
+        customTokenError.value = 'Please enter a valid canister ID and wait for the preview.'
         return
     }
 
     if (!authStore.isWalletConnected) {
-        customTokenError.value = 'You need to be logged in to add a token'
+        customTokenError.value = 'You need to be logged in to add a token.'
         return
     }
 
@@ -238,23 +198,20 @@ async function handleAddNewToken() {
     customTokenError.value = ''
 
     try {
-        if (previewToken.value) {
-            await userTokensStore.enableToken(previewToken.value)
-            modalStore.close('addNewToken')
-        } else {
-            throw new Error('No token preview available')
-        }
+        await userTokensStore.enableToken(previewToken.value)
+        modalStore.close('addNewToken')
     } catch (error) {
         console.error('Error adding custom token:', error)
         customTokenError.value = error instanceof Error 
             ? error.message 
-            : 'Failed to add token. Please check the canister ID and try again.'
+            : 'Failed to add token.'
     } finally {
         isAddingCustomToken.value = false
     }
 }
 
 const handlePaste = () => {
-    setTimeout(() => loadTokenPreview(true), 100)
+    // Use nextTick to ensure the pasted value is in the model
+    setTimeout(() => loadTokenPreview(true), 0);
 }
 </script> 

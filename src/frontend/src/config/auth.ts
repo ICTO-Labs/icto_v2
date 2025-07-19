@@ -71,19 +71,20 @@ export function initializePNP(): PNP {
         // Create a stable configuration object
         const config = {
             dfxNetwork: 'local',
-            hostUrl: import.meta.env.DFX_NETWORK !== "ic" ? "http://localhost:4943" : "https://icp0.io",
+            hostUrl: isDev ? "http://localhost:4943" : "https://icp0.io",
             replicaPort: 4943, // Replica port for local development
             frontendCanisterId,
             timeout: BigInt(30 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 30 days
             delegationTimeout: BigInt(30 * 24 * 60 * 60 * 1000 * 1000 * 1000), // 30 days
             delegationTargets,
-            derivationOrigin: isDev ? "http://localhost:4943" : "https://" + frontendCanisterId + ".icp0.io",
+            derivationOrigin: isDev ? "http://localhost:5173" : "https://" + frontendCanisterId + ".icp0.io",
             identityProvider: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
 
             adapters: {
                 ii: {
                     enabled: true,
                     config: {
+                        localIdentityCanisterId: import.meta.env.VITE_INTERNET_IDENTITY_CANISTER_ID,
                         identityProvider: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
                     }
                 },
