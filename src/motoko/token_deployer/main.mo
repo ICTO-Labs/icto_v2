@@ -31,6 +31,7 @@ import Helpers "../shared/utils/Helpers";
 import IC "../shared/utils/IC";
 import SNSWasm "../shared/utils/SNSWasm";
 import Hex "../shared/utils/Hex";
+import TokenValidation "../shared/utils/TokenValidation";
 
 actor TokenDeployerModule {
     
@@ -375,18 +376,19 @@ actor TokenDeployerModule {
             return #err(#Unauthorized);
         };
 
-        // 2. Validation
-        if (Text.size(config.symbol) > 8 or Text.size(config.symbol) < 2) {
-            return #err(#Validation("Token symbol must be 2-8 characters"));
-        };
-        if (Text.size(config.name) > 32 or Text.size(config.name) < 3) {
-            return #err(#Validation("Token name must be 3-32 characters"));
-        };
-        switch (config.logo) {
-            case (?logo) {
-                if (Text.size(logo) > 30_000) return #err(#Validation("Logo too large (max 30KB)"));
+        // 2. Validation using shared utility
+        let validationResult = TokenValidation.validateTokenConfig(config.symbol, config.name, config.logo);
+        switch (validationResult) {
+            case (#err(error)) {
+                let errorMsg = switch (error) {
+                    case (#InvalidSymbol(msg)) { msg };
+                    case (#InvalidName(msg)) { msg };
+                    case (#InvalidLogo(msg)) { msg };
+                    case (#Other(msg)) { msg };
+                };
+                return #err(#Validation(errorMsg));
             };
-            case null {};
+            case (#ok(_)) {};
         };
         
         let installCycles = Option.get(deploymentConfig.cyclesForInstall, cyclesForInstall);
@@ -608,19 +610,25 @@ actor TokenDeployerModule {
             return #err("Unauthorized: Only whitelisted backend can deploy tokens");
         };
         
-        // Validation
-        if (Text.size(config.symbol) > 8 or Text.size(config.symbol) < 2) {
-            return #err("Token symbol must be 2-8 characters");
-        };
-        if (Text.size(config.name) > 32 or Text.size(config.name) < 3) {
-            return #err("Token name must be 3-32 characters");
+        // Validation using shared utility
+        let validationResult = TokenValidation.validateTokenConfig(config.symbol, config.name, config.logo);
+        switch (validationResult) {
+            case (#err(error)) {
+                let errorMsg = switch (error) {
+                    case (#InvalidSymbol(msg)) { msg };
+                    case (#InvalidName(msg)) { msg };
+                    case (#InvalidLogo(msg)) { msg };
+                    case (#Other(msg)) { msg };
+                };
+                return #err(errorMsg);
+            };
+            case (#ok(_)) {};
         };
         
-        // Logo validation if provided
+        // Additional logo validation specific to this implementation
         switch (config.logo) {
             case (?logo) {
                 if (Text.size(logo) < 100) return #err("Logo too small (min 100 characters)");
-                if (Text.size(logo) > 30_000) return #err("Logo too large (max 30KB)");
             };
             case null {};
         };
@@ -807,7 +815,7 @@ actor TokenDeployerModule {
                     if (config.initialBalances.size() > 0) {
                         { owner = config.initialBalances[0].0.owner; subaccount = null }
                     } else {
-                        { owner = Principal.fromActor(TokenDeployerModule); subaccount = null }
+                        { owner = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenDeployerModule)); subaccount = null }
                     }
                 };
             };

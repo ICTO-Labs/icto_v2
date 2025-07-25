@@ -38,31 +38,34 @@ import TemplateDeployerTypes "./modules/template_deployer/TemplateDeployerTypes"
 import Common "./shared/types/Common";
 import Deployments "./shared/types/Deployments";
 
+// Shared Utils
+import TokenValidation "../shared/utils/TokenValidation";
+
 actor Backend {
 
     // ==================================================================================================
     // STATE MANAGEMENT
     // ==================================================================================================
-    
-    private stable var stableBackend: Principal = Principal.fromActor(Backend);
-    private stable var stableConfigState: ?ConfigTypes.StableState = null;
-    private stable var stableAuditState: ?AuditTypes.StableState = null;
-    private stable var stableUserState: ?UserTypes.StableState = null;
-    private stable var stablePaymentState: ?PaymentTypes.StableState = null;
-    private stable var stableMicroserviceState: ?MicroserviceTypes.StableState = null;
-    private stable var stableProjectState: ?ProjectTypes.StableState = null;
-    private stable var stableTokenSymbolRegistry: [(Text, Principal)] = [];
+
+    private stable var stableBackend : Principal = Principal.fromActor(Backend);
+    private stable var stableConfigState : ?ConfigTypes.StableState = null;
+    private stable var stableAuditState : ?AuditTypes.StableState = null;
+    private stable var stableUserState : ?UserTypes.StableState = null;
+    private stable var stablePaymentState : ?PaymentTypes.StableState = null;
+    private stable var stableMicroserviceState : ?MicroserviceTypes.StableState = null;
+    private stable var stableProjectState : ?ProjectTypes.StableState = null;
+    private stable var stableTokenSymbolRegistry : [(Text, Principal)] = [];
 
     // --- Runtime State (must be initialized) ---
-    private var owner: Principal = stableBackend;
-    private var configState: ConfigTypes.State = ConfigService.initState(stableBackend);
-    private var auditState: AuditTypes.State = AuditService.initState(stableBackend);
-    private var userState: UserTypes.State = UserService.initState(stableBackend);
-    private var paymentState: PaymentTypes.State = PaymentService.initState(stableBackend);
-    private var microserviceState: MicroserviceTypes.State = MicroserviceService.initState();
-    private var projectState: ProjectTypes.State = ProjectService.initState(stableBackend);
-    private var tokenSymbolRegistry: Trie.Trie<Text, Principal> = Trie.empty();
-    private var defaultTokens: [Common.TokenInfo] = [];
+    private var owner : Principal = stableBackend;
+    private var configState : ConfigTypes.State = ConfigService.initState(stableBackend);
+    private var auditState : AuditTypes.State = AuditService.initState(stableBackend);
+    private var userState : UserTypes.State = UserService.initState(stableBackend);
+    private var paymentState : PaymentTypes.State = PaymentService.initState(stableBackend);
+    private var microserviceState : MicroserviceTypes.State = MicroserviceService.initState();
+    private var projectState : ProjectTypes.State = ProjectService.initState(stableBackend);
+    private var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
+    private var defaultTokens : [Common.TokenInfo] = [];
 
     system func preupgrade() {
         stableConfigState := ?ConfigService.toStableState(configState);
@@ -75,23 +78,23 @@ actor Backend {
     };
 
     system func postupgrade() {
-        configState := switch(stableConfigState) {
+        configState := switch (stableConfigState) {
             case null { ConfigService.initState(owner) };
             case (?s) { ConfigService.fromStableState(s) };
         };
-        auditState := switch(stableAuditState) {
+        auditState := switch (stableAuditState) {
             case null { AuditService.initState(owner) };
             case (?s) { AuditService.fromStableState(s) };
         };
-        userState := switch(stableUserState) {
+        userState := switch (stableUserState) {
             case null { UserService.initState(owner) };
             case (?s) { UserService.fromStableState(s) };
         };
-        paymentState := switch(stablePaymentState) {
+        paymentState := switch (stablePaymentState) {
             case null { PaymentService.initState(owner) };
             case (?s) { PaymentService.fromStableState(s) };
         };
-        microserviceState := switch(stableMicroserviceState) {
+        microserviceState := switch (stableMicroserviceState) {
             case null { MicroserviceService.initState() };
             case (?s) { MicroserviceService.fromStableState(s) };
         };
@@ -106,15 +109,15 @@ actor Backend {
             };
             case null {};
         };
-        projectState := switch(stableProjectState) {
+        projectState := switch (stableProjectState) {
             case null { ProjectService.initState(owner) };
             case (?s) { ProjectService.fromStableState(s) };
         };
-        
+
         var newRegistry = Trie.empty<Text, Principal>();
         for (entry in stableTokenSymbolRegistry.vals()) {
             let (k, v) = entry;
-            newRegistry := Trie.put(newRegistry, {key=k; hash=Text.hash(k)}, Text.equal, v).0;
+            newRegistry := Trie.put(newRegistry, { key = k; hash = Text.hash(k) }, Text.equal, v).0;
         };
         tokenSymbolRegistry := newRegistry;
     };
@@ -122,48 +125,48 @@ actor Backend {
     // ==================================================================================================
     // AUTHENTICATION & VALIDATION HELPERS
     // ==================================================================================================
-    
-    private func _isAdmin(caller: Principal) : Bool {
-        ConfigService.isAdmin(configState, caller)
+
+    private func _isAdmin(caller : Principal) : Bool {
+        ConfigService.isAdmin(configState, caller);
     };
 
-    private func _isSuperAdmin(caller: Principal) : Bool {
-        ConfigService.isSuperAdmin(configState, caller)
+    private func _isSuperAdmin(caller : Principal) : Bool {
+        ConfigService.isSuperAdmin(configState, caller);
     };
-    
-    private func _isAuthenticated(caller: Principal) : Bool {
+
+    private func _isAuthenticated(caller : Principal) : Bool {
         // An authenticated user must have a profile.
-        Option.isSome(UserService.getUserProfile(userState, caller))
+        Option.isSome(UserService.getUserProfile(userState, caller));
     };
 
-    private func _onlyAdmin(caller: Principal) : Result.Result<(), Text> {
+    private func _onlyAdmin(caller : Principal) : Result.Result<(), Text> {
         if (not _isAdmin(caller) and not _isSuperAdmin(caller) and not Principal.isController(caller)) {
             // Logging is moved to the public function to support async logging
             return #err("Unauthorized: Admin access required.");
         };
-        #ok(())
+        #ok(());
     };
 
-    private func _onlySuperAdmin(caller: Principal) : Result.Result<(), Text> {
+    private func _onlySuperAdmin(caller : Principal) : Result.Result<(), Text> {
         if (not _isSuperAdmin(caller)) {
             // Logging is moved to the public function to support async logging
             return #err("Unauthorized: Super-admin access required.");
         };
-        #ok(())
+        #ok(());
     };
 
     // ==================================================================================================
     // PRIVATE ORCHESTRATOR
     // ==================================================================================================
-    
+
     // This is the new, unified, and standardized pipeline for all deployment actions.
     // It ensures that payment, logging, dispatching, and error handling (refunds)
     // are executed consistently for every type of deployment.
     private func _handleStandardDeploymentFlow(
-        caller: Principal,
-        actionType: AuditTypes.ActionType,
-        projectId: ?ProjectTypes.ProjectId,
-        payload: Deployments.DeploymentPayload
+        caller : Principal,
+        actionType : AuditTypes.ActionType,
+        projectId : ?ProjectTypes.ProjectId,
+        payload : Deployments.DeploymentPayload,
     ) : async Result.Result<Deployments.StandardDeploymentResult, Text> {
 
         // 1. Authorization & Pre-flight checks
@@ -185,7 +188,9 @@ actor Backend {
         // 3. Log the payment processing action itself
         if (not paymentResult.isValid) {
             ignore await AuditService.logAction(
-                auditState, caller, #PaymentFailed, 
+                auditState,
+                caller,
+                #PaymentFailed,
                 #PaymentData({
                     amount = paymentResult.paidAmount;
                     tokenId = paymentState.config.acceptedTokens[0];
@@ -194,12 +199,17 @@ actor Backend {
                     status = #Failed(Option.get(paymentResult.errorMessage, "Unknown error"));
                     paymentType = #Fee;
                 }),
-                projectId, paymentResult.paymentRecordId, ?#Backend, null
+                projectId,
+                paymentResult.paymentRecordId,
+                ?#Backend,
+                null,
             );
             return #err(Option.get(paymentResult.errorMessage, "Payment processing failed."));
         } else {
             ignore await AuditService.logAction(
-                auditState, caller, #PaymentProcessed,
+                auditState,
+                caller,
+                #PaymentProcessed,
                 #PaymentData({
                     amount = paymentResult.paidAmount;
                     tokenId = paymentState.config.acceptedTokens[0];
@@ -208,28 +218,36 @@ actor Backend {
                     status = #Confirmed;
                     paymentType = #Fee;
                 }),
-                projectId, paymentResult.paymentRecordId, ?#Backend, null
+                projectId,
+                paymentResult.paymentRecordId,
+                ?#Backend,
+                null,
             );
         };
-        
+
         // 4. Log the primary business action
         let auditEntry = await AuditService.logAction(
-            auditState, caller, actionType, 
+            auditState,
+            caller,
+            actionType,
             #DeploymentData({
-                deploymentType = switch(payload) {
+                deploymentType = switch (payload) {
                     case (#Token(req)) #Token({
                         tokenName = req.tokenConfig.name;
                         tokenSymbol = req.tokenConfig.symbol;
                         totalSupply = req.tokenConfig.totalSupply;
                         standard = "ICRC2";
-                        deploymentConfig = debug_show(req.deploymentConfig);
+                        deploymentConfig = debug_show (req.deploymentConfig);
                     });
                     case (#Template(_)) #Template("template");
                 };
                 status = #Initiated;
-                payload = debug_show(payload);
+                payload = debug_show (payload);
             }),
-            projectId, paymentResult.paymentRecordId, ?#Backend, null
+            projectId,
+            paymentResult.paymentRecordId,
+            ?#Backend,
+            null,
         );
         let auditId = auditEntry.id;
 
@@ -238,61 +256,71 @@ actor Backend {
             switch (payload) {
                 case (#Token(request)) {
                     let preparedCallResult = TokenDeployerService.prepareDeployment(
-                        caller, request.tokenConfig, request.deploymentConfig, configState, microserviceState
-                    );
-                    
-                    switch(preparedCallResult) {
-                        case(#err(msg)) { #err(msg) };
-                        case(#ok(call)) {
-                            let deployerActor = actor(Principal.toText(call.canisterId)) : actor {
-                                deployTokenWithConfig : (
-                                    TokenDeployerTypes.TokenConfig,
-                                    TokenDeployerTypes.DeploymentConfig,
-                                    ?Principal
-                                ) -> async Result.Result<Principal, TokenDeployerTypes.DeploymentError>
-                            };
-                            let result = await deployerActor.deployTokenWithConfig(call.args.config, call.args.deploymentConfig, null);
-                            switch(result) {
-                                case(#ok(p)) { #ok(p) };
-                                case(#err(e)) { #err(debug_show(e)) };
-                            }
-                        };
-                    };
-                };
-                case (#Template(request)) {
-                    let preparedCallResult = TemplateDeployerService.prepareDeployment(
-                        caller, request, configState, microserviceState
+                        caller,
+                        request.tokenConfig,
+                        request.deploymentConfig,
+                        configState,
+                        microserviceState,
                     );
 
                     switch (preparedCallResult) {
                         case (#err(msg)) { #err(msg) };
                         case (#ok(call)) {
-                            let deployerActor = actor(Principal.toText(call.canisterId)) : actor {
-                                deployFromTemplate : (TemplateDeployerTypes.RemoteDeployRequest) -> async Result.Result<TemplateDeployerTypes.RemoteDeployResult, Text>;
+                            let deployerActor = actor (Principal.toText(call.canisterId)) : actor {
+                                deployTokenWithConfig : (
+                                    TokenDeployerTypes.TokenConfig,
+                                    TokenDeployerTypes.DeploymentConfig,
+                                    ?Principal,
+                                ) -> async Result.Result<Principal, TokenDeployerTypes.DeploymentError>;
                             };
-                            let result = await deployerActor.deployFromTemplate(call.args);
-                            switch(result) {
-                                case(#ok(res)) { #ok(res.canisterId) };
-                                case(#err(msg)) { #err(msg) };
-                            }
+                            let result = await deployerActor.deployTokenWithConfig(call.args.config, call.args.deploymentConfig, null);
+                            switch (result) {
+                                case (#ok(p)) { #ok(p) };
+                                case (#err(e)) { #err(debug_show (e)) };
+                            };
                         };
                     };
                 };
-            }
+                case (#Template(request)) {
+                    let preparedCallResult = TemplateDeployerService.prepareDeployment(
+                        caller,
+                        request,
+                        configState,
+                        microserviceState,
+                    );
+
+                    switch (preparedCallResult) {
+                        case (#err(msg)) { #err(msg) };
+                        case (#ok(call)) {
+                            let deployerActor = actor (Principal.toText(call.canisterId)) : actor {
+                                deployFromTemplate : (TemplateDeployerTypes.RemoteDeployRequest) -> async Result.Result<TemplateDeployerTypes.RemoteDeployResult, Text>;
+                            };
+                            let result = await deployerActor.deployFromTemplate(call.args);
+                            switch (result) {
+                                case (#ok(res)) { #ok(res.canisterId) };
+                                case (#err(msg)) { #err(msg) };
+                            };
+                        };
+                    };
+                };
+            };
         };
 
         // 6. Process result and finalize state
-        Debug.print("6......Deployment result: " # debug_show(deploymentResult));
+        Debug.print("6......Deployment result: " # debug_show (deploymentResult));
         switch (deploymentResult) {
             case (#err(fullErrorMessage)) {
                 // FAILED DEPLOYMENT
                 await AuditService.updateAuditStatus(auditState, owner, auditId, #Failed(fullErrorMessage), ?fullErrorMessage);
-                
+
                 if (Option.isSome(paymentResult.paymentRecordId)) {
                     ignore PaymentService.createRefundRequest(
-                        paymentState, auditState, caller,
+                        paymentState,
+                        auditState,
+                        caller,
                         Option.get(paymentResult.paymentRecordId, ""),
-                        #SystemError, fullErrorMessage
+                        #SystemError,
+                        fullErrorMessage,
                     );
                 };
                 return #err("❌ Deployment failed: " # fullErrorMessage);
@@ -301,7 +329,7 @@ actor Backend {
             case (#ok(canisterId)) {
                 // SUCCESSFUL DEPLOYMENT
                 await AuditService.updateAuditStatus(auditState, owner, auditId, #Completed, ?("Successfully deployed canister " # Principal.toText(canisterId)));
-                
+
                 return #ok({
                     canisterId = canisterId;
                     transactionId = paymentResult.transactionId;
@@ -314,37 +342,54 @@ actor Backend {
     // BUSINESS LOGIC - PUBLIC ENDPOINTS
     // ==================================================================================================
 
-    public shared({caller}) func deployToken(
-        request: TokenDeployerTypes.DeploymentRequest
+    public shared ({ caller }) func deployToken(
+        request : TokenDeployerTypes.DeploymentRequest
     ) : async Result.Result<TokenDeployerTypes.DeploymentResult, Text> {
 
-        // Basic validation for the request object itself
-        if (Text.size(request.tokenConfig.name) == 0) {
-            return #err("Token name cannot be empty");
+        // Basic validation for the request object itself using shared utility
+        let validationResult = TokenValidation.validateTokenConfig(
+            request.tokenConfig.symbol,
+            request.tokenConfig.name,
+            request.tokenConfig.logo,
+        );
+
+        switch (validationResult) {
+            case (#err(error)) {
+                let errorMsg = switch (error) {
+                    case (#InvalidSymbol(msg)) { msg };
+                    case (#InvalidName(msg)) { msg };
+                    case (#InvalidLogo(msg)) { msg };
+                    case (#Other(msg)) { msg };
+                };
+                return #err(errorMsg);
+            };
+            case (#ok(_)) {};
         };
-        if (Text.size(request.tokenConfig.symbol) == 0) {
-            return #err("Token symbol cannot be empty");
+
+        // Check if the caller is authenticated and has a profile
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated to deploy a token.");
         };
         let symbol = request.tokenConfig.symbol;
-        if (Trie.get(tokenSymbolRegistry, {key = symbol; hash = Text.hash(symbol)}, Text.equal) != null) {
-            return #err("Token symbol '" # symbol # "' already exists");
-        };
+        // if (Trie.get(tokenSymbolRegistry, {key = symbol; hash = Text.hash(symbol)}, Text.equal) != null) {
+        //     return #err("Token symbol '" # symbol # "' already exists");
+        // };
 
         // All complex logic is now delegated to the standard flow
         let flowResult = await _handleStandardDeploymentFlow(
             caller,
             #CreateToken,
             request.projectId,
-            #Token(request)
+            #Token(request),
         );
 
         switch (flowResult) {
             case (#err(msg)) { return #err(msg) };
             case (#ok(result)) {
-                
+
                 // Post-deployment state updates specific to token deployment
-                tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, {key=symbol; hash=Text.hash(symbol)}, Text.equal, result.canisterId).0;
-                
+                tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, { key = symbol; hash = Text.hash(symbol) }, Text.equal, result.canisterId).0;
+
                 ignore UserService.recordDeployment(
                     userState,
                     caller,
@@ -354,7 +399,7 @@ actor Backend {
                     #Token({
                         tokenName = request.tokenConfig.name;
                         tokenSymbol = symbol;
-                        standard = "ICRC1";
+                        standard = "ICRC2";
                         decimals = request.tokenConfig.decimals;
                         features = [];
                         totalSupply = request.tokenConfig.totalSupply;
@@ -374,7 +419,7 @@ actor Backend {
                         isPublic = true;
                         parentProject = request.projectId;
                         dependsOn = [];
-                    }
+                    },
                 );
 
                 // Return the specific result type expected by the frontend
@@ -385,29 +430,29 @@ actor Backend {
                     tokenSymbol = symbol;
                     cyclesUsed = 0; // TODO
                 });
-            }
-        }
+            };
+        };
     };
-    
-    public shared({caller}) func deployLock(
-        config: TemplateDeployerTypes.LockConfig
+
+    public shared ({ caller }) func deployLock(
+        config : TemplateDeployerTypes.LockConfig
     ) : async Result.Result<Principal, Text> {
-    
+
         // 1. Prepare the standard request for the template deployer
         let request : TemplateDeployerTypes.RemoteDeployRequest = {
             deployerType = #Lock;
             config = #LockConfig(config);
             owner = caller;
         };
-    
+
         // 2. Delegate everything to the standard flow
         let flowResult = await _handleStandardDeploymentFlow(
             caller,
             #CreateTemplate, // The specific ActionType for auditing and fees
             null, // No project ID for this simple case
-            #Template(request)
+            #Template(request),
         );
-    
+
         // 3. Process the result
         switch (flowResult) {
             case (#err(msg)) { return #err(msg) };
@@ -416,14 +461,14 @@ actor Backend {
                 // like updating a user's list of locked assets.
                 // For now, just return the canister ID.
                 return #ok(result.canisterId);
-            }
-        }
+            };
+        };
     };
-    
+
     // ==================================================================================================
     // ADMIN & HEALTH-CHECK
     // ==================================================================================================
-    
+
     public shared query func getOwner() : async Principal {
         let admins = ConfigService.getSuperAdmins(configState);
         if (admins.size() > 0) {
@@ -431,10 +476,10 @@ actor Backend {
         } else {
             // Should not happen in a properly initialized canister
             return owner;
-        }
+        };
     };
-    
-    public shared({caller}) func setCanisterIds(canisterIds: MicroserviceTypes.CanisterIds) : async () {
+
+    public shared ({ caller }) func setCanisterIds(canisterIds : MicroserviceTypes.CanisterIds) : async () {
         // 1. Authorization Check
         switch (_onlyAdmin(caller)) {
             case (#err(msg)) {
@@ -445,8 +490,8 @@ actor Backend {
             };
             case (#ok()) {};
         };
-        Debug.print("Setting canister IDs to " # debug_show(canisterIds));
-        
+        Debug.print("Setting canister IDs to " # debug_show (canisterIds));
+
         // 2. Set the canister IDs in the microservice state
         MicroserviceService.setCanisterIds(microserviceState, canisterIds);
 
@@ -463,7 +508,7 @@ actor Backend {
         // 4. Log the action
         ignore await AuditService.logAction(
             auditState,
-            caller, 
+            caller,
             #UpdateSystemConfig,
             #AdminData({
                 adminAction = "Set Microservice Canister IDs";
@@ -481,32 +526,32 @@ actor Backend {
     public shared func getMicroserviceHealth() : async [MicroserviceTypes.ServiceHealth] {
         let canisterIds = MicroserviceService.getCanisterIds(microserviceState);
 
-        switch(canisterIds) {
+        switch (canisterIds) {
             case null { return [] };
             case (?ids) {
-                
+
                 let rawServices : [(Text, ?Principal)] = [
                     ("TokenDeployer", ids.tokenDeployer),
                     ("TemplateDeployer", ids.templateDeployer),
                     ("InvoiceStorage", ids.invoiceStorage),
-                    ("AuditStorage", ids.auditStorage)
+                    ("AuditStorage", ids.auditStorage),
                 ];
 
                 let servicesToCheck : [(Text, Principal)] = Array.mapFilter<(Text, ?Principal), (Text, Principal)>(
                     rawServices,
-                    func ((name, optP)) {
+                    func((name, optP)) {
                         switch (optP) {
                             case (?p) { ?(name, p) };
                             case null { null };
-                        }
-                    }
+                        };
+                    },
                 );
 
                 let results = Buffer.Buffer<MicroserviceTypes.ServiceHealth>(servicesToCheck.size());
 
                 for (service in servicesToCheck.vals()) {
                     let (name, id) = service;
-                    let healthActor = actor(Principal.toText(id)) : MicroserviceInterface.HealthActor;
+                    let healthActor = actor (Principal.toText(id)) : MicroserviceInterface.HealthActor;
                     try {
                         let healthResult = await healthActor.healthCheck();
                         results.add({
@@ -528,14 +573,14 @@ actor Backend {
                 };
                 return Buffer.toArray(results);
             };
-        }
+        };
     };
 
     // --------------------------------------------------------------------------------------------------
     // PROJECTS
     // --------------------------------------------------------------------------------------------------
 
-    public query func getProject(projectId: ProjectTypes.ProjectId) : async ?ProjectTypes.Project {
+    public query func getProject(projectId : ProjectTypes.ProjectId) : async ?ProjectTypes.Project {
         return ProjectService.getProject(projectState, projectId);
     };
 
@@ -543,15 +588,15 @@ actor Backend {
     // USERS
     // --------------------------------------------------------------------------------------------------
 
-    public shared({caller}) func getUserProfile(userId: Principal) : async ?UserTypes.UserProfile {
-        switch(_onlyAdmin(caller)) {
-            case (#ok) { return UserService.getUserProfile(userState, userId); };
+    public shared ({ caller }) func getUserProfile(userId : Principal) : async ?UserTypes.UserProfile {
+        switch (_onlyAdmin(caller)) {
+            case (#ok) { return UserService.getUserProfile(userState, userId) };
             case (#err(_msg)) { return null };
-        }
+        };
     };
 
     // New unified transaction history endpoint for UI
-    public shared query({caller}) func getUserTransactionHistory() : async [PaymentTypes.TransactionView] {
+    public shared query ({ caller }) func getUserTransactionHistory() : async [PaymentTypes.TransactionView] {
         if (Principal.isAnonymous(caller)) {
             return [];
         };
@@ -561,21 +606,21 @@ actor Backend {
     // ==================================================================================================
     // ADMIN CONFIG & STATUS
     // ==================================================================================================
-    
-    public shared query func getServiceFee(serviceName: Text) : async ?Nat {
+
+    public shared query func getServiceFee(serviceName : Text) : async ?Nat {
         // Example: "token_deployer.fee"
         let key = serviceName # ".fee";
-        switch (Trie.get(configState.values, {key = key; hash = Text.hash(key)}, Text.equal)) {
+        switch (Trie.get(configState.values, { key = key; hash = Text.hash(key) }, Text.equal)) {
             case (?value) Nat.fromText(value);
             case null null;
-        }
+        };
     };
 
     public shared query func getMicroserviceSetupStatus() : async Bool {
-        microserviceState.setupCompleted
+        microserviceState.setupCompleted;
     };
-    
-    public shared({caller}) func forceResetMicroserviceSetup() : async () {
+
+    public shared ({ caller }) func forceResetMicroserviceSetup() : async () {
         // Authorization Check
         switch (_onlySuperAdmin(caller)) {
             case (#err(msg)) {
@@ -592,35 +637,35 @@ actor Backend {
     // ADMIN QUERY ENDPOINTS
     // ==================================================================================================
 
-    public shared({caller}) func adminGetPaymentRecord(recordId: PaymentTypes.PaymentRecordId) : async ?PaymentTypes.PaymentRecord {
-        if (not _isAdmin(caller)) { return null; };
+    public shared ({ caller }) func adminGetPaymentRecord(recordId : PaymentTypes.PaymentRecordId) : async ?PaymentTypes.PaymentRecord {
+        if (not _isAdmin(caller)) { return null };
         return await PaymentService.getPaymentRecord(paymentState, recordId);
     };
 
-    public shared({caller}) func adminGetRefundRequest(refundId: PaymentTypes.RefundId) : async ?PaymentTypes.RefundRequest {
-        if (not _isAdmin(caller)) { return null; };
+    public shared ({ caller }) func adminGetRefundRequest(refundId : PaymentTypes.RefundId) : async ?PaymentTypes.RefundRequest {
+        if (not _isAdmin(caller)) { return null };
         return await PaymentService.getRefundRequest(paymentState, refundId);
     };
 
-    public shared({caller}) func adminGetUserPayments(userId: Common.UserId) : async [PaymentTypes.PaymentRecord] {
-        if (not _isAdmin(caller)) { return []; };
+    public shared ({ caller }) func adminGetUserPayments(userId : Common.UserId) : async [PaymentTypes.PaymentRecord] {
+        if (not _isAdmin(caller)) { return [] };
         return PaymentService.getUserPayments(paymentState, userId);
     };
 
-    public shared({caller}) func adminGetUserDeployments(userId: Common.UserId) : async [UserTypes.DeploymentRecord] {
-        if (not _isAdmin(caller)) { return []; };
+    public shared ({ caller }) func adminGetUserDeployments(userId : Common.UserId) : async [UserTypes.DeploymentRecord] {
+        if (not _isAdmin(caller)) { return [] };
         // NOTE: The service function has limit/offset, but we expose a simpler version for now.
         // V1 reference: icto_app/backend/main.mo -> get_user_projects
         return UserService.getUserDeployments(userState, userId, 100, 0);
     };
-    
-    public shared({caller}) func adminGetUserProfile(userId: Common.UserId) : async ?UserTypes.UserProfile {
-        if (not _isAdmin(caller)) { return null; };
+
+    public shared ({ caller }) func adminGetUserProfile(userId : Common.UserId) : async ?UserTypes.UserProfile {
+        if (not _isAdmin(caller)) { return null };
         return UserService.getUserProfile(userState, userId);
     };
 
     //Get all refund requests
-    public shared({caller}) func adminGetRefundRequests(userId: ?Common.UserId) : async [PaymentTypes.RefundRequest] {
+    public shared ({ caller }) func adminGetRefundRequests(userId : ?Common.UserId) : async [PaymentTypes.RefundRequest] {
         // if (not _isAdmin(caller)) { return []; };
         return PaymentService.getRefundRequests(paymentState, userId);
     };
@@ -628,10 +673,10 @@ actor Backend {
     // ==================================================================================================
     // ADMIN COMMAND ENDPOINTS
     // ==================================================================================================
-    
-    public shared({caller}) func adminSetConfigValue(key: Text, value: Text) : async Result.Result<(), Text> {
+
+    public shared ({ caller }) func adminSetConfigValue(key : Text, value : Text) : async Result.Result<(), Text> {
         // 1. Authorization
-        switch(_onlyAdmin(caller)) {
+        switch (_onlyAdmin(caller)) {
             case (#err(msg)) {
                 ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminSetConfigValue: Admin access required for key: " # key), null, null, ?#Backend, null);
                 return #err(msg);
@@ -662,9 +707,9 @@ actor Backend {
         return result;
     };
 
-    public shared({caller}) func adminDeleteConfigValue(key: Text) : async Result.Result<(), Text> {
+    public shared ({ caller }) func adminDeleteConfigValue(key : Text) : async Result.Result<(), Text> {
         // 1. Authorization
-        switch(_onlyAdmin(caller)) {
+        switch (_onlyAdmin(caller)) {
             case (#err(msg)) {
                 ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminDeleteConfigValue: Admin access required for key: " # key), null, null, ?#Backend, null);
                 return #err(msg);
@@ -695,12 +740,12 @@ actor Backend {
         return #ok(());
     };
 
-    public shared({caller}) func adminReconcileTokenDeployment(
-        originalAuditId: AuditTypes.AuditId,
-        newCanisterId: Principal,
-        tokenSymbol: Text,
-        projectId: ProjectTypes.ProjectId,
-        paymentRecordId: PaymentTypes.PaymentRecordId
+    public shared ({ caller }) func adminReconcileTokenDeployment(
+        originalAuditId : AuditTypes.AuditId,
+        newCanisterId : Principal,
+        tokenSymbol : Text,
+        projectId : ProjectTypes.ProjectId,
+        paymentRecordId : PaymentTypes.PaymentRecordId,
     ) : async Result.Result<(), Text> {
         // 1. Authorization: Only super admins can do this critical operation
         switch (_onlySuperAdmin(caller)) {
@@ -710,7 +755,7 @@ actor Backend {
             };
             case (#ok) {};
         };
-        
+
         // 2. Log the admin's reconciliation action first
         let reconcileAudit = await AuditService.logAction(
             auditState,
@@ -730,7 +775,7 @@ actor Backend {
 
         // 3. Perform the state updates that were missed
         // A. Update token symbol registry
-        tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, {key=tokenSymbol; hash=Text.hash(tokenSymbol)}, Text.equal, newCanisterId).0;
+        tokenSymbolRegistry := Trie.put(tokenSymbolRegistry, { key = tokenSymbol; hash = Text.hash(tokenSymbol) }, Text.equal, newCanisterId).0;
 
         // B. Update user record (This part is complex as we need the original data. A more robust implementation might store this data on the audit log itself)
         // For now, we assume we can reconstruct it or it's non-critical for reconciliation.
@@ -742,16 +787,16 @@ actor Backend {
         return #ok(());
     };
 
-    public shared({caller}) func adminApproveRefund(refundId: PaymentTypes.RefundId, notes: ?Text) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+    public shared ({ caller }) func adminApproveRefund(refundId : PaymentTypes.RefundId, notes : ?Text) : async Result.Result<PaymentTypes.RefundRequest, Text> {
         // 1. Authorization
-        switch(_onlyAdmin(caller)) {
+        switch (_onlyAdmin(caller)) {
             case (#err(msg)) {
                 ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminApproveRefund: Admin access required"), null, null, ?#Backend, null);
                 return #err(msg);
             };
             case (#ok) {};
         };
-        
+
         // 2. Log Action
         ignore await AuditService.logAction(auditState, caller, #AdminAction("Approving refund " # refundId), #RawData("Approving refund " # refundId), null, null, ?#Backend, null);
 
@@ -759,9 +804,9 @@ actor Backend {
         return await PaymentService.approveRefund(paymentState, refundId, caller, notes);
     };
 
-    public shared({caller}) func adminRejectRefund(refundId: PaymentTypes.RefundId, reason: Text) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+    public shared ({ caller }) func adminRejectRefund(refundId : PaymentTypes.RefundId, reason : Text) : async Result.Result<PaymentTypes.RefundRequest, Text> {
         // 1. Authorization
-        switch(_onlyAdmin(caller)) {
+        switch (_onlyAdmin(caller)) {
             case (#err(msg)) {
                 ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminRejectRefund: Admin access required"), null, null, ?#Backend, null);
                 return #err(msg);
@@ -776,9 +821,9 @@ actor Backend {
         return await PaymentService.rejectRefund(paymentState, refundId, caller, reason);
     };
 
-    public shared({caller}) func adminProcessRefund(refundId: PaymentTypes.RefundId) : async Result.Result<PaymentTypes.RefundRequest, Text> {
+    public shared ({ caller }) func adminProcessRefund(refundId : PaymentTypes.RefundId) : async Result.Result<PaymentTypes.RefundRequest, Text> {
         // 1. Authorization
-        switch(_onlyAdmin(caller)) {
+        switch (_onlyAdmin(caller)) {
             case (#err(msg)) {
                 ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminProcessRefund: Admin access required"), null, null, ?#Backend, null);
                 return #err(msg);
@@ -794,7 +839,7 @@ actor Backend {
     };
 
     //Admin list all refunds requests
-    public shared({caller}) func adminGetUserRefundRequests(userId: Principal) : async ?PaymentTypes.RefundRequest {
+    public shared ({ caller }) func adminGetUserRefundRequests(userId : Principal) : async ?PaymentTypes.RefundRequest {
         if (not _isAdmin(caller)) { return null };
         return await PaymentService.getRefundRequest(paymentState, Principal.toText(userId));
     };
@@ -803,8 +848,8 @@ actor Backend {
     // PAYMENT & FEES - PUBLIC ENDPOINTS
     // ==================================================================================================
 
-    public shared({caller}) func checkPaymentApprovalForAction(
-        actionType: AuditTypes.ActionType
+    public shared ({ caller }) func checkPaymentApprovalForAction(
+        actionType : AuditTypes.ActionType
     ) : async PaymentTypes.PaymentValidationResult {
         // This function allows the frontend to check if an ICRC-2 approval is
         // required before initiating a transaction.
@@ -821,13 +866,13 @@ actor Backend {
                 paymentRecordId = null;
             };
         };
-        
+
         return await PaymentService.checkPaymentApproval(
             paymentState,
             configState,
             caller,
             owner, // The backend canister principal is the spender
-            actionType
+            actionType,
         );
     };
 
@@ -898,18 +943,18 @@ actor Backend {
     };
 
     public shared query func getPaymentConfig() : async {
-        acceptedTokens: [Principal];
-        feeRecipient: Principal;
-        serviceFees: [(Text, Nat)];
-        paymentTimeout: Nat;
-        requireConfirmation: Bool;
-        defaultToken: Principal;
+        acceptedTokens : [Principal];
+        feeRecipient : Principal;
+        serviceFees : [(Text, Nat)];
+        paymentTimeout : Nat;
+        requireConfirmation : Bool;
+        defaultToken : Principal;
     } {
         let paymentInfo = ConfigService.getPaymentInfo(configState);
 
         let serviceFees = [
             ("token_deployer", ConfigService.getNumber(configState, "token_deployer.fee", 0)),
-            ("template_deployer", ConfigService.getNumber(configState, "template_deployer.fee", 0))
+            ("template_deployer", ConfigService.getNumber(configState, "template_deployer.fee", 0)),
         ];
         return {
             acceptedTokens = paymentInfo.acceptedTokens;
@@ -924,19 +969,19 @@ actor Backend {
     // ==================================================================================================
     // USER DASHBOARD APIs
     // ==================================================================================================
-    
-    public shared query({caller}) func getCurrentUserProfile() : async ?UserTypes.UserProfile {
-        if (Principal.isAnonymous(caller)) { return null; };
+
+    public shared query ({ caller }) func getCurrentUserProfile() : async ?UserTypes.UserProfile {
+        if (Principal.isAnonymous(caller)) { return null };
         return UserService.getUserProfile(userState, caller);
     };
 
-    public shared query({caller}) func getCurrentUserDeployments() : async [UserTypes.DeploymentRecord] {
-        if (Principal.isAnonymous(caller)) { return []; };
+    public shared query ({ caller }) func getCurrentUserDeployments() : async [UserTypes.DeploymentRecord] {
+        if (Principal.isAnonymous(caller)) { return [] };
         return UserService.getUserDeployments(userState, caller, 100, 0);
     };
 
-    public shared query({caller}) func getCurrentUserAuditLogs(limit: ?Nat) : async [AuditTypes.AuditEntry] {
-        if (Principal.isAnonymous(caller)) { return []; };
+    public shared query ({ caller }) func getCurrentUserAuditLogs(limit : ?Nat) : async [AuditTypes.AuditEntry] {
+        if (Principal.isAnonymous(caller)) { return [] };
         let maxLimit = Option.get(limit, 50);
         return AuditService.getUserAuditLogs(auditState, caller, maxLimit);
     };
@@ -944,23 +989,23 @@ actor Backend {
     // ==================================================================================================
     // ADMIN DASHBOARD APIs
     // ==================================================================================================
-    
-    public shared({caller}) func adminGetAuditLogs(
-        userId: ?Principal,
-        actionType: ?AuditTypes.ActionType,
-        fromDate: ?Int,
-        toDate: ?Int,
-        limit: ?Nat
+
+    public shared ({ caller }) func adminGetAuditLogs(
+        userId : ?Principal,
+        actionType : ?AuditTypes.ActionType,
+        fromDate : ?Int,
+        toDate : ?Int,
+        limit : ?Nat,
     ) : async [AuditTypes.AuditEntry] {
-        if (not _isAdmin(caller)) { return []; };
+        if (not _isAdmin(caller)) { return [] };
         return AuditService.getFilteredAuditLogs(auditState, userId, actionType, fromDate, toDate, limit);
     };
 
-    public shared({caller}) func adminGetSystemMetrics() : async {
-        totalUsers: Nat;
-        totalDeployments: Nat;
-        totalPayments: Nat;
-        totalRefunds: Nat;
+    public shared ({ caller }) func adminGetSystemMetrics() : async {
+        totalUsers : Nat;
+        totalDeployments : Nat;
+        totalPayments : Nat;
+        totalRefunds : Nat;
     } {
         if (not _isAdmin(caller)) {
             return {
@@ -979,27 +1024,27 @@ actor Backend {
         };
     };
 
-    public shared({caller}) func adminGetUsers(
-        offset: Nat,
-        limit: Nat
+    public shared ({ caller }) func adminGetUsers(
+        offset : Nat,
+        limit : Nat,
     ) : async [UserTypes.UserProfile] {
-        if (not _isAdmin(caller)) { return []; };
+        if (not _isAdmin(caller)) { return [] };
         return UserService.getUsers(userState, offset, limit);
     };
 
     // ==================================================================================================
     // SYSTEM HEALTH APIs
     // ==================================================================================================
-    
+
     public shared query func getSystemStatus() : async {
-        isMaintenanceMode: Bool;
-        servicesHealth: [MicroserviceTypes.ServiceHealth];
-        lastUpgrade: Int;
+        isMaintenanceMode : Bool;
+        servicesHealth : [MicroserviceTypes.ServiceHealth];
+        lastUpgrade : Int;
     } {
         {
             isMaintenanceMode = ConfigService.getBool(configState, "system.maintenance_mode", false);
             servicesHealth = MicroserviceService.getServicesHealth(microserviceState);
             lastUpgrade = ConfigService.getNumber(configState, "system.last_upgrade", 0);
-        }
+        };
     };
 };
