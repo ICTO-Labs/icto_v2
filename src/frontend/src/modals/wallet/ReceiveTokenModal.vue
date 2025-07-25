@@ -77,6 +77,7 @@ import { formatBalance } from '@/utils/numberFormat'
 import { copyToClipboard } from '@/utils/common'
 import { LabelCopyIcon } from '@/icons'
 import TokenBalance from '@/components/token/TokenBalance.vue'
+import TokenLogo from '@/components/token/TokenLogo.vue'
 const modalStore = useModalStore()
 const authStore = useAuthStore()
 

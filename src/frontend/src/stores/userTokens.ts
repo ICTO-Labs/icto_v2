@@ -6,6 +6,7 @@ import { DEFAULT_TOKENS } from '@/config/constants';
 import { BackendUtils } from '@/utils/backend';
 import type { Token } from '@/types/token';
 import { useAuthStore } from './auth';
+import { fetchTokenPrice, getTokenUSDBalance } from '@/utils/tokenPrice';
 
 interface SyncTokensResult {
     tokensToAdd: Token[];
@@ -295,6 +296,28 @@ export const useUserTokensStore = defineStore('userTokens', () => {
         }
     }
 
+    async function refreshAllTokenPrices(): Promise<void> {
+        const enabledTokensArr = enabledTokensList.value;
+        for (const token of enabledTokensArr) {
+            const price = await fetchTokenPrice(token);
+            const updatedToken = {
+                ...token,
+                metrics: {
+                    ...token.metrics,
+                    price: price,
+                },
+            };
+            tokenData.value.set(token.canisterId.toString(), updatedToken);
+        }
+        await debouncedUpdateStorage();
+    }
+
+    // --- Price Fetching Utilities ---
+
+    // Get total portfolio value in USD
+    const totalPortfolioValue = computed((): number => {
+        return enabledTokensList.value.reduce((sum: number, token: Token) => sum + getTokenUSDBalance(token), 0);
+    });
     return { 
         // State
         enabledTokens,
@@ -316,6 +339,8 @@ export const useUserTokensStore = defineStore('userTokens', () => {
         searchTokens,
         isDefaultToken,
         reset,
+        refreshAllTokenPrices: refreshAllTokenPrices,
+        totalPortfolioValue,
 
         // Helper functions
         isTokenEnabled: (canisterId: string) => enabledTokens.value.has(canisterId)

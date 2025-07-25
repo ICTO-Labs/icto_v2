@@ -420,10 +420,10 @@ export class IcrcService {
     }
 
     //Check if principal is a mint account
-    public static async isMintAccount(token: Token, principal: Principal): Promise<boolean> {
+    public static async isMintAccount(canisterId: Principal, principal: Principal): Promise<boolean> {
         try {
             // Validate input
-            if (!token?.canisterId) {
+            if (!canisterId) {
                 throw new Error('Invalid token: canisterId is required');
             }
             
@@ -431,7 +431,7 @@ export class IcrcService {
                 throw new Error('Invalid principal: principal is required');
             }    
             const actor = icrcActor({
-                canisterId: token.canisterId.toString(),
+                canisterId: canisterId.toString(),
                 anon: true,
             });
             const result = await actor.icrc1_minting_account();

@@ -275,8 +275,8 @@ const menuGroups = [
         name: "Launchpad",
         icon: RocketIcon,
         subItems: [
-          { name: "Active Projects", path: "/launchpad-elements", pro: false },
-          { name: "Completed Projects", path: "/launchpad-elements", pro: false },
+          { name: "Active Projects", path: "/launchpad", pro: false },
+          { name: "Completed Projects", path: "/launchpad", pro: false },
         ],
       },
     ],

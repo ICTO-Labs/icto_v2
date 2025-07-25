@@ -40,7 +40,7 @@ const router = createRouter({
     {
       path: '/profile',
       name: 'Profile',
-      component: () => import('../views/Others/UserProfile.vue'),
+      component: () => import('../views/User/Index.vue'),
       meta: {
         title: 'Profile',
       },
@@ -154,6 +154,50 @@ const router = createRouter({
       meta: {
         title: 'Signup',
       },
+    },
+    {
+      path: '/user',
+      name: 'user-center',
+      component: () => import('@/views/User/Index.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
+      path: '/user/:id',
+      component: () => import('@/views/Dashboard/User.vue'),
+      meta: { requiresAuth: true }
+    },
+  
+    {
+      path: '/distribution',
+      component: () => import('../views/Distribution/IndexDistribution.vue'),
+      children: [
+        {
+          path: '',
+          name: 'Distribution',
+          component: () => import('../views/Distribution/DistributionList.vue'),
+          meta: {
+            title: 'Distribution Center',
+          },
+        },
+        {
+          path: ':id',
+          name: 'DistributionDetail',
+          component: () => import('../views/Distribution/DistributionDetail.vue'),
+          meta: {
+            title: 'Distribution Detail',
+          },
+        },
+      ],
+    },
+    {
+      path: '/launchpad',
+      name: 'LaunchpadIndex',
+      component: () => import('@/views/Launchpad/IndexLaunchpad.vue'),
+    },
+    {
+      path: '/launchpad/:id',
+      name: 'LaunchpadDetail',
+      component: () => import('@/views/Launchpad/LaunchpadDetail.vue'),
     },
   ],
 })

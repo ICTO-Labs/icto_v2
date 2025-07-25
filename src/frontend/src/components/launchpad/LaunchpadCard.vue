@@ -1,60 +1,34 @@
-<!-- components/launchpad/LaunchpadCard.vue -->
-<script setup>
-import { computed } from 'vue';
-import StatusBadge from '../common/StatusBadge.vue';
-
-const props = defineProps({
-  project: {
-    type: Object,
-    required: true
-  }
-})
-
-const progress = computed(() => {
-  if (props.project.hardCap === 0n) return 0;
-  return Number(props.project.raised * 100n / props.project.hardCap);
-});
-
-const formatBigInt = (n) => {
-    return n.toString(); // Basic formatter
-}
-
-</script>
-
 <template>
-    <div class="bg-white dark:bg-neutral-800 rounded-xl shadow-sm border border-neutral-200 dark:border-neutral-700 hover:shadow-lg transition-all duration-200 cursor-pointer">
-        <div class="p-6">
-            <!-- Header -->
-            <div class="flex items-center space-x-4 mb-4">
-                <img :src="project.logo || '/default-project.svg'" :alt="project.name" class="w-12 h-12 rounded-full bg-gray-200"/>
-                <div>
-                    <h3 class="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{{ project.name }}</h3>
-                    <p class="text-sm text-neutral-500 dark:text-neutral-400">{{ project.tokenSymbol }}</p>
-                </div>
-                <div class="ml-auto">
-                    <StatusBadge :status="project.status" />
-                </div>
-            </div>
-
-            <!-- Description -->
-            <p class="text-sm text-neutral-600 dark:text-neutral-300 h-10 overflow-hidden text-ellipsis">
-                {{ project.description }}
-            </p>
-
-            <!-- Progress Bar -->
-            <div class="mt-4">
-                <div class="flex justify-between text-sm text-neutral-600 dark:text-neutral-300 mb-1">
-                    <span>Progress</span>
-                    <span class="font-medium">{{ progress }}%</span>
-                </div>
-                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-                    <div class="bg-blue-600 h-2.5 rounded-full" :style="{ width: progress + '%' }"></div>
-                </div>
-                <div class="flex justify-between text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-                    <span>{{ formatBigInt(project.raised) }} ICP</span>
-                    <span>{{ formatBigInt(project.hardCap) }} ICP</span>
-                </div>
-            </div>
-        </div>
+  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition" @click="$emit('click')">
+    <div class="flex items-center mb-4">
+      <img :src="launchpad.logo" alt="logo" class="h-12 w-12 rounded-full object-cover mr-4">
+      <div>
+        <h3 class="text-xl font-bold text-gray-900 dark:text-white">{{ launchpad.name }}</h3>
+        <p class="text-sm text-gray-600 dark:text-gray-400">Symbol: {{ launchpad.symbol }}</p>
+      </div>
     </div>
-</template> 
+    <div class="flex justify-between items-center mb-4">
+      <StatusBadge :status="launchpad.status" />
+      <p class="text-sm text-gray-500 dark:text-gray-400">{{ launchpad.startDate }} - {{ launchpad.endDate }}</p>
+    </div>
+    <div class="mb-4">
+      <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+        <div :style="{ width: launchpad.progress + '%' }" class="bg-blue-600 h-2 rounded-full"></div>
+      </div>
+      <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Goal: {{ launchpad.raiseTarget }}</p>
+    </div>
+    <button class="w-full py-2 mt-4 bg-blue-600 text-white rounded-lg hover:bg-blue-700">View Details</button>
+  </div>
+</template>
+
+<script setup>
+import { defineProps } from 'vue';
+import StatusBadge from '@/components/Launchpad/StatusBadge.vue';
+
+defineProps({
+  launchpad: {
+    type: Object,
+    required: true,
+  },
+});
+</script>

@@ -100,6 +100,7 @@ const dropdownOpen = ref(false)
 const dropdownRef = ref(null)
 const showDialog = ref(false)
 const menuItems = [
+	{ href: '/user', icon: UserCircleIcon, text: 'User Center' },
 	{ href: '/profile', icon: UserCircleIcon, text: 'Edit profile' },
 	{ href: '/account', icon: SettingsIcon, text: 'Account settings' },
 	{ href: '/profile', icon: InfoCircleIcon, text: 'Support' },

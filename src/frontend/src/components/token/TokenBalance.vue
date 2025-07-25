@@ -8,7 +8,8 @@ import { useModalStore } from '@/stores/modal'
 import { IcrcService } from '@/api/services/icrc'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
-
+import { CopyIcon } from '@/icons'
+import TokenLogo from './TokenLogo.vue'
 const authStore = useAuthStore()
 const props = defineProps<{
     token: Token
@@ -58,12 +59,17 @@ onMounted(() => {
 <template>
     <!-- Token Info -->
     <div class="flex flex-col gap-4 items-center justify-center p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700">
-        <div class="w-16 h-16 rounded-full flex items-center justify-center" :class="token?.color || 'bg-gray-200'">
-            <img v-if="token?.logoUrl" :src="token.logoUrl" :alt="token?.symbol" class="w-16 h-16 rounded-full" />
-            <span v-else class="text-2xl font-bold">{{ token?.symbol?.[0] }}</span>
-        </div>
+        <TokenLogo 
+            :canister-id="token?.canisterId || ''" 
+            :symbol="token?.symbol || 'T'"
+            :size="64"
+        />
         <div class="text-center">
             <h3 class="text-lg font-medium text-gray-900 dark:text-white">{{ token?.name }}</h3>
+            <div class="flex items-center gap-2">
+                <span class="text-sm text-gray-500 dark:text-gray-400">{{ token?.canisterId }}</span>
+                <CopyIcon :data="token?.canisterId" :class="`w-4 h-4`" />
+            </div>
             <div class="text-sm text-gray-500 dark:text-gray-400 flex justify-between items-center justify-center">
                 <div class="flex items-center gap-2">
                     <span>Balance: <span class="font-semibold">{{ formatBalance(tokenBalance, token?.decimals || 8) }} {{ token?.symbol }}</span></span>

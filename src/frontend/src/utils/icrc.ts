@@ -1,292 +1,25 @@
-import type { TransferResult, TransferError, ApproveError, ApproveResult } from "@dfinity/ledger-icp/dist/candid/ledger";
-import type { TxIndex } from "@dfinity/ledger-icrc/dist/candid/icrc_ledger";
-
-// Interface for formatted error information
-export interface FormattedError {
-    type: string;
-    message: string;
-    details?: Record<string, any>;
-    severity: 'error' | 'warning';
-    canRetry: boolean;
-}
-
-export const handleApproveError = (error: ApproveError): FormattedError => {
-    if ('GenericError' in error) {
-        return {
-            type: 'GenericError',
-            message: `System error: ${(error as any)?.GenericError?.message }`,
-            details: {
-                errorCode: (error as any)?.GenericError?.error_code?.toString(),
-                originalMessage: (error as any)?.GenericError?.message
-            },
-            severity: 'error',
-            canRetry: true
-        };
-    }
-
-    if ('TemporarilyUnavailable' in error) {
-        return {
-            type: 'TemporarilyUnavailable',
-            message: 'Service temporarily unavailable. Please try again later.',
-            severity: 'warning',
-            canRetry: true
-        };
-    }
-
-    if ('BadBurn' in error) {
-        return {
-            type: 'BadBurn',
-            message: `Invalid burn amount. Minimum required: ${(error as any)?.BadBurn?.min_burn_amount} tokens`,
-            details: {
-                minBurnAmount: (error as any)?.BadBurn?.min_burn_amount,
-                minBurnAmountRaw: (error as any)?.BadBurn?.min_burn_amount?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if( 'InsufficientFunds' in error){
-        return {
-            type: 'InsufficientFunds',
-            message: `Insufficient funds. Current balance: ${(error as any)?.InsufficientFunds?.balance} tokens`,
-            details: {
-                balance: (error as any)?.InsufficientFunds?.balance,
-                balanceRaw: (error as any)?.InsufficientFunds?.balance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if( 'AllowanceChanged' in error){
-        return {
-            type: 'AllowanceChanged',
-            message: `Allowance changed. New allowance: ${(error as any)?.AllowanceChanged?.current_allowance} tokens`,
-            details: {
-                allowance: (error as any)?.AllowanceChanged?.current_allowance,
-                allowanceRaw: (error as any)?.AllowanceChanged?.current_allowance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-    if('Expired' in error){
-        return {
-            type: 'Expired',
-            message: `Expired. New allowance: ${(error as any)?.Expired?.allowance} tokens`,
-            details: {
-                allowance: (error as any)?.Expired?.allowance,
-                allowanceRaw: (error as any)?.Expired?.allowance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-    if('TooOld' in error){
-        return {
-            type: 'TooOld',
-            message: `Too old. New allowance: ${(error as any)?.TooOld?.allowance} tokens`,
-            details: {
-                allowance: (error as any)?.TooOld?.allowance,
-                allowanceRaw: (error as any)?.TooOld?.allowance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-    if('CreatedInFuture' in error){
-        return {
-            type: 'CreatedInFuture',
-            message: `Created in future. New allowance: ${(error as any)?.CreatedInFuture?.allowance} tokens`,
-            details: {
-                allowance: (error as any)?.CreatedInFuture?.allowance,
-                allowanceRaw: (error as any)?.CreatedInFuture?.allowance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-    if('Duplicate' in error){
-        return {
-            type: 'Duplicate',
-            message: `Duplicate. New allowance: ${(error as any)?.Duplicate?.allowance} tokens`,
-            details: {
-                allowance: (error as any)?.Duplicate?.allowance,
-                allowanceRaw: (error as any)?.Duplicate?.allowance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-    if('TemporarilyUnavailable' in error){
-        return {
-            type: 'TemporarilyUnavailable',
-            message: `Temporarily unavailable. New allowance: ${(error as any)?.TemporarilyUnavailable?.allowance} tokens`,
-            details: {
-                allowance: (error as any)?.TemporarilyUnavailable?.allowance,
-                allowanceRaw: (error as any)?.TemporarilyUnavailable?.allowance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-     // Fallback case
-     return {
-        type: 'Unknown',
-        message: 'Unknown error',
-        severity: 'error',
-        canRetry: false
+interface TransferResult {
+    success: boolean;
+    data?: any;
+    error?: {
+        type: string;
+        message: string;
+        details?: any;
     };
 }
 
-export const handleTransferError = (error: TransferError): FormattedError => {
-    if ('GenericError' in error) {
+export function handleTransferResult(result: any): TransferResult {
+    if (!result) {
         return {
-            type: 'GenericError',
-            message: `System error: ${(error as any)?.GenericError?.message }`,
-            details: {
-                errorCode: (error as any)?.GenericError?.error_code?.toString(),
-                originalMessage: (error as any)?.GenericError?.message
-            },
-            severity: 'error',
-            canRetry: true
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: 'No result received from transfer'
+            }
         };
     }
 
-    if ('TemporarilyUnavailable' in error) {
-        return {
-            type: 'TemporarilyUnavailable',
-            message: 'Service temporarily unavailable. Please try again later.',
-            severity: 'warning',
-            canRetry: true
-        };
-    }
-
-    if ('BadBurn' in error) {
-        return {
-            type: 'BadBurn',
-            message: `Invalid burn amount. Minimum required: ${(error as any)?.BadBurn?.min_burn_amount} tokens`,
-            details: {
-                minBurnAmount: (error as any)?.BadBurn?.min_burn_amount,
-                minBurnAmountRaw: (error as any)?.BadBurn?.min_burn_amount?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if ('Duplicate' in error) {
-        return {
-            type: 'Duplicate',
-            message: `Duplicate transaction. Transaction already exists with ID: ${(error as any)?.Duplicate?.duplicate_of}`,
-            details: {
-                duplicateOf: (error as any)?.Duplicate?.duplicate_of?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if ('BadFee' in error) {
-        return {
-            type: 'BadFee',
-            message: `Invalid transaction fee. Required fee: ${(error as any)?.BadFee?.expected_fee} tokens`,
-            details: {
-                expectedFee: (error as any)?.BadFee?.expected_fee,
-                expectedFeeRaw: (error as any)?.BadFee?.expected_fee?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if ('CreatedInFuture' in error) {
-        return {
-            type: 'CreatedInFuture',
-            message: `Invalid transaction time. Ledger time: ${(error as any)?.CreatedInFuture?.ledger_time}`,
-            details: {
-                ledgerTime: (error as any)?.CreatedInFuture?.ledger_time,
-                ledgerTimeRaw: (error as any)?.CreatedInFuture?.ledger_time?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if ('TooOld' in error) {
-        return {
-            type: 'TooOld',
-            message: 'Transaction too old and cannot be processed.',
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if ('InsufficientFunds' in error) {
-        return {
-            type: 'InsufficientFunds',
-            message: `Insufficient funds. Current balance: ${(error as any)?.InsufficientFunds?.balance} tokens`,
-            details: {
-                balance: (error as any)?.InsufficientFunds?.balance,
-                balanceRaw: (error as any)?.InsufficientFunds?.balance?.toString()
-            },
-            severity: 'error',
-            canRetry: false
-        };
-    }
-
-    if('code' in error) {
-        switch (error.code) {
-            case 3000:
-            case 3001:
-                return {
-                    type: 'UserCanceled',
-                    message: 'User canceled the transaction',
-                    severity: 'warning',
-                    canRetry: false
-                };
-            default:
-                return {
-                    type: 'Unknown',
-                    message: 'Unknown error, code: ' + error.code,
-                    severity: 'error',
-                    canRetry: false
-                };
-        }
-    }
-
-    if('name' in error) {
-        switch (error.name) {
-            case 'AgentError':
-                return {
-                    type: 'AgentError',
-                    message: 'Agent error',
-                    severity: 'warning',
-                    canRetry: false
-                };
-            default:
-                return {
-                    type: 'Unknown',
-                    message: 'Unknown error, name: ' + error.name,
-                    severity: 'error',
-                    canRetry: false
-                };
-        }
-    }
-
-    // Fallback case
-    return {
-        type: 'Unknown',
-        message: 'Unknown error',
-        severity: 'error',
-        canRetry: false
-    };
-};
-
-// Utility function to handle TransferResult
-export const hanldeApproveResult = (result: ApproveResult): { success: boolean; data?: TxIndex; error?: FormattedError } => {
+    // Handle successful transfer
     if ('Ok' in result) {
         return {
             success: true,
@@ -294,25 +27,172 @@ export const hanldeApproveResult = (result: ApproveResult): { success: boolean; 
         };
     }
 
+    // Handle error cases
     if ('Err' in result) {
+        const error = result.Err;
+        
+        // Handle different error types
+        if (typeof error === 'object') {
+            if ('InsufficientFunds' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'INSUFFICIENT_FUNDS',
+                        message: `Insufficient funds. Available: ${error.InsufficientFunds.balance}`,
+                        details: error.InsufficientFunds
+                    }
+                };
+            }
+            
+            if ('BadFee' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'BAD_FEE',
+                        message: `Invalid fee. Expected: ${error.BadFee.expected_fee}`,
+                        details: error.BadFee
+                    }
+                };
+            }
+            
+            if ('TooOld' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'TOO_OLD',
+                        message: 'Transaction is too old',
+                        details: error.TooOld
+                    }
+                };
+            }
+            
+            if ('CreatedInFuture' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'CREATED_IN_FUTURE',
+                        message: 'Transaction created in future',
+                        details: error.CreatedInFuture
+                    }
+                };
+            }
+            
+            if ('Duplicate' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'DUPLICATE',
+                        message: `Duplicate transaction. Block: ${error.Duplicate.duplicate_of}`,
+                        details: error.Duplicate
+                    }
+                };
+            }
+            
+            if ('TemporarilyUnavailable' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'TEMPORARILY_UNAVAILABLE',
+                        message: 'Service temporarily unavailable',
+                        details: error.TemporarilyUnavailable
+                    }
+                };
+            }
+            
+            if ('GenericError' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'GENERIC_ERROR',
+                        message: error.GenericError.message || 'Generic error occurred',
+                        details: error.GenericError
+                    }
+                };
+            }
+        }
+        
+        // Handle string errors
+        if (typeof error === 'string') {
+            return {
+                success: false,
+                error: {
+                    type: 'STRING_ERROR',
+                    message: error
+                }
+            };
+        }
+        
+        // Fallback for unknown error format
         return {
             success: false,
-            error: handleApproveError(result.Err)
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: 'Unknown error occurred',
+                details: error
+            }
         };
     }
 
-    // Fallback
+    // Fallback for unexpected result format
     return {
         success: false,
         error: {
-            type: 'Unknown',
-            message: 'Unknown error',
-            severity: 'error',
-            canRetry: false
+            type: 'UNEXPECTED_FORMAT',
+            message: 'Unexpected result format',
+            details: result
         }
     };
-};
-export const handleTransferResult = (result: TransferResult): { success: boolean; data?: TxIndex; error?: FormattedError } => {
+}
+
+export function formatTransferError(error: TransferResult['error']): string {
+    if (!error) return 'Unknown error';
+    
+    switch (error.type) {
+        case 'INSUFFICIENT_FUNDS':
+            return 'Insufficient funds for this transaction';
+        case 'BAD_FEE':
+            return 'Invalid transaction fee';
+        case 'TOO_OLD':
+            return 'Transaction expired, please try again';
+        case 'CREATED_IN_FUTURE':
+            return 'Invalid transaction timestamp';
+        case 'DUPLICATE':
+            return 'Duplicate transaction detected';
+        case 'TEMPORARILY_UNAVAILABLE':
+            return 'Service temporarily unavailable, please try again';
+        case 'GENERIC_ERROR':
+        case 'STRING_ERROR':
+        case 'UNKNOWN_ERROR':
+        case 'UNEXPECTED_FORMAT':
+        default:
+            return error.message || 'Transaction failed';
+    }
+}
+
+// Approve result interface
+interface ApproveResult {
+    success: boolean;
+    data?: any;
+    error?: {
+        type: string;
+        message: string;
+        details?: any;
+    };
+}
+
+// Handle ICRC2 approve results (note: keeping the original typo for compatibility)
+export function hanldeApproveResult(result: any): ApproveResult {
+    if (!result) {
+        return {
+            success: false,
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: 'No result received from approve'
+            }
+        };
+    }
+
+    // Handle successful approve
     if ('Ok' in result) {
         return {
             success: true,
@@ -320,27 +200,259 @@ export const handleTransferResult = (result: TransferResult): { success: boolean
         };
     }
 
+    // Handle error cases
     if ('Err' in result) {
+        const error = result.Err;
+        
+        // Handle different error types
+        if (typeof error === 'object') {
+            if ('InsufficientFunds' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'INSUFFICIENT_FUNDS',
+                        message: `Insufficient funds. Available: ${error.InsufficientFunds.balance}`,
+                        details: error.InsufficientFunds
+                    }
+                };
+            }
+            
+            if ('BadFee' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'BAD_FEE',
+                        message: `Invalid fee. Expected: ${error.BadFee.expected_fee}`,
+                        details: error.BadFee
+                    }
+                };
+            }
+            
+            if ('InsufficientAllowance' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'INSUFFICIENT_ALLOWANCE',
+                        message: `Insufficient allowance. Current: ${error.InsufficientAllowance.allowance}`,
+                        details: error.InsufficientAllowance
+                    }
+                };
+            }
+            
+            if ('AllowanceChanged' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'ALLOWANCE_CHANGED',
+                        message: `Allowance changed. Current: ${error.AllowanceChanged.current_allowance}`,
+                        details: error.AllowanceChanged
+                    }
+                };
+            }
+            
+            if ('Expired' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'EXPIRED',
+                        message: 'Approval has expired',
+                        details: error.Expired
+                    }
+                };
+            }
+            
+            if ('TooOld' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'TOO_OLD',
+                        message: 'Approval is too old',
+                        details: error.TooOld
+                    }
+                };
+            }
+            
+            if ('CreatedInFuture' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'CREATED_IN_FUTURE',
+                        message: 'Approval created in future',
+                        details: error.CreatedInFuture
+                    }
+                };
+            }
+            
+            if ('Duplicate' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'DUPLICATE',
+                        message: `Duplicate approval. Block: ${error.Duplicate.duplicate_of}`,
+                        details: error.Duplicate
+                    }
+                };
+            }
+            
+            if ('TemporarilyUnavailable' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'TEMPORARILY_UNAVAILABLE',
+                        message: 'Service temporarily unavailable',
+                        details: error.TemporarilyUnavailable
+                    }
+                };
+            }
+            
+            if ('GenericError' in error) {
+                return {
+                    success: false,
+                    error: {
+                        type: 'GENERIC_ERROR',
+                        message: error.GenericError.message || 'Generic error occurred',
+                        details: error.GenericError
+                    }
+                };
+            }
+        }
+        
+        // Handle string errors
+        if (typeof error === 'string') {
+            return {
+                success: false,
+                error: {
+                    type: 'STRING_ERROR',
+                    message: error
+                }
+            };
+        }
+        
+        // Fallback for unknown error format
         return {
             success: false,
-            error: handleTransferError(result.Err)
+            error: {
+                type: 'UNKNOWN_ERROR',
+                message: 'Unknown error occurred',
+                details: error
+            }
         };
     }
 
-    // Fallback
+    // Fallback for unexpected result format
     return {
         success: false,
         error: {
-            type: 'Unknown',
-            message: 'Unknown error',
-            severity: 'error',
-            canRetry: false
+            type: 'UNEXPECTED_FORMAT',
+            message: 'Unexpected result format',
+            details: result
         }
     };
-};
+}
 
-// Helper function to get short error message
-export const getShortErrorMessage = (error: TransferError): string => {
-    const formatted = handleTransferError(error);
-    return formatted.message;
-};
+// Corrected function name (without typo)
+export function handleApproveResult(result: any): ApproveResult {
+    return hanldeApproveResult(result);
+}
+
+// Format approve error messages
+export function formatApproveError(error: ApproveResult['error']): string {
+    if (!error) return 'Unknown error';
+    
+    switch (error.type) {
+        case 'INSUFFICIENT_FUNDS':
+            return 'Insufficient funds for approval';
+        case 'BAD_FEE':
+            return 'Invalid approval fee';
+        case 'INSUFFICIENT_ALLOWANCE':
+            return 'Insufficient allowance for this operation';
+        case 'ALLOWANCE_CHANGED':
+            return 'Allowance has changed, please try again';
+        case 'EXPIRED':
+            return 'Approval has expired';
+        case 'TOO_OLD':
+            return 'Approval expired, please try again';
+        case 'CREATED_IN_FUTURE':
+            return 'Invalid approval timestamp';
+        case 'DUPLICATE':
+            return 'Duplicate approval detected';
+        case 'TEMPORARILY_UNAVAILABLE':
+            return 'Service temporarily unavailable, please try again';
+        case 'GENERIC_ERROR':
+        case 'STRING_ERROR':
+        case 'UNKNOWN_ERROR':
+        case 'UNEXPECTED_FORMAT':
+        default:
+            return error.message || 'Approval failed';
+    }
+}
+
+// Additional utility functions for ICRC operations
+
+// Check if a result indicates success
+export function isSuccessResult(result: any): boolean {
+    return result && 'Ok' in result;
+}
+
+// Check if a result indicates an error
+export function isErrorResult(result: any): boolean {
+    return result && 'Err' in result;
+}
+
+// Extract the success data from a result
+export function getSuccessData(result: any): any {
+    if (isSuccessResult(result)) {
+        return result.Ok;
+    }
+    return null;
+}
+
+// Extract the error data from a result
+export function getErrorData(result: any): any {
+    if (isErrorResult(result)) {
+        return result.Err;
+    }
+    return null;
+}
+
+// Generic result handler for any ICRC operation
+export function handleIcrcResult(result: any, operation: string = 'operation'): {
+    success: boolean;
+    data?: any;
+    error?: string;
+} {
+    if (isSuccessResult(result)) {
+        return {
+            success: true,
+            data: getSuccessData(result)
+        };
+    }
+    
+    if (isErrorResult(result)) {
+        const error = getErrorData(result);
+        let errorMessage = `${operation} failed`;
+        
+        if (typeof error === 'string') {
+            errorMessage = error;
+        } else if (typeof error === 'object' && error !== null) {
+            // Try to extract a meaningful error message
+            if (error.message) {
+                errorMessage = error.message;
+            } else if (error.GenericError?.message) {
+                errorMessage = error.GenericError.message;
+            } else {
+                errorMessage = `${operation} failed: ${JSON.stringify(error)}`;
+            }
+        }
+        
+        return {
+            success: false,
+            error: errorMessage
+        };
+    }
+    
+    return {
+        success: false,
+        error: `${operation} failed: unexpected result format`
+    };
+}

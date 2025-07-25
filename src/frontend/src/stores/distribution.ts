@@ -1,72 +1,85 @@
-import { defineStore } from "pinia";
-import type { Distribution } from "@/types";
+import { defineStore } from 'pinia';
+import { ref, computed } from 'vue';
+import type { DistributionCampaign } from '@/types/distribution';
 
-interface DistributionStoreState {
-  distributions: Distribution[];
-  isLoading: boolean;
-  error: string | null;
-}
-
-const mockDistributions: Distribution[] = [
+// Mock data previously in distributionService.ts
+const mockCampaigns: DistributionCampaign[] = [
   {
-    id: "dist-001",
-    type: 'public_sale',
-    tokenAddress: "ryjl3-tyaaa-aaaaa-aaaba-cai",
-    tokenSymbol: "ICP",
-    totalAmount: 500000000000n, // 5000 ICP
-    startTime: Date.now() / 1000,
-    endTime: (Date.now() / 1000) + (3600 * 24 * 7), // 7 days
-    participants: [
-        { principal: 'aaaaa-aa', amount: 10000000000n, claimed: false },
-        { principal: 'aaaaa-ab', amount: 5000000000n, claimed: true },
-    ],
-    owner: "aaaaa-ac",
-    status: 'active',
+    id: '1',
+    name: 'ICTO Token Genesis Airdrop',
+    description: 'Initial airdrop for early supporters and community members of the ICTO project.',
+    type: 'Airdrop',
+    status: 'Active',
+    totalAmount: 1000000,
+    distributedAmount: 450000,
+    startTime: new Date('2024-07-01T00:00:00Z'),
+    endTime: new Date('2024-08-01T00:00:00Z'),
+    token: { symbol: 'ICTO', logo: '/images/tokens/icto.png', decimals: 8 },
+    access: 'Whitelist',
+    distributionMethod: 'Claim-based',
+    maxPerWallet: 1000,
   },
   {
-    id: "dist-002",
-    type: 'airdrop',
-    tokenAddress: "mxzaz-hqaaa-aaaar-qaada-cai",
-    tokenSymbol: "wICP",
-    totalAmount: 100000000000n, // 1000 wICP
-    startTime: (Date.now() / 1000) - (3600 * 24 * 10), // 10 days ago
-    endTime: (Date.now() / 1000) - (3600 * 24 * 3), // 3 days ago
-    participants: [
-        { principal: 'aaaaa-ad', amount: 200000000n, claimed: true },
-        { principal: 'aaaaa-ae', amount: 200000000n, claimed: true },
-        { principal: 'aaaaa-af', amount: 200000000n, claimed: false },
-    ],
-    owner: "aaaaa-ag",
-    status: 'ended',
-  }
+    id: '2',
+    name: 'Project Phoenix Seed Round',
+    description: 'Seed funding round for Project Phoenix, with a 12-month vesting period.',
+    type: 'Vesting',
+    status: 'Upcoming',
+    totalAmount: 5000000,
+    distributedAmount: 0,
+    startTime: new Date('2024-09-01T00:00:00Z'),
+    endTime: new Date('2025-09-01T00:00:00Z'),
+    token: { symbol: 'PHX', logo: '/images/tokens/phx.png', decimals: 8 },
+    access: 'Whitelist',
+    distributionMethod: 'Automatic',
+    maxPerWallet: 50000,
+  },
+  {
+    id: '3',
+    name: 'DAO Governance Token Lock',
+    description: 'Initial lock-up for DAO governance tokens to ensure long-term alignment.',
+    type: 'Lock',
+    status: 'Ended',
+    totalAmount: 20000000,
+    distributedAmount: 20000000,
+    startTime: new Date('2023-01-15T00:00:00Z'),
+    endTime: new Date('2024-01-15T00:00:00Z'),
+    token: { symbol: 'GOV', logo: '/images/tokens/gov.png', decimals: 8 },
+    access: 'Public',
+    distributionMethod: 'Automatic',
+    maxPerWallet: null,
+  },
 ];
 
-export const useDistributionStore = defineStore("distribution", {
-  state: (): DistributionStoreState => ({
-    distributions: [],
-    isLoading: false,
-    error: null,
-  }),
+export const useDistributionStore = defineStore('distribution', () => {
+  const campaigns = ref<DistributionCampaign[]>([]);
+  const isLoading = ref(false);
+  const error = ref<string | null>(null);
 
-  actions: {
-    async fetchDistributions() {
-      this.isLoading = true;
-      this.error = null;
-      try {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        this.distributions = mockDistributions;
-      } catch (e) {
-        this.error = "Failed to fetch distributions.";
-        console.error(e);
-      } finally {
-        this.isLoading = false;
-      }
-    },
-  },
+  async function fetchCampaigns() {
+    isLoading.value = true;
+    error.value = null;
+    try {
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 500));
+      campaigns.value = mockCampaigns;
+    } catch (e) {
+      error.value = 'Failed to fetch distribution campaigns.';
+      console.error(e);
+    } finally {
+      isLoading.value = false;
+    }
+  }
 
-  getters: {
-    getDistributionById: (state) => (id: string) => {
-      return state.distributions.find((d) => d.id === id);
-    },
-  },
-}); 
+  const getCampaignById = computed(() => {
+    return (id: string) => campaigns.value.find((c) => c.id === id);
+  });
+
+  return {
+    campaigns,
+    isLoading,
+    error,
+    fetchCampaigns,
+    getCampaignById,
+  };
+});

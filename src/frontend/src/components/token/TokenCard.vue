@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import TokenLogo from './TokenLogo.vue'
+
 const props = defineProps<{
   token: {
     name: string
     symbol: string
     logo?: string
+    canisterId?: string
     verified: boolean
     totalSupply: bigint
     holders: number
@@ -38,10 +41,10 @@ const formatCurrency = (n: number) => {
       <!-- Token Header -->
       <div class="flex items-center space-x-4">
         <div class="relative">
-          <img 
-            :src="token.logo || '/default-token.svg'" 
-            :alt="token.name"
-            class="w-12 h-12 rounded-full bg-neutral-100 dark:bg-neutral-700"
+          <TokenLogo 
+            :canister-id="token.canisterId || ''" 
+            :symbol="token.symbol"
+            :size="48"
           />
           <div 
             class="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white flex items-center justify-center"

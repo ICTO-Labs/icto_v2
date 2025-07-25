@@ -105,6 +105,7 @@ import { validateTokenAmount, validateAddress } from '@/utils/validation'
 import { formatBalance } from '@/utils/numberFormat'
 import { toast } from 'vue-sonner'
 import TokenBalance from '@/components/token/TokenBalance.vue'
+import TokenLogo from '@/components/token/TokenLogo.vue'
 import { IcrcService } from '@/api/services/icrc'
 import { useAuthStore } from '@/stores/auth'
 import { AlertOctagon } from 'lucide-vue-next'
@@ -220,7 +221,7 @@ const handleBalanceUpdate = (balance: bigint) => {
     }
 }
 onMounted(async () => {
-    isMintAccount.value = await IcrcService.isMintAccount(token.value, auth.principal)
+    isMintAccount.value = await IcrcService.isMintAccount(token.value.canisterId, auth.principal)
     console.log('Is Mint Account:', isMintAccount.value)
 })
 </script>
