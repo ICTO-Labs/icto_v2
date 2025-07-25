@@ -34,3 +34,9 @@ docs/
 # ignore sns wasm file
 sns_icrc_wasm_v2.wasm
 .mops
+
+# ignore serena files
+.serena/
+
+# ignore windsurf rules
+.windsurf/
