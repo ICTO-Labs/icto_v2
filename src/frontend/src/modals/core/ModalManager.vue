@@ -30,6 +30,13 @@ const modalComponents = {
 
     // Filter modals
     // tokenFilter: defineAsyncComponent(() => import('../filter/TokenFilterModal.vue'))
+
+    //Multisig modals
+    createMultisig: defineAsyncComponent(() => import('../multisig/CreateMultisigModal.vue')),
+    createProposal: defineAsyncComponent(() => import('../multisig/CreateProposalModal.vue')),
+    manageSigners: defineAsyncComponent(() => import('../multisig/ManageSignersModal.vue')),
+    signProposal: defineAsyncComponent(() => import('../multisig/SignProposalModal.vue')),
+    receiveAsset: defineAsyncComponent(() => import('../multisig/ReceiveAssetModal.vue')),
 } as const
 
 const currentModal = computed(() => {

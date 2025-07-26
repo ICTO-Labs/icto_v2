@@ -1,6 +1,6 @@
 <template>
     <admin-layout>
-    <div class="container mx-auto px-4 py-6">
+    <div class="gap-4 md:gap-6">
         <!-- Header Metrics -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             <MetricCard 

@@ -40,3 +40,4 @@ sns_icrc_wasm_v2.wasm
 
 # ignore windsurf rules
 .windsurf/
+.kiro/

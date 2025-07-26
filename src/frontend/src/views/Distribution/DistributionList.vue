@@ -1,18 +1,37 @@
 <template>
-  <DashboardLayout>
-    <div class="p-4 sm:p-6 md:p-8">
-      <DashboardCard>
-        <template #title>Distribution Campaigns</template>
-        <template #subtitle>Manage your token distribution campaigns</template>
-        <template #action>
-          <button 
-            @click="createNewCampaign"
-            class="btn-primary"
-          >
-            <PlusIcon class="h-4 w-4 mr-2" />
-            Create New Campaign
-          </button>
-        </template>
+    <div class="gap-4 md:gap-6">
+      <!-- Main Navigation -->
+      <div class="flex items-center justify-between mb-6">
+            <div class="flex items-center space-x-2">
+                <h1 class="text-2xl font-bold text-gray-900 dark:text-white">Distribution Campaigns</h1>
+                <button 
+                    v-auth-required="{ message: 'Please connect your wallet to deploy new token!', autoOpenModal: true }"
+                    @click="createNewCampaign"
+                    class="ml-4 inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-900"
+                >
+                    <PlusIcon class="h-4 w-4 mr-2" />
+                    Create New Campaign
+                </button>
+            </div>
+            <div class="flex items-center space-x-4">
+                <button 
+                    class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                    @click="refreshData"
+                    :disabled="isLoading"
+                >
+                    <RefreshCcwIcon 
+                        class="h-5 w-5" 
+                        :class="{ 'animate-spin': isLoading }" 
+                    />
+                </button>
+                <button 
+                    class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300"
+                    @click="openFilterModal"
+                >
+                    <SlidersIcon class="h-5 w-5" />
+                </button>
+            </div>
+        </div>
 
         <!-- Filter/Sort Toolbar -->
         <div class="mb-6 space-y-4 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
@@ -114,9 +133,7 @@
             Showing {{ filteredCampaigns.length }} of {{ distributionStore.campaigns.length }} campaigns
           </div>
         </div>
-      </DashboardCard>
     </div>
-  </DashboardLayout>
 </template>
 
 <script setup lang="ts">
@@ -124,9 +141,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useDistributionStore } from '@/stores/distribution'
 import { useModalStore } from '@/stores/modal'
 import CampaignCard from '@/components/distribution/CampaignCard.vue'
-import DashboardLayout from '@/components/layout/DashboardLayout.vue'
-import DashboardCard from '@/components/layout/DashboardCard.vue'
-import { PlusIcon, SearchIcon, AlertCircleIcon, Share2Icon } from 'lucide-vue-next'
+import { PlusIcon, SearchIcon, AlertCircleIcon, Share2Icon, RefreshCcwIcon, SlidersIcon } from 'lucide-vue-next'
 import type { DistributionCampaign } from '@/types/distribution'
 
 const distributionStore = useDistributionStore()

@@ -274,10 +274,7 @@ const menuGroups = [
       {
         name: "Launchpad",
         icon: RocketIcon,
-        subItems: [
-          { name: "Active Projects", path: "/launchpad", pro: false },
-          { name: "Completed Projects", path: "/launchpad", pro: false },
-        ],
+        path: "/launchpad",
       },
     ],
   },
@@ -287,22 +284,12 @@ const menuGroups = [
       {
         icon: FingerprintIcon,
         name: "Multisig",
-        subItems: [
-          { name: "Multisig Elements", path: "/multisig-elements", pro: false },
-          { name: "Multisig Elements", path: "/multisig-elements", pro: false },
-        ],
+        path: "/multisig",
       },
       {
         icon: PlugInIcon,
         name: "Mini DAO",
-        subItems: [
-          { name: "Alerts", path: "/alerts", pro: false },
-          { name: "Avatars", path: "/avatars", pro: false },
-          { name: "Badge", path: "/badge", pro: false },
-          { name: "Buttons", path: "/buttons", pro: false },
-          { name: "Images", path: "/images", pro: false },
-          { name: "Videos", path: "/videos", pro: false },
-        ],
+        path: "/mini-dao",
       },
       {
         icon: CodeSquareIcon,

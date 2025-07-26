@@ -25,6 +25,27 @@ export const useModalStore = defineStore('modal', () => {
             isOpen: false,
             data: undefined
         },
+        // Multisig modals
+        signProposal: {
+            isOpen: false,
+            data: undefined
+        },
+        createProposal: {
+            isOpen: false,
+            data: undefined
+        },
+        createMultisig: {
+            isOpen: false,
+            data: undefined
+        },
+        manageSigners: {
+            isOpen: false,
+            data: undefined
+        },
+        receiveAsset: {
+            isOpen: false,
+            data: undefined
+        },
         transferOwnership: {
             isOpen: false,
             data: undefined
@@ -100,11 +121,16 @@ export const useModalStore = defineStore('modal', () => {
         return state.value[name]?.data as T | undefined
     }
 
+    function getModalData(name: keyof ModalState): any {
+        return state.value[name]?.data
+    }
+
     return {
         state,
         isOpen,
         open,
         close,
-        getData
+        getData,
+        getModalData
     }
 }) 

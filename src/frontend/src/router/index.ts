@@ -17,7 +17,7 @@ const router = createRouter({
     {
       path: '/tokens',
       name: 'Tokens',
-      component: () => import('../views/Token/Index.vue'),
+      component: () => import('../views/Token/TokenIndex.vue'),
       meta: {
         title: 'Tokens Center',
       },
@@ -27,6 +27,28 @@ const router = createRouter({
       component: () => import('../views/Token/TokenDetail.vue'),
       meta: { 
         title: 'Token Detail',
+      }
+    },
+    {
+      path: '/multisig',
+      name: 'Multisig',
+      component: () => import('../views/Multisig/MultisigIndex.vue'),
+      meta: {
+        title: 'Multisig Wallets',
+      },
+    },
+    {
+      path: '/multisig/:id',
+      component: () => import('../views/Multisig/MultisigDetail.vue'),
+      meta: { 
+        title: 'Multisig Wallet Detail',
+      }
+    },
+    {
+      path: '/multisig/:id/proposal/:proposalId',
+      component: () => import('../views/Multisig/ProposalDetail.vue'),
+      meta: { 
+        title: 'Proposal Detail',
       }
     },
     {
@@ -169,7 +191,7 @@ const router = createRouter({
   
     {
       path: '/distribution',
-      component: () => import('../views/Distribution/IndexDistribution.vue'),
+      component: () => import('../views/Distribution/DistributionIndex.vue'),
       children: [
         {
           path: '',
@@ -192,7 +214,7 @@ const router = createRouter({
     {
       path: '/launchpad',
       name: 'LaunchpadIndex',
-      component: () => import('@/views/Launchpad/IndexLaunchpad.vue'),
+      component: () => import('@/views/Launchpad/LaunchpadIndex.vue'),
     },
     {
       path: '/launchpad/:id',

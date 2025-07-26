@@ -1,6 +1,6 @@
 <template>
     <admin-layout>
-        <div class="container mx-auto px-4 py-6">
+        <div class="gap-4 md:gap-6">
             <!-- Loading state -->
             <div v-if="loading" class="flex justify-center items-center py-12">
                 <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>

@@ -1,4 +1,5 @@
 import type { Token } from './token'
+import type { MultisigWallet, TransactionProposal } from './multisig'
 
 export interface ModalState {
     deployToken: {
@@ -97,6 +98,36 @@ export interface ModalState {
         isOpen: boolean
         data?: {
             canisterId?: string
+        }
+    }
+    // Multisig modals
+    signProposal: {
+        isOpen: boolean
+        data?: {
+            proposal: TransactionProposal
+            wallet: MultisigWallet
+        }
+    }
+    createProposal: {
+        isOpen: boolean
+        data?: {
+            wallet: MultisigWallet
+        }
+    }
+    createMultisig: {
+        isOpen: boolean
+        data?: any
+    }
+    manageSigners: {
+        isOpen: boolean
+        data?: {
+            wallet: MultisigWallet
+        }
+    }
+    receiveAsset: {
+        isOpen: boolean
+        data?: {
+            wallet: MultisigWallet
         }
     }
 } 

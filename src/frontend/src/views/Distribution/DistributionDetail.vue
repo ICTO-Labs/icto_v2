@@ -1,5 +1,5 @@
 <template>
-  <div class="container mx-auto px-4 py-6">
+  <div class="gap-4 md:gap-6">
     <!-- Loading State -->
     <div v-if="isLoading" class="flex justify-center items-center py-12">
       <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
@@ -184,7 +184,7 @@ import HistoryTab from './tabs/HistoryTab.vue';
 import MyActivityTab from './tabs/MyActivityTab.vue';
 import AnalyticsTab from './tabs/AnalyticsTab.vue';
 import { useDistributionStore } from '@/stores/distribution';
-import { ArrowLeft } from 'lucide-vue-next';
+import { CircleArrowLeftIcon } from 'lucide-vue-next';
 import type { CampaignStatus } from '@/types/distribution';
 
 // Tab components are now inline - no external imports needed
