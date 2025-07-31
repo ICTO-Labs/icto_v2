@@ -38,6 +38,10 @@ sns_icrc_wasm_v2.wasm
 # ignore serena files
 .serena/
 
-# ignore windsurf rules
+# ignore agent rules
 .windsurf/
 .kiro/
+.cursor/
+.opencode/
+.claude/
+.serena/
