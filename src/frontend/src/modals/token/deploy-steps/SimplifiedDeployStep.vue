@@ -388,7 +388,7 @@ import { backendService } from '@/api/services/backend'
 import { useAuthStore, backendActor } from '@/stores/auth'
 import { Principal } from '@dfinity/principal'
 import { handleTransferResult, hanldeApproveResult } from '@/utils/icrc'
-import { TOKEN_DEPLOYER } from '@/config/constants'
+import { TOKEN_FACTORY } from '@/config/constants'
 const modalStore = useModalStore()
 const progress = useProgressDialog()
 
@@ -518,20 +518,20 @@ const validate = () => {
     const newErrors: Record<string, string> = {}
 
     //Validate logo size, base on token size
-    if (props.modelValue.tokenConfig.logo && props.modelValue.tokenConfig.logo.length > TOKEN_DEPLOYER.maximumLogoSizeInBytes) {
+    if (props.modelValue.tokenConfig.logo && props.modelValue.tokenConfig.logo.length > TOKEN_FACTORY.maximumLogoSizeInBytes) {
         newErrors.logo = 'Logo size is too large, max size is 30KB'
     }
 
     if (!props.modelValue.tokenConfig.name) {
         newErrors.name = 'Name is required'
-    } else if (props.modelValue.tokenConfig.name.length < TOKEN_DEPLOYER.minTokenNameLength || props.modelValue.tokenConfig.name.length > TOKEN_DEPLOYER.maxTokenNameLength) {
-        newErrors.name = `Name must be at least ${TOKEN_DEPLOYER.minTokenNameLength}-${TOKEN_DEPLOYER.maxTokenNameLength} characters`
+    } else if (props.modelValue.tokenConfig.name.length < TOKEN_FACTORY.minTokenNameLength || props.modelValue.tokenConfig.name.length > TOKEN_FACTORY.maxTokenNameLength) {
+        newErrors.name = `Name must be at least ${TOKEN_FACTORY.minTokenNameLength}-${TOKEN_FACTORY.maxTokenNameLength} characters`
     }
 
     if (!props.modelValue.tokenConfig.symbol) {
         newErrors.symbol = 'Symbol is required'
-    } else if (props.modelValue.tokenConfig.symbol.length < TOKEN_DEPLOYER.minTokenSymbolLength || props.modelValue.tokenConfig.symbol.length > TOKEN_DEPLOYER.maxTokenSymbolLength) {
-        newErrors.symbol = `Symbol must be ${TOKEN_DEPLOYER.minTokenNameLength}-${TOKEN_DEPLOYER.maxTokenSymbolLength} characters`
+    } else if (props.modelValue.tokenConfig.symbol.length < TOKEN_FACTORY.minTokenSymbolLength || props.modelValue.tokenConfig.symbol.length > TOKEN_FACTORY.maxTokenSymbolLength) {
+        newErrors.symbol = `Symbol must be ${TOKEN_FACTORY.minTokenNameLength}-${TOKEN_FACTORY.maxTokenSymbolLength} characters`
     }
 
     if (!props.modelValue.tokenConfig.totalSupply) {
@@ -818,8 +818,8 @@ const handleFileUpload = (event: Event) => {
         }
 
         // Validate file size (max 30KB)
-        if (file.size > TOKEN_DEPLOYER.maximumLogoSizeInBytes) {
-            errors.value.logo = `Image size should be less than ${(TOKEN_DEPLOYER.maximumLogoSizeInBytes / 1024).toFixed(2)}KB, your file is ${(file.size / 1024).toFixed(2)}KB`
+        if (file.size > TOKEN_FACTORY.maximumLogoSizeInBytes) {
+            errors.value.logo = `Image size should be less than ${(TOKEN_FACTORY.maximumLogoSizeInBytes / 1024).toFixed(2)}KB, your file is ${(file.size / 1024).toFixed(2)}KB`
             return
         }
 

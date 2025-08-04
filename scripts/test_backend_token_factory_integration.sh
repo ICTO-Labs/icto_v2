@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Test script for Backend → Token Deployer integration
+# Test script for Backend → Token Factory integration
 # Tests all admin functions: whitelist management, configuration, WASM management
 
 set -e
@@ -13,12 +13,12 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
 BACKEND_CANISTER_ID=""
-TOKEN_DEPLOYER_CANISTER_ID=""
+TOKEN_FACTORY_CANISTER_ID=""
 USER_IDENTITY="default"
 
-echo -e "${BLUE}🧪 ICTO V2 Backend → Token Deployer Integration Test${NC}"
+echo -e "${BLUE}🧪 ICTO V2 Backend → Token Factory Integration Test${NC}"
 echo "=================================================="
 
 # Function to print test status
@@ -44,18 +44,18 @@ get_canister_ids() {
     
     if [ -f "$PROJECT_ROOT/.dfx/local/canister_ids.json" ]; then
         BACKEND_CANISTER_ID=$(cat "$PROJECT_ROOT/.dfx/local/canister_ids.json" | jq -r '.backend.local // empty')
-        TOKEN_DEPLOYER_CANISTER_ID=$(cat "$PROJECT_ROOT/.dfx/local/canister_ids.json" | jq -r '.token_deployer.local // empty')
+        TOKEN_FACTORY_CANISTER_ID=$(cat "$PROJECT_ROOT/.dfx/local/canister_ids.json" | jq -r '.token_factory.local // empty')
     fi
     
-    if [ -z "$BACKEND_CANISTER_ID" ] || [ -z "$TOKEN_DEPLOYER_CANISTER_ID" ]; then
+    if [ -z "$BACKEND_CANISTER_ID" ] || [ -z "$TOKEN_FACTORY_CANISTER_ID" ]; then
         print_error "Could not find canister IDs. Deploy services first!"
         echo "Backend: $BACKEND_CANISTER_ID"
-        echo "Token Deployer: $TOKEN_DEPLOYER_CANISTER_ID"
+        echo "Token Factory: $TOKEN_FACTORY_CANISTER_ID"
         exit 1
     fi
     
     print_info "Backend canister: $BACKEND_CANISTER_ID"
-    print_info "Token deployer canister: $TOKEN_DEPLOYER_CANISTER_ID"
+    print_info "Token factory canister: $TOKEN_FACTORY_CANISTER_ID"
 }
 
 # Function to switch identity
@@ -87,25 +87,25 @@ test_backend_admin_check() {
     fi
 }
 
-# Test 2: Get current token deployer info
-test_get_token_deployer_info() {
-    print_test "Getting token deployer service info"
+# Test 2: Get current token factory info
+test_get_token_factory_info() {
+    print_test "Getting token factory service info"
     
-    local result=$(dfx canister call backend getTokenDeployerInfo "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
+    local result=$(dfx canister call backend getTokenFactoryInfo "(principal \"$TOKEN_FACTORY_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
     
     if [[ "$result" == *"#ok"* ]]; then
-        print_success "Successfully retrieved token deployer info"
+        print_success "Successfully retrieved token factory info"
         echo "$result" | grep -E "(name|version|totalDeployments)" || true
     else
-        print_error "Failed to get token deployer info: $result"
+        print_error "Failed to get token factory info: $result"
     fi
 }
 
-# Test 3: Get token deployer WASM info
+# Test 3: Get token factory WASM info
 test_get_wasm_info() {
-    print_test "Getting token deployer WASM info"
+    print_test "Getting token factory WASM info"
     
-    local result=$(dfx canister call backend getTokenDeployerWasmInfo "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
+    local result=$(dfx canister call backend getTokenFactoryWasmInfo "(principal \"$TOKEN_FACTORY_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
     
     if [[ "$result" == *"#ok"* ]]; then
         print_success "Successfully retrieved WASM info"
@@ -115,11 +115,11 @@ test_get_wasm_info() {
     fi
 }
 
-# Test 4: Get token deployer configuration
+# Test 4: Get token factory configuration
 test_get_configuration() {
-    print_test "Getting token deployer configuration"
+    print_test "Getting token factory configuration"
     
-    local result=$(dfx canister call backend getTokenDeployerConfiguration "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
+    local result=$(dfx canister call backend getTokenFactoryConfiguration "(principal \"$TOKEN_FACTORY_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
     
     if [[ "$result" == *"#ok"* ]]; then
         print_success "Successfully retrieved configuration"
@@ -133,7 +133,7 @@ test_get_configuration() {
 test_get_whitelist() {
     print_test "Getting current whitelisted backends"
     
-    local result=$(dfx canister call backend getTokenDeployerWhitelistedBackends "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
+    local result=$(dfx canister call backend getTokenFactoryWhitelistedBackends "(principal \"$TOKEN_FACTORY_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
     
     if [[ "$result" == *"#ok"* ]]; then
         print_success "Successfully retrieved whitelist"
@@ -145,9 +145,9 @@ test_get_whitelist() {
 
 # Test 6: Add backend to whitelist
 test_add_to_whitelist() {
-    print_test "Adding backend to token deployer whitelist"
+    print_test "Adding backend to token factory whitelist"
     
-    local result=$(dfx canister call backend addTokenDeployerToWhitelist "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
+    local result=$(dfx canister call backend addTokenFactoryToWhitelist "(principal \"$TOKEN_FACTORY_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
     
     if [[ "$result" == *"#ok"* ]]; then
         print_success "Successfully added backend to whitelist"
@@ -160,7 +160,7 @@ test_add_to_whitelist() {
 test_verify_whitelist() {
     print_test "Verifying backend is now whitelisted"
     
-    local result=$(dfx canister call backend getTokenDeployerWhitelistedBackends "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
+    local result=$(dfx canister call backend getTokenFactoryWhitelistedBackends "(principal \"$TOKEN_FACTORY_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
     local backend_principal=$(dfx canister call backend getSystemInfo --ic 2>/dev/null | grep -o 'principal "[^"]*"' | head -1 | cut -d'"' -f2 || echo "unknown")
     
     if [[ "$result" == *"$backend_principal"* ]]; then
@@ -173,13 +173,13 @@ test_verify_whitelist() {
     fi
 }
 
-# Test 8: Update token deployer configuration
+# Test 8: Update token factory configuration
 test_update_configuration() {
-    print_test "Updating token deployer configuration"
+    print_test "Updating token factory configuration"
     
     # Update deployment fee to 200M (2 ICP)
-    local result=$(dfx canister call backend updateTokenDeployerConfiguration \
-        "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\", opt (200_000_000 : nat), null, null, null, null)" \
+    local result=$(dfx canister call backend updateTokenFactoryConfiguration \
+        "(principal \"$TOKEN_FACTORY_CANISTER_ID\", opt (200_000_000 : nat), null, null, null, null)" \
         --ic 2>/dev/null || echo "error")
     
     if [[ "$result" == *"#ok"* ]]; then
@@ -187,7 +187,7 @@ test_update_configuration() {
         
         # Verify the update
         sleep 2
-        local verify_result=$(dfx canister call backend getTokenDeployerConfiguration "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
+        local verify_result=$(dfx canister call backend getTokenFactoryConfiguration "(principal \"$TOKEN_FACTORY_CANISTER_ID\")" --ic 2>/dev/null || echo "error")
         
         if [[ "$verify_result" == *"200_000_000"* ]]; then
             print_success "Configuration update verified - deployment fee is now 2 ICP"
@@ -199,17 +199,17 @@ test_update_configuration() {
     fi
 }
 
-# Test 9: Add admin to token deployer
+# Test 9: Add admin to token factory
 test_add_admin() {
-    print_test "Adding admin to token deployer"
+    print_test "Adding admin to token factory"
     
     local current_principal=$(dfx identity get-principal)
-    local result=$(dfx canister call backend addTokenDeployerAdmin \
-        "(principal \"$TOKEN_DEPLOYER_CANISTER_ID\", \"$current_principal\")" \
+    local result=$(dfx canister call backend addTokenFactoryAdmin \
+        "(principal \"$TOKEN_FACTORY_CANISTER_ID\", \"$current_principal\")" \
         --ic 2>/dev/null || echo "error")
     
     if [[ "$result" == *"#ok"* ]]; then
-        print_success "Successfully added admin to token deployer"
+        print_success "Successfully added admin to token factory"
         print_info "Added principal: $current_principal"
     else
         print_error "Failed to add admin: $result"
@@ -267,14 +267,14 @@ EOF
 main() {
     cd "$PROJECT_ROOT"
     
-    print_info "Starting Backend → Token Deployer integration tests..."
+    print_info "Starting Backend → Token Factory integration tests..."
     
     # Basic setup and checks
     get_canister_ids
     test_backend_admin_check
     
     # Information gathering tests
-    test_get_token_deployer_info
+    test_get_token_factory_info
     test_get_wasm_info
     test_get_configuration
     test_get_whitelist
@@ -290,12 +290,12 @@ main() {
     
     echo ""
     echo -e "${GREEN}🎉 All tests completed successfully!${NC}"
-    echo -e "${BLUE}Backend → Token Deployer integration is working properly${NC}"
+    echo -e "${BLUE}Backend → Token Factory integration is working properly${NC}"
 }
 
 # Help function
 show_help() {
-    echo "ICTO V2 Backend → Token Deployer Integration Test"
+    echo "ICTO V2 Backend → Token Factory Integration Test"
     echo ""
     echo "Usage: $0 [OPTIONS]"
     echo ""
@@ -328,4 +328,4 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Run main function
-main 
+main

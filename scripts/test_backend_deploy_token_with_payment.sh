@@ -33,10 +33,7 @@ echo ""
 echo "=== Phase 1: Pre-Flight Checks ==="
 
 echo "Step 1.1: Check user ICP balance"
-USER_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {
-    owner = principal \"$USER_PRINCIPAL\";
-    subaccount = null;
-})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+USER_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {\n    owner = principal \"$USER_PRINCIPAL\";\n    subaccount = null;\n})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
 
 echo "User balance: $USER_BALANCE e8s"
 
@@ -50,10 +47,7 @@ echo "✅ Sufficient balance for testing"
 
 echo ""
 echo "Step 1.2: Check backend balance"
-BACKEND_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {
-    owner = principal \"$BACKEND_PRINCIPAL\";
-    subaccount = null;
-})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+BACKEND_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {\n    owner = principal \"$BACKEND_PRINCIPAL\";\n    subaccount = null;\n})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
 echo "Backend balance: $BACKEND_BALANCE e8s"
 
 echo ""
@@ -72,33 +66,13 @@ echo "=== Phase 2: Payment Setup ==="
 echo "Step 2.1: Approve backend to spend ICP"
 echo "Approving $APPROVAL_AMOUNT e8s for backend..."
 
-APPROVAL_RESULT=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_approve "(record {
-    spender = record {
-        owner = principal \"$BACKEND_PRINCIPAL\";
-        subaccount = null;
-    };
-    amount = $APPROVAL_AMOUNT : nat;
-    fee = opt ($ICRC2_FEE : nat);
-    memo = opt blob \"ICTO_V2_TOKEN_DEPLOY_APPROVAL\";
-    from_subaccount = null;
-    created_at_time = null;
-    expires_at = null;
-})")
+APPROVAL_RESULT=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_approve "(record {\n    spender = record {\n        owner = principal \"$BACKEND_PRINCIPAL\";\n        subaccount = null;\n    };\n    amount = $APPROVAL_AMOUNT : nat;\n    fee = opt ($ICRC2_FEE : nat);\n    memo = opt blob \"ICTO_V2_TOKEN_DEPLOY_APPROVAL\";\n    from_subaccount = null;\n    created_at_time = null;\n    expires_at = null;\n})")
 
 echo "Approval result: $APPROVAL_RESULT"
 
 echo ""
 echo "Step 2.2: Verify allowance"
-ALLOWANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_allowance "(record {
-    account = record {
-        owner = principal \"$USER_PRINCIPAL\";
-        subaccount = null;
-    };
-    spender = record {
-        owner = principal \"$BACKEND_PRINCIPAL\";
-        subaccount = null;
-    };
-})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+ALLOWANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_allowance "(record {\n    account = record {\n        owner = principal \"$USER_PRINCIPAL\";\n        subaccount = null;\n    };\n    spender = record {\n        owner = principal \"$BACKEND_PRINCIPAL\";\n        subaccount = null;\n    };\n})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
 
 echo "Allowance set: $ALLOWANCE e8s"
 
@@ -122,8 +96,8 @@ echo "Token Name: $TOKEN_NAME"
 
 echo ""
 echo "Step 3.2: Check service fee info"
-if dfx canister call backend getServiceFee "(\"token_deployer\")" 2>/dev/null; then
-    TOKEN_FEE_INFO=$(dfx canister call backend getServiceFee "(\"token_deployer\")")
+if dfx canister call backend getServiceFee "(\"token_factory\")" 2>/dev/null; then
+    TOKEN_FEE_INFO=$(dfx canister call backend getServiceFee "(\"token_factory\")")
     echo "Token deployment fee: $TOKEN_FEE_INFO"
 else
     echo "⚠️  Service fee info not available"
@@ -135,32 +109,7 @@ echo "=== Phase 4: Backend deployToken() Function Call ==="
 echo "Step 4.1: Call new deployToken() function with updated DeploymentRequest"
 
 # Construct the new, nested DeploymentRequest structure
-TOKEN_DEPLOY_REQUEST="record {
-    tokenConfig = record {
-        name = \"${TOKEN_NAME}\";
-        symbol = \"${TOKEN_SYMBOL}\";
-        decimals = 8 : nat8;
-        totalSupply = 100000000000 : nat;
-        initialBalances = vec {};
-        minter = null;
-        feeCollector = null;
-        transferFee = 10000 : nat;
-        description = opt \"A test token deployed via ICTO V2 script.\";
-        logo = null;
-        website = null;
-        socialLinks = null;
-        projectId = null;
-    };
-    deploymentConfig = record {
-        cyclesForInstall = null;
-        cyclesForArchive = null;
-        minCyclesInDeployer = null;
-        archiveOptions = null;
-        enableCycleOps = opt true;
-        tokenOwner = principal \"${USER_PRINCIPAL}\";
-    };
-    projectId = null;
-}"
+TOKEN_DEPLOY_REQUEST="record {\n    tokenConfig = record {\n        name = \"${TOKEN_NAME}\";\n        symbol = \"${TOKEN_SYMBOL}\";\n        decimals = 8 : nat8;\n        totalSupply = 100000000000 : nat;\n        initialBalances = vec {};\n        minter = null;\n        feeCollector = null;\n        transferFee = 10000 : nat;\n        description = opt \"A test token deployed via ICTO V2 script.\";\n        logo = null;\n        website = null;\n        socialLinks = null;\n        projectId = null;\n    };\n    deploymentConfig = record {\n        cyclesForInstall = null;\n        cyclesForArchive = null;\n        minCyclesInDeployer = null;\n        archiveOptions = null;\n        enableCycleOps = opt true;\n        tokenOwner = principal \"${USER_PRINCIPAL}\";\n    };\n    projectId = null;\n}"
 
 echo "DeploymentRequest structure:"
 echo "$TOKEN_DEPLOY_REQUEST"
@@ -172,15 +121,9 @@ if (dfx canister call backend deployToken "(${TOKEN_DEPLOY_REQUEST})" 2>&1 || ec
     
     echo ""
     echo "Step 4.2: Verify payment was collected"
-    NEW_USER_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {
-        owner = principal \"$USER_PRINCIPAL\";
-        subaccount = null;
-    })" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+    NEW_USER_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {\n        owner = principal \"$USER_PRINCIPAL\";\n        subaccount = null;\n    })" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
     
-    NEW_BACKEND_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {
-        owner = principal \"$BACKEND_PRINCIPAL\";
-        subaccount = null;
-    })" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+    NEW_BACKEND_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {\n        owner = principal \"$BACKEND_PRINCIPAL\";\n        subaccount = null;\n    })" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
     
     PAYMENT_COLLECTED=$((NEW_BACKEND_BALANCE - BACKEND_BALANCE))
     USER_PAID=$((USER_BALANCE - NEW_USER_BALANCE))
@@ -228,15 +171,9 @@ echo ""
 echo "=== Phase 5: Architecture Verification ==="
 
 echo "Step 5.1: Check final balances"
-FINAL_USER_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {
-    owner = principal \"$USER_PRINCIPAL\";
-    subaccount = null;
-})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+FINAL_USER_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {\n    owner = principal \"$USER_PRINCIPAL\";\n    subaccount = null;\n})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
 
-FINAL_BACKEND_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {
-    owner = principal \"$BACKEND_PRINCIPAL\";
-    subaccount = null;
-})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+FINAL_BACKEND_BALANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc1_balance_of "(record {\n    owner = principal \"$BACKEND_PRINCIPAL\";\n    subaccount = null;\n})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
 
 echo "Final balances:"
 echo "  User: $FINAL_USER_BALANCE e8s (was $USER_BALANCE)"
@@ -244,16 +181,7 @@ echo "  Backend: $FINAL_BACKEND_BALANCE e8s (was $BACKEND_BALANCE)"
 
 echo ""
 echo "Step 5.2: Check remaining allowance"
-FINAL_ALLOWANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_allowance "(record {
-    account = record {
-        owner = principal \"$USER_PRINCIPAL\";
-        subaccount = null;
-    };
-    spender = record {
-        owner = principal \"$BACKEND_PRINCIPAL\";
-        subaccount = null;
-    };
-})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
+FINAL_ALLOWANCE=$(dfx canister call $ICP_LEDGER_CANISTER icrc2_allowance "(record {\n    account = record {\n        owner = principal \"$USER_PRINCIPAL\";\n        subaccount = null;\n    };\n    spender = record {\n        owner = principal \"$BACKEND_PRINCIPAL\";\n        subaccount = null;\n    };\n})" | sed -E 's/[^0-9]*([0-9_]+).*/\1/' | tr -d '_')
 
 echo "Remaining allowance: $FINAL_ALLOWANCE e8s"
 

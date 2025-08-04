@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # ================ ICTO V2 - Manual WASM Upload Script ================
-# Purpose: Upload WASM file from local directory to Token Deployer canister
-# Usage: ./local_upload_wasm_to_token_deployer.sh [network] [wasm_file] [wasm_hash]
+# Purpose: Upload WASM file from local directory to Token Factory canister
+# Usage: ./local_upload_wasm_to_token_factory.sh [network] [wasm_file] [wasm_hash]
 
 # Colors for output
 RED='\033[0;31m'
@@ -19,7 +19,7 @@ WASM_HASH="${3:-a35575419aa7867702a5344c6d868aa190bb682421e77137d0514398f1506952
 print_header() {
     echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║               ICTO V2 Manual WASM Upload                     ║${NC}"
-    echo -e "${BLUE}║         Upload WASM file from local to Token Deployer         ║${NC}"
+    echo -e "${BLUE}║         Upload WASM file from local to Token Factory         ║${NC}"
     echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
     echo -e "${GREEN}Environment: ${YELLOW}$env${NC}"
@@ -43,7 +43,7 @@ print_help() {
     echo "  $0 ic sns_icrc_wasm_v2.wasm def456    # Upload to mainnet"
     echo ""
     echo -e "${GREEN}Note:${NC}"
-    echo "  - Requires admin privileges on token_deployer canister"
+    echo "  - Requires admin privileges on token_factory canister"
     echo "  - WASM file must exist in current directory"
     echo "  - Hash must be valid hex string (without 0x prefix)"
 }
@@ -82,23 +82,23 @@ validate_parameters() {
     echo -e "${GREEN}✅ dfx found${NC}"
 }
 
-check_token_deployer_status() {
-    echo -e "${YELLOW}==> Checking token_deployer status...${NC}"
+check_token_factory_status() {
+    echo -e "${YELLOW}==> Checking token_factory status...${NC}"
     
-    # Check if token_deployer canister exists
-    if ! dfx canister --network=$env id token_deployer >/dev/null 2>&1; then
-        echo -e "${RED}❌ Error: token_deployer canister not found on network '$env'${NC}"
-        echo -e "${YELLOW}Please deploy token_deployer first:${NC}"
-        echo "  dfx deploy token_deployer --network=$env"
+    # Check if token_factory canister exists
+    if ! dfx canister --network=$env id token_factory >/dev/null 2>&1; then
+        echo -e "${RED}❌ Error: token_factory canister not found on network '$env'${NC}"
+        echo -e "${YELLOW}Please deploy token_factory first:${NC}"
+        echo "  dfx deploy token_factory --network=$env"
         exit 1
     fi
     
-    token_deployer_id=$(dfx canister --network=$env id token_deployer)
-    echo -e "${GREEN}✅ Token deployer found: $token_deployer_id${NC}"
+    token_factory_id=$(dfx canister --network=$env id token_factory)
+    echo -e "${GREEN}✅ Token factory found: $token_factory_id${NC}"
     
     # Check current WASM info
     echo -e "${YELLOW}Checking current WASM status...${NC}"
-    current_wasm_info=$(dfx canister --network=$env call token_deployer getCurrentWasmInfo)
+    current_wasm_info=$(dfx canister --network=$env call token_factory getCurrentWasmInfo)
     echo -e "${BLUE}Current WASM info: $current_wasm_info${NC}"
     
     # Check if user is admin
@@ -137,7 +137,7 @@ upload_wasm_chunks() {
     
     # Clear any existing chunks buffer
     echo -e "${YELLOW}Clearing existing chunks buffer...${NC}"
-    clear_result=$(dfx canister --network=$env call token_deployer clearChunks)
+    clear_result=$(dfx canister --network=$env call token_factory clearChunks)
     
     if echo "$clear_result" | grep -q "ok"; then
         echo -e "${GREEN}✅ Chunks buffer cleared${NC}"
@@ -157,17 +157,17 @@ upload_wasm_chunks() {
         
         # Extract chunk from WASM file and convert to Candid vec format
         chunk_data=$(dd if="$WASM_FILE" bs=1 skip=$byteStart count=$MAX_CHUNK_SIZE 2>/dev/null | \
-        xxd -p -c 1 | \
-        awk '{printf "0x%s; ", $1}' | \
-        sed 's/; $//' | \
-        awk '{print "(vec {" $0 "})"}'
+xxd -p -c 1 | \
+awk '{printf "0x%s; ", $1}' | \
+sed 's/; $//' | \
+awk '{print "(vec {" $0 "})"}'
         )
         
         # Upload chunk to canister
-        upload_result=$(dfx canister --network=$env call token_deployer uploadChunk "$chunk_data")
+        upload_result=$(dfx canister --network=$env call token_factory uploadChunk "$chunk_data")
         
         if echo "$upload_result" | grep -q "ok"; then
-            chunk_size=$(echo "$upload_result" | sed -n 's/.*ok.*(\([0-9]*\).*/\1/p')
+            chunk_size=$(echo "$upload_result" | sed -n 's/.*ok.*\([0-9]*\).*/\1/p')
             echo -e "${GREEN}    ✅ Chunk $((chunk + 1)) uploaded successfully ($chunk_size bytes)${NC}"
         else
             echo -e "${RED}    ❌ Failed to upload chunk $((chunk + 1)): $upload_result${NC}"
@@ -185,7 +185,7 @@ finalize_wasm_upload() {
     convert_hash_to_vec_nat8
     
     # Finalize WASM upload with version hash
-    finalize_result=$(dfx canister --network=$env call token_deployer addWasm "(vec { $vec_nat8_hex } )")
+    finalize_result=$(dfx canister --network=$env call token_factory addWasm "(vec { $vec_nat8_hex } )")
     
     if echo "$finalize_result" | grep -q "ok"; then
         echo -e "${GREEN}✅ WASM upload finalized successfully!${NC}"
@@ -203,7 +203,7 @@ verify_upload() {
     echo -e "${YELLOW}==> Verifying WASM upload...${NC}"
     
     # Get updated WASM info
-    wasm_info=$(dfx canister --network=$env call token_deployer getCurrentWasmInfo)
+    wasm_info=$(dfx canister --network=$env call token_factory getCurrentWasmInfo)
     echo -e "${GREEN}Updated WASM info: $wasm_info${NC}"
     
     # Check if hash matches
@@ -215,12 +215,12 @@ verify_upload() {
     
     # Test health check
     echo -e "${YELLOW}Testing health check...${NC}"
-    health_result=$(dfx canister --network=$env call token_deployer healthCheck)
+    health_result=$(dfx canister --network=$env call token_factory healthCheck)
     
     if echo "$health_result" | grep -q "true"; then
-        echo -e "${GREEN}✅ Token deployer health check passed${NC}"
+        echo -e "${GREEN}✅ Token factory health check passed${NC}"
     else
-        echo -e "${RED}❌ Token deployer health check failed: $health_result${NC}"
+        echo -e "${RED}❌ Token factory health check failed: $health_result${NC}"
     fi
 }
 
@@ -233,7 +233,7 @@ fi
 
 print_header
 validate_parameters
-check_token_deployer_status
+check_token_factory_status
 upload_wasm_chunks
 finalize_wasm_upload
 verify_upload
@@ -244,10 +244,10 @@ echo -e "${GREEN}║                   UPLOAD COMPLETED SUCCESSFULLY!           
 echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo -e "${YELLOW}Next steps:${NC}"
-echo "  1. Test token deployment: dfx canister call token_deployer deployTokenWithConfig ..."
-echo "  2. Check service health: dfx canister call token_deployer getServiceHealth"
-echo "  3. View deployment history: dfx canister call token_deployer getDeploymentHistory"
+echo "  1. Test token deployment: dfx canister call token_factory deployTokenWithConfig ..."
+echo "  2. Check service health: dfx canister call token_factory getServiceHealth"
+echo "  3. View deployment history: dfx canister call token_factory getDeploymentHistory"
 echo ""
 echo -e "${BLUE}WASM File: $WASM_FILE${NC}"
 echo -e "${BLUE}Network: $env${NC}"
-echo -e "${BLUE}Hash: $WASM_HASH${NC}" 
+echo -e "${BLUE}Hash: $WASM_HASH${NC}"

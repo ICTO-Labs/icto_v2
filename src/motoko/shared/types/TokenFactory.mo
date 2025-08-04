@@ -13,7 +13,7 @@ import Nat8 "mo:base/Nat8";
 import Nat16 "mo:base/Nat16";
 import Nat64 "mo:base/Nat64";
 
-module TokenDeployer {
+module TokenFactory {
 
     // ================ CORE TOKEN TYPES ================
     

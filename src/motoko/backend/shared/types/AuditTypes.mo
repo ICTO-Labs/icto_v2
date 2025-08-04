@@ -50,7 +50,7 @@ module Types {
     
     public type ActionType = {
         // Fee-based service call
-        #ServiceFee: Text; // e.g., "token_deployer", "lock_deployer"
+        #ServiceFee: Text; // e.g., "token_factory", "lock_deployer"
 
         // Project Management Actions
         #CreateProject;
@@ -249,10 +249,10 @@ module Types {
     };
     
     public type ServiceType = {
-        #TokenDeployer;
-        #LockDeployer;
-        #DistributionDeployer;
-        #LaunchpadDeployer;
+        #TokenFactory;
+        #LockFactory;
+        #DistributionFactory;
+        #LaunchpadFactory;
         #InvoiceService;
         #Backend;
     };

@@ -30,7 +30,7 @@ print_error() {
     echo -e "${RED}❌ $1${NC}"
 }
 
-# ================ PHASE 1: COMPILATION TESTS ================
+# ================ PHASE 1: COMPILATION TESTS ================ 
 
 print_status "Phase 1: Testing Compilation"
 
@@ -43,16 +43,16 @@ else
     exit 1
 fi
 
-# Test token_deployer compilation
-print_status "Testing token_deployer compilation..."
-if dfx build token_deployer --check > /dev/null 2>&1; then
-    print_success "Token deployer compiles successfully"
+# Test token_factory compilation
+print_status "Testing token_factory compilation..."
+if dfx build token_factory --check > /dev/null 2>&1; then
+    print_success "Token factory compiles successfully"
 else
-    print_error "Token deployer compilation failed"
+    print_error "Token factory compilation failed"
     exit 1
 fi
 
-# ================ PHASE 2: DEPLOYMENT TESTS ================
+# ================ PHASE 2: DEPLOYMENT TESTS ================ 
 
 print_status "Phase 2: Testing Deployment"
 
@@ -64,15 +64,15 @@ else
     print_warning "Backend deployment may have issues (continuing...)"
 fi
 
-# Deploy token_deployer
-print_status "Deploying token_deployer..."
-if dfx deploy token_deployer --no-wallet > /dev/null 2>&1; then
-    print_success "Token deployer deployed successfully"
+# Deploy token_factory
+print_status "Deploying token_factory..."
+if dfx deploy token_factory --no-wallet > /dev/null 2>&1; then
+    print_success "Token factory deployed successfully"
 else
-    print_warning "Token deployer deployment may have issues (continuing...)"
+    print_warning "Token factory deployment may have issues (continuing...)"
 fi
 
-# ================ PHASE 3: BASIC FUNCTION TESTS ================
+# ================ PHASE 3: BASIC FUNCTION TESTS ================ 
 
 print_status "Phase 3: Testing Basic Functions"
 
@@ -88,7 +88,7 @@ fi
 # Test module health
 print_status "Testing module health status..."
 HEALTH_RESULT=$(dfx canister call backend getModuleHealthStatus "()" 2>&1 || true)
-if echo "$HEALTH_RESULT" | grep -q "tokenDeployer"; then
+if echo "$HEALTH_RESULT" | grep -q "tokenFactory"; then
     print_success "Module health status accessible"
 else
     print_warning "Module health status issue: $HEALTH_RESULT"
@@ -103,7 +103,7 @@ else
     print_warning "Deployment types query issue: $TYPES_RESULT"
 fi
 
-# ================ PHASE 4: ARCHITECTURE VALIDATION ================
+# ================ PHASE 4: ARCHITECTURE VALIDATION ================ 
 
 print_status "Phase 4: Testing Scientific Architecture"
 
@@ -130,7 +130,7 @@ else
     print_warning "User profile system issue: $PROFILE_RESULT"
 fi
 
-# ================ RESULTS SUMMARY ================
+# ================ RESULTS SUMMARY ================ 
 
 print_status "Architecture Test Summary"
 print_status "========================="
@@ -166,4 +166,4 @@ print_status "📋 Next Steps:"
 print_status "  1. Complete payment integration for full flow"
 print_status "  2. Add LaunchpadService, LockService, etc. following same pattern"
 print_status "  3. Test full end-to-end deployment with real payments"
-print_status "  4. Monitor audit logs for complete flow tracking" 
+print_status "  4. Monitor audit logs for complete flow tracking"

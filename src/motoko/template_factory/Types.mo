@@ -3,7 +3,7 @@ import Nat "mo:base/Nat";
 import Text "mo:base/Text";
 import Time "mo:base/Time";
 
-module TemplateDeployerTypes {
+module TemplateFactoryTypes {
 
     // These are dummy/placeholder types for now.
     // In a real implementation, they would be imported from the actual module types

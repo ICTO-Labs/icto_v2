@@ -4,45 +4,45 @@ import Option "mo:base/Option";
 import Text "mo:base/Text";
 import Trie "mo:base/Trie";
 
-import TokenDeployerTypes "./TokenDeployerTypes";
-import TokenDeployerInterface "./TokenDeployerInterface";
+import TokenFactoryTypes "./TokenFactoryTypes";
+import TokenFactoryInterface "./TokenFactoryInterface";
 import ConfigTypes "../systems/config/ConfigTypes";
 import ConfigService "../systems/config/ConfigService";
 import MicroserviceTypes "../systems/microservices/MicroserviceTypes";
 import MicroserviceService "../systems/microservices/MicroserviceService";
 
-module TokenDeployerService {
+module TokenFactoryService {
 
     // ==================================================================================================
-    // ⬇️ Service to interact with the external Token Deployer canister.
+    // ⬇️ Service to interact with the external Token Factory canister.
     // This service acts as a client, preparing calls for the main Backend actor.
     // ==================================================================================================
 
     // --- CONFIGURATION ---
 
-    public func setTokenDeployerCanisterId(
-        state: TokenDeployerTypes.StableState,
+    public func setTokenFactoryCanisterId(
+        state: TokenFactoryTypes.StableState,
         canisterId: Principal
     ) {
-        state.tokenDeployerCanisterId := ?canisterId;
+        state.tokenFactoryCanisterId := ?canisterId;
     };
 
     // --- CORE LOGIC ---
 
     public func prepareDeployment(
         caller: Principal,
-        tokenConfig: TokenDeployerTypes.TokenConfig,
-        deploymentConfig: TokenDeployerTypes.DeploymentConfig,
+        tokenConfig: TokenFactoryTypes.TokenConfig,
+        deploymentConfig: TokenFactoryTypes.DeploymentConfig,
         configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
-    ) : Result.Result<TokenDeployerTypes.PreparedDeployment, Text> {
+    ) : Result.Result<TokenFactoryTypes.PreparedDeployment, Text> {
 
         // 1. Get the deployer canister ID from the microservice state
         switch(MicroserviceService.getCanisterIds(microserviceState)) {
-            case null { return #err("Token Deployer canister ID is not configured.") };
+            case null { return #err("Token Factory canister ID is not configured.") };
             case (?ids) {
-                switch(ids.tokenDeployer) {
-                    case null { return #err("Token Deployer canister ID is not configured.") };
+                switch(ids.tokenFactory) {
+                    case null { return #err("Token Factory canister ID is not configured.") };
                     case (?canisterId) {
                         // 2. The arguments are already structured correctly by main.mo.
                         // This service's role is primarily to fetch the correct deployer canister

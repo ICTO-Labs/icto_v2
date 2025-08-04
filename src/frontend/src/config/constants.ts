@@ -43,7 +43,7 @@ export const CKUSDC_CANISTER_ID = 'xevnm-gaaaa-aaaar-qafnq-cai';
 export const CKUSDT_CANISTER_ID = import.meta.env.VITE_CANISTER_ID_CKUSDT_LEDGER;
 export const ICP_CANISTER_ID = import.meta.env.VITE_CANISTER_ID_ICP_LEDGER;
 export const DEFAULT_DIALOG_CLOSE_DELAY = 3000;
-export const TOKEN_DEPLOYER = {
+export const TOKEN_FACTORY = {
     maximumLogoSizeInBytes: 30 * 1024, //30KB
     minTokenNameLength: 3,
     maxTokenNameLength: 12,

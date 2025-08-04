@@ -26,8 +26,8 @@ module TemplateDeployerService {
         let deployerCanisterId = switch (microserviceState.canisterIds) {
             case null { return #err("Microservice IDs not configured.") };
             case (?ids) {
-                switch(ids.templateDeployer) {
-                    case null { return #err("Template Deployer canister ID not configured.") };
+                switch(ids.templateFactory) {
+                    case null { return #err("Template Factory canister ID not configured.") };
                     case (?id) { id };
                 }
             };

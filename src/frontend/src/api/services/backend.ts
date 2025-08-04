@@ -49,8 +49,8 @@ export class backendService {
         return filteredTokens;
     }
 
-    public static async getTokenDeployPrice(serviceName: string = 'token_deployer'): Promise<bigint> {
-        const cacheKey = serviceName ?? 'token_deployer';
+    public static async getTokenDeployPrice(serviceName: string = 'token_factory'): Promise<bigint> {
+        const cacheKey = serviceName ?? 'token_factory';
         const now = Date.now();
 
         // Check cache first

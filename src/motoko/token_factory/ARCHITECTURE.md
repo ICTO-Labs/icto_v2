@@ -1,8 +1,8 @@
-# Token Deployer V2 - Architecture Documentation
+# Token Factory V2 - Architecture Documentation
 
 ## Overview
 
-The Token Deployer V2 is a complete migration from ICTO V1 with enhanced features, better error handling, and improved integration patterns. It serves as a specialized microservice for deploying ICRC-1/2 tokens using SNS WASM files while maintaining full V1 compatibility.
+The Token Factory V2 is a complete migration from ICTO V1 with enhanced features, better error handling, and improved integration patterns. It serves as a specialized microservice for deploying ICRC-1/2 tokens using SNS WASM files while maintaining full V1 compatibility.
 
 ## Key Achievements
 
@@ -28,7 +28,7 @@ Deploy ICRC-1/2 tokens using blessed SNS WASM files with complete ownership tran
 
 ### Directory Structure
 ```
-src/motoko/token_deployer/
+src/motoko/token_factory/
 ├── main.mo              # Main service implementation
 ├── IC.mo               # IC Management Canister interface  
 ├── SNSWasm.mo          # SNS-W interface for WASM management
@@ -173,8 +173,8 @@ public type DeploymentRecord = {
 
 ### 1. **Backend Integration**
 ```motoko
-// Backend calls token_deployer after payment validation
-let deployResult = await tokenDeployer.deployToken(config, null);
+// Backend calls token_factory after payment validation
+let deployResult = await tokenFactory.deployToken(config, null);
 ```
 
 **Current Status**: ⚠️ **Interface Mismatch**
@@ -201,7 +201,7 @@ let deployResult = await tokenDeployer.deployToken(config, null);
 - **Memory usage**: Minimal with streaming WASM loading
 
 ### Scaling Strategies
-1. **Horizontal scaling**: Deploy multiple token_deployer instances
+1. **Horizontal scaling**: Deploy multiple token_factory instances
 2. **Cycles management**: Automated top-up integration
 3. **WASM caching**: Version management with hot-swapping
 4. **Database optimization**: Consider external storage for large datasets
@@ -211,7 +211,7 @@ let deployResult = await tokenDeployer.deployToken(config, null);
 ### Service Metrics
 ```motoko
 public query func getServiceInfo() : async {
-    name : Text;                      // "Token Deployer"
+    name : Text;                      // "Token Factory"
     version : Text;                   // "2.0.0"
     status : Text;                    // "active"
     totalDeployments : Nat;           // All deployments
@@ -232,14 +232,14 @@ public query func getServiceInfo() : async {
 ### Deployment Process
 ```bash
 # Build and deploy
-dfx build token_deployer
-dfx deploy token_deployer --mode reinstall
+dfx build token_factory
+dfx deploy token_factory --mode reinstall
 
 # Configure integration
-dfx canister call token_deployer addToWhitelist "(principal \"<backend-id>\")"
+dfx canister call token_factory addToWhitelist "(principal \"<backend-id>\")"
 
 # Verify deployment
-dfx canister call token_deployer getServiceInfo
+dfx canister call token_factory getServiceInfo
 ```
 
 ### Operational Procedures
@@ -318,4 +318,4 @@ dfx canister call token_deployer getServiceInfo
 
 ---
 
-**Token Deployer V2** successfully bridges ICTO V1 legacy with modern V2 architecture, providing a robust foundation for production token deployment at scale. 
+**Token Factory V2** successfully bridges ICTO V1 legacy with modern V2 architecture, providing a robust foundation for production token deployment at scale.

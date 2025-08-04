@@ -1,20 +1,20 @@
 #!/bin/bash
 
-# ICTO V2 Token Deployer Test Script
+# ICTO V2 Token Factory Test Script
 # Purpose: Test manual WASM upload and token deployment for local development
 
 env=$1
 mode=$2
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
+YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 deploy(){
-    echo -e "${GREEN}Starting ICTO V2 Token Deployer Test Flow...${NC}"
+    echo -e "${GREEN}Starting ICTO V2 Token Factory Test Flow...${NC}"
     setup_env
-    deploy_token_deployer_v2
+    deploy_token_factory_v2
     # test_token_deployment
 }
 
@@ -33,17 +33,17 @@ setup_env(){
     fi
     
     # Create canisters
-    dfx canister create token_deployer --network=$env
+    dfx canister create token_factory --network=$env
     dfx canister create backend --network=$env
     
     # Top up cycles if needed
-    # dfx ledger fabricate-cycles --canister token_deployer --network=$env
+    # dfx ledger fabricate-cycles --canister token_factory --network=$env
     
     # dfx identity use default --network=$env
 }
 
-deploy_token_deployer_v2(){
-    echo -e "${GREEN}==> Preparing ICTO V2 Token Deployer...${NC}"
+deploy_token_factory_v2(){
+    echo -e "${GREEN}==> Preparing ICTO V2 Token Factory...${NC}"
     
     # SNS WASM version hash (latest ICRC ledger)
     hex="a35575419aa7867702a5344c6d868aa190bb682421e77137d0514398f1506952"
@@ -66,7 +66,7 @@ deploy_token_deployer_v2(){
 
         if [ "$has_wasm" = "true" ]; then
             # Extract blob WASM data
-            wasm=$(echo "$result" | sed -n 's/.*blob "\([^"]*\)".*/\1/p')
+            wasm=$(echo "$result" | sed -n 's/.*blob \"\([^\"]*\)\".*/\1/p')
             # Save WASM to local file
             echo "$wasm" | xxd -r -p > $sns_icrc_wasm_file
             echo -e "${GREEN}WASM saved to $sns_icrc_wasm_file${NC}"
@@ -77,12 +77,12 @@ deploy_token_deployer_v2(){
         fi
     fi
 
-    # Deploy token deployer canister
+    # Deploy token factory canister
     if [ -f "$sns_icrc_wasm_file" ]; then
-        echo -e "${GREEN}==> Deploying ICTO V2 Token Deployer...${NC}"
-        dfx deploy token_deployer --network=$env
+        echo -e "${GREEN}==> Deploying ICTO V2 Token Factory...${NC}"
+        dfx deploy token_factory --network=$env
         
-        echo -e "${YELLOW}==> Uploading SNS ICRC WASM to V2 Token Deployer...${NC}"
+        echo -e "${YELLOW}==> Uploading SNS ICRC WASM to V2 Token Factory...${NC}"
         
         # Configuration for chunked upload
         MAX_CHUNK_SIZE=$((100 * 1024))  # 100KB chunks
@@ -96,7 +96,7 @@ deploy_token_deployer_v2(){
 
         # Clear any existing chunks buffer
         echo -e "${YELLOW}Clearing chunks buffer...${NC}"
-        result=$(dfx canister --network=$env call token_deployer clearChunks)
+        result=$(dfx canister --network=$env call token_factory clearChunks)
         echo -e "${BLUE}Clear result: $result${NC}"
 
         # Upload WASM in chunks
@@ -116,22 +116,22 @@ deploy_token_deployer_v2(){
             )
             
             # Upload chunk to canister
-            result=$(dfx canister --network=$env call token_deployer uploadChunk "$chunk_data")
+            result=$(dfx canister --network=$env call token_factory uploadChunk "$chunk_data")
             echo -e "${GREEN}Chunk $((chunk + 1)) uploaded: $result${NC}"
         done
         
         # Finalize WASM upload with version hash
         echo -e "${YELLOW}Finalizing WASM upload...${NC}"
-        result=$(dfx canister --network=$env call token_deployer addWasm "(vec { $vec_nat8_hex } )")
+        result=$(dfx canister --network=$env call token_factory addWasm "(vec { $vec_nat8_hex } )")
         echo -e "${GREEN}WASM upload completed: $result${NC}"
         
         # Verify WASM info
         echo -e "${YELLOW}Verifying WASM upload...${NC}"
-        wasm_info=$(dfx canister --network=$env call token_deployer getCurrentWasmInfo)
+        wasm_info=$(dfx canister --network=$env call token_factory getCurrentWasmInfo)
         echo -e "${GREEN}WASM Info: $wasm_info${NC}"
         
     else
-        echo -e "${RED}No WASM file available, skipping token deployer deployment${NC}"
+        echo -e "${RED}No WASM file available, skipping token factory deployment${NC}"
         exit 1
     fi
 }
@@ -147,15 +147,15 @@ test_token_deployment(){
     echo -e "${YELLOW}Deploying backend canister...${NC}"
     dfx deploy backend --network=$env
     
-    # Add token_deployer to backend's whitelist
-    echo -e "${YELLOW}Adding token_deployer to backend whitelist...${NC}"
-    token_deployer_id=$(dfx canister --network=$env id token_deployer)
-    backend_result=$(dfx canister --network=$env call backend addTokenDeployerToWhitelist "(principal \"$token_deployer_id\")")
+    # Add token_factory to backend's whitelist
+    echo -e "${YELLOW}Adding token_factory to backend whitelist...${NC}"
+    token_factory_id=$(dfx canister --network=$env id token_factory)
+    backend_result=$(dfx canister --network=$env call backend addTokenFactoryToWhitelist "(principal \"$token_factory_id\")")
     echo -e "${GREEN}Whitelist result: $backend_result${NC}"
     
-    # Test simple token deployment directly (for testing deployer functionality)
+    # Test simple token deployment directly (for testing factory functionality)
     echo -e "${YELLOW}Testing direct token deployment (admin mode)...${NC}"
-    direct_result=$(dfx canister --network=$env call token_deployer deployTokenWithConfig "(
+    direct_result=$(dfx canister --network=$env call token_factory deployTokenWithConfig "(
         record {
             name = \"ICTO Test V2\";
             symbol = \"ICTOV2\";
@@ -188,17 +188,17 @@ test_token_deployment(){
     
     if echo "$direct_result" | grep -q "ok"; then
         echo -e "${GREEN}✅ Direct token deployment successful!${NC}"
-        canister_id=$(echo "$direct_result" | sed -n 's/.*principal "\([^"]*\)".*/\1/p')
+        canister_id=$(echo "$direct_result" | sed -n 's/.*principal \"\([^\"]*\)\".*/\1/p')
         echo -e "${GREEN}Token Canister ID: $canister_id${NC}"
         
         # Test token info query
         echo -e "${YELLOW}Querying token info...${NC}"
-        token_info=$(dfx canister --network=$env call token_deployer getTokenInfo "(\"$canister_id\")")
+        token_info=$(dfx canister --network=$env call token_factory getTokenInfo "(\"$canister_id\")")
         echo -e "${GREEN}Token Info: $token_info${NC}"
         
         # Test service info
         echo -e "${YELLOW}Querying service info...${NC}"
-        service_info=$(dfx canister --network=$env call token_deployer getServiceInfo)
+        service_info=$(dfx canister --network=$env call token_factory getServiceInfo)
         echo -e "${GREEN}Service Info: $service_info${NC}"
         
     else
@@ -207,7 +207,7 @@ test_token_deployment(){
 }
 
 print_help(){
-    echo -e "${BLUE}ICTO V2 Token Deployer Test Script${NC}"
+    echo -e "${BLUE}ICTO V2 Token Factory Test Script${NC}"
     echo -e "${YELLOW}Usage: $0 [environment] [mode]${NC}"
     echo ""
     echo -e "${GREEN}Environment:${NC}"
@@ -231,8 +231,8 @@ if [ "$1" == "--help" ] || [ "$1" == "-h" ]; then
 fi
 
 echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
-echo -e "${BLUE}║       ICTO V2 Token Deployer Test    ║${NC}"
+echo -e "${BLUE}║       ICTO V2 Token Factory Test     ║${NC}"
 echo -e "${BLUE}║     Clean Architecture + WASM Upload ║${NC}"
 echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
 
-deploy 
+deploy

@@ -20,19 +20,19 @@ import Types "./Types";
 // ==================================================================================================
 
 
-actor TemplateDeployer {
+persistent actor TemplateFactory {
 
     // --- STATE ---
-    private stable var owner: Principal = Principal.fromActor(TemplateDeployer);
+    private stable var owner: Principal = Principal.fromActor(TemplateFactory);
     private stable var admins: [(Principal,())] = [];
     private stable var whitelistedBackends: [(Principal, Bool)] = [];
     private stable var records: [(Types.PendingId, Types.DeploymentRecord)] = [];
     private stable var idCounter: Nat = 0;
     
     // --- Runtime State ---
-    private var adminIndex: Trie.Trie<Principal, ()> = Trie.empty();
-    private var whitelistTrie: Trie.Trie<Principal, Bool> = Trie.empty();
-    private var deploymentRecords: Trie.Trie<Types.PendingId, Types.DeploymentRecord> = Trie.empty();
+    private transient var adminIndex: Trie.Trie<Principal, ()> = Trie.empty();
+    private transient var whitelistTrie: Trie.Trie<Principal, Bool> = Trie.empty();
+    private transient var deploymentRecords: Trie.Trie<Types.PendingId, Types.DeploymentRecord> = Trie.empty();
 
     system func preupgrade() {
         admins := Trie.toArray<Principal, (), (Principal, ())>(adminIndex, func (k, v) = (k, v));

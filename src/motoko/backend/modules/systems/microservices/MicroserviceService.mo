@@ -69,14 +69,24 @@ module MicroserviceService {
                     let health = getCanisterHealth(invoiceStorage, state.setupCompleted);
                     buffer.add(health);
                 };
-                if(Option.isSome(canisterIds.templateDeployer)) {
-                    let templateDeployer = Option.get(canisterIds.templateDeployer, Principal.fromText("template_deployer"));
-                    let health = getCanisterHealth(templateDeployer, state.setupCompleted);
+                if(Option.isSome(canisterIds.templateFactory)) {
+                    let templateFactory = Option.get(canisterIds.templateFactory, Principal.fromText("template_factory"));
+                    let health = getCanisterHealth(templateFactory, state.setupCompleted);
                     buffer.add(health);
                 };
-                if(Option.isSome(canisterIds.tokenDeployer)) {
-                    let tokenDeployer = Option.get(canisterIds.tokenDeployer, Principal.fromText("token_deployer"));
-                    let health = getCanisterHealth(tokenDeployer, state.setupCompleted);
+                if(Option.isSome(canisterIds.distributionFactory)) {
+                    let distributionFactory = Option.get(canisterIds.distributionFactory, Principal.fromText("distribution_factory"));
+                    let health = getCanisterHealth(distributionFactory, state.setupCompleted);
+                    buffer.add(health);
+                };
+                if(Option.isSome(canisterIds.launchpadFactory)) {
+                    let launchpadFactory = Option.get(canisterIds.launchpadFactory, Principal.fromText("launchpad_factory"));
+                    let health = getCanisterHealth(launchpadFactory, state.setupCompleted);
+                    buffer.add(health);
+                };
+                if(Option.isSome(canisterIds.tokenFactory)) {
+                    let tokenFactory = Option.get(canisterIds.tokenFactory, Principal.fromText("token_factory"));
+                    let health = getCanisterHealth(tokenFactory, state.setupCompleted);
                     buffer.add(health);
                 };
             };
@@ -96,4 +106,4 @@ module MicroserviceService {
         };
         return { canisterId = canisterId; cycles = null; isHealthy = null; name = "audit_storage"; status = #Error("Setup not completed") };
     };
-}; 
+};

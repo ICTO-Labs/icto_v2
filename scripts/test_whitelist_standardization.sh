@@ -29,7 +29,7 @@ echo ""
 declare -a SERVICES=(
     "audit_storage"
     "invoice_storage"
-    "token_deployer"
+    "token_factory"
     "launchpad_deployer"
     "lock_deployer"
     "distributing_deployer"
@@ -142,8 +142,8 @@ else
     echo -e "${RED}❌ Backend's checkAllDeployerWhitelists failed${NC}"
 fi
 
-echo ""
 if [[ -z "$FAILED_TESTS" ]]; then
+    echo ""
     echo -e "${GREEN}🎉 All whitelist standardization tests passed!${NC}"
     echo -e "${GREEN}All deployers now use standardized isWhitelisted and addToWhitelist functions${NC}"
 else
@@ -151,4 +151,4 @@ else
 fi
 
 echo ""
-echo -e "${BLUE}✅ Whitelist standardization test completed${NC}" 
+echo -e "${BLUE}✅ Whitelist standardization test completed${NC}"

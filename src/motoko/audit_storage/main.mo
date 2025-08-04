@@ -12,10 +12,10 @@ import Prim "mo:prim";
 
 import Types "./types/Types";
 
-actor AuditStorage {
+persistent actor AuditStorage {
     
     // ================ SERVICE CONFIGURATION ================
-    private let SERVICE_VERSION : Text = "1.0.0";
+    private transient let SERVICE_VERSION : Text = "1.0.0";
     private stable var serviceStartTime : Time.Time = 0;
     
     // ================ STABLE VARIABLES ================
@@ -24,9 +24,9 @@ actor AuditStorage {
     private stable var systemEventsStable : [(Text, Types.SystemEvent)] = [];
     
     // Runtime variables
-    private var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
-    private var auditEntries : Trie.Trie<Text, Types.AuditEntry> = Trie.empty();
-    private var systemEvents : Trie.Trie<Text, Types.SystemEvent> = Trie.empty();
+    private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
+    private transient var auditEntries : Trie.Trie<Text, Types.AuditEntry> = Trie.empty();
+    private transient var systemEvents : Trie.Trie<Text, Types.SystemEvent> = Trie.empty();
     
     // ================ UPGRADE FUNCTIONS ================
     system func preupgrade() {

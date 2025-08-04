@@ -46,20 +46,20 @@ echo -e "${BLUE}📋 Available canisters:${NC}"
 BACKEND_ID=$(get_canister_id "backend")
 AUDIT_STORAGE_ID=$(get_canister_id "audit_storage")
 INVOICE_STORAGE_ID=$(get_canister_id "invoice_storage")
-TOKEN_DEPLOYER_ID=$(get_canister_id "token_deployer")
-TEMPLATE_DEPLOYER_ID=$(get_canister_id "template_deployer")
+TOKEN_FACTORY_ID=$(get_canister_id "token_factory")
+TEMPLATE_DEPLOYER_ID=$(get_canister_id "template_factory")
 
 # Display canister status
 echo -e "${GREEN}✅ backend: ${BACKEND_ID:-'not deployed'}${NC}"
 echo -e "${GREEN}✅ audit_storage: ${AUDIT_STORAGE_ID:-'not deployed'}${NC}"
 echo -e "${GREEN}✅ invoice_storage: ${INVOICE_STORAGE_ID:-'not deployed'}${NC}"
-echo -e "${GREEN}✅ token_deployer: ${TOKEN_DEPLOYER_ID:-'not deployed'}${NC}"
-echo -e "${GREEN}✅ template_deployer: ${TEMPLATE_DEPLOYER_ID:-'not deployed'}${NC}"
+echo -e "${GREEN}✅ token_factory: ${TOKEN_FACTORY_ID:-'not deployed'}${NC}"
+echo -e "${GREEN}✅ template_factory: ${TEMPLATE_DEPLOYER_ID:-'not deployed'}${NC}"
 
 echo ""
 
 # Check if we have minimum required canisters
-if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_ID" ]]; then
+if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_FACTORY_ID" ]]; then
     echo -e "${YELLOW}🚀 Ready to setup microservices${NC}"
     echo ""
     
@@ -83,12 +83,12 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             # Use actual deployed canisters
             AUDIT_ID=$AUDIT_STORAGE_ID
             INVOICE_ID=$INVOICE_STORAGE_ID
-            TOKEN_ID=$TOKEN_DEPLOYER_ID
-            TEMPLATE_ID=$TEMPLATE_DEPLOYER_ID
+            TOKEN_ID=$TOKEN_FACTORY_ID
+            TEMPLATE_ID=$TEMPLATE_FACTORY_ID
             
             # Validate that we have the required canisters
             if [[ -z "$AUDIT_ID" || -z "$INVOICE_ID" || -z "$TOKEN_ID" || -z "$TEMPLATE_ID" ]]; then
-                echo -e "${RED}❌ Missing required canisters (audit_storage, invoice_storage, token_deployer)${NC}"
+                echo -e "${RED}❌ Missing required canisters (audit_storage, invoice_storage, token_factory)${NC}"
                 echo "Please deploy missing canisters first"
                 exit 1
             fi
@@ -96,15 +96,15 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             echo "Using canister IDs:"
             echo "  Audit Storage: ${AUDIT_ID}"
             echo "  Invoice Storage: ${INVOICE_ID}"
-            echo "  Token Deployer: ${TOKEN_ID}"
-            echo "  Template Deployer: ${TEMPLATE_ID:-'Not deployed'}"
+            echo "  Token Factory: ${TOKEN_ID}"
+            echo "  Template Factory: ${TEMPLATE_ID:-'Not deployed'}"
             echo ""
             
             read -p "Proceed with setup? (y/N): " confirm
             if [[ $confirm =~ ^[Yy]$ ]]; then
                 # Build setCanisterIds call with actual canister IDs only
-                SETUP_CALL="dfx canister call backend setCanisterIds \"(record {"
-                SETUP_CALL="${SETUP_CALL} tokenDeployer = opt principal \\\"$TOKEN_ID\\\"; "
+                SETUP_CALL="dfx canister call backend setCanisterIds \"(record {\""
+                SETUP_CALL="${SETUP_CALL} tokenFactory = opt principal \\\"$TOKEN_ID\\\"; "
                 
                 # Add optional services if deployed
 
@@ -123,13 +123,13 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
 
                 # Add template deployer
                 if [[ -n "$TEMPLATE_ID" ]]; then
-                    SETUP_CALL="${SETUP_CALL} templateDeployer = opt principal \\\"$TEMPLATE_ID\\\"; "
+                    SETUP_CALL="${SETUP_CALL} templateFactory = opt principal \\\"$TEMPLATE_ID\\\"; "
                 else
-                    SETUP_CALL="${SETUP_CALL} templateDeployer = null; "
+                    SETUP_CALL="${SETUP_CALL} templateFactory = null; "
                 fi
                 
                 # Add distribution deployer
-                SETUP_CALL="${SETUP_CALL}})\""
+                SETUP_CALL="${SETUP_CALL}})\\""
                 
                 echo "Executing: $SETUP_CALL"
                 eval $SETUP_CALL
@@ -177,17 +177,17 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             echo "Backend canister ID: $BACKEND_ID"
             echo ""
             
-            # Add to token deployer whitelist
-            if [[ -n "$TOKEN_DEPLOYER_ID" ]]; then
-                echo "Adding backend to token deployer whitelist..."
-                dfx canister call token_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
+            # Add to token factory whitelist
+            if [[ -n "$TOKEN_FACTORY_ID" ]]; then
+                echo "Adding backend to token factory whitelist..."
+                dfx canister call token_factory addToWhitelist "(principal \"$BACKEND_ID\")"
                 echo ""
             fi
             
             # Add to template deployer whitelist
-            if [[ -n "$TEMPLATE_DEPLOYER_ID" ]]; then
-                echo "Adding backend to template deployer whitelist..."
-                dfx canister call template_deployer addToWhitelist "(principal \"$BACKEND_ID\")"
+            if [[ -n "$TEMPLATE_FACTORY_ID" ]]; then
+                echo "Adding backend to template factory whitelist..."
+                dfx canister call template_factory addToWhitelist "(principal \"$BACKEND_ID\")"
                 echo ""
             fi
             
@@ -213,17 +213,17 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             echo -e "${BLUE}🔍 Checking deployer whitelist status...${NC}"
             echo ""
             
-            # Check token deployer whitelist
-            if [[ -n "$TOKEN_DEPLOYER_ID" ]]; then
-                echo "Token Deployer Whitelist:"
-                dfx canister call token_deployer getWhitelistedBackends "()"
+            # Check token factory whitelist
+            if [[ -n "$TOKEN_FACTORY_ID" ]]; then
+                echo "Token Factory Whitelist:"
+                dfx canister call token_factory getWhitelistedBackends "()"
                 echo ""
             fi
             
             # Check template deployer whitelist
-            if [[ -n "$TEMPLATE_DEPLOYER_ID" ]]; then
-                echo "Template Deployer Whitelist:"
-                dfx canister call template_deployer getWhitelist "()"
+            if [[ -n "$TEMPLATE_FACTORY_ID" ]]; then
+                echo "Template Factory Whitelist:"
+                dfx canister call template_factory getWhitelist "()"
                 echo ""
             fi
             x
@@ -260,8 +260,8 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
                 case $service_name in
                     "audit_storage") service_id="$AUDIT_STORAGE_ID" ;;
                     "invoice_storage") service_id="$INVOICE_STORAGE_ID" ;;
-                    "token_deployer") service_id="$TOKEN_DEPLOYER_ID" ;;
-                    "template_deployer") service_id="$TEMPLATE_DEPLOYER_ID" ;;
+                    "token_factory") service_id="$TOKEN_FACTORY_ID" ;;
+                    "template_factory") service_id="$TEMPLATE_FACTORY_ID" ;;
                 esac
                 
                 if [[ -z "$service_id" ]]; then
@@ -274,8 +274,8 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
                 case $service_name in
                     "audit_storage") dfx_canister_name="audit_storage" ;;
                     "invoice_storage") dfx_canister_name="invoice_storage" ;;
-                    "token_deployer") dfx_canister_name="token_deployer" ;;
-                    "template_deployer") dfx_canister_name="template_deployer" ;;
+                    "token_factory") dfx_canister_name="token_factory" ;;
+                    "template_factory") dfx_canister_name="template_factory" ;;
                     *) echo -e "${RED}❌ Unknown service: ${service_name}${NC}"; return 1 ;;
                 esac
                 
@@ -294,7 +294,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
             }
             
             # Define services list (simple array)
-            SERVICES_TO_PROCESS="audit_storage invoice_storage token_deployer template_deployer"
+            SERVICES_TO_PROCESS="audit_storage invoice_storage token_factory template_factory"
             SERVICE_COUNT=4
             
             # Process all services
@@ -329,13 +329,13 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_DEPLOYER_
                 echo ""
                 echo -e "${YELLOW}⚠️  Manual commands for failed services:${NC}"
                 for service in $FAILED_SERVICES; do
-                    echo -e "  dfx canister call $service addToWhitelist \"(principal \\\"${BACKEND_ID}\\\")\""
+                    echo -e "  dfx canister call $service addToWhitelist \"(principal \\\"${BACKEND_ID}\\\")\\""
                 done
             fi
             
             # Check critical services
             CRITICAL_FAILED=""
-            for critical_service in "audit_storage" "invoice_storage" "token_deployer"; do
+            for critical_service in "audit_storage" "invoice_storage" "token_factory"; do
                 if [[ "$FAILED_SERVICES" == *"$critical_service"* ]]; then
                     CRITICAL_FAILED="$CRITICAL_FAILED $critical_service"
                 fi
@@ -380,11 +380,11 @@ else
     echo -e "${RED}❌ Missing required canisters. Please deploy them first:${NC}"
     echo "  - audit_storage"
     echo "  - invoice_storage" 
-    echo "  - token_deployer"
-    echo "  - template_deployer"
+    echo "  - token_factory"
+    echo "  - template_factory"
     echo ""
-    echo "Run: dfx deploy audit_storage invoice_storage token_deployer template_deployer"
+    echo "Run: dfx deploy audit_storage invoice_storage token_factory template_factory"
 fi
 
 echo ""
-echo -e "${GREEN}✅ Admin setup script completed${NC}" 
+echo -e "${GREEN}✅ Admin setup script completed${NC}"

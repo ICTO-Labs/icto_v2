@@ -86,18 +86,18 @@ deploy_storage_layer() {
 deploy_service_layer() {
     echo -e "${YELLOW}🔧 Deploying service layer...${NC}"
     
-    # Deploy token deployer
-    echo "Deploying token_deployer..."
-    dfx deploy token_deployer --network $NETWORK
-    TOKEN_DEPLOYER_ID=$(dfx canister id token_deployer --network $NETWORK)
-    echo -e "${GREEN}✅ Token Deployer: $TOKEN_DEPLOYER_ID${NC}"
+    # Deploy token factory
+    echo "Deploying token_factory..."
+    dfx deploy token_factory --network $NETWORK
+    TOKEN_FACTORY_ID=$(dfx canister id token_factory --network $NETWORK)
+    echo -e "${GREEN}✅ Token Factory: $TOKEN_FACTORY_ID${NC}"
     
     # TODO: Deploy other services when ready
     # dfx deploy launchpad_deployer --network $NETWORK
     # dfx deploy lock_deployer --network $NETWORK
     # dfx deploy distributing_deployer --network $NETWORK
     
-    export TOKEN_DEPLOYER_ID
+    export TOKEN_FACTORY_ID
 }
 
 deploy_backend() {
@@ -118,7 +118,7 @@ configure_microservices() {
     dfx canister call backend setupMicroservices \
         "(principal \"$AUDIT_STORAGE_ID\", \
           principal \"$INVOICE_STORAGE_ID\", \
-          principal \"$TOKEN_DEPLOYER_ID\", \
+          principal \"$TOKEN_FACTORY_ID\", \
           principal \"aaaaa-aa\", \
           principal \"aaaaa-aa\", \
           principal \"aaaaa-aa\")" \
@@ -201,12 +201,12 @@ validate_deployment() {
         return 1
     fi
     
-    # Test token deployer
-    echo "Testing token deployer..."
-    if dfx canister call token_deployer getServiceInfo --network $NETWORK >/dev/null 2>&1; then
-        echo -e "${GREEN}✅ Token deployer is responsive${NC}"
+    # Test token factory
+    echo "Testing token factory..."
+    if dfx canister call token_factory getServiceInfo --network $NETWORK >/dev/null 2>&1; then
+        echo -e "${GREEN}✅ Token factory is responsive${NC}"
     else
-        echo -e "${RED}❌ Token deployer health check failed${NC}"
+        echo -e "${RED}❌ Token factory health check failed${NC}"
         return 1
     fi
     
@@ -280,7 +280,7 @@ main() {
     echo "Backend: $BACKEND_ID"
     echo "Audit Storage: $AUDIT_STORAGE_ID"
     echo "Invoice Storage: $INVOICE_STORAGE_ID"
-    echo "Token Deployer: $TOKEN_DEPLOYER_ID"
+    echo "Token Factory: $TOKEN_FACTORY_ID"
     echo ""
     echo -e "${YELLOW}📋 Next Steps:${NC}"
     echo "1. Test payment integration: ./scripts/test_payment_integration.sh"
@@ -298,7 +298,7 @@ main() {
         "backend": "$BACKEND_ID",
         "audit_storage": "$AUDIT_STORAGE_ID",
         "invoice_storage": "$INVOICE_STORAGE_ID",
-        "token_deployer": "$TOKEN_DEPLOYER_ID"
+        "token_factory": "$TOKEN_FACTORY_ID"
     }
 }
 EOF
@@ -312,4 +312,4 @@ trap 'echo -e "${RED}❌ Deployment failed at line $LINENO${NC}"' ERR
 # Check if running directly
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
-fi 
+fi

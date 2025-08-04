@@ -29,7 +29,7 @@ diagnose_system() {
     echo -e "${YELLOW}🔍 Running system diagnostics...${NC}"
     
     # Check all canisters
-    local canisters=("backend" "audit_storage" "invoice_storage" "token_deployer")
+    local canisters=("backend" "audit_storage" "invoice_storage" "token_factory")
     local failed_canisters=()
     
     for canister in "${canisters[@]}"; do
@@ -114,7 +114,7 @@ fix_microservice_connections() {
     local backend_id=$(dfx canister id backend --network $NETWORK 2>/dev/null || echo "")
     local audit_id=$(dfx canister id audit_storage --network $NETWORK 2>/dev/null || echo "")
     local invoice_id=$(dfx canister id invoice_storage --network $NETWORK 2>/dev/null || echo "")
-    local token_id=$(dfx canister id token_deployer --network $NETWORK 2>/dev/null || echo "")
+    local token_id=$(dfx canister id token_factory --network $NETWORK 2>/dev/null || echo "")
     
     if [ -z "$backend_id" ] || [ -z "$audit_id" ] || [ -z "$invoice_id" ] || [ -z "$token_id" ]; then
         echo -e "${RED}❌ Missing required canisters${NC}"
@@ -191,7 +191,7 @@ fix_payment_issues() {
 restart_stopped_canisters() {
     echo -e "${YELLOW}🔄 Restarting stopped canisters...${NC}"
     
-    local canisters=("backend" "audit_storage" "invoice_storage" "token_deployer")
+    local canisters=("backend" "audit_storage" "invoice_storage" "token_factory")
     
     for canister in "${canisters[@]}"; do
         if dfx canister id $canister --network $NETWORK >/dev/null 2>&1; then
@@ -215,7 +215,7 @@ restart_stopped_canisters() {
 add_cycles_to_low_canisters() {
     echo -e "${YELLOW}⛽ Adding cycles to low-balance canisters...${NC}"
     
-    local canisters=("backend" "audit_storage" "invoice_storage" "token_deployer")
+    local canisters=("backend" "audit_storage" "invoice_storage" "token_factory")
     local cycles_to_add="10000000000000"  # 10T cycles
     
     for canister in "${canisters[@]}"; do
@@ -349,4 +349,4 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 fi
 
 # Run main function
-main "$@" 
+main "$@"

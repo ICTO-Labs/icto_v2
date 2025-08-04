@@ -1,6 +1,6 @@
 // ⬇️ Shared ICRC Utilities for ICTO V2
 // Core utility functions for ICRC-1 and ICRC-2 operations
-// Used by all services (backend, token_deployer, distributing_deployer, etc.)
+// Used by all services (backend, token_factory, distributing_deployer, etc.)
 
 import Result "mo:base/Result";
 import Principal "mo:base/Principal";
@@ -339,4 +339,4 @@ module {
     // ================ HIGH-LEVEL PAYMENT UTILITIES ================
     
     
-} 
+}

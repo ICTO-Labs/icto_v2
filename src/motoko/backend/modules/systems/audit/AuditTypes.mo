@@ -82,10 +82,10 @@ module AuditTypes {
     // Function to convert ServiceType to Text
     public func serviceTypeToText(serviceType: ServiceType) : Text {
         switch (serviceType) {
-            case (#TokenDeployer) "token_deployer";
-            case (#LockDeployer) "lock_deployer";
-            case (#DistributionDeployer) "distribution_deployer";
-            case (#LaunchpadDeployer) "launchpad_deployer";
+            case (#TokenFactory) "token_factory";
+            case (#LockFactory) "lock_factory";
+            case (#DistributionFactory) "distribution_factory";
+            case (#LaunchpadFactory) "launchpad_factory";
             case (#InvoiceService) "invoice_service";
             case (#Backend) "backend";
         }

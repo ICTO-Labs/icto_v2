@@ -8,13 +8,13 @@ dfx deploy backend --mode=reinstall
 
 # Get canister ids from the .env file
 
-TOKEN_ID=$(dfx canister id token_deployer)
+TOKEN_ID=$(dfx canister id token_factory)
 AUDIT_ID=$(dfx canister id audit_storage)
 INVOICE_ID=$(dfx canister id invoice_storage)
 TEMPLATE_ID=$(dfx canister id template_deployer)
 
 dfx canister call backend setCanisterIds "(record {
-    tokenDeployer = opt principal \"$TOKEN_ID\";
+    tokenFactory = opt principal \"$TOKEN_ID\";
     auditStorage = opt principal \"$AUDIT_ID\";
     invoiceStorage = opt principal \"$INVOICE_ID\";
     templateDeployer = opt principal \"$TEMPLATE_ID\";

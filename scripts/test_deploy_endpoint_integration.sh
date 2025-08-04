@@ -79,20 +79,20 @@ print_status "Deploying all canisters..."
 dfx deploy --no-wallet || {
     print_warning "Deployment failed, trying individual deployments..."
     dfx deploy backend --no-wallet
-    dfx deploy token_deployer --no-wallet
+    dfx deploy token_factory --no-wallet
     dfx deploy audit_storage --no-wallet
     dfx deploy invoice_storage --no-wallet
 }
 
 # Get canister IDs
 BACKEND_ID=$(dfx canister id backend)
-TOKEN_DEPLOYER_ID=$(dfx canister id token_deployer)
+TOKEN_FACTORY_ID=$(dfx canister id token_factory)
 AUDIT_STORAGE_ID=$(dfx canister id audit_storage)
 INVOICE_STORAGE_ID=$(dfx canister id invoice_storage)
 
 print_status "Canister IDs:"
 print_status "  Backend: $BACKEND_ID"
-print_status "  Token Deployer: $TOKEN_DEPLOYER_ID"
+print_status "  Token Factory: $TOKEN_FACTORY_ID"
 print_status "  Audit Storage: $AUDIT_STORAGE_ID"
 print_status "  Invoice Storage: $INVOICE_STORAGE_ID"
 
@@ -104,14 +104,14 @@ print_status "Configuring microservices..."
 dfx canister call backend setupMicroservices "(
     principal \"$AUDIT_STORAGE_ID\",
     principal \"$INVOICE_STORAGE_ID\",
-    principal \"$TOKEN_DEPLOYER_ID\",
+    principal \"$TOKEN_FACTORY_ID\",
     principal \"rdmx6-jaaaa-aaaaa-aaadq-cai\",
     principal \"rdmx6-jaaaa-aaaaa-aaadq-cai\",
     principal \"rdmx6-jaaaa-aaaaa-aaadq-cai\"
 )" || print_warning "Microservice setup failed"
 
-# Add backend to token deployer whitelist
-dfx canister call token_deployer addBackendToWhitelist "(principal \"$BACKEND_ID\")" || print_warning "Token deployer whitelist failed"
+# Add backend to token factory whitelist
+dfx canister call token_factory addBackendToWhitelist "(principal \"$BACKEND_ID\")" || print_warning "Token factory whitelist failed"
 
 # ================ SYSTEM VALIDATION TESTS ================
 
@@ -123,7 +123,7 @@ test_function "System Configuration" \
 
 # Test 2: Check microservice health
 test_function "Microservice Health Check" \
-"dfx canister call backend getModuleHealthStatus '()' | grep -q 'tokenDeployer'"
+"dfx canister call backend getModuleHealthStatus '()' | grep -q 'tokenFactory'"
 
 # ================ TOKEN DEPLOYMENT TESTS ================
 
@@ -204,7 +204,7 @@ test_function "Deployment Type Info" \
 # ================ RESULTS SUMMARY ================
 
 print_status "Test Summary"
-print_status "============"
+print_status "==========="
 
 dfx identity use default
 
@@ -224,4 +224,4 @@ print_status "  - Payment validation is working (requires ICRC-2 approval)"
 print_status "  - Audit logging is functional"
 print_status "  - Service delegation from Backend → TokenService is working"
 print_status "  - Anonymous user validations are working"
-print_status "  - All shared validation functions are operational" 
+print_status "  - All shared validation functions are operational"

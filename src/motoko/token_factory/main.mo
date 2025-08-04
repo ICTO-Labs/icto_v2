@@ -24,7 +24,7 @@ import Trie "mo:base/Trie";
 // V2 Shared Types and Utils
 import Common "../shared/types/Common";
 import ICRC "../shared/types/ICRC";
-import TokenDeployer "../shared/types/TokenDeployer";
+import TokenFactory "../shared/types/TokenFactory";
 
 // V2 Shared Utils
 import Helpers "../shared/utils/Helpers";
@@ -33,11 +33,11 @@ import SNSWasm "../shared/utils/SNSWasm";
 import Hex "../shared/utils/Hex";
 import TokenValidation "../shared/utils/TokenValidation";
 
-actor TokenDeployerModule {
+persistent actor TokenFactoryModule {
     
     // ================ SERVICE CONFIGURATION ================
-    private let SERVICE_VERSION : Text = "2.0.0";
-    private let SERVICE_NAME : Text = "Token Deployer V2";
+    private stable let SERVICE_VERSION : Text = "2.0.0";
+    private stable let SERVICE_NAME : Text = "Token Factory V2";
     private stable var serviceStartTime : Time.Time = Time.now();
     
 
@@ -64,19 +64,19 @@ actor TokenDeployerModule {
     };
     
     // Structured error type for deployment failures (re-exported for clarity)
-    public type DeploymentError = TokenDeployer.DeploymentError;
+    public type DeploymentError = TokenFactory.DeploymentError;
     
     // ================ TYPE ALIASES (V2 ONLY) ================
-    public type TokenConfig = TokenDeployer.TokenConfig;
-    public type DeploymentConfig = TokenDeployer.DeploymentConfig;
-    public type DeploymentResult = TokenDeployer.DeploymentResult;
-    public type TokenInfo = TokenDeployer.TokenInfo;
-    public type TokenStatus = TokenDeployer.TokenStatus;
-    public type ServiceInfo = TokenDeployer.ServiceInfo;
-    public type ArchiveOptions = TokenDeployer.ArchiveOptions;
-    public type MetadataValue = TokenDeployer.MetadataValue;
-    public type LedgerArg = TokenDeployer.LedgerArg;
-    public type DeploymentResultToken = TokenDeployer.DeploymentResultToken;
+    public type TokenConfig = TokenFactory.TokenConfig;
+    public type DeploymentConfig = TokenFactory.DeploymentConfig;
+    public type DeploymentResult = TokenFactory.DeploymentResult;
+    public type TokenInfo = TokenFactory.TokenInfo;
+    public type TokenStatus = TokenFactory.TokenStatus;
+    public type ServiceInfo = TokenFactory.ServiceInfo;
+    public type ArchiveOptions = TokenFactory.ArchiveOptions;
+    public type MetadataValue = TokenFactory.MetadataValue;
+    public type LedgerArg = TokenFactory.LedgerArg;
+    public type DeploymentResultToken = TokenFactory.DeploymentResultToken;
     
     // ================ STABLE VARIABLES ================
     
@@ -97,7 +97,7 @@ actor TokenDeployerModule {
     private stable var allowManualWasm : Bool = true; // Enable manual WASM upload
     
     // Manual WASM upload chunks (from V1)
-    private let wasmChunks : Buffer.Buffer<Blob> = Buffer.Buffer(0);
+    private transient let wasmChunks : Buffer.Buffer<Blob> = Buffer.Buffer(0);
     
     // Security
     private stable var admins : [Text] = [];
@@ -109,10 +109,10 @@ actor TokenDeployerModule {
     private stable var failedDeployments : Nat = 0;
     
     // Runtime variables
-    private var tokens : Trie.Trie<Text, TokenInfo> = Trie.empty();
-    private var deploymentHistory : Trie.Trie<Text, DeploymentResultToken> = Trie.empty();
-    private var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
-    private var pendingDeployments: Trie.Trie<Text, PendingDeployment> = Trie.empty();
+    private transient var tokens : Trie.Trie<Text, TokenInfo> = Trie.empty();
+    private transient var deploymentHistory : Trie.Trie<Text, DeploymentResultToken> = Trie.empty();
+    private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
+    private transient var pendingDeployments: Trie.Trie<Text, PendingDeployment> = Trie.empty();
     
     // Timer for automatic WASM updates
     private stable var timerId : Nat = 0;
@@ -120,16 +120,16 @@ actor TokenDeployerModule {
     // ================ SYSTEM LIFECYCLE ================
     
     system func preupgrade() {
-        Debug.print("TokenDeployer V2: Starting preupgrade");
+        Debug.print("TokenFactory V2: Starting preupgrade");
         tokensStable := Trie.toArray<Text, TokenInfo, (Text, TokenInfo)>(tokens, func (k, v) = (k, v));
         deploymentHistoryStable := Trie.toArray<Text, DeploymentResultToken, (Text, DeploymentResultToken)>(deploymentHistory, func (k, v) = (k, v));
         whitelistedBackends := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelistTrie, func (k, v) = (k, v));
         pendingDeploymentsStable := Trie.toArray<Text, PendingDeployment, (Text, PendingDeployment)>(pendingDeployments, func (k, v) = (k, v));
-        Debug.print("TokenDeployer V2: Preupgrade completed");
+        Debug.print("TokenFactory V2: Preupgrade completed");
     };
     
     system func postupgrade() {
-        Debug.print("TokenDeployer V2: Starting postupgrade");
+        Debug.print("TokenFactory V2: Starting postupgrade");
         
         tokens := Trie.empty();
         for ((key, value) in tokensStable.vals()) {
@@ -156,13 +156,13 @@ actor TokenDeployerModule {
         // Restart automatic WASM update timer
         timerId := Timer.recurringTimer<system>(#seconds(24*60*60), updateWasmVersionTimer);
         
-        Debug.print("TokenDeployer V2: Postupgrade completed");
+        Debug.print("TokenFactory V2: Postupgrade completed");
     };
     
     // ================ IC ACTORS ================
     
-    private let ic : IC.Self = actor ("aaaaa-aa");
-    private let snsWasm : SNSWasm.Self = actor ("qaa6y-5yaaa-aaaaa-aaafa-cai");
+    private transient let ic : IC.Self = actor ("aaaaa-aa");
+    private transient let snsWasm : SNSWasm.Self = actor ("qaa6y-5yaaa-aaaaa-aaafa-cai");
     
     // ================ UTILITY FUNCTIONS ================
     
@@ -324,7 +324,7 @@ actor TokenDeployerModule {
         try {
             let { canister_id } = await (with cycles = installCycles) ic.create_canister({
                 settings = ?{
-                    controllers = ?[Principal.fromActor(TokenDeployerModule)];
+                    controllers = ?[Principal.fromActor(TokenFactoryModule)];
                     freezing_threshold = ?9_331_200; // 108 days
                     memory_allocation = null;
                     compute_allocation = null;
@@ -369,7 +369,7 @@ actor TokenDeployerModule {
         deploymentConfig : DeploymentConfig,
         targetCanister : ?Principal
     ) : async Result.Result<Principal, DeploymentError> {
-        Debug.print("TOKEN DEPLOYER - V2.1 DEPLOYMENT REQUEST: " # debug_show(config.symbol));
+        Debug.print("TOKEN FACTORY - V2.1 DEPLOYMENT REQUEST: " # debug_show(config.symbol));
 
         // 1. Authorization
         if (not (isAdmin(caller) or _isWhitelisted(caller))) {
@@ -508,7 +508,7 @@ actor TokenDeployerModule {
 
         Debug.print("Deployment " # pendingId # ": Step 3 - Transferring ownership of " # Principal.toText(canisterId));
         let enableCycleOps = Option.get(deploymentConfig.enableCycleOps, false);
-        let ownershipRes = await transferOwnership(canisterId, Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenDeployerModule)), enableCycleOps);
+        let ownershipRes = await transferOwnership(canisterId, Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryModule)), enableCycleOps);
         switch(ownershipRes) {
             case (#err(msg)) {
                 _updatePendingStatus(pendingId, #OwnershipFailed(canisterId), ?msg);
@@ -563,7 +563,7 @@ actor TokenDeployerModule {
             logo = pendingRecord.config.logo;
             website = pendingRecord.config.website;
             owner = pendingRecord.caller; // The backend
-            deployer = Principal.fromActor(TokenDeployerModule);
+            deployer = Principal.fromActor(TokenFactoryModule);
             deployedAt = startTime;
             moduleHash = Hex.encode(Blob.toArray(snsWasmVersion));
             wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
@@ -584,7 +584,7 @@ actor TokenDeployerModule {
             success = true;
             error = null;
             canisterId = ?canisterId;
-            deployer = Principal.fromActor(TokenDeployerModule);
+            deployer = Principal.fromActor(TokenFactoryModule);
             owner = pendingRecord.caller;
             deployedAt = startTime;
             deploymentTime = Time.now() - startTime;
@@ -604,7 +604,7 @@ actor TokenDeployerModule {
         deploymentConfig : DeploymentConfig,
         targetCanister : ?Principal
     ) : async Result.Result<Principal, Text> {
-        Debug.print("TOKEN DEPLOYER - DEPLOY TOKEN WITH CONFIG" # debug_show(config));
+        Debug.print("TOKEN FACTORY - DEPLOY TOKEN WITH CONFIG" # debug_show(config));
         // Only whitelisted backend or admin can call this
         if (not (isAdmin(caller) or _isWhitelisted(caller))) {
             return #err("Unauthorized: Only whitelisted backend can deploy tokens");
@@ -682,7 +682,7 @@ actor TokenDeployerModule {
                     success = false;
                     error = ?error;
                     canisterId = null;
-                    deployer = Principal.fromActor(TokenDeployerModule);
+                    deployer = Principal.fromActor(TokenFactoryModule);
                     owner = caller;
                     deployedAt = deploymentStart;
                     deploymentTime = 0;
@@ -704,7 +704,7 @@ actor TokenDeployerModule {
                             success = false;
                             error = ?error;
                             canisterId = ?canister;
-                            deployer = Principal.fromActor(TokenDeployerModule);
+                            deployer = Principal.fromActor(TokenFactoryModule);
                             owner = caller;
                             deployedAt = deploymentStart;
                             deploymentTime = Time.now() - deploymentStart;
@@ -726,7 +726,7 @@ actor TokenDeployerModule {
                                     success = false;
                                     error = ?error;
                                     canisterId = ?canister;
-                                    deployer = Principal.fromActor(TokenDeployerModule);
+                                    deployer = Principal.fromActor(TokenFactoryModule);
                                     owner = caller;
                                     deployedAt = deploymentStart;
                                     deploymentTime = Time.now() - deploymentStart;
@@ -750,7 +750,7 @@ actor TokenDeployerModule {
                                     logo = config.logo;
                                     website = config.website;
                                     owner = caller;
-                                    deployer = Principal.fromActor(TokenDeployerModule);
+                                    deployer = Principal.fromActor(TokenFactoryModule);
                                     deployedAt = deploymentStart;
                                     moduleHash = Hex.encode(Blob.toArray(snsWasmVersion));
                                     wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
@@ -772,7 +772,7 @@ actor TokenDeployerModule {
                                     success = true;
                                     error = null;
                                     canisterId = ?canister;
-                                    deployer = Principal.fromActor(TokenDeployerModule);
+                                    deployer = Principal.fromActor(TokenFactoryModule);
                                     owner = caller;
                                     deployedAt = deploymentStart;
                                     deploymentTime = deploymentEnd - deploymentStart;
@@ -815,7 +815,7 @@ actor TokenDeployerModule {
                     if (config.initialBalances.size() > 0) {
                         { owner = config.initialBalances[0].0.owner; subaccount = null }
                     } else {
-                        { owner = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenDeployerModule)); subaccount = null }
+                        { owner = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryModule)); subaccount = null }
                     }
                 };
             };
@@ -830,9 +830,9 @@ actor TokenDeployerModule {
                         node_max_memory_size_bytes = ?(1024 * 1024 * 1024);
                         max_message_size_bytes = ?(128 * 1024);
                         cycles_for_archive_creation = ?archiveCycles;
-                        controller_id = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenDeployerModule));//Set token owner as controller of this canister
+                        controller_id = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryModule));//Set token owner as controller of this canister
                         max_transactions_per_response = null;
-                        more_controller_ids = ?[Principal.fromActor(TokenDeployerModule)];
+                        more_controller_ids = ?[Principal.fromActor(TokenFactoryModule)];
                     }
                 };
             };
@@ -1152,4 +1152,4 @@ actor TokenDeployerModule {
     
     // Start automatic WASM update timer
     timerId := Timer.recurringTimer<system>(#seconds(24*60*60), updateWasmVersionTimer);
-} 
+}

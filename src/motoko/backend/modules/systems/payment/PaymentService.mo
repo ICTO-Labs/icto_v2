@@ -236,7 +236,7 @@ module PaymentService {
     private func getServiceTypeFromAction(actionType: Audit.ActionType) : Text {
         Debug.print("Getting service type for action: " # debug_show(actionType));
         let serviceType = switch (actionType) {
-            case (#CreateToken) { "token_deployer" };
+            case (#CreateToken) { "token_factory" };
             case (#CreateTemplate) { "template_deployer" };
             case (#CreateLock) { "template_deployer" };
             case (#CreateDistribution) { "template_deployer" };

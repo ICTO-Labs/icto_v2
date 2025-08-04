@@ -52,10 +52,10 @@ module ConfigService {
         ignore set(state, "user.deployment_cooldown", "10", backendId);
         ignore set(state, "user.max_requests_per_user", "100", backendId);
 
-        // Token deployer
-        ignore set(state, "token_deployer.enabled", "true", backendId);
-        ignore set(state, "token_deployer.fee", "100000000", backendId);
-        ignore set(state, "token_deployer.initial_cycles", "200000000", backendId);
+        // Token factory
+        ignore set(state, "token_factory.enabled", "true", backendId);
+        ignore set(state, "token_factory.fee", "100000000", backendId);
+        ignore set(state, "token_factory.initial_cycles", "200000000", backendId);
 
         // Template deployer
         ignore set(state, "template_deployer.enabled", "false", backendId);
@@ -68,9 +68,9 @@ module ConfigService {
         ignore set(state, "lock_deployer.initial_cycles", "200000000", backendId);
 
         // Distribution
-        ignore set(state, "distribution_deployer.enabled", "false", backendId);
-        ignore set(state, "distribution_deployer.fee", "100000000", backendId);
-        ignore set(state, "distribution_deployer.initial_cycles", "200000000", backendId);
+        ignore set(state, "distribution_factory.enabled", "false", backendId);
+        ignore set(state, "distribution_factory.fee", "100000000", backendId);
+        ignore set(state, "distribution_factory.initial_cycles", "200000000", backendId);
     };
 
     public func fromStableState(stableState: ConfigTypes.StableState) : ConfigTypes.State {

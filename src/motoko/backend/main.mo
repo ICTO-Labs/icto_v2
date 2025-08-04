@@ -28,8 +28,8 @@ import ProjectTypes "./modules/systems/project/ProjectTypes";
 import ProjectService "./modules/systems/project/ProjectService";
 
 // Business Modules
-import TokenDeployerService "./modules/token_deployer/TokenDeployerService";
-import TokenDeployerTypes "./modules/token_deployer/TokenDeployerTypes";
+import TokenFactoryService "./modules/token_factory/TokenFactoryService";
+import TokenFactoryTypes "./modules/token_factory/TokenFactoryTypes";
 import TemplateDeployerService "./modules/template_deployer/TemplateDeployerService";
 import TemplateDeployerTypes "./modules/template_deployer/TemplateDeployerTypes";
 // Launchpad, Lock, and Distribution modules are used via the Microservice module
@@ -41,7 +41,7 @@ import Deployments "./shared/types/Deployments";
 // Shared Utils
 import TokenValidation "../shared/utils/TokenValidation";
 
-actor Backend {
+persistent actor Backend {
 
     // ==================================================================================================
     // STATE MANAGEMENT
@@ -57,15 +57,15 @@ actor Backend {
     private stable var stableTokenSymbolRegistry : [(Text, Principal)] = [];
 
     // --- Runtime State (must be initialized) ---
-    private var owner : Principal = stableBackend;
-    private var configState : ConfigTypes.State = ConfigService.initState(stableBackend);
-    private var auditState : AuditTypes.State = AuditService.initState(stableBackend);
-    private var userState : UserTypes.State = UserService.initState(stableBackend);
-    private var paymentState : PaymentTypes.State = PaymentService.initState(stableBackend);
-    private var microserviceState : MicroserviceTypes.State = MicroserviceService.initState();
-    private var projectState : ProjectTypes.State = ProjectService.initState(stableBackend);
-    private var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
-    private var defaultTokens : [Common.TokenInfo] = [];
+    private transient var owner : Principal = stableBackend;
+    private transient var configState : ConfigTypes.State = ConfigService.initState(stableBackend);
+    private transient var auditState : AuditTypes.State = AuditService.initState(stableBackend);
+    private transient var userState : UserTypes.State = UserService.initState(stableBackend);
+    private transient var paymentState : PaymentTypes.State = PaymentService.initState(stableBackend);
+    private transient var microserviceState : MicroserviceTypes.State = MicroserviceService.initState();
+    private transient var projectState : ProjectTypes.State = ProjectService.initState(stableBackend);
+    private transient var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
+    private transient var defaultTokens : [Common.TokenInfo] = [];
 
     system func preupgrade() {
         stableConfigState := ?ConfigService.toStableState(configState);
@@ -255,7 +255,7 @@ actor Backend {
         let deploymentResult : Result.Result<Principal, Text> = await async {
             switch (payload) {
                 case (#Token(request)) {
-                    let preparedCallResult = TokenDeployerService.prepareDeployment(
+                    let preparedCallResult = TokenFactoryService.prepareDeployment(
                         caller,
                         request.tokenConfig,
                         request.deploymentConfig,
@@ -268,10 +268,10 @@ actor Backend {
                         case (#ok(call)) {
                             let deployerActor = actor (Principal.toText(call.canisterId)) : actor {
                                 deployTokenWithConfig : (
-                                    TokenDeployerTypes.TokenConfig,
-                                    TokenDeployerTypes.DeploymentConfig,
+                                    TokenFactoryTypes.TokenConfig,
+                                    TokenFactoryTypes.DeploymentConfig,
                                     ?Principal,
-                                ) -> async Result.Result<Principal, TokenDeployerTypes.DeploymentError>;
+                                ) -> async Result.Result<Principal, TokenFactoryTypes.DeploymentError>;
                             };
                             let result = await deployerActor.deployTokenWithConfig(call.args.config, call.args.deploymentConfig, null);
                             switch (result) {
@@ -343,8 +343,8 @@ actor Backend {
     // ==================================================================================================
 
     public shared ({ caller }) func deployToken(
-        request : TokenDeployerTypes.DeploymentRequest
-    ) : async Result.Result<TokenDeployerTypes.DeploymentResult, Text> {
+        request : TokenFactoryTypes.DeploymentRequest
+    ) : async Result.Result<TokenFactoryTypes.DeploymentResult, Text> {
 
         // Basic validation for the request object itself using shared utility
         let validationResult = TokenValidation.validateTokenConfig(
@@ -395,7 +395,7 @@ actor Backend {
                     caller,
                     request.projectId,
                     result.canisterId,
-                    #TokenDeployer,
+                    #TokenFactory,
                     #Token({
                         tokenName = request.tokenConfig.name;
                         tokenSymbol = symbol;
@@ -531,8 +531,11 @@ actor Backend {
             case (?ids) {
 
                 let rawServices : [(Text, ?Principal)] = [
-                    ("TokenDeployer", ids.tokenDeployer),
-                    ("TemplateDeployer", ids.templateDeployer),
+                    ("TokenFactory", ids.tokenFactory),
+                    ("TemplateFactory", ids.templateFactory),
+                    ("DistributionFactory", ids.distributionFactory),
+                    ("LockFactory", ids.lockFactory),
+                    ("LaunchpadFactory", ids.launchpadFactory),
                     ("InvoiceStorage", ids.invoiceStorage),
                     ("AuditStorage", ids.auditStorage),
                 ];
@@ -608,7 +611,7 @@ actor Backend {
     // ==================================================================================================
 
     public shared query func getServiceFee(serviceName : Text) : async ?Nat {
-        // Example: "token_deployer.fee"
+        // Example: "token_factory.fee"
         let key = serviceName # ".fee";
         switch (Trie.get(configState.values, { key = key; hash = Text.hash(key) }, Text.equal)) {
             case (?value) Nat.fromText(value);
@@ -765,7 +768,7 @@ actor Backend {
                 adminAction = "Manually reconcile a failed token deployment.";
                 targetUser = null; // System-level fix
                 configChanges = "Reconciling audit " # originalAuditId # " with new canister " # Principal.toText(newCanisterId);
-                justification = "Manual recovery after successful retry on token_deployer.";
+                justification = "Manual recovery after successful retry on token_factory.";
             }),
             ?projectId,
             ?paymentRecordId,
@@ -953,7 +956,7 @@ actor Backend {
         let paymentInfo = ConfigService.getPaymentInfo(configState);
 
         let serviceFees = [
-            ("token_deployer", ConfigService.getNumber(configState, "token_deployer.fee", 0)),
+            ("token_factory", ConfigService.getNumber(configState, "token_factory.fee", 0)),
             ("template_deployer", ConfigService.getNumber(configState, "template_deployer.fee", 0)),
         ];
         return {

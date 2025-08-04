@@ -11,10 +11,10 @@ import Nat "mo:base/Nat";
 import Types "./types/Types";
 import InvoiceStorageInterface "../backend/shared/interfaces/InvoiceStorage";
 
-actor InvoiceStorage {
+persistent actor InvoiceStorage {
     
     // ================ SERVICE CONFIGURATION ================
-    private let SERVICE_VERSION : Text = "1.0.0";
+    private transient let SERVICE_VERSION : Text = "1.0.0";
     private stable var serviceStartTime : Time.Time = 0;
     
     // ================ STABLE VARIABLES ================
@@ -24,10 +24,10 @@ actor InvoiceStorage {
     private stable var refundsStable : [(Text, Types.Refund)] = [];
     
     // Runtime variables
-    private var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
-    private var paymentRecords : Trie.Trie<Text, Types.PaymentRecord> = Trie.empty();
-    private var invoices : Trie.Trie<Text, Types.Invoice> = Trie.empty();
-    private var refunds : Trie.Trie<Text, Types.Refund> = Trie.empty();
+    private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
+    private transient var paymentRecords : Trie.Trie<Text, Types.PaymentRecord> = Trie.empty();
+    private transient var invoices : Trie.Trie<Text, Types.Invoice> = Trie.empty();
+    private transient var refunds : Trie.Trie<Text, Types.Refund> = Trie.empty();
     
     // ================ UPGRADE FUNCTIONS ================
     system func preupgrade() {

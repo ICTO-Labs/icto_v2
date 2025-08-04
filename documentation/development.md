@@ -49,9 +49,9 @@ To run the application on your local machine, you will need to start the local r
     ```
 
     This script will:
-    - Deploy all Motoko canisters (`backend`, `token_deployer`, etc.).
+    - Deploy all Motoko canisters (`backend`, `token_factory`, etc.).
     - Get the principal IDs of the deployed canisters.
-    - Add the necessary cycles to the `token_deployer` canister.
+    - Add the necessary cycles to the `token_factory` canister.
     - Whitelist the `backend` canister in all other service canisters to allow communication.
     - Configure the `backend` canister with the IDs of the other microservices.
 
@@ -90,7 +90,7 @@ The project includes a number of test scripts in the `scripts/` directory. These
 **Example:** To test the token deployment flow, you can run:
 
 ```bash
-./scripts/test_backend_token_deployer_integration.sh
+./scripts/test_backend_token_factory_integration.sh
 ```
 
 Before running these tests, make sure you have deployed the canisters locally.

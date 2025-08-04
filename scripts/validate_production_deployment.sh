@@ -156,8 +156,8 @@ validate_microservice_connections() {
     echo "Testing backend → invoice storage connection..."
     # This would be tested via a payment operation
     
-    # Test backend can call token deployer
-    echo "Testing backend → token deployer connection..."
+    # Test backend can call token factory
+    echo "Testing backend → token factory connection..."
     # This would be tested via token deployment
     
     log_result "PASS" "Microservices" "Basic connectivity validated"
@@ -232,10 +232,7 @@ test_payment_integration() {
     esac
     
     echo "Checking user balance for testing..."
-    local balance=$(dfx canister call $ledger_id icrc1_balance_of "(record {
-        owner = principal \"$user_principal\";
-        subaccount = null;
-    })" --network $NETWORK 2>/dev/null | grep -o '[0-9_]*' | tr -d '_' | head -1 || echo "0")
+    local balance=$(dfx canister call $ledger_id icrc1_balance_of "(record {\n        owner = principal \"$user_principal\";\n        subaccount = null;\n    })" --network $NETWORK 2>/dev/null | grep -o '[0-9_]*' | tr -d '_' | head -1 || echo "0")
     
     if [ "$balance" -gt 200000000 ]; then  # 2 ICP minimum for testing
         log_result "PASS" "Payment Test Balance" "Sufficient ICP for testing ($balance e8s)"
@@ -297,7 +294,7 @@ check_security_configuration() {
     
     # Check cycle balance security
     echo "Checking cycle balances for all canisters..."
-    for canister in backend audit_storage invoice_storage token_deployer; do
+    for canister in backend audit_storage invoice_storage token_factory; do
         if dfx canister id $canister --network $NETWORK >/dev/null 2>&1; then
             local status=$(dfx canister status $canister --network $NETWORK 2>/dev/null || echo "ERROR")
             if [[ $status == *"ERROR"* ]]; then
@@ -323,7 +320,7 @@ main() {
     check_canister_health "backend" "getSystemInfo"
     check_canister_health "audit_storage" "healthCheck"
     check_canister_health "invoice_storage" "healthCheck"
-    check_canister_health "token_deployer" "getServiceInfo"
+    check_canister_health "token_factory" "getServiceInfo"
     echo ""
     
     # Phase 2: Configuration Validation
@@ -376,4 +373,4 @@ if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
 fi
 
 # Run validation
-main "$@" 
+main "$@"
