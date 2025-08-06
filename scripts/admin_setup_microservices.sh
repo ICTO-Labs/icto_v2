@@ -47,14 +47,14 @@ BACKEND_ID=$(get_canister_id "backend")
 AUDIT_STORAGE_ID=$(get_canister_id "audit_storage")
 INVOICE_STORAGE_ID=$(get_canister_id "invoice_storage")
 TOKEN_FACTORY_ID=$(get_canister_id "token_factory")
-TEMPLATE_DEPLOYER_ID=$(get_canister_id "template_factory")
+TEMPLATE_FACTORY_ID=$(get_canister_id "template_factory")
 
 # Display canister status
 echo -e "${GREEN}✅ backend: ${BACKEND_ID:-'not deployed'}${NC}"
 echo -e "${GREEN}✅ audit_storage: ${AUDIT_STORAGE_ID:-'not deployed'}${NC}"
 echo -e "${GREEN}✅ invoice_storage: ${INVOICE_STORAGE_ID:-'not deployed'}${NC}"
 echo -e "${GREEN}✅ token_factory: ${TOKEN_FACTORY_ID:-'not deployed'}${NC}"
-echo -e "${GREEN}✅ template_factory: ${TEMPLATE_DEPLOYER_ID:-'not deployed'}${NC}"
+echo -e "${GREEN}✅ template_factory: ${TEMPLATE_FACTORY_ID:-'not deployed'}${NC}"
 
 echo ""
 
@@ -100,7 +100,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_FACTORY_I
             echo "  Template Factory: ${TEMPLATE_ID:-'Not deployed'}"
             echo ""
             
-            read -p "Proceed with setup? (y/N): " confirm
+            read -p "Proceed with setup? y/N: " confirm
             if [[ $confirm =~ ^[Yy]$ ]]; then
                 # Build setCanisterIds call with actual canister IDs only
                 SETUP_CALL="dfx canister call backend setCanisterIds \"(record {\""
@@ -146,7 +146,7 @@ if [[ -n "$AUDIT_STORAGE_ID" && -n "$INVOICE_STORAGE_ID" && -n "$TOKEN_FACTORY_I
             
         2)
             echo -e "${YELLOW}⚠️  This will reset the setup status and require re-setup${NC}"
-            read -p "Are you sure? (y/N): " confirm
+            read -p "Are you sure? y/N: " confirm
             if [[ $confirm =~ ^[Yy]$ ]]; then
                 dfx canister call backend forceResetMicroservicesSetup
                 

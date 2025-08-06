@@ -2,7 +2,8 @@ import Principal "mo:base/Principal";
 import Nat "mo:base/Nat";
 
 import TokenFactoryTypes "../../modules/token_factory/TokenFactoryTypes";
-import TemplateDeployerTypes "../../modules/template_deployer/TemplateDeployerTypes";
+import TemplateFactoryTypes "../../modules/template_factory/TemplateFactoryTypes";
+import DistributionFactoryTypes "../../modules/distribution_factory/DistributionFactoryTypes";
 
 module Deployments {
     
@@ -10,7 +11,8 @@ module Deployments {
     // This is the core payload for the unified deployment flow.
     public type DeploymentPayload = {
         #Token: TokenFactoryTypes.DeploymentRequest;
-        #Template: TemplateDeployerTypes.RemoteDeployRequest;
+        #Template: TemplateFactoryTypes.RemoteDeployRequest;
+        #Distribution: DistributionFactoryTypes.DistributionConfig;
     };
 
     // A standardized result returned by the unified deployment flow.

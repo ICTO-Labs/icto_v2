@@ -30,9 +30,12 @@ import ProjectService "./modules/systems/project/ProjectService";
 // Business Modules
 import TokenFactoryService "./modules/token_factory/TokenFactoryService";
 import TokenFactoryTypes "./modules/token_factory/TokenFactoryTypes";
-import TemplateDeployerService "./modules/template_deployer/TemplateDeployerService";
-import TemplateDeployerTypes "./modules/template_deployer/TemplateDeployerTypes";
-// Launchpad, Lock, and Distribution modules are used via the Microservice module
+import TemplateFactoryService "./modules/template_factory/TemplateFactoryService";
+import TemplateFactoryTypes "./modules/template_factory/TemplateFactoryTypes";
+import DistributionFactoryService "./modules/distribution_factory/DistributionFactoryService";
+import DistributionFactoryTypes "./modules/distribution_factory/DistributionFactoryTypes";
+import DistributionFactoryInterface "./modules/distribution_factory/DistributionFactoryInterface";
+// Launchpad, Lock modules are used via the Microservice module
 
 // Shared Types
 import Common "./shared/types/Common";
@@ -55,6 +58,7 @@ persistent actor Backend {
     private stable var stableMicroserviceState : ?MicroserviceTypes.StableState = null;
     private stable var stableProjectState : ?ProjectTypes.StableState = null;
     private stable var stableTokenSymbolRegistry : [(Text, Principal)] = [];
+    private stable var stableDistributionFactoryState : ?DistributionFactoryTypes.StableState = null;
 
     // --- Runtime State (must be initialized) ---
     private transient var owner : Principal = stableBackend;
@@ -64,6 +68,7 @@ persistent actor Backend {
     private transient var paymentState : PaymentTypes.State = PaymentService.initState(stableBackend);
     private transient var microserviceState : MicroserviceTypes.State = MicroserviceService.initState();
     private transient var projectState : ProjectTypes.State = ProjectService.initState(stableBackend);
+    private transient var distributionFactoryState : DistributionFactoryTypes.StableState = DistributionFactoryService.initState();
     private transient var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
     private transient var defaultTokens : [Common.TokenInfo] = [];
 
@@ -74,6 +79,7 @@ persistent actor Backend {
         stableMicroserviceState := ?MicroserviceService.toStableState(microserviceState);
         stableProjectState := ?ProjectService.toStableState(projectState);
         stablePaymentState := ?PaymentService.toStableState(paymentState);
+        stableDistributionFactoryState := ?DistributionFactoryService.toStableState(distributionFactoryState);
         stableTokenSymbolRegistry := Iter.toArray(Trie.iter(tokenSymbolRegistry));
     };
 
@@ -112,6 +118,10 @@ persistent actor Backend {
         projectState := switch (stableProjectState) {
             case null { ProjectService.initState(owner) };
             case (?s) { ProjectService.fromStableState(s) };
+        };
+        distributionFactoryState := switch (stableDistributionFactoryState) {
+            case null { DistributionFactoryService.initState() };
+            case (?s) { DistributionFactoryService.fromStableState(s) };
         };
 
         var newRegistry = Trie.empty<Text, Principal>();
@@ -240,6 +250,24 @@ persistent actor Backend {
                         deploymentConfig = debug_show (req.deploymentConfig);
                     });
                     case (#Template(_)) #Template("template");
+                    case (#Distribution(config)) #Distribution({
+                        title = config.title;
+                        tokenSymbol = config.tokenInfo.symbol;
+                        totalAmount = config.totalAmount;
+                        vestingSchedule = debug_show (config.vestingSchedule);
+                        distributionType = "V2";
+                        description = ?config.description;
+                        tokenCanisterId = ?Principal.toText(config.tokenInfo.canisterId);
+                        eligibilityType = ?debug_show (config.eligibilityType);
+                        recipientMode = ?debug_show (config.recipientMode);
+                        recipientCount = config.maxRecipients;
+                        startTime = ?config.distributionStart;
+                        endTime = config.distributionEnd;
+                        initialUnlockPercentage = ?config.initialUnlockPercentage;
+                        allowCancel = ?config.allowCancel;
+                        allowModification = ?config.allowModification;
+                        feeStructure = ?debug_show (config.feeStructure);
+                    });
                 };
                 status = #Initiated;
                 payload = debug_show (payload);
@@ -282,7 +310,7 @@ persistent actor Backend {
                     };
                 };
                 case (#Template(request)) {
-                    let preparedCallResult = TemplateDeployerService.prepareDeployment(
+                    let preparedCallResult = TemplateFactoryService.prepareDeployment(
                         caller,
                         request,
                         configState,
@@ -293,11 +321,35 @@ persistent actor Backend {
                         case (#err(msg)) { #err(msg) };
                         case (#ok(call)) {
                             let deployerActor = actor (Principal.toText(call.canisterId)) : actor {
-                                deployFromTemplate : (TemplateDeployerTypes.RemoteDeployRequest) -> async Result.Result<TemplateDeployerTypes.RemoteDeployResult, Text>;
+                                deployFromTemplate : (TemplateFactoryTypes.RemoteDeployRequest) -> async Result.Result<TemplateFactoryTypes.RemoteDeployResult, Text>;
                             };
                             let result = await deployerActor.deployFromTemplate(call.args);
                             switch (result) {
                                 case (#ok(res)) { #ok(res.canisterId) };
+                                case (#err(msg)) { #err(msg) };
+                            };
+                        };
+                    };
+                };
+                case (#Distribution(config)) {
+                    Debug.print("Preparing distribution deployment");
+                    Debug.print("🚥 Config: " # debug_show (config));
+                    let preparedCallResult = DistributionFactoryService.prepareDeployment(
+                        distributionFactoryState,
+                        caller,
+                        config,
+                        configState,
+                        microserviceState,
+                    );
+
+                    switch (preparedCallResult) {
+                        case (#err(msg)) { #err(msg) };
+                        case (#ok(call)) {
+                            Debug.print("⚠️ Call: " # debug_show (call));
+                            let deployerActor = actor (Principal.toText(call.canisterId)) : DistributionFactoryInterface.DistributionFactoryActor;
+                            let result = await deployerActor.createDistribution(call.args);
+                            switch (result) {
+                                case (#ok(res)) { #ok(res.distributionCanisterId) };
                                 case (#err(msg)) { #err(msg) };
                             };
                         };
@@ -317,6 +369,7 @@ persistent actor Backend {
                     ignore PaymentService.createRefundRequest(
                         paymentState,
                         auditState,
+                        configState,
                         caller,
                         Option.get(paymentResult.paymentRecordId, ""),
                         #SystemError,
@@ -435,11 +488,11 @@ persistent actor Backend {
     };
 
     public shared ({ caller }) func deployLock(
-        config : TemplateDeployerTypes.LockConfig
+        config : TemplateFactoryTypes.LockConfig
     ) : async Result.Result<Principal, Text> {
 
         // 1. Prepare the standard request for the template deployer
-        let request : TemplateDeployerTypes.RemoteDeployRequest = {
+        let request : TemplateFactoryTypes.RemoteDeployRequest = {
             deployerType = #Lock;
             config = #LockConfig(config);
             owner = caller;
@@ -464,6 +517,80 @@ persistent actor Backend {
             };
         };
     };
+
+    public shared ({ caller }) func deployDistribution(
+        config : DistributionFactoryTypes.DistributionConfig,
+        projectId : ?ProjectTypes.ProjectId
+    ) : async Result.Result<DistributionFactoryTypes.DeploymentResult, Text> {
+
+        // Basic validation
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated to deploy a distribution.");
+        };
+
+        // All complex logic is now delegated to the standard flow
+        let flowResult = await _handleStandardDeploymentFlow(
+            caller,
+            #CreateDistribution, // The specific ActionType for auditing and fees
+            projectId,
+            #Distribution(config),
+        );
+
+        switch (flowResult) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok(result)) {
+
+                // Post-deployment state updates specific to distribution deployment
+                ignore UserService.recordDeployment(
+                    userState,
+                    caller,
+                    projectId,
+                    result.canisterId,
+                    #DistributionFactory,
+                    #Distribution({
+                        title = config.title;
+                        tokenSymbol = config.tokenInfo.symbol;
+                        totalAmount = config.totalAmount;
+                        vestingSchedule = debug_show (config.vestingSchedule);
+                        distributionType = "V2";
+                        description = ?config.description;
+                        tokenCanisterId = ?Principal.toText(config.tokenInfo.canisterId);
+                        eligibilityType = ?debug_show (config.eligibilityType);
+                        recipientMode = ?debug_show (config.recipientMode);
+                        recipientCount = config.maxRecipients;
+                        startTime = ?config.distributionStart;
+                        endTime = config.distributionEnd;
+                        initialUnlockPercentage = ?config.initialUnlockPercentage;
+                        allowCancel = ?config.allowCancel;
+                        allowModification = ?config.allowModification;
+                        feeStructure = ?debug_show (config.feeStructure);
+                    }),
+                    {
+                        cyclesCost = 0; // TODO
+                        deploymentFee = result.paidAmount;
+                        paymentToken = paymentState.config.acceptedTokens[0]; // Assuming first token
+                        totalCost = result.paidAmount;
+                        transactionId = result.transactionId;
+                    },
+                    {
+                        name = config.title;
+                        description = ?config.description;
+                        tags = [];
+                        version = "2.0.0";
+                        isPublic = true;
+                        parentProject = projectId;
+                        dependsOn = [];
+                    },
+                );
+
+                // Return the specific result type expected by the frontend
+                return #ok({
+                    distributionCanisterId = result.canisterId;
+                });
+            };
+        };
+    };
+
 
     // ==================================================================================================
     // ADMIN & HEALTH-CHECK
@@ -958,6 +1085,7 @@ persistent actor Backend {
         let serviceFees = [
             ("token_factory", ConfigService.getNumber(configState, "token_factory.fee", 0)),
             ("template_deployer", ConfigService.getNumber(configState, "template_deployer.fee", 0)),
+            ("distribution_factory", ConfigService.getNumber(configState, "distribution_factory.fee", 0)),
         ];
         return {
             acceptedTokens = paymentInfo.acceptedTokens;

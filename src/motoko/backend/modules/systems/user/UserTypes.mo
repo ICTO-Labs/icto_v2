@@ -179,12 +179,22 @@ module UserTypes {
     };
     
     public type DistributionDeploymentInfo = {
-        distributionType: Text;
+        title: Text;
+        tokenSymbol: Text;
         totalAmount: Nat;
-        recipientCount: Nat;
+        vestingSchedule: Text;
+        distributionType: Text;
+        description: ?Text;
+        tokenCanisterId: ?Text;
+        eligibilityType: ?Text;
+        recipientMode: ?Text;
+        recipientCount: ?Nat;
         startTime: ?Common.Timestamp;
         endTime: ?Common.Timestamp;
-        cliffPeriod: ?Nat;
+        initialUnlockPercentage: ?Nat;
+        allowCancel: ?Bool;
+        allowModification: ?Bool;
+        feeStructure: ?Text;
     };
     
     public type LaunchpadDeploymentInfo = {

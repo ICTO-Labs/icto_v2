@@ -44,6 +44,9 @@ module ConfigService {
         ignore set(state, "payment.min_amount", "10000000", backendId);
         ignore set(state, "payment.accepted_tokens", "ryjl3-tyaaa-aaaaa-aaaba-cai", backendId);//split by comma (list of tokens)
         ignore set(state, "payment.fee_recipient", Principal.toText(backendId), backendId);
+        
+        // Refund configs
+        ignore set(state, "payment.auto_refund_system_errors", "true", backendId);
 
         // User configs
         ignore set(state, "user.max_projects_per_user", "100", backendId);

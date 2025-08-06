@@ -571,6 +571,7 @@ module PaymentService {
     public func createRefundRequest(
         state: PaymentTypes.State,
         auditState: Audit.State,
+        configState: ConfigTypes.State,
         user: Principal,
         paymentRecordId: PaymentTypes.PaymentRecordId,
         reason: PaymentTypes.RefundReason,
@@ -625,6 +626,20 @@ module PaymentService {
         );
         Debug.print("Audit log created with ID: " # auditEntry.id);
 
+        // Check if auto-approval is enabled for system errors
+        let autoRefundEnabled = ConfigService.getBool(configState, "payment.auto_refund_system_errors", false);
+        
+        // Auto-approve system error refunds if config enables it
+        let initialStatus = switch (reason) {
+            case (#SystemError) if (autoRefundEnabled) #Approved else #Pending;
+            case (_) #Pending;
+        };
+        
+        let autoApprovalNote = switch (reason) {
+            case (#SystemError) if (autoRefundEnabled) ?"Automatically approved due to system error (auto_refund enabled)" else ?"Request created due to system error (pending admin approval)";
+            case (_) ?"Request automatically created";
+        };
+
         let newRefund : PaymentTypes.RefundRequest = {
             id = refundId;
             userId = user;
@@ -636,15 +651,15 @@ module PaymentService {
             isPartial = false;
             requestedAt = Time.now();
             requestedBy = user;
-            status = #Pending;
-            approvedBy = null;
-            approvedAt = null;
+            status = initialStatus;
+            approvedBy = if (initialStatus == #Approved) ?Principal.fromText("2vxsx-fae") else null; // Backend principal
+            approvedAt = if (initialStatus == #Approved) ?(Time.now() : Int) else null;
             processedAt = null;
             refundTransactionId = null;
             processingFee = 0;
             auditId = ?auditEntry.id;
             statusHistory = [
-                { timestamp = Time.now(); updatedBy = user; oldStatus = #Pending; newStatus = #Pending; reason = ?"Request automatically created due to system error" }
+                { timestamp = Time.now(); updatedBy = user; oldStatus = #Pending; newStatus = initialStatus; reason = autoApprovalNote }
             ];
             notes = ?description;
         };
@@ -656,13 +671,34 @@ module PaymentService {
         state.userRefunds := Trie.put(state.userRefunds, textKey(Principal.toText(user)), Text.equal, Array.append(userRefundsList, [refundId])).0;
         state.totalRefunds += 1;
         
-        let pendingRefunds = Option.get(Trie.get(state.statusRefunds, textKey("Pending"), Text.equal), []);
-        state.statusRefunds := Trie.put(state.statusRefunds, textKey("Pending"), Text.equal, Array.append(pendingRefunds, [refundId])).0;
+        // Update status index based on actual status
+        let statusText = refundStatusToString(initialStatus);
+        let statusRefunds = Option.get(Trie.get(state.statusRefunds, textKey(statusText), Text.equal), []);
+        state.statusRefunds := Trie.put(state.statusRefunds, textKey(statusText), Text.equal, Array.append(statusRefunds, [refundId])).0;
 
-        Debug.print("State update complete. Refund request successfully created.");
+        Debug.print("State update complete. Refund request successfully created with status: " # statusText);
         Debug.print("--- createRefundRequest Finished ---");
         
-        #ok(newRefund)
+        // Auto-process system error refunds immediately if auto-refund is enabled
+        if (reason == #SystemError and autoRefundEnabled) {
+            Debug.print("Auto-processing system error refund...");
+            let processResult = await processRefund(state, refundId, Principal.fromText("2vxsx-fae"), configState, auditState);
+            switch (processResult) {
+                case (#ok(processedRefund)) {
+                    Debug.print("✅ System error refund auto-processed successfully");
+                    #ok(processedRefund)
+                };
+                case (#err(processError)) {
+                    Debug.print("⚠️ Auto-processing failed: " # processError);
+                    // Return the approved refund even if auto-processing fails
+                    // Admin can manually process it later
+                    #ok(newRefund)
+                };
+            }
+        } else {
+            Debug.print("Refund created with status: " # refundStatusToString(initialStatus));
+            #ok(newRefund)
+        }
     };
 
     // --- QUERY FUNCTIONS ---

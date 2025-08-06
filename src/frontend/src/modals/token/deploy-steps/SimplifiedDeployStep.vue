@@ -455,7 +455,7 @@ const deploymentCost = computed(() => {
 // Load deployment cost on mount
 const loadDeploymentCost = async () => {
     try {
-        deploymentCostBigInt.value = await backendService.getTokenDeployPrice()
+        deploymentCostBigInt.value = await backendService.getDeploymentFee()
     } catch (error) {
         console.error('Error loading deployment cost:', error)
         deploymentCostBigInt.value = BigInt(30000000) // 0.3 ICP fallback
@@ -600,7 +600,7 @@ const handlePayment = async () => {
             try {
                 switch (i) {
                     case 0: // Get deployment price
-                        deployPrice = await backendService.getTokenDeployPrice()
+                        deployPrice = await backendService.getDeploymentFee()
                         backendCanisterId = await backendService.getBackendCanisterId()
 
                         // Get ICP token info for approval

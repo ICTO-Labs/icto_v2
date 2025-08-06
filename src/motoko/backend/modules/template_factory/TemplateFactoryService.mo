@@ -4,20 +4,20 @@ import Option "mo:base/Option";
 
 import ConfigTypes "../systems/config/ConfigTypes";
 import MicroserviceTypes "../systems/microservices/MicroserviceTypes";
-import TemplateDeployerTypes "./TemplateDeployerTypes";
+import TemplateFactoryTypes "./TemplateFactoryTypes";
 
 module TemplateDeployerService {
 
     public type PreparedCall = {
         canisterId: Principal;
-        args: TemplateDeployerTypes.RemoteDeployRequest;
+        args: TemplateFactoryTypes.RemoteDeployRequest;
     };
 
     // Prepares the arguments for a remote call to the template_deployer canister.
     // This centralizes logic for checking service availability and configuration.
     public func prepareDeployment(
         caller: Principal,
-        request: TemplateDeployerTypes.RemoteDeployRequest,
+        request: TemplateFactoryTypes.RemoteDeployRequest,
         configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : Result.Result<PreparedCall, Text> {

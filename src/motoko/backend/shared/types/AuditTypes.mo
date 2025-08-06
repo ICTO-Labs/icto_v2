@@ -60,6 +60,7 @@ module Types {
         // Service Deployment Actions
         #CreateToken;
         #CreateTemplate;
+        #CreateDistribution;
         
         // Pipeline Actions
         #StartPipeline;
@@ -129,10 +130,22 @@ module Types {
     };
     
     public type DistributionActionData = {
-        distributionType: Text;
+        title: Text;
+        tokenSymbol: Text;
         totalAmount: Nat;
-        recipientCount: Nat;
+        vestingSchedule: Text;
+        distributionType: Text;
+        description: ?Text;
+        tokenCanisterId: ?Text;
+        eligibilityType: ?Text;
+        recipientMode: ?Text;
+        recipientCount: ?Nat;
         startTime: ?Time.Time;
+        endTime: ?Time.Time;
+        initialUnlockPercentage: ?Nat;
+        allowCancel: ?Bool;
+        allowModification: ?Bool;
+        feeStructure: ?Text;
     };
     
     public type LaunchpadActionData = {
@@ -173,6 +186,7 @@ module Types {
         deploymentType: {
             #Token: TokenActionData;
             #Template: Text;
+            #Distribution: DistributionActionData;
             #Other: Text;
         };
         status: ActionStatus;

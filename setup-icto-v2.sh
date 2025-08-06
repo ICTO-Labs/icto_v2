@@ -20,34 +20,36 @@ NC='\033[0m' # No Color
 echo -e "\n${BLUE}📦 Step 1: Deploying all canisters...${NC}"
 # Specity all canister
 dfx deploy icp_ledger --specified-id ryjl3-tyaaa-aaaaa-aaaba-cai #icp_ledger
+dfx deploy internet_identity --specified-id rdmx6-jaaaa-aaaaa-aaadq-cai #local_internet_identity
 dfx deploy backend
 dfx deploy audit_storage
 dfx deploy invoice_storage
-dfx deploy token_deployer
-dfx deploy template_deployer
+dfx deploy token_factory
+dfx deploy template_factory
+dfx deploy distribution_factory
 
 # Step 2: Get canister IDs
 echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
 BACKEND_ID=$(dfx canister id backend)
-TOKEN_DEPLOYER_ID=$(dfx canister id token_deployer)
+TOKEN_FACTORY_ID=$(dfx canister id token_factory)
 AUDIT_STORAGE_ID=$(dfx canister id audit_storage)
 INVOICE_STORAGE_ID=$(dfx canister id invoice_storage)
 
 # For services not yet implemented, use placeholder
-TEMPLATE_DEPLOYER_ID=$(dfx canister id template_deployer)
-
+TEMPLATE_FACTORY_ID=$(dfx canister id template_factory)
+DISTRIBUTION_FACTORY_ID=$(dfx canister id distribution_factory)
 echo -e "${GREEN}✅ Backend ID: ${BACKEND_ID}${NC}"
-echo -e "${GREEN}✅ Token Deployer ID: ${TOKEN_DEPLOYER_ID}${NC}"
+echo -e "${GREEN}✅ Token Factory ID: ${TOKEN_FACTORY_ID}${NC}"
 echo -e "${GREEN}✅ Audit Storage ID: ${AUDIT_STORAGE_ID}${NC}"
 echo -e "${GREEN}✅ Invoice Storage ID: ${INVOICE_STORAGE_ID}${NC}"
-echo -e "${GREEN}✅ Template Deployer ID: ${TEMPLATE_DEPLOYER_ID}${NC}"
-
+echo -e "${GREEN}✅ Template Factory ID: ${TEMPLATE_FACTORY_ID}${NC}"
+echo -e "${GREEN}✅ Distribution Factory ID: ${DISTRIBUTION_FACTORY_ID}${NC}"
 # Step 3: Add sufficient cycles to token_deployer BEFORE setup
 echo -e "\n${BLUE}💰 Step 3: Adding cycles to token_deployer...${NC}"
-dfx canister deposit-cycles 5000000000000 token_deployer
+dfx canister deposit-cycles 5000000000000 token_factory
 
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ Cycles added to token_deployer${NC}"
+    echo -e "${GREEN}✅ Cycles added to token_factory${NC}"
 else
     echo -e "${RED}❌ Failed to add cycles${NC}"
     exit 1
@@ -60,8 +62,8 @@ echo -e "\n${BLUE}🔧 Step 4: Adding backend to external services whitelist...$
 declare -a SERVICES=(
     "audit_storage"
     "invoice_storage" 
-    "token_deployer"
-    "template_deployer"
+    "token_factory"
+    "template_factory"
 )
 
 # Status tracking (simple strings to avoid associative array issues)
@@ -146,25 +148,28 @@ fi
 echo -e "\n${GREEN}✅ Whitelist addition completed successfully${NC}"
 
 
-# Step 5: Load WASM into token_deployer (fetch from SNS)
-echo -e "\n${BLUE}📥 Step 5: Loading WASM into token_deployer...${NC}"
-WASM_FETCH_RESULT=$(dfx canister call token_deployer getCurrentWasmInfo "()" 2>&1 || echo "FAILED")
+# Step 5: Load WASM into token_factory (fetch from SNS)
+echo -e "\n${BLUE}📥 Step 5: Loading WASM into token_factory...${NC}"
+WASM_FETCH_RESULT=$(dfx canister call token_factory getCurrentWasmInfo "()" 2>&1 || echo "FAILED")
 
 if [[ "$WASM_FETCH_RESULT" == *"FAILED"* ]] || [[ "$WASM_FETCH_RESULT" == *"err"* ]]; then
-    echo -e "${YELLOW}⚠️  WASM fetch failed - token_deployer may need manual WASM upload${NC}"
+    echo -e "${YELLOW}⚠️  WASM fetch failed - token_factory may need manual WASM upload${NC}"
     echo "$WASM_FETCH_RESULT"
 else
-    echo -e "${GREEN}✅ WASM loaded successfully into token_deployer${NC}"
+    echo -e "${GREEN}✅ WASM loaded successfully into token_factory${NC}"
 fi
 
 # Step 6: Setup microservices using new unified function
-echo -e "\n${BLUE}🔧 Step 6: Setting up microservices with unified setupMicroservices()...${NC}"
-SETUP_RESULT=$(dfx canister call backend setupMicroservices "(
-  principal \"${AUDIT_STORAGE_ID}\",
-  principal \"${INVOICE_STORAGE_ID}\",
-  principal \"${TOKEN_DEPLOYER_ID}\",
-  principal \"${TEMPLATE_DEPLOYER_ID}\"
-)" 2>&1 || echo "FAILED")
+echo -e "\n${BLUE}🔧 Step 6: Setting up microservices with unified setCanisterIds()...${NC}"
+
+
+SETUP_RESULT=$(dfx canister call backend setCanisterIds "(record {
+    tokenFactory = opt principal \"$TOKEN_FACTORY_ID\";
+    auditStorage = opt principal \"$AUDIT_STORAGE_ID\";
+    invoiceStorage = opt principal \"$INVOICE_STORAGE_ID\";
+    templateFactory = opt principal \"$TEMPLATE_FACTORY_ID\";
+    distributionFactory = opt principal \"$DISTRIBUTION_FACTORY_ID\";
+})" 2>&1 || echo "FAILED")
 
 if [[ "$SETUP_RESULT" == *"FAILED"* ]] || [[ "$SETUP_RESULT" == *"err"* ]]; then
     echo -e "${RED}❌ Microservices setup failed:${NC}"
@@ -193,12 +198,12 @@ else
     echo -e "${GREEN}✅ Token deployment info: ${TOKEN_INFO}${NC}"
 fi
 
-echo -e "${YELLOW}Checking token_deployer health...${NC}"
-TOKEN_HEALTH=$(dfx canister call token_deployer getServiceHealth "()" 2>&1 || echo "FAILED")
+echo -e "${YELLOW}Checking token_factory health...${NC}"
+TOKEN_HEALTH=$(dfx canister call token_factory getServiceHealth "()" 2>&1 || echo "FAILED")
 if [[ "$TOKEN_HEALTH" == *"FAILED"* ]]; then
-    echo -e "${YELLOW}⚠️  Token deployer health check failed${NC}"
+    echo -e "${YELLOW}⚠️  Token factory health check failed${NC}"
 else
-    echo -e "${GREEN}✅ Token deployer health: ${TOKEN_HEALTH}${NC}"
+    echo -e "${GREEN}✅ Token factory health: ${TOKEN_HEALTH}${NC}"
 fi
 
 echo -e "${YELLOW}Adding backend to audit_storage whitelist...${NC}"
@@ -313,7 +318,7 @@ fi
 echo -e "\n${GREEN}🎉 ICTO V2 New Architecture Setup Complete!${NC}"
 echo -e "\n${BLUE}📊 Setup Summary:${NC}"
 echo -e "• Backend Canister: ${BACKEND_ID}"
-echo -e "• Token Deployer: ${TOKEN_DEPLOYER_ID}"
+echo -e "• Token Factory: ${TOKEN_FACTORY_ID}"
 echo -e "• Audit Storage: ${AUDIT_STORAGE_ID}"
 echo -e "• Invoice Storage: ${INVOICE_STORAGE_ID}"
 echo -e "• New API Architecture: ✅"

@@ -3,7 +3,7 @@ import type { DeploymentRequest, DeploymentRecord } from '../../../declarations/
 export type { DeploymentRequest };
 export type { DeploymentRecord };
 export interface DeployTokenResponse {
-    canisterId: string
+    canisterId: import('@dfinity/principal').Principal
     success: boolean
     error?: string
 }
@@ -37,7 +37,7 @@ export interface DeploymentCost {
 
 export interface UserDeployment {
     id: string
-    canisterId: string
+    canisterId: import('@dfinity/principal').Principal
     deploymentType: string
     deployedAt: bigint
     metadata: DeploymentMetadata
@@ -47,7 +47,7 @@ export interface UserDeployment {
 
 export interface ProcessedDeployment {
     id: string
-    canisterId: string
+    canisterId: import('@dfinity/principal').Principal
     name: string
     description: string
     deploymentType: string
@@ -61,4 +61,110 @@ export interface ProcessedDeployment {
         totalSupply: string
         features: string[]
     } | null
+}
+
+// Distribution-specific types
+export interface DistributionTokenInfo {
+    canisterId: import('@dfinity/principal').Principal
+    symbol: string
+    name: string
+    decimals: number
+}
+
+export interface TokenHolderConfigBackend {
+    canisterId: import('@dfinity/principal').Principal
+    minAmount: bigint
+    snapshotTime?: bigint  // nanoseconds timestamp
+}
+
+export interface NFTHolderConfigBackend {
+    canisterId: import('@dfinity/principal').Principal
+    minCount: bigint
+    collections?: string[]
+}
+
+export type EligibilityTypeBackend = 
+    | { Open: null }
+    | { Whitelist: string[] }  // Principal strings
+    | { TokenHolder: TokenHolderConfigBackend }
+    | { NFTHolder: NFTHolderConfigBackend }
+    | { BlockIDScore: bigint }
+    | { Hybrid: { conditions: EligibilityTypeBackend[], logic: EligibilityLogicBackend } }
+
+export type EligibilityLogicBackend = 
+    | { AND: null }
+    | { OR: null }
+
+export interface RegistrationPeriodBackend {
+    startTime: bigint
+    endTime: bigint
+    maxParticipants?: bigint
+}
+
+export interface DistributionDeploymentRequest {
+    // Basic Information
+    title: string
+    description: string
+    isPublic: boolean
+    
+    // Token Configuration
+    tokenInfo: DistributionTokenInfo
+    totalAmount: bigint
+    
+    // Eligibility & Recipients
+    eligibilityType: EligibilityTypeBackend
+    eligibilityLogic?: EligibilityLogicBackend
+    recipientMode: 'Fixed' | 'Dynamic' | 'SelfService'
+    maxRecipients?: bigint
+    
+    // Vesting Configuration
+    vestingSchedule: VestingScheduleBackend
+    initialUnlockPercentage: bigint
+    
+    // Timing
+    registrationPeriod?: RegistrationPeriodBackend
+    distributionStart: bigint  // nanoseconds timestamp
+    distributionEnd?: bigint   // nanoseconds timestamp
+    
+    // Fees & Permissions
+    feeStructure: FeeStructureBackend
+    allowCancel: boolean
+    allowModification: boolean
+    
+    // Owner & Governance
+    owner: import('@dfinity/principal').Principal
+    governance?: import('@dfinity/principal').Principal
+    
+    // External Integrations
+    externalCheckers?: Array<[string, string]>  // (name, principal) tuples
+}
+
+export type VestingScheduleBackend = 
+    | { Instant: null }
+    | { Linear: { duration: bigint, frequency: UnlockFrequencyBackend } }
+    | { Cliff: { cliffDuration: bigint, cliffPercentage: bigint, vestingDuration: bigint, frequency: UnlockFrequencyBackend } }
+    | { SteppedCliff: Array<{ timeOffset: bigint, percentage: bigint }> }
+    | { Custom: Array<{ timestamp: bigint, amount: bigint }> }
+
+export type UnlockFrequencyBackend = 
+    | { Continuous: null }
+    | { Daily: null }
+    | { Weekly: null }
+    | { Monthly: null }
+    | { Quarterly: null }
+    | { Yearly: null }
+    | { Custom: bigint }
+
+export type FeeStructureBackend = 
+    | { Free: null }
+    | { Fixed: bigint }
+    | { Percentage: bigint }
+    | { Progressive: Array<{ threshold: bigint, feeRate: bigint }> }
+    | { RecipientPays: null }
+    | { CreatorPays: null }
+
+export interface DeployDistributionResponse {
+    distributionCanisterId: string
+    success: boolean
+    error?: string
 }

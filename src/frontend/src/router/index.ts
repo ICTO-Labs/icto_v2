@@ -202,6 +202,14 @@ const router = createRouter({
           },
         },
         {
+          path: 'create',
+          name: 'DistributionCreate',
+          component: () => import('../views/Distribution/DistributionCreate.vue'),
+          meta: {
+            title: 'Create Distribution',
+          },
+        },
+        {
           path: ':id',
           name: 'DistributionDetail',
           component: () => import('../views/Distribution/DistributionDetail.vue'),

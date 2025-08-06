@@ -7,7 +7,9 @@ import type {
     DeployTokenResponse,
     UserDeployment,
     ProcessedDeployment,
-    DeploymentRecord
+    DeploymentRecord,
+    DistributionDeploymentRequest,
+    DeployDistributionResponse
 } from "@/types/backend";
 
 export class backendService {
@@ -49,7 +51,7 @@ export class backendService {
         return filteredTokens;
     }
 
-    public static async getTokenDeployPrice(serviceName: string = 'token_factory'): Promise<bigint> {
+    public static async getDeploymentFee(serviceName: string = 'token_factory'): Promise<bigint> {
         const cacheKey = serviceName ?? 'token_factory';
         const now = Date.now();
 
@@ -113,6 +115,34 @@ export class backendService {
             console.error('Error deploying token:', error);
             return {
                 canisterId: '',
+                success: false,
+                error: error as string
+            };
+        }
+    }
+
+    public static async deployDistribution(request: DistributionDeploymentRequest): Promise<DeployDistributionResponse> {
+        const actor = backendActor({ requiresSigning: true });
+        console.log('Deploying distribution with request:', request);
+        try {
+            // Backend expects 2 parameters: config and projectId
+            const result = await actor.deployDistribution(request, []);
+            console.log('Deploy distribution result:', result);
+            if ('err' in result) {
+                throw new Error(result.err)
+            }
+
+            // Clear the deployments cache to ensure fresh data after a new deployment
+            this.userDeploymentsCache = null;
+
+            return {
+                distributionCanisterId: result.ok.distributionCanisterId.toString(),
+                success: true
+            };
+        } catch (error) {
+            console.error('Error deploying distribution:', error);
+            return {
+                distributionCanisterId: '',
                 success: false,
                 error: error as string
             };

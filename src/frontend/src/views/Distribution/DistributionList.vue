@@ -138,12 +138,14 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useDistributionStore } from '@/stores/distribution'
 import { useModalStore } from '@/stores/modal'
 import CampaignCard from '@/components/distribution/CampaignCard.vue'
 import { PlusIcon, SearchIcon, AlertCircleIcon, Share2Icon, RefreshCcwIcon, SlidersIcon } from 'lucide-vue-next'
 import type { DistributionCampaign } from '@/types/distribution'
 
+const router = useRouter()
 const distributionStore = useDistributionStore()
 const modalStore = useModalStore()
 
@@ -208,8 +210,17 @@ const filteredCampaigns = computed(() => {
 })
 
 const createNewCampaign = () => {
-  // TODO: Open campaign creation modal
-  console.log('Create new campaign')
+  router.push('/distribution/create')
+}
+
+const isLoading = computed(() => distributionStore.isLoading)
+
+const refreshData = () => {
+  distributionStore.fetchCampaigns()
+}
+
+const openFilterModal = () => {
+  modalStore.openModal('filter')
 }
 
 onMounted(() => {

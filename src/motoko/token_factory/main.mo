@@ -33,7 +33,7 @@ import SNSWasm "../shared/utils/SNSWasm";
 import Hex "../shared/utils/Hex";
 import TokenValidation "../shared/utils/TokenValidation";
 
-persistent actor TokenFactoryModule {
+persistent actor TokenFactoryCanister {
     
     // ================ SERVICE CONFIGURATION ================
     private stable let SERVICE_VERSION : Text = "2.0.0";
@@ -324,7 +324,7 @@ persistent actor TokenFactoryModule {
         try {
             let { canister_id } = await (with cycles = installCycles) ic.create_canister({
                 settings = ?{
-                    controllers = ?[Principal.fromActor(TokenFactoryModule)];
+                    controllers = ?[Principal.fromActor(TokenFactoryCanister)];
                     freezing_threshold = ?9_331_200; // 108 days
                     memory_allocation = null;
                     compute_allocation = null;
@@ -508,7 +508,7 @@ persistent actor TokenFactoryModule {
 
         Debug.print("Deployment " # pendingId # ": Step 3 - Transferring ownership of " # Principal.toText(canisterId));
         let enableCycleOps = Option.get(deploymentConfig.enableCycleOps, false);
-        let ownershipRes = await transferOwnership(canisterId, Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryModule)), enableCycleOps);
+        let ownershipRes = await transferOwnership(canisterId, Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryCanister)), enableCycleOps);
         switch(ownershipRes) {
             case (#err(msg)) {
                 _updatePendingStatus(pendingId, #OwnershipFailed(canisterId), ?msg);
@@ -563,7 +563,7 @@ persistent actor TokenFactoryModule {
             logo = pendingRecord.config.logo;
             website = pendingRecord.config.website;
             owner = pendingRecord.caller; // The backend
-            deployer = Principal.fromActor(TokenFactoryModule);
+            deployer = Principal.fromActor(TokenFactoryCanister);
             deployedAt = startTime;
             moduleHash = Hex.encode(Blob.toArray(snsWasmVersion));
             wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
@@ -584,7 +584,7 @@ persistent actor TokenFactoryModule {
             success = true;
             error = null;
             canisterId = ?canisterId;
-            deployer = Principal.fromActor(TokenFactoryModule);
+            deployer = Principal.fromActor(TokenFactoryCanister);
             owner = pendingRecord.caller;
             deployedAt = startTime;
             deploymentTime = Time.now() - startTime;
@@ -682,7 +682,7 @@ persistent actor TokenFactoryModule {
                     success = false;
                     error = ?error;
                     canisterId = null;
-                    deployer = Principal.fromActor(TokenFactoryModule);
+                    deployer = Principal.fromActor(TokenFactoryCanister);
                     owner = caller;
                     deployedAt = deploymentStart;
                     deploymentTime = 0;
@@ -704,7 +704,7 @@ persistent actor TokenFactoryModule {
                             success = false;
                             error = ?error;
                             canisterId = ?canister;
-                            deployer = Principal.fromActor(TokenFactoryModule);
+                            deployer = Principal.fromActor(TokenFactoryCanister);
                             owner = caller;
                             deployedAt = deploymentStart;
                             deploymentTime = Time.now() - deploymentStart;
@@ -726,7 +726,7 @@ persistent actor TokenFactoryModule {
                                     success = false;
                                     error = ?error;
                                     canisterId = ?canister;
-                                    deployer = Principal.fromActor(TokenFactoryModule);
+                                    deployer = Principal.fromActor(TokenFactoryCanister);
                                     owner = caller;
                                     deployedAt = deploymentStart;
                                     deploymentTime = Time.now() - deploymentStart;
@@ -750,7 +750,7 @@ persistent actor TokenFactoryModule {
                                     logo = config.logo;
                                     website = config.website;
                                     owner = caller;
-                                    deployer = Principal.fromActor(TokenFactoryModule);
+                                    deployer = Principal.fromActor(TokenFactoryCanister);
                                     deployedAt = deploymentStart;
                                     moduleHash = Hex.encode(Blob.toArray(snsWasmVersion));
                                     wasmVersion = Hex.encode(Blob.toArray(snsWasmVersion));
@@ -772,7 +772,7 @@ persistent actor TokenFactoryModule {
                                     success = true;
                                     error = null;
                                     canisterId = ?canister;
-                                    deployer = Principal.fromActor(TokenFactoryModule);
+                                    deployer = Principal.fromActor(TokenFactoryCanister);
                                     owner = caller;
                                     deployedAt = deploymentStart;
                                     deploymentTime = deploymentEnd - deploymentStart;
@@ -815,7 +815,7 @@ persistent actor TokenFactoryModule {
                     if (config.initialBalances.size() > 0) {
                         { owner = config.initialBalances[0].0.owner; subaccount = null }
                     } else {
-                        { owner = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryModule)); subaccount = null }
+                        { owner = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryCanister)); subaccount = null }
                     }
                 };
             };
@@ -830,9 +830,9 @@ persistent actor TokenFactoryModule {
                         node_max_memory_size_bytes = ?(1024 * 1024 * 1024);
                         max_message_size_bytes = ?(128 * 1024);
                         cycles_for_archive_creation = ?archiveCycles;
-                        controller_id = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryModule));//Set token owner as controller of this canister
+                        controller_id = Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryCanister));//Set token owner as controller of this canister
                         max_transactions_per_response = null;
-                        more_controller_ids = ?[Principal.fromActor(TokenFactoryModule)];
+                        more_controller_ids = ?[Principal.fromActor(TokenFactoryCanister)];
                     }
                 };
             };
