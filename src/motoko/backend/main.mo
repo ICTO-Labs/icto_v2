@@ -26,6 +26,8 @@ import MicroserviceTypes "./modules/systems/microservices/MicroserviceTypes";
 import MicroserviceInterface "./modules/systems/microservices/MicroserviceInterface";
 import ProjectTypes "./modules/systems/project/ProjectTypes";
 import ProjectService "./modules/systems/project/ProjectService";
+import FactoryRegistryService "./modules/systems/factory_registry/FactoryRegistryService";
+import FactoryRegistryTypes "./modules/systems/factory_registry/FactoryRegistryTypes";
 
 // Business Modules
 import TokenFactoryService "./modules/token_factory/TokenFactoryService";
@@ -50,15 +52,16 @@ persistent actor Backend {
     // STATE MANAGEMENT
     // ==================================================================================================
 
-    private stable var stableBackend : Principal = Principal.fromActor(Backend);
-    private stable var stableConfigState : ?ConfigTypes.StableState = null;
-    private stable var stableAuditState : ?AuditTypes.StableState = null;
-    private stable var stableUserState : ?UserTypes.StableState = null;
-    private stable var stablePaymentState : ?PaymentTypes.StableState = null;
-    private stable var stableMicroserviceState : ?MicroserviceTypes.StableState = null;
-    private stable var stableProjectState : ?ProjectTypes.StableState = null;
-    private stable var stableTokenSymbolRegistry : [(Text, Principal)] = [];
-    private stable var stableDistributionFactoryState : ?DistributionFactoryTypes.StableState = null;
+    private var stableBackend : Principal = Principal.fromActor(Backend);
+    private var stableConfigState : ?ConfigTypes.StableState = null;
+    private var stableAuditState : ?AuditTypes.StableState = null;
+    private var stableUserState : ?UserTypes.StableState = null;
+    private var stablePaymentState : ?PaymentTypes.StableState = null;
+    private var stableMicroserviceState : ?MicroserviceTypes.StableState = null;
+    private var stableProjectState : ?ProjectTypes.StableState = null;
+    private var stableTokenSymbolRegistry : [(Text, Principal)] = [];
+    private var stableDistributionFactoryState : ?DistributionFactoryTypes.StableState = null;
+    private var stableFactoryRegistryState : ?FactoryRegistryTypes.StableState = null;
 
     // --- Runtime State (must be initialized) ---
     private transient var owner : Principal = stableBackend;
@@ -69,6 +72,7 @@ persistent actor Backend {
     private transient var microserviceState : MicroserviceTypes.State = MicroserviceService.initState();
     private transient var projectState : ProjectTypes.State = ProjectService.initState(stableBackend);
     private transient var distributionFactoryState : DistributionFactoryTypes.StableState = DistributionFactoryService.initState();
+    private transient var factoryRegistryState : FactoryRegistryTypes.State = FactoryRegistryService.initState(stableBackend);
     private transient var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
     private transient var defaultTokens : [Common.TokenInfo] = [];
 
@@ -80,6 +84,7 @@ persistent actor Backend {
         stableProjectState := ?ProjectService.toStableState(projectState);
         stablePaymentState := ?PaymentService.toStableState(paymentState);
         stableDistributionFactoryState := ?DistributionFactoryService.toStableState(distributionFactoryState);
+        stableFactoryRegistryState := ?FactoryRegistryService.toStableState(factoryRegistryState);
         stableTokenSymbolRegistry := Iter.toArray(Trie.iter(tokenSymbolRegistry));
     };
 
@@ -123,6 +128,10 @@ persistent actor Backend {
             case null { DistributionFactoryService.initState() };
             case (?s) { DistributionFactoryService.fromStableState(s) };
         };
+        factoryRegistryState := switch (stableFactoryRegistryState) {
+            case null { FactoryRegistryService.initState(owner) };
+            case (?s) { FactoryRegistryService.fromStableState(s) };
+        };
 
         var newRegistry = Trie.empty<Text, Principal>();
         for (entry in stableTokenSymbolRegistry.vals()) {
@@ -147,6 +156,10 @@ persistent actor Backend {
     private func _isAuthenticated(caller : Principal) : Bool {
         // An authenticated user must have a profile.
         Option.isSome(UserService.getUserProfile(userState, caller));
+    };
+
+    private func _isAdminOrSelf(caller : Principal, targetUser : Principal) : Bool {
+        _isAdmin(caller) or Principal.equal(caller, targetUser)
     };
 
     private func _onlyAdmin(caller : Principal) : Result.Result<(), Text> {
@@ -1177,5 +1190,312 @@ persistent actor Backend {
             servicesHealth = MicroserviceService.getServicesHealth(microserviceState);
             lastUpgrade = ConfigService.getNumber(configState, "system.last_upgrade", 0);
         };
+    };
+
+    // ==================================================================================================
+    // FACTORY REGISTRY APIs
+    // ==================================================================================================
+
+    // --- PUBLIC FACTORY INFO ---
+
+    public shared query func getFactory(
+        deploymentType: FactoryRegistryTypes.DeploymentType
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<Principal> {
+        FactoryRegistryService.getFactory(factoryRegistryState, deploymentType)
+    };
+
+    public shared query func getAllFactories() : async [(FactoryRegistryTypes.DeploymentType, Principal)] {
+        FactoryRegistryService.getAllFactories(factoryRegistryState)
+    };
+
+    // --- USER DEPLOYMENT QUERIES (PUBLIC) ---
+
+    // Get all related canisters for a user
+    public shared query ({ caller }) func getRelatedCanisters(
+        user: ?Principal
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.UserDeploymentMap> {
+        let targetUser = switch (user) {
+            case (?u) {
+                // Admin can query any user, others can only query themselves
+                if (not _isAdminOrSelf(caller, u)) {
+                    return #Err(#Unauthorized("Not authorized to view user deployments"));
+                };
+                u
+            };
+            case null { caller }; // Default to caller
+        };
+        
+        let queryObj : FactoryRegistryTypes.UserDeploymentQuery = {
+            user = targetUser;
+            deploymentType = null; // Get all types
+            includeMetadata = false;
+        };
+        FactoryRegistryService.getUserDeployments(factoryRegistryState, queryObj)
+    };
+
+    // Get related canisters by specific deployment type
+    public shared query ({ caller }) func getRelatedCanistersByType(
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        user: ?Principal
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<[Principal]> {
+        let targetUser = switch (user) {
+            case (?u) {
+                if (not _isAdminOrSelf(caller, u)) {
+                    return #Err(#Unauthorized("Not authorized to view user deployments"));
+                };
+                u
+            };
+            case null { caller };
+        };
+        
+        let queryObj : FactoryRegistryTypes.UserDeploymentQuery = {
+            user = targetUser;
+            deploymentType = ?deploymentType;
+            includeMetadata = false;
+        };
+        
+        switch (FactoryRegistryService.getUserDeployments(factoryRegistryState, queryObj)) {
+            case (#Ok(userMap)) {
+                let canisters = switch (deploymentType) {
+                    case (#DistributionFactory) { userMap.distributions };
+                    case (#TokenFactory) { userMap.tokens };
+                    case (#TemplateFactory) { userMap.templates };
+                    case (#LaunchpadFactory) { userMap.launchpads };
+                    case (#NFTFactory) { userMap.nfts };
+                    case (#StakingFactory) { userMap.staking };
+                    case (#DAOFactory) { userMap.daos };
+                };
+                #Ok(canisters)
+            };
+            case (#Err(error)) { #Err(error) };
+        };
+    };
+
+    // --- INTERNAL FUNCTIONS (Only for factories/admin) ---
+
+    // Internal function for factories to add user deployment
+    private func _addUserDeployment(
+        user: Principal,
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        deploymentId: Principal
+    ) : FactoryRegistryTypes.FactoryRegistryResult<()> {
+        FactoryRegistryService.addUserDeployment(factoryRegistryState, user, deploymentType, deploymentId)
+    };
+
+    // Internal function for factories to batch add recipients
+    private func _batchAddRecipients(
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        deploymentId: Principal,
+        recipients: [Principal]
+    ) : FactoryRegistryTypes.FactoryRegistryResult<()> {
+        FactoryRegistryService.batchAddRecipients(factoryRegistryState, deploymentType, deploymentId, recipients)
+    };
+
+    // --- INTERNAL DEPLOYMENT CALLBACK ---
+
+    // Internal function called by backend after successful deployment
+    // This automatically updates the factory registry with deployment info
+    public func processPostDeploymentRegistration(
+        creator: Principal,
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        deploymentId: Principal,
+        recipients: ?[Principal],
+        metadata: FactoryRegistryTypes.DeploymentMetadata
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<Text> {
+        // This function is called internally by backend, no external authorization needed
+        
+        // Register the deployment info
+        let result = FactoryRegistryService.postDeploymentCallback(
+            factoryRegistryState, 
+            creator, 
+            deploymentType, 
+            deploymentId, 
+            recipients, 
+            metadata
+        );
+        
+        // Log the action
+        ignore await AuditService.logAction(
+            auditState, 
+            Principal.fromActor(Backend), // Backend as caller
+            #PostDeploymentCallback, 
+            #RawData("deploymentType:" # FactoryRegistryTypes.deploymentTypeToText(deploymentType)), 
+            null, null, null, null
+        );
+        
+        result
+    };
+
+    // Convenience function to register deployment after successful creation
+    // Called from existing deployment functions
+    private func _registerSuccessfulDeployment(
+        creator: Principal,
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        canisterId: Principal,
+        name: Text,
+        description: ?Text,
+        recipients: ?[Principal]
+    ) : async () {
+        let metadata : FactoryRegistryTypes.DeploymentMetadata = {
+            name = name;
+            description = description;
+            tags = [];
+            isPublic = true;
+            version = "1.0";
+            status = #Active;
+        };
+        
+        // Register the deployment
+        ignore await processPostDeploymentRegistration(
+            creator,
+            deploymentType,
+            canisterId,
+            recipients,
+            metadata
+        );
+    };
+
+    // --- PUBLIC QUERY FUNCTIONS ---
+
+    // Query user's own deployments with details
+    public shared query ({ caller }) func getMyDeployments(
+        deploymentType: ?FactoryRegistryTypes.DeploymentType,
+        limit: ?Nat,
+        offset: ?Nat
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<[FactoryRegistryTypes.DeploymentInfo]> {
+        if (Principal.isAnonymous(caller)) {
+            return #Err(#Unauthorized("Anonymous users cannot query deployments"));
+        };
+        
+        let queryObj : FactoryRegistryTypes.DeploymentQuery = {
+            deploymentType = deploymentType;
+            creator = ?caller; // Only caller's deployments
+            factoryPrincipal = null;
+            status = null;
+            limit = switch (limit) {
+                case (?l) { ?(if (l > 100) 100 else l) }; // Max 100
+                case null { ?50 }; // Default 50
+            };
+            offset = offset;
+        };
+        FactoryRegistryService.queryDeployments(factoryRegistryState, queryObj)
+    };
+
+    // Get deployment info by ID (public read access)
+    public shared query func getDeploymentInfo(
+        deploymentId: Text
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.DeploymentInfo> {
+        FactoryRegistryService.getDeploymentInfo(factoryRegistryState, deploymentId)
+    };
+
+    // Admin query for all deployments
+    public shared query ({ caller }) func adminQueryDeployments(
+        queryObj: FactoryRegistryTypes.DeploymentQuery
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<[FactoryRegistryTypes.DeploymentInfo]> {
+        if (not _isAdmin(caller)) {
+            return #Err(#Unauthorized("Admin access required"));
+        };
+        FactoryRegistryService.queryDeployments(factoryRegistryState, queryObj)
+    };
+
+    // --- UTILITY FUNCTIONS ---
+
+    public shared query func isDeploymentTypeSupported(
+        deploymentType: FactoryRegistryTypes.DeploymentType
+    ) : async Bool {
+        FactoryRegistryService.isDeploymentTypeSupported(factoryRegistryState, deploymentType)
+    };
+
+    public shared query func getSupportedTypes() : async [FactoryRegistryTypes.DeploymentType] {
+        FactoryRegistryService.getSupportedTypes(factoryRegistryState)
+    };
+
+    // --- ADMIN FUNCTIONS (Manual Correction Only) ---
+
+    // Manually add user to deployment registry (if auto-indexing failed)
+    public shared ({ caller }) func adminAddUserToRegistry(
+        user: Principal,
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        canisterId: Principal,
+        reason: Text
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
+        if (not _isAdmin(caller)) {
+            return #Err(#Unauthorized("Admin access required"));
+        };
+         // Log Action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UserManagement,
+            #AdminData({
+                adminAction = "Add User to Registry";
+                targetUser = null;
+                configChanges = "Added user '" # Principal.toText(user) # "' to deployment type '" # FactoryRegistryTypes.deploymentTypeToText(deploymentType) # "'";
+                justification = reason;
+            }),
+            null,
+            null,
+            ?#Backend,
+            null // referenceId
+        );
+
+        FactoryRegistryService.addUserDeployment(factoryRegistryState, user, deploymentType, canisterId)
+    };
+
+    // Manually remove user from deployment registry (if incorrectly indexed)
+    public shared ({ caller }) func adminRemoveUserFromRegistry(
+        user: Principal,
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        canisterId: Principal,
+        reason: Text
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
+        if (not _isAdmin(caller)) {
+            return #Err(#Unauthorized("Admin access required"));
+        };
+        // Log Action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UserManagement,
+            #AdminData({
+                adminAction = "Remove User from Factory Registry";
+                targetUser = null;
+                configChanges = "Removed user '" # Principal.toText(user) # "' from canister '" # Principal.toText(canisterId) # "' of deployment type '" # FactoryRegistryTypes.deploymentTypeToText(deploymentType) # "'";
+                justification = reason;
+            }),
+            null,
+            null,
+            ?#Backend,
+            null // referenceId
+        );
+        #Ok(())
+    };
+
+    // Manually fix deployment metadata (if wrong data was indexed)
+    public shared ({ caller }) func adminUpdateDeploymentMetadata(
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        canisterId: Principal,
+        reason: Text
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
+        if (not _isAdmin(caller)) {
+            return #Err(#Unauthorized("Admin access required"));
+        };
+        // Log Action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UserManagement,
+            #AdminData({
+                adminAction = "Update Factory Registry Metadata";
+                targetUser = null;
+                configChanges = "Updated deployment metadata for canister '" # Principal.toText(canisterId) # "' of deployment type '" # FactoryRegistryTypes.deploymentTypeToText(deploymentType) # "'";
+                justification = reason;
+            }),
+            null,
+            null,
+            ?#Backend,
+            null // referenceId
+        );
+        #Ok(())
     };
 };
