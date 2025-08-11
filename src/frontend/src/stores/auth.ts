@@ -1,12 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { storeToRefs } from 'pinia';
-import {
-    type CanisterType,
-    canisters,
-    getPnpInstance
-} from "../config/auth";
-
+import { getPnpInstance } from "../config/auth";
+import { canisters, type CanisterType } from "../config/canisters";
 // Re-export CanisterType for other modules
 export type { CanisterType };
 // import { browser } from "$app/environment";
@@ -188,4 +184,8 @@ export const icpActor = ({ anon = false, requiresSigning = true }: { anon?: bool
 
 export const backendActor = ({ anon = false, requiresSigning = true }: { anon?: boolean, requiresSigning?: boolean }) => {
     return pnp.getActor<CanisterType["BACKEND"]>({ canisterId: canisters.backend.canisterId!, idl: canisters.backend.idl, anon, requiresSigning });
+}
+
+export const distributionContractActor = ({ anon = false, requiresSigning = true }: { anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["DISTRIBUTION_CONTRACT"]>({ canisterId: canisters.distribution_contract.canisterId!, idl: canisters.distribution_contract.idl, anon, requiresSigning });
 }

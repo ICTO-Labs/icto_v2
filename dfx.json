@@ -63,6 +63,13 @@
             },
             "type": "custom",
             "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz"
+        },
+        "distribution_contract": {
+            "type": "motoko",
+            "main": "src/motoko/distribution_factory/DistributionContract.mo",
+            "declarations": {
+                "output": "src/declarations/distribution_contract"
+            }
         }
     },
     "defaults": {

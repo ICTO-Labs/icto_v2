@@ -1,55 +1,5 @@
 import { createPNP, type PNP, type GlobalPnpConfig } from "@windoge98/plug-n-play";
-
-// Canister Imports
-import {
-    canisterId as backendCanisterId,
-    idlFactory as backendIDL,
-} from "../../../declarations/backend";
-import type { _SERVICE as _BACKEND } from "../../../declarations/backend/backend.did.d.ts";
-import { idlFactory as icrc2IDL } from "../../../declarations/icp_ledger/icp_ledger.did.js";
-import type { _SERVICE as _ICRC2_SERVICE } from "../../../declarations/icp_ledger/icp_ledger.did.d.ts";
-//Custom ICP ledger
-import { canisterId as icpCanisterId } from "../api/actor/icp_ledger";
-import { idlFactory as icpIDL } from "../api/actor/icp_ledger/icp_ledger.did.js";
-import type { _SERVICE as _ICP_SERVICE } from "../api/actor/icp_ledger/icp_ledger.did.d.ts";
-import { IDL } from "@dfinity/candid";
-
-
-// Consolidated canister types
-export type CanisterType = {
-    BACKEND: _BACKEND;
-    ICP_LEDGER: _ICP_SERVICE;
-    ICRC2_LEDGER: _ICRC2_SERVICE;
-};
-
-export type CanisterConfigs = {
-    [key: string]: {
-        canisterId?: string;
-        idl: IDL.InterfaceFactory;
-        type?: any;
-    };
-};
-
-export const canisters: CanisterConfigs = {
-    backend: {
-        canisterId: import.meta.env.VITE_BACKEND_CANISTER_ID,
-        idl: backendIDL,
-        type: {} as CanisterType["BACKEND"],
-    },
-    icp: {
-        canisterId: import.meta.env.VITE_ICP_LEDGER_CANISTER_ID,
-        idl: icpIDL,
-        type: {} as CanisterType["ICP_LEDGER"],
-    },
-    icrc1: {
-        idl: icrc2IDL,
-        type: {} as CanisterType["ICRC2_LEDGER"],
-    },
-    icrc2: {
-        idl: icrc2IDL,
-        type: {} as CanisterType["ICRC2_LEDGER"],
-    },
-};
+import { canisters } from "./canisters";
 
 // --- PNP Initialization ---
 let globalPnp: PNP | null = null;
@@ -59,7 +9,12 @@ console.log('IS_DEV', import.meta.env.VITE_DFX_NETWORK)
 const frontendCanisterId = import.meta.env.VITE_FRONTEND_CANISTER_ID;
 
 const delegationTargets = [
-    backendCanisterId,
+    canisters.backend.canisterId,
+    canisters.icp.canisterId,
+    canisters.icrc1.canisterId,
+    canisters.icrc2.canisterId,
+    canisters.internet_identity.canisterId,
+    canisters.distribution_contract.canisterId,
 ].filter(Boolean);
 
 
