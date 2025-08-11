@@ -396,6 +396,32 @@ persistent actor Backend {
                 // SUCCESSFUL DEPLOYMENT
                 await AuditService.updateAuditStatus(auditState, owner, auditId, #Completed, ?("Successfully deployed canister " # Principal.toText(canisterId)));
 
+                // Register user relationships into Factory Registry (if applicable)
+                switch (actionType, payload) {
+                    case (#CreateDistribution, #Distribution(config)) {
+                        // Extract recipients for whitelist distributions
+                        let recipients : ?[Principal] = switch (config.eligibilityType) {
+                            case (#Whitelist(list)) { ?list };
+                            case _ { null }; // Other eligibility types handled by external contract callback
+                        };
+                        
+                        switch (recipients) {
+                            case (?recipientList) {
+                                ignore FactoryRegistryService.batchAddUserRelationshipsFromFlow(
+                                    factoryRegistryState,
+                                    #DistributionRecipient,
+                                    canisterId,
+                                    recipientList,
+                                    config.title,
+                                    ?config.description
+                                );
+                            };
+                            case null { }; // No automatic recipients to register
+                        };
+                    };
+                    case _ { }; // Other deployment types don't create automatic relationships
+                };
+
                 return #ok({
                     canisterId = canisterId;
                     transactionId = paymentResult.transactionId;
@@ -1199,71 +1225,68 @@ persistent actor Backend {
     // --- PUBLIC FACTORY INFO ---
 
     public shared query func getFactory(
-        deploymentType: FactoryRegistryTypes.DeploymentType
+        actionType: AuditTypes.ActionType
     ) : async FactoryRegistryTypes.FactoryRegistryResult<Principal> {
-        FactoryRegistryService.getFactory(factoryRegistryState, deploymentType)
+        FactoryRegistryService.getFactory(factoryRegistryState, actionType)
     };
 
-    public shared query func getAllFactories() : async [(FactoryRegistryTypes.DeploymentType, Principal)] {
+    public shared query func getAllFactories() : async [(AuditTypes.ActionType, Principal)] {
         FactoryRegistryService.getAllFactories(factoryRegistryState)
     };
 
-    // --- USER DEPLOYMENT QUERIES (PUBLIC) ---
+    // --- USER RELATIONSHIP QUERIES (PUBLIC) ---
 
-    // Get all related canisters for a user
+    // Get all relationship canisters for a user
     public shared query ({ caller }) func getRelatedCanisters(
         user: ?Principal
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.UserDeploymentMap> {
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.UserRelationshipMap> {
         let targetUser = switch (user) {
             case (?u) {
                 // Admin can query any user, others can only query themselves
                 if (not _isAdminOrSelf(caller, u)) {
-                    return #Err(#Unauthorized("Not authorized to view user deployments"));
+                    return #Err(#Unauthorized("Not authorized to view user relationships"));
                 };
                 u
             };
             case null { caller }; // Default to caller
         };
         
-        let queryObj : FactoryRegistryTypes.UserDeploymentQuery = {
+        let queryObj : FactoryRegistryTypes.UserRelationshipQuery = {
             user = targetUser;
-            deploymentType = null; // Get all types
-            includeMetadata = false;
+            relationshipType = null; // Get all types
+            includeInactive = false;
         };
-        FactoryRegistryService.getUserDeployments(factoryRegistryState, queryObj)
+        FactoryRegistryService.getUserRelationships(factoryRegistryState, queryObj)
     };
 
-    // Get related canisters by specific deployment type
+    // Get related canisters by specific relationship type
     public shared query ({ caller }) func getRelatedCanistersByType(
-        deploymentType: FactoryRegistryTypes.DeploymentType,
+        relationshipType: FactoryRegistryTypes.RelationshipType,
         user: ?Principal
     ) : async FactoryRegistryTypes.FactoryRegistryResult<[Principal]> {
         let targetUser = switch (user) {
             case (?u) {
                 if (not _isAdminOrSelf(caller, u)) {
-                    return #Err(#Unauthorized("Not authorized to view user deployments"));
+                    return #Err(#Unauthorized("Not authorized to view user relationships"));
                 };
                 u
             };
             case null { caller };
         };
         
-        let queryObj : FactoryRegistryTypes.UserDeploymentQuery = {
+        let queryObj : FactoryRegistryTypes.UserRelationshipQuery = {
             user = targetUser;
-            deploymentType = ?deploymentType;
-            includeMetadata = false;
+            relationshipType = ?relationshipType;
+            includeInactive = false;
         };
         
-        switch (FactoryRegistryService.getUserDeployments(factoryRegistryState, queryObj)) {
+        switch (FactoryRegistryService.getUserRelationships(factoryRegistryState, queryObj)) {
             case (#Ok(userMap)) {
-                let canisters = switch (deploymentType) {
-                    case (#DistributionFactory) { userMap.distributions };
-                    case (#TokenFactory) { userMap.tokens };
-                    case (#TemplateFactory) { userMap.templates };
-                    case (#LaunchpadFactory) { userMap.launchpads };
-                    case (#NFTFactory) { userMap.nfts };
-                    case (#StakingFactory) { userMap.staking };
-                    case (#DAOFactory) { userMap.daos };
+                let canisters = switch (relationshipType) {
+                    case (#DistributionRecipient) { userMap.distributions };
+                    case (#LaunchpadParticipant) { userMap.launchpads };
+                    case (#DAOMember) { userMap.daos };
+                    case (#MultisigSigner) { userMap.multisigs };
                 };
                 #Ok(canisters)
             };
@@ -1271,196 +1294,92 @@ persistent actor Backend {
         };
     };
 
-    // --- INTERNAL FUNCTIONS (Only for factories/admin) ---
-
-    // Internal function for factories to add user deployment
-    private func _addUserDeployment(
-        user: Principal,
-        deploymentType: FactoryRegistryTypes.DeploymentType,
-        deploymentId: Principal
-    ) : FactoryRegistryTypes.FactoryRegistryResult<()> {
-        FactoryRegistryService.addUserDeployment(factoryRegistryState, user, deploymentType, deploymentId)
-    };
-
-    // Internal function for factories to batch add recipients
-    private func _batchAddRecipients(
-        deploymentType: FactoryRegistryTypes.DeploymentType,
-        deploymentId: Principal,
-        recipients: [Principal]
-    ) : FactoryRegistryTypes.FactoryRegistryResult<()> {
-        FactoryRegistryService.batchAddRecipients(factoryRegistryState, deploymentType, deploymentId, recipients)
-    };
-
-    // --- INTERNAL DEPLOYMENT CALLBACK ---
-
-    // Internal function called by backend after successful deployment
-    // This automatically updates the factory registry with deployment info
-    public func processPostDeploymentRegistration(
-        creator: Principal,
-        deploymentType: FactoryRegistryTypes.DeploymentType,
-        deploymentId: Principal,
-        recipients: ?[Principal],
-        metadata: FactoryRegistryTypes.DeploymentMetadata
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<Text> {
-        // This function is called internally by backend, no external authorization needed
-        
-        // Register the deployment info
-        let result = FactoryRegistryService.postDeploymentCallback(
-            factoryRegistryState, 
-            creator, 
-            deploymentType, 
-            deploymentId, 
-            recipients, 
-            metadata
-        );
-        
-        // Log the action
-        ignore await AuditService.logAction(
-            auditState, 
-            Principal.fromActor(Backend), // Backend as caller
-            #PostDeploymentCallback, 
-            #RawData("deploymentType:" # FactoryRegistryTypes.deploymentTypeToText(deploymentType)), 
-            null, null, null, null
-        );
-        
-        result
-    };
-
-    // Convenience function to register deployment after successful creation
-    // Called from existing deployment functions
-    private func _registerSuccessfulDeployment(
-        creator: Principal,
-        deploymentType: FactoryRegistryTypes.DeploymentType,
-        canisterId: Principal,
-        name: Text,
-        description: ?Text,
-        recipients: ?[Principal]
-    ) : async () {
-        let metadata : FactoryRegistryTypes.DeploymentMetadata = {
-            name = name;
-            description = description;
-            tags = [];
-            isPublic = true;
-            version = "1.0";
-            status = #Active;
-        };
-        
-        // Register the deployment
-        ignore await processPostDeploymentRegistration(
-            creator,
-            deploymentType,
-            canisterId,
-            recipients,
-            metadata
-        );
-    };
-
-    // --- PUBLIC QUERY FUNCTIONS ---
-
-    // Query user's own deployments with details
-    public shared query ({ caller }) func getMyDeployments(
-        deploymentType: ?FactoryRegistryTypes.DeploymentType,
-        limit: ?Nat,
-        offset: ?Nat
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<[FactoryRegistryTypes.DeploymentInfo]> {
+    // Query relationship details with filters
+    public shared query ({ caller }) func queryRelationships(
+        queryObj: FactoryRegistryTypes.RelationshipQuery
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<[FactoryRegistryTypes.RelationshipInfo]> {
         if (Principal.isAnonymous(caller)) {
-            return #Err(#Unauthorized("Anonymous users cannot query deployments"));
+            return #Err(#Unauthorized("Anonymous users cannot query relationships"));
         };
-        
-        let queryObj : FactoryRegistryTypes.DeploymentQuery = {
-            deploymentType = deploymentType;
-            creator = ?caller; // Only caller's deployments
-            factoryPrincipal = null;
-            status = null;
-            limit = switch (limit) {
-                case (?l) { ?(if (l > 100) 100 else l) }; // Max 100
-                case null { ?50 }; // Default 50
-            };
-            offset = offset;
-        };
-        FactoryRegistryService.queryDeployments(factoryRegistryState, queryObj)
+        FactoryRegistryService.queryRelationships(factoryRegistryState, queryObj)
     };
 
-    // Get deployment info by ID (public read access)
-    public shared query func getDeploymentInfo(
-        deploymentId: Text
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.DeploymentInfo> {
-        FactoryRegistryService.getDeploymentInfo(factoryRegistryState, deploymentId)
+    // Get relationship info by ID (public read access)
+    public shared query func getRelationshipInfo(
+        relationshipId: Text
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.RelationshipInfo> {
+        FactoryRegistryService.getRelationshipInfo(factoryRegistryState, relationshipId)
     };
 
-    // Admin query for all deployments
-    public shared query ({ caller }) func adminQueryDeployments(
-        queryObj: FactoryRegistryTypes.DeploymentQuery
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<[FactoryRegistryTypes.DeploymentInfo]> {
-        if (not _isAdmin(caller)) {
-            return #Err(#Unauthorized("Admin access required"));
-        };
-        FactoryRegistryService.queryDeployments(factoryRegistryState, queryObj)
+    // --- PUBLIC CALLBACK API FOR EXTERNAL CONTRACTS ---
+
+    // Public API for external contracts to update user relationships
+    public shared ({ caller }) func updateUserRelationships(
+        relationshipType: FactoryRegistryTypes.RelationshipType,
+        canisterId: Principal,
+        users: [Principal],
+        metadata: FactoryRegistryTypes.RelationshipMetadata
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
+        FactoryRegistryService.updateUserRelationships(
+            factoryRegistryState,
+            caller,
+            relationshipType,
+            canisterId,
+            users,
+            metadata
+        )
+    };
+
+    // Remove user relationship (for external contracts)
+    public shared ({ caller }) func removeUserRelationship(
+        user: Principal,
+        relationshipType: FactoryRegistryTypes.RelationshipType,
+        canisterId: Principal
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
+        FactoryRegistryService.removeUserRelationship(
+            factoryRegistryState,
+            caller,
+            user,
+            relationshipType,
+            canisterId
+        )
     };
 
     // --- UTILITY FUNCTIONS ---
 
-    public shared query func isDeploymentTypeSupported(
-        deploymentType: FactoryRegistryTypes.DeploymentType
+    public shared query func isFactoryTypeSupported(
+        actionType: AuditTypes.ActionType
     ) : async Bool {
-        FactoryRegistryService.isDeploymentTypeSupported(factoryRegistryState, deploymentType)
+        FactoryRegistryService.isFactoryTypeSupported(factoryRegistryState, actionType)
     };
 
-    public shared query func getSupportedTypes() : async [FactoryRegistryTypes.DeploymentType] {
-        FactoryRegistryService.getSupportedTypes(factoryRegistryState)
+    public shared query func getSupportedFactoryTypes() : async [AuditTypes.ActionType] {
+        FactoryRegistryService.getSupportedFactoryTypes(factoryRegistryState)
     };
 
     // --- ADMIN FUNCTIONS (Manual Correction Only) ---
 
-    // Manually add user to deployment registry (if auto-indexing failed)
-    public shared ({ caller }) func adminAddUserToRegistry(
+    // Manually add user relationship (if auto-indexing failed)
+    public shared ({ caller }) func adminAddUserRelationship(
         user: Principal,
-        deploymentType: FactoryRegistryTypes.DeploymentType,
+        relationshipType: FactoryRegistryTypes.RelationshipType,
         canisterId: Principal,
+        metadata: FactoryRegistryTypes.RelationshipMetadata,
         reason: Text
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<Text> {
         if (not _isAdmin(caller)) {
             return #Err(#Unauthorized("Admin access required"));
         };
-         // Log Action
-        ignore await AuditService.logAction(
-            auditState,
-            caller,
-            #UserManagement,
-            #AdminData({
-                adminAction = "Add User to Registry";
-                targetUser = null;
-                configChanges = "Added user '" # Principal.toText(user) # "' to deployment type '" # FactoryRegistryTypes.deploymentTypeToText(deploymentType) # "'";
-                justification = reason;
-            }),
-            null,
-            null,
-            ?#Backend,
-            null // referenceId
-        );
-
-        FactoryRegistryService.addUserDeployment(factoryRegistryState, user, deploymentType, canisterId)
-    };
-
-    // Manually remove user from deployment registry (if incorrectly indexed)
-    public shared ({ caller }) func adminRemoveUserFromRegistry(
-        user: Principal,
-        deploymentType: FactoryRegistryTypes.DeploymentType,
-        canisterId: Principal,
-        reason: Text
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
-        if (not _isAdmin(caller)) {
-            return #Err(#Unauthorized("Admin access required"));
-        };
+        
         // Log Action
         ignore await AuditService.logAction(
             auditState,
             caller,
             #UserManagement,
             #AdminData({
-                adminAction = "Remove User from Factory Registry";
-                targetUser = null;
-                configChanges = "Removed user '" # Principal.toText(user) # "' from canister '" # Principal.toText(canisterId) # "' of deployment type '" # FactoryRegistryTypes.deploymentTypeToText(deploymentType) # "'";
+                adminAction = "Add User Relationship";
+                targetUser = ?user;
+                configChanges = "Added user '" # Principal.toText(user) # "' to relationship type '" # FactoryRegistryTypes.relationshipTypeToText(relationshipType) # "'";
                 justification = reason;
             }),
             null,
@@ -1468,27 +1387,30 @@ persistent actor Backend {
             ?#Backend,
             null // referenceId
         );
-        #Ok(())
+
+        FactoryRegistryService.addUserRelationship(factoryRegistryState, user, relationshipType, canisterId, metadata)
     };
 
-    // Manually fix deployment metadata (if wrong data was indexed)
-    public shared ({ caller }) func adminUpdateDeploymentMetadata(
-        deploymentType: FactoryRegistryTypes.DeploymentType,
+    // Manually remove user relationship (if incorrectly indexed)
+    public shared ({ caller }) func adminRemoveUserRelationship(
+        user: Principal,
+        relationshipType: FactoryRegistryTypes.RelationshipType,
         canisterId: Principal,
         reason: Text
     ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
         if (not _isAdmin(caller)) {
             return #Err(#Unauthorized("Admin access required"));
         };
+        
         // Log Action
         ignore await AuditService.logAction(
             auditState,
             caller,
             #UserManagement,
             #AdminData({
-                adminAction = "Update Factory Registry Metadata";
-                targetUser = null;
-                configChanges = "Updated deployment metadata for canister '" # Principal.toText(canisterId) # "' of deployment type '" # FactoryRegistryTypes.deploymentTypeToText(deploymentType) # "'";
+                adminAction = "Remove User Relationship";
+                targetUser = ?user;
+                configChanges = "Removed user '" # Principal.toText(user) # "' from canister '" # Principal.toText(canisterId) # "' of relationship type '" # FactoryRegistryTypes.relationshipTypeToText(relationshipType) # "'";
                 justification = reason;
             }),
             null,
@@ -1496,6 +1418,8 @@ persistent actor Backend {
             ?#Backend,
             null // referenceId
         );
-        #Ok(())
+        
+        FactoryRegistryService.removeUserRelationship(factoryRegistryState, caller, user, relationshipType, canisterId)
     };
+
 };

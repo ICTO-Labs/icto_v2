@@ -1,5 +1,5 @@
 // Factory Registry Integration Example
-// Ví dụ tích hợp Factory Registry với existing deployment flows
+// Example of integrating Factory Registry with existing deployment flows
 
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
@@ -8,13 +8,13 @@ import FactoryRegistryTypes "../modules/systems/factory_registry/FactoryRegistry
 module IntegrationExample {
 
     // ==================================================================================================
-    // EXAMPLE: Tích hợp với Distribution Factory
+    // EXAMPLE: Integrate with Distribution Factory
     // ==================================================================================================
 
-    // Đây là ví dụ về cách tích hợp factory registry vào flow deployment hiện tại:
+    // This is an example of how to integrate factory registry into the current deployment flow:
 
     /*
-    // Trong distribution deployment function (ví dụ trong main.mo):
+    // In distribution deployment function (e.g. in main.mo):
     
     public shared ({ caller }) func createDistribution(args: DistributionArgs) : async Result.Result<Principal, Text> {
         // 1. Existing validation and payment logic
@@ -56,24 +56,24 @@ module IntegrationExample {
     // ==================================================================================================
 
     /*
-    // Frontend có thể call các functions sau để lấy data cho /distribution page:
+    // Frontend can call the following functions to get data for /distribution page:
 
-    1. Lấy tất cả distribution contracts mà user có liên quan:
+    1. Get all distribution contracts user is related to:
     
     let distributionCanisters = await backend.getRelatedCanistersByType(#DistributionFactory, null);
     // Returns: Result<[Principal], Error>
     
-    2. Lấy tất cả related canisters (all types):
+    2. Get all related canisters (all types):
     
     let allRelated = await backend.getRelatedCanisters(null);
     // Returns: Result<UserDeploymentMap, Error>
     
-    3. Lấy deployment details cho specific canisters:
+    3. Get deployment details for specific canisters:
     
     let myDeployments = await backend.getMyDeployments(?#DistributionFactory, ?50, ?0);
     // Returns: Result<[DeploymentInfo], Error>
     
-    4. Lấy thông tin chi tiết của một deployment:
+    4. Get detailed information about a deployment:
     
     let deploymentInfo = await backend.getDeploymentInfo(deploymentId);
     // Returns: Result<DeploymentInfo, Error>
@@ -84,7 +84,7 @@ module IntegrationExample {
     // ==================================================================================================
 
     /*
-    // Admin setup các factories (một lần duy nhất):
+    // Admin setup factories (once):
     
     // 1. Register distribution factory
     await backend.adminRegisterFactory(
@@ -110,19 +110,19 @@ module IntegrationExample {
     // ==================================================================================================
 
     /*
-    Tóm tắt pattern tích hợp:
+    Summary of integration pattern:
 
-    1. User tạo deployment request (ví dụ: createDistribution)
+    1. User create deployment request (e.g. createDistribution)
     2. Backend validate + process payment
     3. Backend deploy contract via factory
-    4. **Backend auto-register deployment** bằng _registerSuccessfulDeployment()
-    5. Frontend query related canisters bằng getRelatedCanistersByType()
+    4. **Backend auto-register deployment** by _registerSuccessfulDeployment()
+    5. Frontend query related canisters by getRelatedCanistersByType()
     
-    Pattern này đảm bảo:
-    - Automatic tracking không cần manual intervention
-    - User chỉ cần query, không cần manage registry
+    This pattern ensures:
+    - Automatic tracking without manual intervention
+    - User only needs to query, no need to manage registry
     - Consistent data across all deployment types
-    - Easy frontend integration với clear APIs
+    - Easy frontend integration with clear APIs
     */
 
     // ==================================================================================================

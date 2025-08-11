@@ -1,218 +1,207 @@
 # Factory Registry System
 
-The Factory Registry System is a comprehensive mapping and tracking system for canister deployments and their relationships with users in the ICTO V2 platform.
-
 ## Overview
 
-This system solves the problem of tracking relationships between users and canisters they create or are associated with, such as:
-- User is a recipient in a distribution contract
-- User has participated in a launchpad
-- User has created tokens, DAOs, multisig contracts...
+The Factory Registry system tracks user relationships with various canisters in the ICTO ecosystem. This is different from user deployments (which are tracked in UserService) - it focuses on relationships where users participate in or are recipients of canister activities.
+
+## Key Concepts
+
+### Purpose
+- Track user relationships with canisters (not ownership)
+- Enable users to discover relevant canisters they have relationships with
+- Support external contracts in maintaining these relationships via public callbacks
+
+### Examples of Relationships
+- **Distribution Recipients**: Users who are recipients in distribution contracts
+- **Launchpad Participants**: Users who participated in launchpad offerings
+- **DAO Members**: Users who are members of DAO canisters
+- **Multisig Signers**: Users who are signers in multisig wallets
+
+### vs UserService
+- **UserService**: Tracks deployments that users own/create
+- **FactoryRegistry**: Tracks relationships where users participate/benefit
 
 ## Architecture
 
+### Types Used
+- Uses `AuditTypes.ActionType` instead of custom deployment types
+- Focuses on `RelationshipType` for categorizing user-canister relationships
+- Simplified data structure centered around relationships
+
 ### Core Components
 
-1. **FactoryRegistryTypes.mo** - Type definitions and data structures
-2. **FactoryRegistryService.mo** - Business logic and core functionality
-3. **FactoryRegistryInterface.mo** - Public interface definitions
-4. **Backend Main Integration** - Public APIs and system integration
+1. **FactoryRegistryTypes.mo**: Type definitions
+2. **FactoryRegistryService.mo**: Business logic
+3. **FactoryRegistryInterface.mo**: Public interface
 
-### Key Data Structures
+## Core Data Structures
 
+### UserRelationshipMap
 ```motoko
-type UserDeploymentMap = {
-    distributions: [Principal]; // Distribution contracts user is related to
-    tokens: [Principal];        // Tokens user has deployed
-    templates: [Principal];     // Templates user has created
-    launchpads: [Principal];    // Launchpads user created/participated in
-    nfts: [Principal];          // Future expansion
-    staking: [Principal];       // Future expansion
-    daos: [Principal];          // Future expansion
+public type UserRelationshipMap = {
+    distributions: [Principal]; // distributions where user is recipient
+    launchpads: [Principal]; // launchpads user participated in
+    daos: [Principal]; // DAOs user is member of
+    multisigs: [Principal]; // multisig wallets user is signer of
 };
+```
 
-type DeploymentInfo = {
-    id: Text;                   // Unique deployment ID
-    deploymentType: DeploymentType;
-    factoryPrincipal: Principal;
+### RelationshipInfo
+```motoko
+public type RelationshipInfo = {
+    id: Text;
+    relationshipType: RelationshipType;
     canisterId: Principal;
-    creator: Principal;
-    recipients: ?[Principal];   // For distributions, launchpads
-    createdAt: Int;
-    metadata: DeploymentMetadata;
+    userId: Principal;
+    factoryPrincipal: Principal;
+    createdAt: Common.Timestamp;
+    metadata: RelationshipMetadata;
 };
 ```
 
 ## Public APIs
 
-### User Query Functions
-
-```motoko
-// Get all canisters related to a user
-getRelatedCanisters(user: ?Principal) -> Result<UserDeploymentMap, Error>
-
-// Get canisters by specific deployment type
-getRelatedCanistersByType(deploymentType: DeploymentType, user: ?Principal) -> Result<[Principal], Error>
-
-// Get user's deployments with metadata
-getMyDeployments(deploymentType: ?DeploymentType, limit: ?Nat, offset: ?Nat) -> Result<[DeploymentInfo], Error>
-
-// Get specific deployment information
-getDeploymentInfo(deploymentId: Text) -> Result<DeploymentInfo, Error>
-```
+### Query Functions (Public)
+- `getRelatedCanisters(user: ?Principal)` - Get all relationships for a user
+- `getRelatedCanistersByType(relationshipType, user)` - Filter by relationship type
+- `queryRelationships(queryObj)` - Advanced querying with filters
+- `getRelationshipInfo(relationshipId)` - Get details of specific relationship
 
 ### Factory Information
+- `getFactory(actionType)` - Get factory principal for action type
+- `getAllFactories()` - List all registered factories
+- `isFactoryTypeSupported(actionType)` - Check if action type is supported
 
+### External Contract Callbacks
+- `updateUserRelationships(relationshipType, canisterId, users, metadata)` - Add relationships
+- `removeUserRelationship(user, relationshipType, canisterId)` - Remove relationship
+
+## Integration Points
+
+### Automatic Registration
+- Distribution deployments with `#Whitelist` eligibility automatically register recipients
+- Called via `FactoryRegistryService.registerFromFlow()` in `_handleStandardDeploymentFlow`
+
+### External Contract Integration
+Public callback APIs allow external contracts to:
+1. Register users when they participate in activities
+2. Remove users when relationships end
+3. Update relationship metadata
+
+Example for distribution contract:
 ```motoko
-// Get factory canister for a deployment type
-getFactory(deploymentType: DeploymentType) -> Result<Principal, Error>
-
-// Get all registered factories
-getAllFactories() -> [(DeploymentType, Principal)]
-
-// Check if deployment type is supported
-isDeploymentTypeSupported(deploymentType: DeploymentType) -> Bool
-
-// Get list of supported types
-getSupportedTypes() -> [DeploymentType]
-```
-
-### Admin Functions (Manual Correction Only)
-
-```motoko
-// Manually add user to registry (if auto-indexing failed)
-adminAddUserToRegistry(user: Principal, deploymentType: DeploymentType, canisterId: Principal, reason: Text) -> Result<(), Error>
-
-// Manually remove user from registry (if incorrectly indexed)
-adminRemoveUserFromRegistry(user: Principal, deploymentType: DeploymentType, canisterId: Principal, reason: Text) -> Result<(), Error>
-
-// Manually fix deployment metadata (if wrong data was indexed)
-adminUpdateDeploymentMetadata(deploymentId: Text, newMetadata: DeploymentMetadata, reason: Text) -> Result<(), Error>
-
-// Query all deployments (admin only)
-adminQueryDeployments(queryObj: DeploymentQuery) -> Result<[DeploymentInfo], Error>
-```
-
-## Integration with Deployment Flow
-
-### 1. Auto-Setup Factory Registry
-
-Factories are automatically registered during system setup:
-
-```motoko
-// Called automatically after microservices setup is completed
-await backend.initializeFactoryRegistryAfterSetup();
-```
-
-No manual registration required - the system automatically detects and registers factory canisters from microservice configuration.
-
-### 2. Auto-Registration in Deployment
-
-In existing deployment functions, add this call after successful deployment:
-
-```motoko
-// Example in createDistribution function
-public shared ({ caller }) func createDistribution(args: DistributionArgs) : async Result<Principal, Text> {
-    // 1. Validate & process payment
-    // 2. Deploy contract
-    let canisterId = switch (await deployContract(args)) {
-        case (#ok(id)) { id };
-        case (#err(msg)) { return #err(msg) };
-    };
-    
-    // 3. AUTO-REGISTER with factory registry
-    await _registerSuccessfulDeployment(
-        caller,              // creator
-        #DistributionFactory, // type
-        canisterId,          // deployed canister
-        args.title,          // name
-        args.description,    // description
-        ?args.recipients     // recipients list
-    );
-    
-    #ok(canisterId)
+// When distribution finalizes recipients
+let backendActor = actor("backend-canister-id") : {
+    updateUserRelationships: (
+        FactoryRegistryTypes.RelationshipType,
+        Principal,
+        [Principal],
+        FactoryRegistryTypes.RelationshipMetadata
+    ) -> async FactoryRegistryTypes.FactoryRegistryResult<()>;
 };
+
+await backendActor.updateUserRelationships(
+    #DistributionRecipient,
+    distributionCanisterId,
+    finalizedRecipients,
+    {
+        name = "Distribution: Token Airdrop";
+        description = ?"Monthly token distribution";
+        isActive = true;
+        additionalData = null;
+    }
+);
 ```
 
-### 3. Frontend Integration
+## Admin Functions
 
-```typescript
-// Get distribution contracts for user
-const distributions = await backend.getRelatedCanistersByType("DistributionFactory", null);
+### Manual Correction Only
+- `adminAddUserRelationship()` - Manually add relationship if auto-indexing failed
+- `adminRemoveUserRelationship()` - Manually remove incorrect relationship
 
-// Get all related canisters
-const allRelated = await backend.getRelatedCanisters(null);
+These are for edge cases where automatic registration fails or incorrect data is indexed.
 
-// Get deployment details
-const deployments = await backend.getMyDeployments("DistributionFactory", 50, 0);
-```
+## State Management
 
-## Supported Deployment Types
+### Persistence
+- Uses `stable var` for upgrade safety
+- Implements `preupgrade()` and `postupgrade()` hooks
+- Trie-based storage for efficient key-value operations
 
+### Initialization
 ```motoko
-type DeploymentType = {
-    #DistributionFactory;  // Distribution contracts
-    #TokenFactory;         // ICRC tokens
-    #TemplateFactory;      // Templates
-    #LaunchpadFactory;     // Launchpad contracts
-    #NFTFactory;           // Future
-    #StakingFactory;       // Future
-    #DAOFactory;           // Future
-};
+// In main.mo
+private transient var factoryRegistryState : FactoryRegistryTypes.State = 
+    FactoryRegistryService.initState(stableBackend);
 ```
 
-## Access Control
+## Authorization
 
-- **Public Queries**: Users can query their own data or public deployment info
-- **Internal Functions**: Backend internal processes only
-- **Admin Functions**: Authorized admins only (for manual correction)
+### Factory Registration
+- Only authorized factories can register/update user relationships
+- Verified by checking caller against registered factory principal
 
-## Error Handling
+### User Queries
+- Users can query their own relationships
+- Admins can query any user's relationships
+- Anonymous users cannot query relationships
 
-```motoko
-type FactoryRegistryError = {
-    #Unauthorized: Text;
-    #NotFound: Text;
-    #AlreadyExists: Text;
-    #InvalidInput: Text;
-    #InternalError: Text;
-    #DeploymentTypNotSupported: Text;
-};
-```
-
-## Key Features
-
-### Automated Operations
-- **Auto-factory registration** from microservice configuration
-- **Auto-deployment indexing** after successful deployments
-- **Auto-recipient mapping** for distribution-type contracts
-
-### Manual Correction (Admin Only)
-- **Add missing user deployments** when auto-indexing fails
-- **Remove incorrect mappings** when data is wrong
-- **Update deployment metadata** when information is incorrect
-
-### User Experience
-- **Single query** to get all related canisters
-- **Type-specific queries** for focused results
-- **Rich metadata** for deployment information
+### Admin Operations
+- Only system admins can perform manual corrections
+- All admin actions are logged via AuditService
 
 ## Usage Examples
 
-See `examples/FactoryRegistryIntegrationExample.mo` for detailed integration patterns.
+### Frontend: Get User's Distribution Relationships
+```typescript
+const result = await backendActor.getRelatedCanistersByType(
+    { DistributionRecipient: null },
+    null // Use current user
+);
 
-## Migration & Upgrades
+if ('Ok' in result) {
+    const distributionCanisters = result.Ok;
+    // Process distribution canisters user is recipient of
+}
+```
 
-The system is designed to support future expansion:
-- Add new deployment types without migration
-- Extensible metadata structure
-- Backward compatible APIs
-- No breaking changes for existing integrations
+### External Contract: Register Participants
+```motoko
+// In launchpad contract after successful participation
+let backend = actor("backend-id") : BackendInterface;
 
-## System Benefits
+await backend.updateUserRelationships(
+    #LaunchpadParticipant,
+    Principal.fromActor(Launchpad),
+    [participantPrincipal],
+    {
+        name = "Launchpad: DeFi Token Sale";
+        description = ?"Participated in Q1 2024 token sale";
+        isActive = true;
+        additionalData = ?"{\"investmentAmount\": 1000}";
+    }
+);
+```
 
-1. **Centralized Tracking**: All user-canister relationships in one place
-2. **Automatic Updates**: No manual intervention required for normal operations
-3. **Easy Queries**: Simple APIs for frontend integration
-4. **Admin Control**: Manual correction capabilities when needed
-5. **Future Ready**: Extensible for new deployment types
+## Migration Notes
+
+### From Previous Version
+- Replaced custom `DeploymentType` with `AuditTypes.ActionType`
+- Removed deployment metadata tracking (now handled by UserService)
+- Simplified to focus purely on user-canister relationships
+- Added public callback APIs for external contract integration
+
+### Benefits
+- Clear separation of concerns (ownership vs relationships)
+- Better alignment with audit system
+- Reduced code duplication
+- Improved external contract integration
+- Cleaner admin interface with manual correction only
+
+## Future Enhancements
+
+1. **Relationship Scoring**: Track engagement levels or relationship strength
+2. **Notification System**: Alert users of new relationships or updates
+3. **Batch Operations**: More efficient bulk relationship management
+4. **Relationship History**: Track relationship lifecycle events
+5. **Cross-Chain Support**: Extend to multi-chain canister relationships

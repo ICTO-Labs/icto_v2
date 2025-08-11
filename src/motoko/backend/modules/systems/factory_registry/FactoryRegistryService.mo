@@ -1,30 +1,55 @@
 import Principal "mo:base/Principal";
 import Time "mo:base/Time";
-import Array "mo:base/Array";
 import Trie "mo:base/Trie";
 import Text "mo:base/Text";
 import Option "mo:base/Option";
+import Array "mo:base/Array";
 import Iter "mo:base/Iter";
 import Buffer "mo:base/Buffer";
-import Result "mo:base/Result";
 import Int "mo:base/Int";
+import Nat "mo:base/Nat";
 
 import Common "../../../shared/types/Common";
 import FactoryRegistryTypes "FactoryRegistryTypes";
+import AuditTypes "../audit/AuditTypes";
+// Removed Deployments import - logic moved to main.mo flow
 
 module FactoryRegistryService {
 
     // Import types for convenience
     type State = FactoryRegistryTypes.State;
     type StableState = FactoryRegistryTypes.StableState;
-    type DeploymentType = FactoryRegistryTypes.DeploymentType;
-    type UserDeploymentMap = FactoryRegistryTypes.UserDeploymentMap;
-    type DeploymentInfo = FactoryRegistryTypes.DeploymentInfo;
-    type DeploymentMetadata = FactoryRegistryTypes.DeploymentMetadata;
+    type UserRelationshipMap = FactoryRegistryTypes.UserRelationshipMap;
+    type RelationshipInfo = FactoryRegistryTypes.RelationshipInfo;
+    type RelationshipType = FactoryRegistryTypes.RelationshipType;
+    type RelationshipMetadata = FactoryRegistryTypes.RelationshipMetadata;
     type FactoryRegistryResult<T> = FactoryRegistryTypes.FactoryRegistryResult<T>;
     type FactoryRegistryError = FactoryRegistryTypes.FactoryRegistryError;
-    type UserDeploymentQuery = FactoryRegistryTypes.UserDeploymentQuery;
-    type DeploymentQuery = FactoryRegistryTypes.DeploymentQuery;
+    type UserRelationshipQuery = FactoryRegistryTypes.UserRelationshipQuery;
+    type RelationshipQuery = FactoryRegistryTypes.RelationshipQuery;
+
+    // ==================================================================================================
+    // INTEGRATION FUNCTION FOR DEPLOYMENT FLOW
+    // ==================================================================================================
+
+    // Simple batch add relationships - called from main.mo deployment flow
+    public func batchAddUserRelationshipsFromFlow(
+        state: State,
+        relationshipType: RelationshipType,
+        canisterId: Principal,
+        users: [Principal],
+        name: Text,
+        description: ?Text
+    ) : FactoryRegistryResult<()> {
+        let metadata : RelationshipMetadata = {
+            name = name;
+            description = description;
+            isActive = true;
+            additionalData = null;
+        };
+        
+        batchAddUserRelationships(state, relationshipType, canisterId, users, metadata)
+    };
 
     // ==================================================================================================
     // STATE MANAGEMENT
@@ -40,37 +65,37 @@ module FactoryRegistryService {
         let state = FactoryRegistryTypes.emptyState();
         
         // Restore factory registry
-        for ((deploymentTypeText, factoryPrincipal) in stableState.factoryRegistry.vals()) {
+        for ((actionTypeText, factoryPrincipal) in stableState.factoryRegistry.vals()) {
             state.factoryRegistry := Trie.put(
                 state.factoryRegistry, 
-                {key = deploymentTypeText; hash = Text.hash(deploymentTypeText)}, 
+                {key = actionTypeText; hash = Text.hash(actionTypeText)}, 
                 Text.equal, 
                 factoryPrincipal
             ).0;
         };
 
-        // Restore user deployment index
-        for ((userText, userMap) in stableState.userDeploymentIndex.vals()) {
-            state.userDeploymentIndex := Trie.put(
-                state.userDeploymentIndex,
+        // Restore user relationships
+        for ((userText, userMap) in stableState.userRelationships.vals()) {
+            state.userRelationships := Trie.put(
+                state.userRelationships,
                 {key = userText; hash = Text.hash(userText)},
                 Text.equal,
                 userMap
             ).0;
         };
 
-        // Restore deployment metadata
-        for ((deploymentId, deploymentInfo) in stableState.deploymentMetadata.vals()) {
-            state.deploymentMetadata := Trie.put(
-                state.deploymentMetadata,
-                {key = deploymentId; hash = Text.hash(deploymentId)},
+        // Restore relationship metadata
+        for ((relationshipId, relationshipInfo) in stableState.relationshipMetadata.vals()) {
+            state.relationshipMetadata := Trie.put(
+                state.relationshipMetadata,
+                {key = relationshipId; hash = Text.hash(relationshipId)},
                 Text.equal,
-                deploymentInfo
+                relationshipInfo
             ).0;
         };
 
         // Restore other fields
-        state.supportedTypes := stableState.supportedTypes;
+        state.supportedFactoryTypes := stableState.supportedFactoryTypes;
         state.adminPrincipals := stableState.adminPrincipals;
 
         state
@@ -79,110 +104,191 @@ module FactoryRegistryService {
     public func toStableState(state: State) : StableState {
         {
             factoryRegistry = Iter.toArray(Trie.iter(state.factoryRegistry));
-            supportedTypes = state.supportedTypes;
-            userDeploymentIndex = Iter.toArray(Trie.iter(state.userDeploymentIndex));
-            deploymentMetadata = Iter.toArray(Trie.iter(state.deploymentMetadata));
+            supportedFactoryTypes = state.supportedFactoryTypes;
+            userRelationships = Iter.toArray(Trie.iter(state.userRelationships));
+            relationshipMetadata = Iter.toArray(Trie.iter(state.relationshipMetadata));
             adminPrincipals = state.adminPrincipals;
         }
     };
 
-    // ==================================================================================================
-    // FACTORY REGISTRY FUNCTIONS
-    // ==================================================================================================
-
-    // Register a factory for a specific deployment type
-    public func registerFactory(
-        state: State,
-        caller: Principal,
-        deploymentType: DeploymentType,
-        factoryPrincipal: Principal
-    ) : FactoryRegistryResult<()> {
-        
-        // Check authorization
-        if (not isAuthorized(state, caller)) {
-            return #Err(#Unauthorized("Only authorized admins can register factories"));
-        };
-
-        // Check if deployment type is supported
-        if (not FactoryRegistryTypes.isDeploymentTypeSupported(state.supportedTypes, deploymentType)) {
-            return #Err(#DeploymentTypNotSupported("Deployment type not supported"));
-        };
-
-        let deploymentTypeText = FactoryRegistryTypes.deploymentTypeToText(deploymentType);
-        
-        // Check if factory already exists for this type
-        switch (Trie.get(state.factoryRegistry, {key = deploymentTypeText; hash = Text.hash(deploymentTypeText)}, Text.equal)) {
-            case (?existingFactory) {
-                if (existingFactory == factoryPrincipal) {
-                    return #Err(#AlreadyExists("Factory already registered for this deployment type"));
-                } else {
-                    // Update existing registration
-                    state.factoryRegistry := Trie.put(
-                        state.factoryRegistry,
-                        {key = deploymentTypeText; hash = Text.hash(deploymentTypeText)},
-                        Text.equal,
-                        factoryPrincipal
-                    ).0;
-                    return #Ok(());
-                };
-            };
-            case null {
-                // Register new factory
-                state.factoryRegistry := Trie.put(
-                    state.factoryRegistry,
-                    {key = deploymentTypeText; hash = Text.hash(deploymentTypeText)},
-                    Text.equal,
-                    factoryPrincipal
-                ).0;
-                return #Ok(());
-            };
-        };
-    };
-
-    // Get factory principal for a deployment type
+    // Get factory principal for an action type
     public func getFactory(
         state: State,
-        deploymentType: DeploymentType
+        actionType: AuditTypes.ActionType
     ) : FactoryRegistryResult<Principal> {
         
-        let deploymentTypeText = FactoryRegistryTypes.deploymentTypeToText(deploymentType);
+        let actionTypeText = FactoryRegistryTypes.actionTypeToText(actionType);
         
-        switch (Trie.get(state.factoryRegistry, {key = deploymentTypeText; hash = Text.hash(deploymentTypeText)}, Text.equal)) {
+        switch (Trie.get(state.factoryRegistry, {key = actionTypeText; hash = Text.hash(actionTypeText)}, Text.equal)) {
             case (?factoryPrincipal) {
                 #Ok(factoryPrincipal)
             };
             case null {
-                #Err(#NotFound("No factory registered for deployment type: " # deploymentTypeText))
+                #Err(#NotFound("No factory registered for action type: " # actionTypeText))
             };
         };
     };
 
     // ==================================================================================================
-    // USER DEPLOYMENT INDEX FUNCTIONS
+    // USER RELATIONSHIP FUNCTIONS  
     // ==================================================================================================
 
-    // Add deployment to user's index
-    public func addUserDeployment(
+    // Add user relationship (single user)
+    public func addUserRelationship(
         state: State,
         user: Principal,
-        deploymentType: DeploymentType,
-        deploymentId: Principal
-    ) : FactoryRegistryResult<()> {
+        relationshipType: RelationshipType,
+        canisterId: Principal,
+        metadata: RelationshipMetadata
+    ) : FactoryRegistryResult<Text> {
         
         let userText = Principal.toText(user);
         
-        // Get existing user deployment map or create new one
-        let existingMap = switch (Trie.get(state.userDeploymentIndex, {key = userText; hash = Text.hash(userText)}, Text.equal)) {
+        // Get existing user relationship map or create new one
+        let existingMap = switch (Trie.get(state.userRelationships, {key = userText; hash = Text.hash(userText)}, Text.equal)) {
             case (?map) { map };
-            case null { FactoryRegistryTypes.emptyUserDeploymentMap() };
+            case null { FactoryRegistryTypes.emptyUserRelationshipMap() };
         };
         
-        // Add new deployment to map
-        let updatedMap = FactoryRegistryTypes.addDeploymentToUserMap(existingMap, deploymentType, deploymentId);
+        // Add new relationship to map
+        let updatedMap = FactoryRegistryTypes.addRelationshipToUserMap(existingMap, relationshipType, canisterId);
         
         // Update state
-        state.userDeploymentIndex := Trie.put(
-            state.userDeploymentIndex,
+        state.userRelationships := Trie.put(
+            state.userRelationships,
+            {key = userText; hash = Text.hash(userText)},
+            Text.equal,
+            updatedMap
+        ).0;
+
+        // Create relationship info
+        let relationshipId = FactoryRegistryTypes.generateRelationshipId(
+            relationshipType,
+            user,
+            canisterId,
+            Time.now()
+        );
+
+        // Get factory principal for this relationship
+        let factoryPrincipal = switch (getFactoryForRelationshipType(state, relationshipType)) {
+            case (#Ok(principal)) { principal };
+            case (#Err(_)) { 
+                // Use a default/unknown principal if factory not found
+                Principal.fromText("rdmx6-jaaaa-aaaah-qcaiq-cai") // Default/fallback principal
+            };
+        };
+
+        let relationshipInfo : RelationshipInfo = {
+            id = relationshipId;
+            relationshipType = relationshipType;
+            canisterId = canisterId;
+            userId = user;
+            factoryPrincipal = factoryPrincipal;
+            createdAt = Time.now();
+            metadata = metadata;
+        };
+
+        // Store relationship metadata
+        state.relationshipMetadata := Trie.put(
+            state.relationshipMetadata,
+            {key = relationshipId; hash = Text.hash(relationshipId)},
+            Text.equal,
+            relationshipInfo
+        ).0;
+        
+        #Ok(relationshipId)
+    };
+
+    // Batch add user relationships
+    public func batchAddUserRelationships(
+        state: State,
+        relationshipType: RelationshipType,
+        canisterId: Principal,
+        users: [Principal],
+        metadata: RelationshipMetadata
+    ) : FactoryRegistryResult<()> {
+        
+        for (user in users.vals()) {
+            switch (addUserRelationship(state, user, relationshipType, canisterId, metadata)) {
+                case (#Err(error)) {
+                    return #Err(error);
+                };
+                case (#Ok(_)) {
+                    // Continue to next user
+                };
+            };
+        };
+        
+        #Ok(())
+    };
+
+    // ==================================================================================================
+    // PUBLIC CALLBACK API FOR EXTERNAL CONTRACTS
+    // ==================================================================================================
+
+    // Public API for external contracts to update user relationships
+    public func updateUserRelationships(
+        state: State,
+        caller: Principal,
+        relationshipType: RelationshipType,
+        canisterId: Principal,
+        users: [Principal],
+        metadata: RelationshipMetadata
+    ) : FactoryRegistryResult<()> {
+        
+        // Verify caller is authorized factory for this relationship type
+        switch (getFactoryForRelationshipType(state, relationshipType)) {
+            case (#Ok(factoryPrincipal)) {
+                if (caller != factoryPrincipal) {
+                    return #Err(#Unauthorized("Only the registered factory can update relationships for this type"));
+                };
+            };
+            case (#Err(_)) {
+                return #Err(#FactoryTypeNotSupported("No factory registered for this relationship type"));
+            };
+        };
+
+        // Add relationships for all users
+        batchAddUserRelationships(state, relationshipType, canisterId, users, metadata)
+    };
+
+    // Remove user relationship
+    public func removeUserRelationship(
+        state: State,
+        caller: Principal,
+        user: Principal,
+        relationshipType: RelationshipType,
+        canisterId: Principal
+    ) : FactoryRegistryResult<()> {
+        
+        // Verify caller is authorized
+        switch (getFactoryForRelationshipType(state, relationshipType)) {
+            case (#Ok(factoryPrincipal)) {
+                if (caller != factoryPrincipal and not isAuthorized(state, caller)) {
+                    return #Err(#Unauthorized("Only the factory or admin can remove relationships"));
+                };
+            };
+            case (#Err(_)) {
+                if (not isAuthorized(state, caller)) {
+                    return #Err(#Unauthorized("Admin access required"));
+                };
+            };
+        };
+
+        let userText = Principal.toText(user);
+        
+        // Get existing user relationship map
+        let existingMap = switch (Trie.get(state.userRelationships, {key = userText; hash = Text.hash(userText)}, Text.equal)) {
+            case (?map) { map };
+            case null { return #Err(#NotFound("User has no relationships to remove")) };
+        };
+        
+        // Remove relationship from appropriate array
+        let updatedMap = removeRelationshipFromUserMap(existingMap, relationshipType, canisterId);
+        
+        // Update state
+        state.userRelationships := Trie.put(
+            state.userRelationships,
             {key = userText; hash = Text.hash(userText)},
             Text.equal,
             updatedMap
@@ -191,20 +297,24 @@ module FactoryRegistryService {
         #Ok(())
     };
 
-    // Get all deployments for a user
-    public func getUserDeployments(
+    // ==================================================================================================
+    // QUERY FUNCTIONS
+    // ==================================================================================================
+
+    // Get all relationships for a user
+    public func getUserRelationships(
         state: State,
-        queryObj: UserDeploymentQuery
-    ) : FactoryRegistryResult<UserDeploymentMap> {
+        queryObj: UserRelationshipQuery
+    ) : FactoryRegistryResult<UserRelationshipMap> {
         
         let userText = Principal.toText(queryObj.user);
         
-        switch (Trie.get(state.userDeploymentIndex, {key = userText; hash = Text.hash(userText)}, Text.equal)) {
+        switch (Trie.get(state.userRelationships, {key = userText; hash = Text.hash(userText)}, Text.equal)) {
             case (?userMap) {
-                // Filter by deployment type if specified
-                switch (queryObj.deploymentType) {
-                    case (?deploymentType) {
-                        let filteredMap = filterUserMapByType(userMap, deploymentType);
+                // Filter by relationship type if specified
+                switch (queryObj.relationshipType) {
+                    case (?relationshipType) {
+                        let filteredMap = filterUserMapByType(userMap, relationshipType);
                         #Ok(filteredMap)
                     };
                     case null {
@@ -213,147 +323,43 @@ module FactoryRegistryService {
                 };
             };
             case null {
-                #Ok(FactoryRegistryTypes.emptyUserDeploymentMap())
+                #Ok(FactoryRegistryTypes.emptyUserRelationshipMap())
             };
         };
     };
 
-    // Batch add recipients to deployment index
-    public func batchAddRecipients(
+    // Query relationships with filters
+    public func queryRelationships(
         state: State,
-        deploymentType: DeploymentType,
-        deploymentId: Principal,
-        recipients: [Principal]
-    ) : FactoryRegistryResult<()> {
+        queryObj: RelationshipQuery
+    ) : FactoryRegistryResult<[RelationshipInfo]> {
         
-        for (recipient in recipients.vals()) {
-            switch (addUserDeployment(state, recipient, deploymentType, deploymentId)) {
-                case (#Err(error)) {
-                    return #Err(error);
-                };
-                case (#Ok(_)) {
-                    // Continue to next recipient
-                };
-            };
-        };
-        
-        #Ok(())
-    };
-
-    // ==================================================================================================
-    // DEPLOYMENT METADATA FUNCTIONS
-    // ==================================================================================================
-
-    // Main integration function - called after deployment
-    public func postDeploymentCallback(
-        state: State,
-        creator: Principal,
-        deploymentType: DeploymentType,
-        deploymentId: Principal,
-        recipients: ?[Principal],
-        metadata: DeploymentMetadata
-    ) : FactoryRegistryResult<Text> {
-        
-        // Get factory principal
-        let factoryResult = getFactory(state, deploymentType);
-        let factoryPrincipal = switch (factoryResult) {
-            case (#Ok(principal)) { principal };
-            case (#Err(error)) { return #Err(error); };
-        };
-
-        // Generate unique deployment info ID
-        let deploymentInfoId = FactoryRegistryTypes.generateDeploymentId(
-            deploymentType,
-            creator,
-            Time.now()
-        );
-
-        // Create deployment info
-        let deploymentInfo : DeploymentInfo = {
-            id = deploymentInfoId;
-            deploymentType = deploymentType;
-            factoryPrincipal = factoryPrincipal;
-            canisterId = deploymentId;
-            creator = creator;
-            recipients = recipients;
-            createdAt = Time.now();
-            metadata = metadata;
-        };
-
-        // Store deployment metadata
-        state.deploymentMetadata := Trie.put(
-            state.deploymentMetadata,
-            {key = deploymentInfoId; hash = Text.hash(deploymentInfoId)},
-            Text.equal,
-            deploymentInfo
-        ).0;
-
-        // Add deployment to creator's index
-        switch (addUserDeployment(state, creator, deploymentType, deploymentId)) {
-            case (#Err(error)) {
-                return #Err(error);
-            };
-            case (#Ok(_)) {
-                // Continue
-            };
-        };
-
-        // Add deployment to recipients' index if provided
-        switch (recipients) {
-            case (?recipientList) {
-                switch (batchAddRecipients(state, deploymentType, deploymentId, recipientList)) {
-                    case (#Err(error)) {
-                        return #Err(error);
-                    };
-                    case (#Ok(_)) {
-                        // Continue
-                    };
-                };
-            };
-            case null {
-                // No recipients to add
-            };
-        };
-
-        #Ok(deploymentInfoId)
-    };
-
-    // ==================================================================================================
-    // QUERY FUNCTIONS
-    // ==================================================================================================
-
-    // Query deployments with filters
-    public func queryDeployments(
-        state: State,
-        queryObj: DeploymentQuery
-    ) : FactoryRegistryResult<[DeploymentInfo]> {
-        
-        let buffer = Buffer.Buffer<DeploymentInfo>(0);
+        let buffer = Buffer.Buffer<RelationshipInfo>(0);
         let limit = Option.get(queryObj.limit, 100); // Default limit
         let offset = Option.get(queryObj.offset, 0);
         var count = 0;
         var skipped = 0;
 
-        label deploymentLoop for ((_, deploymentInfo) in Trie.iter(state.deploymentMetadata)) {
-            if (count >= limit) break deploymentLoop;
+        label relationshipLoop for ((_, relationshipInfo) in Trie.iter(state.relationshipMetadata)) {
+            if (count >= limit) break relationshipLoop;
             
             // Apply filters
             var matches = true;
             
-            // Filter by deployment type
-            switch (queryObj.deploymentType) {
+            // Filter by relationship type
+            switch (queryObj.relationshipType) {
                 case (?filterType) {
-                    if (deploymentInfo.deploymentType != filterType) {
+                    if (relationshipInfo.relationshipType != filterType) {
                         matches := false;
                     };
                 };
                 case null { };
             };
             
-            // Filter by creator
-            switch (queryObj.creator) {
-                case (?filterCreator) {
-                    if (deploymentInfo.creator != filterCreator) {
+            // Filter by canister ID
+            switch (queryObj.canisterId) {
+                case (?filterCanister) {
+                    if (relationshipInfo.canisterId != filterCanister) {
                         matches := false;
                     };
                 };
@@ -363,17 +369,17 @@ module FactoryRegistryService {
             // Filter by factory principal
             switch (queryObj.factoryPrincipal) {
                 case (?filterFactory) {
-                    if (deploymentInfo.factoryPrincipal != filterFactory) {
+                    if (relationshipInfo.factoryPrincipal != filterFactory) {
                         matches := false;
                     };
                 };
                 case null { };
             };
             
-            // Filter by status
-            switch (queryObj.status) {
-                case (?filterStatus) {
-                    if (deploymentInfo.metadata.status != filterStatus) {
+            // Filter by active status
+            switch (queryObj.isActive) {
+                case (?filterActive) {
+                    if (relationshipInfo.metadata.isActive != filterActive) {
                         matches := false;
                     };
                 };
@@ -384,7 +390,7 @@ module FactoryRegistryService {
                 if (skipped < offset) {
                     skipped += 1;
                 } else {
-                    buffer.add(deploymentInfo);
+                    buffer.add(relationshipInfo);
                     count += 1;
                 };
             };
@@ -393,20 +399,38 @@ module FactoryRegistryService {
         #Ok(Buffer.toArray(buffer))
     };
 
-    // Get deployment info by ID
-    public func getDeploymentInfo(
+    // Get relationship info by ID
+    public func getRelationshipInfo(
         state: State,
-        deploymentId: Text
-    ) : FactoryRegistryResult<DeploymentInfo> {
+        relationshipId: Text
+    ) : FactoryRegistryResult<RelationshipInfo> {
         
-        switch (Trie.get(state.deploymentMetadata, {key = deploymentId; hash = Text.hash(deploymentId)}, Text.equal)) {
-            case (?deploymentInfo) {
-                #Ok(deploymentInfo)
+        switch (Trie.get(state.relationshipMetadata, {key = relationshipId; hash = Text.hash(relationshipId)}, Text.equal)) {
+            case (?relationshipInfo) {
+                #Ok(relationshipInfo)
             };
             case null {
-                #Err(#NotFound("Deployment info not found for ID: " # deploymentId))
+                #Err(#NotFound("Relationship info not found for ID: " # relationshipId))
             };
         };
+    };
+
+    // Get all registered factories
+    public func getAllFactories(state: State) : [(AuditTypes.ActionType, Principal)] {
+        let buffer = Buffer.Buffer<(AuditTypes.ActionType, Principal)>(0);
+        
+        for ((actionTypeText, factoryPrincipal) in Trie.iter(state.factoryRegistry)) {
+            // Convert text back to ActionType (simplified approach)
+            switch (actionTypeText) {
+                case ("CreateDistribution") { buffer.add((#CreateDistribution, factoryPrincipal)) };
+                case ("CreateToken") { buffer.add((#CreateToken, factoryPrincipal)) };
+                case ("CreateTemplate") { buffer.add((#CreateTemplate, factoryPrincipal)) };
+                // Add more mappings as needed
+                case _ { }; // Skip unknown action types
+            };
+        };
+        
+        Buffer.toArray(buffer)
     };
 
     // ==================================================================================================
@@ -423,71 +447,113 @@ module FactoryRegistryService {
         false
     };
 
-    // Filter user deployment map by deployment type
-    private func filterUserMapByType(userMap: UserDeploymentMap, deploymentType: DeploymentType) : UserDeploymentMap {
-        switch (deploymentType) {
-            case (#DistributionFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    userMap.distributions, [], [], [], [], [], []
+    // Filter user relationship map by relationship type
+    private func filterUserMapByType(userMap: UserRelationshipMap, relationshipType: RelationshipType) : UserRelationshipMap {
+        switch (relationshipType) {
+            case (#DistributionRecipient) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    userMap.distributions, [], [], []
                 )
             };
-            case (#TokenFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    [], userMap.tokens, [], [], [], [], []
+            case (#LaunchpadParticipant) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    [], userMap.launchpads, [], []
                 )
             };
-            case (#TemplateFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    [], [], userMap.templates, [], [], [], []
+            case (#DAOMember) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    [], [], userMap.daos, []
                 )
             };
-            case (#LaunchpadFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    [], [], [], userMap.launchpads, [], [], []
-                )
-            };
-            case (#NFTFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    [], [], [], [], userMap.nfts, [], []
-                )
-            };
-            case (#StakingFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    [], [], [], [], [], userMap.staking, []
-                )
-            };
-            case (#DAOFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    [], [], [], [], [], [], userMap.daos
+            case (#MultisigSigner) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    [], [], [], userMap.multisigs
                 )
             };
         };
     };
 
-    // Check if deployment type is supported
-    public func isDeploymentTypeSupported(
-        state: State,
-        deploymentType: DeploymentType
-    ) : Bool {
-        FactoryRegistryTypes.isDeploymentTypeSupported(state.supportedTypes, deploymentType)
+    // Remove relationship from user map
+    private func removeRelationshipFromUserMap(
+        userMap: UserRelationshipMap,
+        relationshipType: RelationshipType,
+        canisterId: Principal
+    ) : UserRelationshipMap {
+        switch (relationshipType) {
+            case (#DistributionRecipient) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    Array.filter(userMap.distributions, func(id: Principal) : Bool { id != canisterId }),
+                    userMap.launchpads,
+                    userMap.daos,
+                    userMap.multisigs
+                )
+            };
+            case (#LaunchpadParticipant) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    userMap.distributions,
+                    Array.filter(userMap.launchpads, func(id: Principal) : Bool { id != canisterId }),
+                    userMap.daos,
+                    userMap.multisigs
+                )
+            };
+            case (#DAOMember) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    userMap.distributions,
+                    userMap.launchpads,
+                    Array.filter(userMap.daos, func(id: Principal) : Bool { id != canisterId }),
+                    userMap.multisigs
+                )
+            };
+            case (#MultisigSigner) {
+                FactoryRegistryTypes.createUserRelationshipMap(
+                    userMap.distributions,
+                    userMap.launchpads,
+                    userMap.daos,
+                    Array.filter(userMap.multisigs, func(id: Principal) : Bool { id != canisterId })
+                )
+            };
+        }
     };
 
-    // Add new deployment type to supported list
-    public func addSupportedDeploymentType(
+    // Get factory principal for relationship type
+    private func getFactoryForRelationshipType(
+        state: State,
+        relationshipType: RelationshipType
+    ) : FactoryRegistryResult<Principal> {
+        let actionType = switch (relationshipType) {
+            case (#DistributionRecipient) { #CreateDistribution };
+            case (#LaunchpadParticipant) { #CreateTemplate }; // Assuming launchpads use template factory
+            case (#DAOMember) { #CreateTemplate }; // Assuming DAOs use template factory  
+            case (#MultisigSigner) { #CreateTemplate }; // Assuming multisigs use template factory
+        };
+        
+        getFactory(state, actionType)
+    };
+
+    // Check if factory type is supported
+    public func isFactoryTypeSupported(
+        state: State,
+        actionType: AuditTypes.ActionType
+    ) : Bool {
+        FactoryRegistryTypes.isFactoryTypeSupported(state.supportedFactoryTypes, actionType)
+    };
+
+    // Add new factory type to supported list
+    public func addSupportedFactoryType(
         state: State,
         caller: Principal,
-        deploymentType: DeploymentType
+        actionType: AuditTypes.ActionType
     ) : FactoryRegistryResult<()> {
         
         if (not isAuthorized(state, caller)) {
             return #Err(#Unauthorized("Only authorized admins can modify supported types"));
         };
 
-        if (FactoryRegistryTypes.isDeploymentTypeSupported(state.supportedTypes, deploymentType)) {
-            return #Err(#AlreadyExists("Deployment type already supported"));
+        if (FactoryRegistryTypes.isFactoryTypeSupported(state.supportedFactoryTypes, actionType)) {
+            return #Err(#AlreadyExists("Action type already supported"));
         };
 
-        state.supportedTypes := Array.append(state.supportedTypes, [deploymentType]);
+        state.supportedFactoryTypes := Array.append(state.supportedFactoryTypes, [actionType]);
         #Ok(())
     };
 
@@ -510,182 +576,8 @@ module FactoryRegistryService {
         #Ok(())
     };
 
-    // Get all supported deployment types
-    public func getSupportedTypes(state: State) : [DeploymentType] {
-        state.supportedTypes
-    };
-
-    // Remove user deployment from registry
-    public func removeUserDeployment(
-        state: State,
-        user: Principal,
-        deploymentType: DeploymentType,
-        canisterId: Principal
-    ) : FactoryRegistryResult<()> {
-        let userText = Principal.toText(user);
-        
-        // Get existing user deployment map
-        let existingMap = switch (Trie.get(state.userDeploymentIndex, {key = userText; hash = Text.hash(userText)}, Text.equal)) {
-            case (?map) { map };
-            case null { return #Err(#NotFound("User has no deployments to remove")) };
-        };
-        
-        // Remove deployment from appropriate array
-        let updatedMap = removeDeploymentFromUserMap(existingMap, deploymentType, canisterId);
-        
-        // Update state
-        state.userDeploymentIndex := Trie.put(
-            state.userDeploymentIndex,
-            {key = userText; hash = Text.hash(userText)},
-            Text.equal,
-            updatedMap
-        ).0;
-        
-        #Ok(())
-    };
-
-    // Update deployment metadata
-    public func updateDeploymentMetadata(
-        state: State,
-        deploymentId: Text,
-        newMetadata: DeploymentMetadata
-    ) : FactoryRegistryResult<()> {
-        // Get existing deployment info
-        switch (Trie.get(state.deploymentMetadata, {key = deploymentId; hash = Text.hash(deploymentId)}, Text.equal)) {
-            case (?existingInfo) {
-                let updatedInfo : DeploymentInfo = {
-                    id = existingInfo.id;
-                    deploymentType = existingInfo.deploymentType;
-                    factoryPrincipal = existingInfo.factoryPrincipal;
-                    canisterId = existingInfo.canisterId;
-                    creator = existingInfo.creator;
-                    recipients = existingInfo.recipients;
-                    createdAt = existingInfo.createdAt;
-                    metadata = newMetadata;
-                };
-                
-                // Update state
-                state.deploymentMetadata := Trie.put(
-                    state.deploymentMetadata,
-                    {key = deploymentId; hash = Text.hash(deploymentId)},
-                    Text.equal,
-                    updatedInfo
-                ).0;
-                
-                #Ok(())
-            };
-            case null {
-                #Err(#NotFound("Deployment not found for ID: " # deploymentId))
-            };
-        };
-    };
-
-    // Get all registered factories
-    public func getAllFactories(state: State) : [(DeploymentType, Principal)] {
-        let buffer = Buffer.Buffer<(DeploymentType, Principal)>(0);
-        
-        for ((deploymentTypeText, factoryPrincipal) in Trie.iter(state.factoryRegistry)) {
-            switch (FactoryRegistryTypes.textToDeploymentType(deploymentTypeText)) {
-                case (?deploymentType) {
-                    buffer.add((deploymentType, factoryPrincipal));
-                };
-                case null {
-                    // Skip invalid deployment types
-                };
-            };
-        };
-        
-        Buffer.toArray(buffer)
-    };
-
-    // ==================================================================================================
-    // HELPER FUNCTIONS
-    // ==================================================================================================
-
-    // Remove deployment from user map
-    private func removeDeploymentFromUserMap(
-        userMap: UserDeploymentMap,
-        deploymentType: DeploymentType,
-        canisterId: Principal
-    ) : UserDeploymentMap {
-        switch (deploymentType) {
-            case (#DistributionFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    Array.filter(userMap.distributions, func(id: Principal) : Bool { id != canisterId }),
-                    userMap.tokens,
-                    userMap.templates,
-                    userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
-                )
-            };
-            case (#TokenFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    userMap.distributions,
-                    Array.filter(userMap.tokens, func(id: Principal) : Bool { id != canisterId }),
-                    userMap.templates,
-                    userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
-                )
-            };
-            case (#TemplateFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    Array.filter(userMap.templates, func(id: Principal) : Bool { id != canisterId }),
-                    userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
-                )
-            };
-            case (#LaunchpadFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
-                    Array.filter(userMap.launchpads, func(id: Principal) : Bool { id != canisterId }),
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
-                )
-            };
-            case (#NFTFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
-                    userMap.launchpads,
-                    Array.filter(userMap.nfts, func(id: Principal) : Bool { id != canisterId }),
-                    userMap.staking,
-                    userMap.daos
-                )
-            };
-            case (#StakingFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
-                    userMap.launchpads,
-                    userMap.nfts,
-                    Array.filter(userMap.staking, func(id: Principal) : Bool { id != canisterId }),
-                    userMap.daos
-                )
-            };
-            case (#DAOFactory) {
-                FactoryRegistryTypes.createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
-                    userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    Array.filter(userMap.daos, func(id: Principal) : Bool { id != canisterId })
-                )
-            };
-        }
+    // Get all supported factory types
+    public func getSupportedFactoryTypes(state: State) : [AuditTypes.ActionType] {
+        state.supportedFactoryTypes
     };
 }

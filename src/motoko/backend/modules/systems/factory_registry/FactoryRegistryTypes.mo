@@ -3,116 +3,97 @@ import Time "mo:base/Time";
 import Trie "mo:base/Trie";
 import Array "mo:base/Array";
 import Int "mo:base/Int";
-// import Map "mo:map/Map"; // Not needed for now
 
 import Common "../../../shared/types/Common";
+import AuditTypes "../audit/AuditTypes";
 
 module FactoryRegistryTypes {
 
     // ==================================================================================================
     // Factory Registry Types
-    // Hệ thống mapping các factory canister IDs với deployment types
-    // và tracking các deployments liên quan đến user
+    // Purpose: Track user relationships with various canisters (not deployments they own)
+    // Example: User participates in launchpad, is recipient in distribution, etc.
+    // Note: User-owned deployments are tracked in UserService
     // ==================================================================================================
 
-    // --- DEPLOYMENT TYPES ---
+    // --- USER RELATIONSHIP MAPPING ---
     
-    // Flexible enum cho future expansion
-    public type DeploymentType = {
-        #DistributionFactory;
-        #TokenFactory; 
-        #TemplateFactory;
-        #LaunchpadFactory;
-        #NFTFactory;        // Future
-        #StakingFactory;    // Future  
-        #DAOFactory;        // Future
-        // Có thể add thêm không cần migration
+    // Track what canisters a user has relationships with (not ownership)
+    public type UserRelationshipMap = {
+        distributions: [Principal]; // distributions where user is recipient
+        launchpads: [Principal]; // launchpads user participated in
+        daos: [Principal]; // DAOs user is member of
+        multisigs: [Principal]; // multisig wallets user is signer of
+        // Can add more relationship types as needed
     };
 
-    // --- STATE MANAGEMENT ---
+    public func emptyUserRelationshipMap() : UserRelationshipMap {
+        {
+            distributions = [];
+            launchpads = [];
+            daos = [];
+            multisigs = [];
+        }
+    };
+
+    // --- FACTORY REGISTRY STATE ---
 
     public type State = {
-        var factoryRegistry: Trie.Trie<Text, Principal>; // deploymentType text -> factory principal
-        var supportedTypes: [DeploymentType]; // array of supported deployment types
-        var userDeploymentIndex: Trie.Trie<Text, UserDeploymentMap>; // user principal text -> deployment map
-        var deploymentMetadata: Trie.Trie<Text, DeploymentInfo>; // deployment ID -> metadata
-        var adminPrincipals: [Principal]; // authorized admins for factory registration
+        var factoryRegistry: Trie.Trie<Text, Principal>; // actionType text -> factory principal
+        var supportedFactoryTypes: [AuditTypes.ActionType]; // supported factory types
+        var userRelationships: Trie.Trie<Text, UserRelationshipMap>; // user principal text -> relationships
+        var relationshipMetadata: Trie.Trie<Text, RelationshipInfo>; // relationship ID -> metadata
+        var adminPrincipals: [Principal]; // authorized admins
     };
 
     public type StableState = {
         factoryRegistry: [(Text, Principal)];
-        supportedTypes: [DeploymentType];
-        userDeploymentIndex: [(Text, UserDeploymentMap)];
-        deploymentMetadata: [(Text, DeploymentInfo)];
+        supportedFactoryTypes: [AuditTypes.ActionType];
+        userRelationships: [(Text, UserRelationshipMap)];
+        relationshipMetadata: [(Text, RelationshipInfo)];
         adminPrincipals: [Principal];
     };
 
     public func emptyState() : State {
         {
             var factoryRegistry = Trie.empty();
-            var supportedTypes = [
-                #DistributionFactory, 
-                #TokenFactory, 
-                #TemplateFactory, 
-                #LaunchpadFactory
+            var supportedFactoryTypes = [
+                #CreateDistribution,
+                #CreateToken, 
+                #CreateTemplate
+                // Add more as factories are developed
             ];
-            var userDeploymentIndex = Trie.empty();
-            var deploymentMetadata = Trie.empty();
+            var userRelationships = Trie.empty();
+            var relationshipMetadata = Trie.empty();
             var adminPrincipals = [];
         }
     };
 
-    // --- USER DEPLOYMENT MAPPING ---
+    // --- RELATIONSHIP METADATA ---
 
-    public type UserDeploymentMap = {
-        distributions: [Principal]; // distribution canister IDs user is recipient of
-        tokens: [Principal]; // tokens user deployed or owns
-        templates: [Principal]; // templates user deployed
-        launchpads: [Principal]; // launchpads user created or participated in
-        nfts: [Principal]; // future
-        staking: [Principal]; // future
-        daos: [Principal]; // future
-    };
-
-    public func emptyUserDeploymentMap() : UserDeploymentMap {
-        {
-            distributions = [];
-            tokens = [];
-            templates = [];
-            launchpads = [];
-            nfts = [];
-            staking = [];
-            daos = [];
-        }
-    };
-
-    // --- DEPLOYMENT INFO ---
-
-    public type DeploymentInfo = {
-        id: Text; // unique deployment ID
-        deploymentType: DeploymentType;
-        factoryPrincipal: Principal; // factory that created this
-        canisterId: Principal; // deployed canister ID
-        creator: Principal; // user who initiated deployment
-        recipients: ?[Principal]; // for distributions, launchpads etc
+    public type RelationshipInfo = {
+        id: Text; // unique relationship ID
+        relationshipType: RelationshipType;
+        canisterId: Principal; // target canister
+        userId: Principal; // user in relationship
+        factoryPrincipal: Principal; // factory that created the canister
         createdAt: Common.Timestamp;
-        metadata: DeploymentMetadata;
+        metadata: RelationshipMetadata;
     };
 
-    public type DeploymentMetadata = {
-        name: Text;
+    public type RelationshipType = {
+        #DistributionRecipient; // User is recipient in distribution
+        #LaunchpadParticipant; // User participated in launchpad
+        #DAOMember; // User is DAO member
+        #MultisigSigner; // User is multisig signer
+        // Add more relationship types as needed
+    };
+
+    public type RelationshipMetadata = {
+        name: Text; // Human readable name
         description: ?Text;
-        tags: [Text];
-        isPublic: Bool;
-        version: Text;
-        status: DeploymentInfoStatus;
-    };
-
-    public type DeploymentInfoStatus = {
-        #Active;
-        #Paused;
-        #Deprecated;
-        #Failed: Text;
+        isActive: Bool; // Whether relationship is still active
+        additionalData: ?Text; // JSON string for extra data
     };
 
     // --- RESULT TYPES ---
@@ -128,181 +109,157 @@ module FactoryRegistryTypes {
         #AlreadyExists: Text;
         #InvalidInput: Text;
         #InternalError: Text;
-        #DeploymentTypNotSupported: Text;
+        #FactoryTypeNotSupported: Text;
     };
 
     // --- QUERY TYPES ---
 
-    public type UserDeploymentQuery = {
+    public type UserRelationshipQuery = {
         user: Principal;
-        deploymentType: ?DeploymentType; // filter by type, null for all
-        includeMetadata: Bool;
+        relationshipType: ?RelationshipType; // filter by type, null for all
+        includeInactive: Bool; // include inactive relationships
     };
 
-    public type DeploymentQuery = {
-        deploymentType: ?DeploymentType;
-        creator: ?Principal;
+    public type RelationshipQuery = {
+        relationshipType: ?RelationshipType;
+        canisterId: ?Principal;
         factoryPrincipal: ?Principal;
-        status: ?DeploymentInfoStatus;
+        isActive: ?Bool;
         limit: ?Nat;
         offset: ?Nat;
     };
 
     // --- UTILITY FUNCTIONS ---
 
-    // Helper function to append to array
-    private func appendToArray(arr: [Principal], item: Principal) : [Principal] {
-        Array.append(arr, [item])
-    };
-
-    public func deploymentTypeToText(deploymentType: DeploymentType) : Text {
-        switch (deploymentType) {
-            case (#DistributionFactory) { "DistributionFactory" };
-            case (#TokenFactory) { "TokenFactory" };
-            case (#TemplateFactory) { "TemplateFactory" };
-            case (#LaunchpadFactory) { "LaunchpadFactory" };
-            case (#NFTFactory) { "NFTFactory" };
-            case (#StakingFactory) { "StakingFactory" };
-            case (#DAOFactory) { "DAOFactory" };
+    public func actionTypeToText(actionType: AuditTypes.ActionType) : Text {
+        switch (actionType) {
+            case (#CreateDistribution) { "CreateDistribution" };
+            case (#CreateToken) { "CreateToken" };
+            case (#CreateTemplate) { "CreateTemplate" };
+            case (#ServiceFee(serviceName)) { "ServiceFee:" # serviceName };
+            case (#CreateProject) { "CreateProject" };
+            case (#UpdateProject) { "UpdateProject" };
+            case (#DeleteProject) { "DeleteProject" };
+            case (#StartPipeline) { "StartPipeline" };
+            case (#StepCompleted) { "StepCompleted" };
+            case (#StepFailed) { "StepFailed" };
+            case (#PipelineCompleted) { "PipelineCompleted" };
+            case (#PipelineFailed) { "PipelineFailed" };
+            case (#FeeValidation) { "FeeValidation" };
+            case (#PaymentProcessed) { "PaymentProcessed" };
+            case (#PaymentFailed) { "PaymentFailed" };
+            case (#RefundProcessed) { "RefundProcessed" };
+            case (#RefundRequest) { "RefundRequest" };
+            case (#RefundFailed) { "RefundFailed" };
+            case (#AdminLogin) { "AdminLogin" };
+            case (#UpdateSystemConfig) { "UpdateSystemConfig" };
+            case (#ServiceMaintenance) { "ServiceMaintenance" };
+            case (#UserManagement) { "UserManagement" };
+            case (#SystemUpgrade) { "SystemUpgrade" };
+            case (#StatusUpdate) { "StatusUpdate" };
+            case (#AccessDenied) { "AccessDenied" };
+            case (#AccessGranted) { "AccessGranted" };
+            case (#GrantAccess) { "GrantAccess" };
+            case (#RevokeAccess) { "RevokeAccess" };
+            case (#AccessRevoked) { "AccessRevoked" };
+            case (#Custom(text)) { "Custom:" # text };
+            case (#AdminAction(text)) { "AdminAction:" # text };
         }
     };
 
-    public func textToDeploymentType(text: Text) : ?DeploymentType {
-        switch (text) {
-            case ("DistributionFactory") { ?#DistributionFactory };
-            case ("TokenFactory") { ?#TokenFactory };
-            case ("TemplateFactory") { ?#TemplateFactory };
-            case ("LaunchpadFactory") { ?#LaunchpadFactory };
-            case ("NFTFactory") { ?#NFTFactory };
-            case ("StakingFactory") { ?#StakingFactory };
-            case ("DAOFactory") { ?#DAOFactory };
-            case (_) { null };
-        }
-    };
-
-    public func isDeploymentTypeSupported(supportedTypes: [DeploymentType], deploymentType: DeploymentType) : Bool {
+    public func isFactoryTypeSupported(supportedTypes: [AuditTypes.ActionType], actionType: AuditTypes.ActionType) : Bool {
         for (supportedType in supportedTypes.vals()) {
-            if (supportedType == deploymentType) {
+            if (supportedType == actionType) {
                 return true;
             };
         };
         false
     };
 
-    public func generateDeploymentId(
-        deploymentType: DeploymentType,
-        creator: Principal,
+    public func generateRelationshipId(
+        relationshipType: RelationshipType,
+        user: Principal,
+        canisterId: Principal,
         timestamp: Common.Timestamp
     ) : Text {
-        let typeText = deploymentTypeToText(deploymentType);
-        let creatorText = Principal.toText(creator);
+        let typeText = relationshipTypeToText(relationshipType);
+        let userText = Principal.toText(user);
+        let canisterText = Principal.toText(canisterId);
         let timeText = Int.toText(timestamp / 1_000_000); // Convert ns to ms
-        typeText # ":" # creatorText # ":" # timeText
+        typeText # ":" # userText # ":" # canisterText # ":" # timeText
     };
 
-    // Tạo user deployment map từ các arrays
-    public func createUserDeploymentMap(
-        distributions: [Principal],
-        tokens: [Principal],
-        templates: [Principal],
-        launchpads: [Principal],
-        nfts: [Principal],
-        staking: [Principal],
-        daos: [Principal]
-    ) : UserDeploymentMap {
-        {
-            distributions = distributions;
-            tokens = tokens;
-            templates = templates;
-            launchpads = launchpads;
-            nfts = nfts;
-            staking = staking;
-            daos = daos;
+    public func relationshipTypeToText(relationshipType: RelationshipType) : Text {
+        switch (relationshipType) {
+            case (#DistributionRecipient) { "DistributionRecipient" };
+            case (#LaunchpadParticipant) { "LaunchpadParticipant" };
+            case (#DAOMember) { "DAOMember" };
+            case (#MultisigSigner) { "MultisigSigner" };
         }
     };
 
-    // Thêm deployment vào user map
-    public func addDeploymentToUserMap(
-        userMap: UserDeploymentMap,
-        deploymentType: DeploymentType,
+    public func textToRelationshipType(text: Text) : ?RelationshipType {
+        switch (text) {
+            case ("DistributionRecipient") { ?#DistributionRecipient };
+            case ("LaunchpadParticipant") { ?#LaunchpadParticipant };
+            case ("DAOMember") { ?#DAOMember };
+            case ("MultisigSigner") { ?#MultisigSigner };
+            case (_) { null };
+        }
+    };
+
+    // Create user relationship map from arrays
+    public func createUserRelationshipMap(
+        distributions: [Principal],
+        launchpads: [Principal],
+        daos: [Principal],
+        multisigs: [Principal]
+    ) : UserRelationshipMap {
+        {
+            distributions = distributions;
+            launchpads = launchpads;
+            daos = daos;
+            multisigs = multisigs;
+        }
+    };
+
+    // Add relationship to user map
+    public func addRelationshipToUserMap(
+        userMap: UserRelationshipMap,
+        relationshipType: RelationshipType,
         canisterId: Principal
-    ) : UserDeploymentMap {
-        switch (deploymentType) {
-            case (#DistributionFactory) {
-                createUserDeploymentMap(
-                    appendToArray(userMap.distributions, canisterId),
-                    userMap.tokens,
-                    userMap.templates,
+    ) : UserRelationshipMap {
+        switch (relationshipType) {
+            case (#DistributionRecipient) {
+                createUserRelationshipMap(
+                    Array.append(userMap.distributions, [canisterId]),
                     userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
+                    userMap.daos,
+                    userMap.multisigs
                 )
             };
-            case (#TokenFactory) {
-                createUserDeploymentMap(
+            case (#LaunchpadParticipant) {
+                createUserRelationshipMap(
                     userMap.distributions,
-                    appendToArray(userMap.tokens, canisterId),
-                    userMap.templates,
-                    userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
+                    Array.append(userMap.launchpads, [canisterId]),
+                    userMap.daos,
+                    userMap.multisigs
                 )
             };
-            case (#TemplateFactory) {
-                createUserDeploymentMap(
+            case (#DAOMember) {
+                createUserRelationshipMap(
                     userMap.distributions,
-                    userMap.tokens,
-                    appendToArray(userMap.templates, canisterId),
                     userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
+                    Array.append(userMap.daos, [canisterId]),
+                    userMap.multisigs
                 )
             };
-            case (#LaunchpadFactory) {
-                createUserDeploymentMap(
+            case (#MultisigSigner) {
+                createUserRelationshipMap(
                     userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
-                    appendToArray(userMap.launchpads, canisterId),
-                    userMap.nfts,
-                    userMap.staking,
-                    userMap.daos
-                )
-            };
-            case (#NFTFactory) {
-                createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
                     userMap.launchpads,
-                    appendToArray(userMap.nfts, canisterId),
-                    userMap.staking,
-                    userMap.daos
-                )
-            };
-            case (#StakingFactory) {
-                createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
-                    userMap.launchpads,
-                    userMap.nfts,
-                    appendToArray(userMap.staking, canisterId),
-                    userMap.daos
-                )
-            };
-            case (#DAOFactory) {
-                createUserDeploymentMap(
-                    userMap.distributions,
-                    userMap.tokens,
-                    userMap.templates,
-                    userMap.launchpads,
-                    userMap.nfts,
-                    userMap.staking,
-                    appendToArray(userMap.daos, canisterId)
+                    userMap.daos,
+                    Array.append(userMap.multisigs, [canisterId])
                 )
             };
         }
