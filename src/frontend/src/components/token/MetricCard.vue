@@ -24,7 +24,11 @@
                 {{ Math.abs(change) }}%
             </div>
         </div>
-        <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
+        <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white" :class="{
+            'text-sm': size === 'sm',
+            'text-md': size === 'md',
+            'text-lg': size === 'lg'
+        }">
             {{ value }}
         </p>
     </div>
@@ -39,7 +43,8 @@ interface Props {
     title: string
     value: string | number
     icon: keyof typeof Icons
-    change?: number
+    change?: number,
+    size?: 'sm' | 'md' | 'lg'  //default is 2xl
 }
 
 const props = defineProps<Props>()

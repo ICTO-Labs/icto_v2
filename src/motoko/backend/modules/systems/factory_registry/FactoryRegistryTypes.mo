@@ -2,7 +2,6 @@ import Principal "mo:base/Principal";
 import Time "mo:base/Time";
 import Trie "mo:base/Trie";
 import Array "mo:base/Array";
-import Int "mo:base/Int";
 
 import Common "../../../shared/types/Common";
 import AuditTypes "../audit/AuditTypes";
@@ -10,75 +9,20 @@ import AuditTypes "../audit/AuditTypes";
 module FactoryRegistryTypes {
 
     // ==================================================================================================
-    // Factory Registry Types
-    // Purpose: Track user relationships with various canisters (not deployments they own)
-    // Example: User participates in launchpad, is recipient in distribution, etc.
-    // Note: User-owned deployments are tracked in UserService
+    // Factory Registry Types - User-Centric Architecture
+    // Purpose: Track user relationships with various canisters using a single user-centric map
+    // Simplified from complex relationshipId system to avoid Principal conversion errors
     // ==================================================================================================
 
-    // --- USER RELATIONSHIP MAPPING ---
+    // --- CANISTER RELATIONSHIP INFO ---
     
-    // Track what canisters a user has relationships with (not ownership)
-    public type UserRelationshipMap = {
-        distributions: [Principal]; // distributions where user is recipient
-        launchpads: [Principal]; // launchpads user participated in
-        daos: [Principal]; // DAOs user is member of
-        multisigs: [Principal]; // multisig wallets user is signer of
-        // Can add more relationship types as needed
-    };
-
-    public func emptyUserRelationshipMap() : UserRelationshipMap {
-        {
-            distributions = [];
-            launchpads = [];
-            daos = [];
-            multisigs = [];
-        }
-    };
-
-    // --- FACTORY REGISTRY STATE ---
-
-    public type State = {
-        var factoryRegistry: Trie.Trie<Text, Principal>; // actionType text -> factory principal
-        var supportedFactoryTypes: [AuditTypes.ActionType]; // supported factory types
-        var userRelationships: Trie.Trie<Text, UserRelationshipMap>; // user principal text -> relationships
-        var relationshipMetadata: Trie.Trie<Text, RelationshipInfo>; // relationship ID -> metadata
-        var adminPrincipals: [Principal]; // authorized admins
-    };
-
-    public type StableState = {
-        factoryRegistry: [(Text, Principal)];
-        supportedFactoryTypes: [AuditTypes.ActionType];
-        userRelationships: [(Text, UserRelationshipMap)];
-        relationshipMetadata: [(Text, RelationshipInfo)];
-        adminPrincipals: [Principal];
-    };
-
-    public func emptyState() : State {
-        {
-            var factoryRegistry = Trie.empty();
-            var supportedFactoryTypes = [
-                #CreateDistribution,
-                #CreateToken, 
-                #CreateTemplate
-                // Add more as factories are developed
-            ];
-            var userRelationships = Trie.empty();
-            var relationshipMetadata = Trie.empty();
-            var adminPrincipals = [];
-        }
-    };
-
-    // --- RELATIONSHIP METADATA ---
-
-    public type RelationshipInfo = {
-        id: Text; // unique relationship ID
+    public type CanisterRelationship = {
+        canisterId: Principal;
         relationshipType: RelationshipType;
-        canisterId: Principal; // target canister
-        userId: Principal; // user in relationship
-        factoryPrincipal: Principal; // factory that created the canister
+        factoryPrincipal: Principal;
         createdAt: Common.Timestamp;
         metadata: RelationshipMetadata;
+        isActive: Bool;
     };
 
     public type RelationshipType = {
@@ -92,8 +36,28 @@ module FactoryRegistryTypes {
     public type RelationshipMetadata = {
         name: Text; // Human readable name
         description: ?Text;
-        isActive: Bool; // Whether relationship is still active
         additionalData: ?Text; // JSON string for extra data
+    };
+
+    // --- USER-CENTRIC STORAGE ---
+    
+    // Single map: User Principal -> List of their canister relationships
+    public type UserCanisterRelationships = [CanisterRelationship];
+
+    // --- FACTORY REGISTRY STATE ---
+    
+    public type State = {
+        var userRelationships: Trie.Trie<Text, UserCanisterRelationships>; // user principal text -> relationships
+    };
+
+    public type StableState = {
+        userRelationships: [(Text, UserCanisterRelationships)];
+    };
+
+    public func emptyState() : State {
+        {
+            var userRelationships = Trie.empty();
+        }
     };
 
     // --- RESULT TYPES ---
@@ -167,28 +131,6 @@ module FactoryRegistryTypes {
         }
     };
 
-    public func isFactoryTypeSupported(supportedTypes: [AuditTypes.ActionType], actionType: AuditTypes.ActionType) : Bool {
-        for (supportedType in supportedTypes.vals()) {
-            if (supportedType == actionType) {
-                return true;
-            };
-        };
-        false
-    };
-
-    public func generateRelationshipId(
-        relationshipType: RelationshipType,
-        user: Principal,
-        canisterId: Principal,
-        timestamp: Common.Timestamp
-    ) : Text {
-        let typeText = relationshipTypeToText(relationshipType);
-        let userText = Principal.toText(user);
-        let canisterText = Principal.toText(canisterId);
-        let timeText = Int.toText(timestamp / 1_000_000); // Convert ns to ms
-        typeText # ":" # userText # ":" # canisterText # ":" # timeText
-    };
-
     public func relationshipTypeToText(relationshipType: RelationshipType) : Text {
         switch (relationshipType) {
             case (#DistributionRecipient) { "DistributionRecipient" };
@@ -208,60 +150,110 @@ module FactoryRegistryTypes {
         }
     };
 
-    // Create user relationship map from arrays
-    public func createUserRelationshipMap(
-        distributions: [Principal],
-        launchpads: [Principal],
-        daos: [Principal],
-        multisigs: [Principal]
-    ) : UserRelationshipMap {
+    // Create new canister relationship
+    public func createCanisterRelationship(
+        canisterId: Principal,
+        relationshipType: RelationshipType,
+        factoryPrincipal: Principal,
+        metadata: RelationshipMetadata
+    ) : CanisterRelationship {
         {
-            distributions = distributions;
-            launchpads = launchpads;
-            daos = daos;
-            multisigs = multisigs;
+            canisterId = canisterId;
+            relationshipType = relationshipType;
+            factoryPrincipal = factoryPrincipal;
+            createdAt = Time.now();
+            metadata = metadata;
+            isActive = true;
         }
     };
 
-    // Add relationship to user map
-    public func addRelationshipToUserMap(
-        userMap: UserRelationshipMap,
-        relationshipType: RelationshipType,
-        canisterId: Principal
-    ) : UserRelationshipMap {
-        switch (relationshipType) {
-            case (#DistributionRecipient) {
-                createUserRelationshipMap(
-                    Array.append(userMap.distributions, [canisterId]),
-                    userMap.launchpads,
-                    userMap.daos,
-                    userMap.multisigs
-                )
+    // Add relationship to user's list
+    public func addRelationshipToUser(
+        userRelationships: UserCanisterRelationships,
+        newRelationship: CanisterRelationship
+    ) : UserCanisterRelationships {
+        // Check if relationship already exists
+        for (existing in userRelationships.vals()) {
+            if (existing.canisterId == newRelationship.canisterId and 
+                existing.relationshipType == newRelationship.relationshipType) {
+                // Relationship already exists, return unchanged
+                return userRelationships;
             };
-            case (#LaunchpadParticipant) {
-                createUserRelationshipMap(
-                    userMap.distributions,
-                    Array.append(userMap.launchpads, [canisterId]),
-                    userMap.daos,
-                    userMap.multisigs
-                )
-            };
-            case (#DAOMember) {
-                createUserRelationshipMap(
-                    userMap.distributions,
-                    userMap.launchpads,
-                    Array.append(userMap.daos, [canisterId]),
-                    userMap.multisigs
-                )
-            };
-            case (#MultisigSigner) {
-                createUserRelationshipMap(
-                    userMap.distributions,
-                    userMap.launchpads,
-                    userMap.daos,
-                    Array.append(userMap.multisigs, [canisterId])
-                )
-            };
+        };
+        
+        // Add new relationship
+        Array.append(userRelationships, [newRelationship])
+    };
+
+    // Remove relationship from user's list
+    public func removeRelationshipFromUser(
+        userRelationships: UserCanisterRelationships,
+        canisterId: Principal,
+        relationshipType: RelationshipType
+    ) : UserCanisterRelationships {
+        Array.filter(userRelationships, func(rel: CanisterRelationship) : Bool {
+            not (rel.canisterId == canisterId and rel.relationshipType == relationshipType)
+        })
+    };
+
+    // Filter relationships by type
+    public func filterRelationshipsByType(
+        userRelationships: UserCanisterRelationships,
+        relationshipType: RelationshipType
+    ) : UserCanisterRelationships {
+        Array.filter(userRelationships, func(rel: CanisterRelationship) : Bool {
+            rel.relationshipType == relationshipType
+        })
+    };
+
+    // Filter relationships by active status
+    public func filterRelationshipsByActive(
+        userRelationships: UserCanisterRelationships,
+        includeInactive: Bool
+    ) : UserCanisterRelationships {
+        if (includeInactive) {
+            userRelationships
+        } else {
+            Array.filter(userRelationships, func(rel: CanisterRelationship) : Bool {
+                rel.isActive
+            })
+        }
+    };
+
+    // Extract canister IDs by relationship type (for backward compatibility)
+    public func extractCanisterIdsByType(
+        userRelationships: UserCanisterRelationships,
+        relationshipType: RelationshipType
+    ) : [Principal] {
+        let filtered = filterRelationshipsByType(userRelationships, relationshipType);
+        Array.map(filtered, func(rel: CanisterRelationship) : Principal {
+            rel.canisterId
+        })
+    };
+
+    // Create backward-compatible UserRelationshipMap
+    public type UserRelationshipMap = {
+        distributions: [Principal];
+        launchpads: [Principal];
+        daos: [Principal];
+        multisigs: [Principal];
+    };
+
+    public func toBackwardCompatibleMap(userRelationships: UserCanisterRelationships) : UserRelationshipMap {
+        {
+            distributions = extractCanisterIdsByType(userRelationships, #DistributionRecipient);
+            launchpads = extractCanisterIdsByType(userRelationships, #LaunchpadParticipant);
+            daos = extractCanisterIdsByType(userRelationships, #DAOMember);
+            multisigs = extractCanisterIdsByType(userRelationships, #MultisigSigner);
+        }
+    };
+
+    public func emptyUserRelationshipMap() : UserRelationshipMap {
+        {
+            distributions = [];
+            launchpads = [];
+            daos = [];
+            multisigs = [];
         }
     };
 }

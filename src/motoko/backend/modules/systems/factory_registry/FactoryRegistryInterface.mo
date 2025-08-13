@@ -1,105 +1,142 @@
 import Principal "mo:base/Principal";
 
 import FactoryRegistryTypes "FactoryRegistryTypes";
+import AuditTypes "../audit/AuditTypes";
 
 module FactoryRegistryInterface {
 
     // Import types for convenience
-    type DeploymentType = FactoryRegistryTypes.DeploymentType;
-    type UserDeploymentMap = FactoryRegistryTypes.UserDeploymentMap;
-    type DeploymentInfo = FactoryRegistryTypes.DeploymentInfo;
-    type DeploymentMetadata = FactoryRegistryTypes.DeploymentMetadata;
+    type RelationshipType = FactoryRegistryTypes.RelationshipType;
+    type UserRelationshipMap = FactoryRegistryTypes.UserRelationshipMap;
+    type UserCanisterRelationships = FactoryRegistryTypes.UserCanisterRelationships;
+    type CanisterRelationship = FactoryRegistryTypes.CanisterRelationship;
+    type RelationshipMetadata = FactoryRegistryTypes.RelationshipMetadata;
     type FactoryRegistryResult<T> = FactoryRegistryTypes.FactoryRegistryResult<T>;
-    type UserDeploymentQuery = FactoryRegistryTypes.UserDeploymentQuery;
-    type DeploymentQuery = FactoryRegistryTypes.DeploymentQuery;
+    type UserRelationshipQuery = FactoryRegistryTypes.UserRelationshipQuery;
+    type RelationshipQuery = FactoryRegistryTypes.RelationshipQuery;
 
     // ==================================================================================================
-    // FACTORY REGISTRY INTERFACE
+    // FACTORY REGISTRY INTERFACE - User-Centric Relationship Tracking
     // Public interface for interacting with factory registry system
+    // Simplified from complex relationshipId system to user-centric approach
     // ==================================================================================================
 
     public type FactoryRegistryInterface = {
         
         // --- FACTORY MANAGEMENT ---
         
-        // Register a factory for a specific deployment type
+        // Register a factory for a specific action type
         registerFactory: (
-            deploymentType: DeploymentType,
+            actionType: AuditTypes.ActionType,
             factoryPrincipal: Principal
         ) -> async FactoryRegistryResult<()>;
         
-        // Get factory principal for a deployment type
+        // Get factory principal for an action type
         getFactory: (
-            deploymentType: DeploymentType
+            actionType: AuditTypes.ActionType
         ) -> async FactoryRegistryResult<Principal>;
         
         // Get all registered factories
-        getAllFactories: () -> async [(DeploymentType, Principal)];
+        getAllFactories: () -> async [(AuditTypes.ActionType, Principal)];
         
-        // --- USER DEPLOYMENT INDEX ---
+        // --- USER RELATIONSHIP TRACKING ---
         
-        // Add deployment to user's index
-        addUserDeployment: (
+        // Add relationship for a single user
+        addUserRelationship: (
             user: Principal,
-            deploymentType: DeploymentType,
-            deploymentId: Principal
+            relationshipType: RelationshipType,
+            canisterId: Principal,
+            metadata: RelationshipMetadata
         ) -> async FactoryRegistryResult<()>;
         
-        // Get all deployments for a user
-        getUserDeployments: (
-            queryObj: UserDeploymentQuery
-        ) -> async FactoryRegistryResult<UserDeploymentMap>;
-        
-        // Batch add recipients to deployment index
-        batchAddRecipients: (
-            deploymentType: DeploymentType,
-            deploymentId: Principal,
-            recipients: [Principal]
+        // Batch add users to canister relationship
+        batchAddUserRelationships: (
+            relationshipType: RelationshipType,
+            canisterId: Principal,
+            users: [Principal],
+            metadata: RelationshipMetadata
         ) -> async FactoryRegistryResult<()>;
         
-        // --- DEPLOYMENT METADATA ---
+        // Get user relationships in backward-compatible format
+        getUserRelationships: (
+            queryObj: UserRelationshipQuery
+        ) -> async FactoryRegistryResult<UserRelationshipMap>;
         
-        // Main integration function - called after deployment
-        postDeploymentCallback: (
-            creator: Principal,
-            deploymentType: DeploymentType,
-            deploymentId: Principal,
-            recipients: ?[Principal],
-            metadata: DeploymentMetadata
-        ) -> async FactoryRegistryResult<Text>;
+        // Get user relationships in new detailed format
+        getUserCanisterRelationships: (
+            queryObj: UserRelationshipQuery
+        ) -> async FactoryRegistryResult<UserCanisterRelationships>;
+        
+        // --- EXTERNAL CONTRACT CALLBACKS ---
+        
+        // Public API for external contracts to register user relationships
+        updateUserRelationships: (
+            relationshipType: RelationshipType,
+            canisterId: Principal,
+            users: [Principal],
+            metadata: RelationshipMetadata
+        ) -> async FactoryRegistryResult<()>;
+        
+        // Remove user relationship
+        removeUserRelationship: (
+            user: Principal,
+            relationshipType: RelationshipType,
+            canisterId: Principal
+        ) -> async FactoryRegistryResult<()>;
         
         // --- QUERY FUNCTIONS ---
         
-        // Query deployments with filters
-        queryDeployments: (
-            queryObj: DeploymentQuery
-        ) -> async FactoryRegistryResult<[DeploymentInfo]>;
+        // Query relationships with filters
+        queryRelationships: (
+            queryObj: RelationshipQuery
+        ) -> async FactoryRegistryResult<[CanisterRelationship]>;
         
-        // Get deployment info by ID
-        getDeploymentInfo: (
-            deploymentId: Text
-        ) -> async FactoryRegistryResult<DeploymentInfo>;
+        // Get relationships by type (simplified)
+        getRelatedCanisters: (
+            user: ?Principal
+        ) -> async FactoryRegistryResult<UserRelationshipMap>;
+        
+        // Get relationships by type and user
+        getRelatedCanistersByType: (
+            relationshipType: RelationshipType,
+            user: ?Principal
+        ) -> async FactoryRegistryResult<[Principal]>;
         
         // --- UTILITY FUNCTIONS ---
         
-        // Check if deployment type is supported
-        isDeploymentTypeSupported: (
-            deploymentType: DeploymentType
+        // Check if factory type is supported
+        isFactoryTypeSupported: (
+            actionType: AuditTypes.ActionType
         ) -> async Bool;
         
-        // Get all supported deployment types
-        getSupportedTypes: () -> async [DeploymentType];
+        // Get all supported factory types
+        getSupportedFactoryTypes: () -> async [AuditTypes.ActionType];
         
         // --- ADMIN FUNCTIONS ---
         
-        // Add new deployment type to supported list
-        addSupportedDeploymentType: (
-            deploymentType: DeploymentType
+        // Add new factory type to supported list
+        addSupportedFactoryType: (
+            actionType: AuditTypes.ActionType
         ) -> async FactoryRegistryResult<()>;
         
         // Add new admin principal
         addAdmin: (
             newAdmin: Principal
+        ) -> async FactoryRegistryResult<()>;
+        
+        // Manually add relationship (for admin correction)
+        adminAddUserRelationship: (
+            user: Principal,
+            relationshipType: RelationshipType,
+            canisterId: Principal,
+            metadata: RelationshipMetadata
+        ) -> async FactoryRegistryResult<()>;
+        
+        // Manually remove relationship (for admin correction)  
+        adminRemoveUserRelationship: (
+            user: Principal,
+            relationshipType: RelationshipType,
+            canisterId: Principal
         ) -> async FactoryRegistryResult<()>;
     };
 }

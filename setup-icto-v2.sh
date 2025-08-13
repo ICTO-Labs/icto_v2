@@ -46,10 +46,13 @@ echo -e "${GREEN}✅ Template Factory ID: ${TEMPLATE_FACTORY_ID}${NC}"
 echo -e "${GREEN}✅ Distribution Factory ID: ${DISTRIBUTION_FACTORY_ID}${NC}"
 # Step 3: Add sufficient cycles to token_deployer BEFORE setup
 echo -e "\n${BLUE}💰 Step 3: Adding cycles to token_deployer...${NC}"
-dfx canister deposit-cycles 5000000000000 token_factory
+
+## topup cycles to token_factory
+dfx ledger fabricate-cycles --canister token_factory --t 100
+dfx ledger fabricate-cycles --canister distribution_factory --t 100
 
 if [ $? -eq 0 ]; then
-    echo -e "${GREEN}✅ Cycles added to token_factory${NC}"
+    echo -e "${GREEN}✅ Cycles added to token_factory and distribution_factory${NC}"
 else
     echo -e "${RED}❌ Failed to add cycles${NC}"
     exit 1
@@ -127,7 +130,7 @@ if [[ -n "$FAILED_SERVICES" ]]; then
 fi
 
 # Check if critical services failed
-CRITICAL_SERVICES="audit_storage invoice_storage token_deployer"
+CRITICAL_SERVICES="audit_storage invoice_storage token_factory distribution_factory"
 CRITICAL_FAILED=""
 
 for critical_service in $CRITICAL_SERVICES; do

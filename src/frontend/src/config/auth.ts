@@ -11,10 +11,6 @@ const frontendCanisterId = import.meta.env.VITE_FRONTEND_CANISTER_ID;
 const delegationTargets = [
     canisters.backend.canisterId,
     canisters.icp.canisterId,
-    canisters.icrc1.canisterId,
-    canisters.icrc2.canisterId,
-    canisters.internet_identity.canisterId,
-    canisters.distribution_contract.canisterId,
 ].filter(Boolean);
 
 

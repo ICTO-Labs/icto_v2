@@ -1,5 +1,6 @@
 // Types for Distribution Campaigns - V2 Architecture
 import type { DeploymentRecord, EligibilityType, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic } from '../../../declarations/backend/backend.did'
+import type { DistributionConfig, DistributionStats, Result } from '../../../declarations/distribution_contract/distribution_contract.did'
 
 export type CampaignStatus = 'Ongoing' | 'Upcoming' | 'Ended' | 'Created' | 'Deployed' | 'Active' | 'Paused' | 'Completed' | 'Cancelled';
 
@@ -11,6 +12,7 @@ export interface TokenInfo {
   icon?: string;
 }
 
+export type { DistributionConfig as DistributionDetails, DistributionStats, Result };
 export type { EligibilityType, DeploymentRecord, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic };
 // export type EligibilityType = 'Open' | 'Whitelist' | 'TokenHolder' | 'NFTHolder' | 'BlockIDScore' | 'Hybrid';
 // export type RecipientMode = 'Fixed' | 'Dynamic' | 'SelfService';
@@ -64,7 +66,7 @@ export interface FeeTier {
   feeRate: number;
 }
 
-export interface DistributionConfig {
+export interface DistributionConfig1 {
   // Basic Information
   title: string;
   description: string;
@@ -153,12 +155,17 @@ export interface Participant {
   status: 'Claimed' | 'Unclaimed' | 'Partially Claimed';
 }
 
+// Campaign types
+export type CampaignType = 'Airdrop' | 'Vesting' | 'Lock';
+
 // Form types for creation flow
 export interface DistributionFormData {
   // Step 1: Basic Info
   title: string;
   description: string;
   isPublic: boolean;
+  campaignType?: CampaignType;
+  useBlockId?: boolean;
   
   // Step 2: Token Selection
   tokenInfo: Partial<TokenInfo>;
@@ -198,13 +205,38 @@ export interface DistributionFormData {
   externalCheckers?: Array<{name: string, canisterId: string}>;
 }
 
-// Creation response types
-export interface DeploymentResult {
-  distributionCanisterId: string;
+// Real-time Distribution Data Types
+export interface DistributionCanister {
+  canisterId: string;
+  relationshipType: 'DistributionRecipient' | 'DistributionCreator';
+  metadata: {
+    name: string;
+    description?: string;
+    isActive: boolean;
+  };
 }
 
-export interface CreateDistributionResponse {
-  success: boolean;
-  result?: DeploymentResult;
-  error?: string;
-}
+// export interface DistributionStats {
+//   totalAmount: bigint;
+//   distributedAmount: bigint;
+//   recipientCount: number;
+//   status: 'Active' | 'Paused' | 'Completed' | 'Cancelled';
+//   startTime?: bigint;
+//   endTime?: bigint;
+//   progress: number; // 0-100
+// }
+
+// export interface DistributionDetails {
+//   title: string;
+//   description: string;
+//   tokenInfo: {
+//     symbol: string;
+//     canisterId: string;
+//     decimals: number;
+//   };
+//   vestingSchedule: any; // Define based on your vesting structure
+//   eligibilityType: 'Whitelist' | 'Public' | 'Criteria';
+//   stats: DistributionStats;
+// }
+
+// Creation response types

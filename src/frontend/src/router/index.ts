@@ -191,33 +191,27 @@ const router = createRouter({
   
     {
       path: '/distribution',
+      name: 'Distribution',
       component: () => import('../views/Distribution/DistributionIndex.vue'),
-      children: [
-        {
-          path: '',
-          name: 'Distribution',
-          component: () => import('../views/Distribution/DistributionList.vue'),
-          meta: {
-            title: 'Distribution Center',
-          },
-        },
-        {
-          path: 'create',
-          name: 'DistributionCreate',
-          component: () => import('../views/Distribution/DistributionCreate.vue'),
-          meta: {
-            title: 'Create Distribution',
-          },
-        },
-        {
-          path: ':id',
-          name: 'DistributionDetail',
-          component: () => import('../views/Distribution/DistributionDetail.vue'),
-          meta: {
-            title: 'Distribution Detail',
-          },
-        },
-      ],
+      meta: {
+        title: 'Distribution Center',
+      },
+    },
+    {
+      path: '/distribution/create',
+      name: 'DistributionCreate',
+      component: () => import('../views/Distribution/DistributionCreate.vue'),
+      meta: {
+        title: 'Create Distribution',
+      },
+    },
+    {
+      path: '/distribution/:id',
+      name: 'DistributionDetail',
+      component: () => import('../views/Distribution/DistributionDetail.vue'),
+      meta: {
+        title: 'Distribution Detail',
+      },
     },
     {
       path: '/launchpad',

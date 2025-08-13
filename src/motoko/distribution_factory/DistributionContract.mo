@@ -4,224 +4,84 @@ import Result "mo:base/Result";
 import Time "mo:base/Time";
 import Text "mo:base/Text";
 import Trie "mo:base/Trie";
-import Array "mo:base/Array";
 import Buffer "mo:base/Buffer";
 import Debug "mo:base/Debug";
 import Cycles "mo:base/ExperimentalCycles";
 import Int "mo:base/Int";
-import Hash "mo:base/Hash";
-import Iter "mo:base/Iter";
 import Option "mo:base/Option";
 import Float "mo:base/Float";
-import Types "Types";
+import Nat "mo:base/Nat";
 
-persistent actor class DistributionContract(init_config: Types.DistributionConfig, init_creator: Principal) = self {
+// Import shared types (trust source)
+import DistributionTypes "../backend/shared/types/DistributionTypes";
 
-    // ================ TYPES ================
+persistent actor class DistributionContract(init_config: DistributionTypes.DistributionConfig, init_creator: Principal) = self {
+
+    // ================ TYPE ALIASES (from shared types) ================
     
-    public type TokenInfo = {
-        canisterId: Principal;
-        symbol: Text;
-        name: Text;
-        decimals: Nat8;
-    };
+    public type TokenInfo = DistributionTypes.TokenInfo;
+    public type EligibilityType = DistributionTypes.EligibilityType;
+    public type Recipient = DistributionTypes.Recipient;
+    public type CampaignType = DistributionTypes.CampaignType;
 
-    public type EligibilityType = {
-        #Open;
-        #Whitelist: [Principal];
-        #TokenHolder: TokenHolderConfig;
-        #NFTHolder: NFTHolderConfig;
-        #BlockIDScore: Nat;
-        #Hybrid: {
-            conditions: [EligibilityType];
-            logic: EligibilityLogic;
-        };
-    };
-
-    public type TokenHolderConfig = {
-        canisterId: Principal;
-        minAmount: Nat;
-        snapshotTime: ?Time.Time;
-    };
-
-    public type NFTHolderConfig = {
-        canisterId: Principal;
-        minCount: Nat;
-        collections: ?[Text];
-    };
-
-    public type EligibilityLogic = {
-        #AND;
-        #OR;
-    };
-
-    public type RecipientMode = {
-        #Fixed;
-        #Dynamic;
-        #SelfService;
-    };
-
-    public type RegistrationPeriod = {
-        startTime: Time.Time;
-        endTime: Time.Time;
-        maxParticipants: ?Nat;
-    };
-
-    public type VestingSchedule = {
-        #Instant;
-        #Linear: LinearVesting;
-        #Cliff: CliffVesting;
-        #SteppedCliff: [CliffStep];
-        #Custom: [UnlockEvent];
-    };
-
-    public type LinearVesting = {
-        duration: Nat;
-        frequency: UnlockFrequency;
-    };
-
-    public type CliffVesting = {
-        cliffDuration: Nat;
-        cliffPercentage: Nat;
-        vestingDuration: Nat;
-        frequency: UnlockFrequency;
-    };
-
-    public type CliffStep = {
-        timeOffset: Nat;
-        percentage: Nat;
-    };
-
-    public type UnlockEvent = {
-        timestamp: Time.Time;
-        amount: Nat;
-    };
-
-    public type UnlockFrequency = {
-        #Continuous;
-        #Daily;
-        #Weekly;
-        #Monthly;
-        #Quarterly;
-        #Yearly;
-        #Custom: Nat;
-    };
-
-    public type FeeStructure = {
-        #Free;
-        #Fixed: Nat;
-        #Percentage: Nat;
-        #Progressive: [FeeTier];
-        #RecipientPays;
-        #CreatorPays;
-    };
-
-    public type FeeTier = {
-        threshold: Nat;
-        feeRate: Nat;
-    };
-
-    public type DistributionConfig = {
-        // Basic Information
-        title: Text;
-        description: Text;
-        
-        // Token Configuration
-        tokenInfo: TokenInfo;
-        totalAmount: Nat;
-        
-        // Eligibility & Recipients
-        eligibilityType: EligibilityType;
-        eligibilityLogic: ?EligibilityLogic;
-        recipientMode: RecipientMode;
-        maxRecipients: ?Nat;
-        
-        // Vesting Configuration
-        vestingSchedule: VestingSchedule;
-        initialUnlockPercentage: Nat;
-        
-        // Timing
-        registrationPeriod: ?RegistrationPeriod;
-        distributionStart: Time.Time;
-        distributionEnd: ?Time.Time;
-        
-        // Fees & Permissions
-        feeStructure: FeeStructure;
-        allowCancel: Bool;
-        allowModification: Bool;
-        
-        // Owner & Governance
-        owner: Principal;
-        governance: ?Principal;
-        
-        // External Integrations
-        externalCheckers: ?[(Text, Principal)];
-    };
-
-    public type DistributionStatus = {
-        #Created;
-        #Active;
-        #Paused;
-        #Completed;
-        #Cancelled;
-    };
-
-    public type ParticipantStatus = {
-        #Registered;
-        #Eligible;
-        #Ineligible;
-        #Claimed;
-        #PartialClaim;
-    };
-
-    public type Participant = {
-        principal: Principal;
-        registeredAt: Time.Time;
-        eligibleAmount: Nat;
-        claimedAmount: Nat;
-        lastClaimTime: ?Time.Time;
-        status: ParticipantStatus;
-        vestingStart: ?Time.Time;
-    };
-
-    public type ClaimRecord = {
-        participant: Principal;
-        amount: Nat;
-        timestamp: Time.Time;
-        blockHeight: ?Nat;
-        transactionId: ?Text;
-    };
-
-    public type DistributionStats = {
-        totalParticipants: Nat;
-        totalDistributed: Nat;
-        totalClaimed: Nat;
-        remainingAmount: Nat;
-        completionPercentage: Float;
-        isActive: Bool;
-    };
+    public type TokenHolderConfig = DistributionTypes.TokenHolderConfig;
+    public type NFTHolderConfig = DistributionTypes.NFTHolderConfig;
+    public type EligibilityLogic = DistributionTypes.EligibilityLogic;
+    public type RecipientMode = DistributionTypes.RecipientMode;
+    public type RegistrationPeriod = DistributionTypes.RegistrationPeriod;
+    public type VestingSchedule = DistributionTypes.VestingSchedule;
+    public type LinearVesting = DistributionTypes.LinearVesting;
+    public type CliffVesting = DistributionTypes.CliffVesting;
+    public type CliffStep = DistributionTypes.CliffStep;
+    public type UnlockEvent = DistributionTypes.UnlockEvent;
+    public type UnlockFrequency = DistributionTypes.UnlockFrequency;
+    public type FeeStructure = DistributionTypes.FeeStructure;
+    public type FeeTier = DistributionTypes.FeeTier;
+    public type DistributionConfig = DistributionTypes.DistributionConfig;
+    public type DistributionStatus = DistributionTypes.DistributionStatus;
+    public type ParticipantStatus = DistributionTypes.ParticipantStatus;
+    public type Participant = DistributionTypes.Participant;
+    public type ClaimRecord = DistributionTypes.ClaimRecord;
+    public type DistributionStats = DistributionTypes.DistributionStats;
 
     // ================ STABLE VARIABLES ================
     
-    private stable var config: DistributionConfig = init_config;
-    private stable var creator: Principal = init_creator;
-    private stable var status: DistributionStatus = #Created;
-    private stable var createdAt: Time.Time = Time.now();
+    private var config: DistributionConfig = init_config;
+    private var creator: Principal = init_creator;
+    private var status: DistributionStatus = #Created;
+    private var createdAt: Time.Time = Time.now();
+    private var initialized: Bool = false;
     
     // Participant management
-    private stable var participantsStable: [(Principal, Participant)] = [];
-    private stable var claimRecordsStable: [ClaimRecord] = [];
-    private stable var whitelistStable: [(Principal, Bool)] = [];
+    private var participantsStable: [(Principal, Participant)] = [];
+    private var claimRecordsStable: [ClaimRecord] = [];
+    private var whitelistStable: [(Principal, Bool)] = [];
     
     // Stats
-    private stable var totalDistributed: Nat = 0;
-    private stable var totalClaimed: Nat = 0;
-    private stable var participantCount: Nat = 0;
+    private var totalDistributed: Nat = 0;
+    private var totalClaimed: Nat = 0;
+    private var participantCount: Nat = 0;
     
     // Runtime variables
     private transient var participants: Trie.Trie<Principal, Participant> = Trie.empty();
     private transient var claimRecords: Buffer.Buffer<ClaimRecord> = Buffer.Buffer(0);
     private transient var whitelist: Trie.Trie<Principal, Bool> = Trie.empty();
+
+    // Initialize whitelist and participants from config on contract creation
+    public shared({ caller }) func init() : async Result.Result<(), Text> {
+        if (not _isOwner(caller)) {
+            return #err("Unauthorized: Only owner can initialize distribution");
+        };
+
+        if (initialized) {
+            return #err("Distribution already initialized");
+        };
+        
+        // Initialize whitelist and participants from config
+        _initializeWhitelist();
+        initialized := true;
+        #ok()
+    };
 
     // ================ INITIALIZATION ================
     
@@ -282,12 +142,29 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
     
     private func _initializeWhitelist() {
         switch (config.eligibilityType) {
-            case (#Whitelist(addresses)) {
-                for (address in addresses.vals()) {
-                    whitelist := Trie.put(whitelist, _principalKey(address), Principal.equal, true).0;
+            case (#Whitelist) {
+                // Initialize whitelist from recipients field
+                for (recipient in config.recipients.vals()) {
+                    whitelist := Trie.put(whitelist, _principalKey(recipient.address), Principal.equal, true).0;
+                    
+                    // For whitelist distributions, also initialize participants directly
+                    let participant: Participant = {
+                        principal = recipient.address;
+                        registeredAt = Time.now();
+                        eligibleAmount = recipient.amount;
+                        claimedAmount = 0;
+                        lastClaimTime = null;
+                        status = #Eligible;
+                        vestingStart = null;
+                        note = recipient.note;
+                    };
+                    participants := Trie.put(participants, _principalKey(recipient.address), Principal.equal, participant).0;
+                    participantCount += 1;
                 };
             };
-            case (_) {};
+            case (_) {
+                // For non-whitelist distributions, participants register themselves
+            };
         };
     };
 
@@ -295,8 +172,9 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
     
     private func _checkEligibility(participant: Principal) : async Bool {
         switch (config.eligibilityType) {
-            case (#Open) { true };
-            case (#Whitelist(_)) {
+            case (#Open) { true }; // Anyone can register for open distributions
+            case (#Whitelist) {
+                // Check if participant is in the whitelist
                 switch (Trie.get(whitelist, _principalKey(participant), Principal.equal)) {
                     case (?eligible) { eligible };
                     case null { false };
@@ -361,7 +239,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
                 if (elapsed >= linear.duration) {
                     totalAmount
                 } else {
-                    let vestedAmount = (totalAmount - initialUnlock) * elapsed / linear.duration;
+                    let vestedAmount = Nat.mul(Nat.div(Nat.sub(totalAmount, initialUnlock), linear.duration), elapsed);
                     initialUnlock + vestedAmount
                 }
             };
@@ -372,8 +250,8 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
                     totalAmount
                 } else {
                     let cliffAmount = (totalAmount * cliff.cliffPercentage) / 100;
-                    let remainingAmount = totalAmount - initialUnlock - cliffAmount;
-                    let postCliffElapsed = elapsed - cliff.cliffDuration;
+                    let remainingAmount = Nat.sub(Nat.sub(totalAmount, initialUnlock), cliffAmount);
+                    let postCliffElapsed = Nat.sub(elapsed, cliff.cliffDuration);
                     let vestedAmount = remainingAmount * postCliffElapsed / cliff.vestingDuration;
                     initialUnlock + cliffAmount + vestedAmount
                 }
@@ -413,7 +291,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
     
     public query func getStats() : async DistributionStats {
         let remaining = if (config.totalAmount > totalDistributed) {
-            config.totalAmount - totalDistributed
+            Nat.sub(config.totalAmount, totalDistributed)
         } else { 0 };
         
         let completionPercentage = if (config.totalAmount > 0) {
@@ -433,6 +311,9 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
     // Participant Management
     public shared({ caller }) func register() : async Result.Result<(), Text> {
         // Check if registration is open
+        if(Principal.isAnonymous(caller)) {
+            return #err("Anonymous users cannot register");
+        };
         switch (config.registrationPeriod) {
             case (?period) {
                 let now = Time.now();
@@ -486,6 +367,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
             lastClaimTime = null;
             status = #Registered;
             vestingStart = null;
+            note = null; // No specific note for self-registered participants
         };
         
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
@@ -511,7 +393,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
         // Calculate unlocked amount
         let unlockedAmount = _calculateUnlockedAmount(participant);
         let claimableAmount = if (unlockedAmount > participant.claimedAmount) {
-            unlockedAmount - participant.claimedAmount
+            Nat.sub(unlockedAmount, participant.claimedAmount)
         } else { 0 };
         
         if (claimableAmount == 0) {
@@ -534,6 +416,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
                 #PartialClaim
             };
             vestingStart = participant.vestingStart;
+            note = participant.note; // Preserve existing note
         };
         
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, updatedParticipant).0;
@@ -563,7 +446,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
             case (?participant) {
                 let unlockedAmount = _calculateUnlockedAmount(participant);
                 if (unlockedAmount > participant.claimedAmount) {
-                    unlockedAmount - participant.claimedAmount
+                    Nat.sub(unlockedAmount, participant.claimedAmount)
                 } else { 0 }
             };
             case null { 0 };
@@ -670,6 +553,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
                         lastClaimTime = existing.lastClaimTime;
                         status = existing.status;
                         vestingStart = existing.vestingStart;
+                        note = existing.note; // Preserve existing note
                     };
                     participants := Trie.put(participants, _principalKey(principal), Principal.equal, updated).0;
                 };
@@ -683,6 +567,7 @@ persistent actor class DistributionContract(init_config: Types.DistributionConfi
                         lastClaimTime = null;
                         status = #Eligible;
                         vestingStart = ?Time.now();
+                        note = null; // No specific note for manually added participants
                     };
                     participants := Trie.put(participants, _principalKey(principal), Principal.equal, participant).0;
                     participantCount += 1;

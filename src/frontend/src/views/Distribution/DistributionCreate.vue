@@ -1,4 +1,5 @@
 <template>
+	<AdminLayout>
 	<div class="max-w-8xl mx-auto">
 		<!-- Header -->
 		<div class="mb-8">
@@ -19,43 +20,37 @@
 		<!-- Progress Steps -->
 		<div class="mb-8">
 			<nav aria-label="Progress">
-				<ol class="flex items-center">
-					<li v-for="(step, index) in steps" :key="step.id"
-						:class="index !== steps.length - 1 ? 'pr-8 sm:pr-20' : ''"
-						class="relative flex flex-col items-center min-w-0">
-						<div class="relative flex flex-col items-center">
-							<template v-if="index < currentStep">
-								<div class="absolute top-1/2 left-full w-8 sm:w-20 h-0.5 bg-blue-600 -translate-y-1/2 z-0"
-									v-if="index !== steps.length - 1"></div>
-								<div
-									class="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 z-10">
-									<CheckIcon class="h-5 w-5 text-white" />
-								</div>
-							</template>
-							<template v-else-if="index === currentStep">
-								<div class="absolute top-1/2 left-full w-8 sm:w-20 h-0.5 bg-gray-200 -translate-y-1/2 z-0"
-									v-if="index !== steps.length - 1"></div>
-								<div
-									class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-600 bg-white z-10">
-									<span class="text-blue-600 font-medium text-sm">{{ index + 1 }}</span>
-								</div>
-							</template>
-							<template v-else>
-								<div class="absolute top-1/2 left-full w-8 sm:w-20 h-0.5 bg-gray-200 -translate-y-1/2 z-0"
-									v-if="index !== steps.length - 1"></div>
-								<div
-									class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 bg-white z-10">
-									<span class="text-gray-500 font-medium text-sm">{{ index + 1 }}</span>
-								</div>
-							</template>
-							<span class="mt-2 text-sm font-medium text-center"
-								:class="index <= currentStep ? 'text-blue-600' : 'text-gray-500'">
-								{{ step.name }}
-							</span>
-						</div>
-					</li>
-				</ol>
-			</nav>
+                <ol class="flex items-center justify-between w-full">
+                    <li v-for="(step, index) in steps" :key="step.id"
+                        class="step-item relative flex-1 flex flex-col items-center"
+                        :class="{ 'completed': index < currentStep }">
+                        <div class="relative flex flex-col items-center">
+                            <template v-if="index < currentStep">
+                                <div class="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 z-10">
+                                    <svg class="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
+                                    </svg>
+                                </div>
+                            </template>
+                            <template v-else-if="index === currentStep">
+                                <div class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-600 bg-white z-10">
+                                    <span class="text-blue-600 font-medium text-sm">{{ index + 1 }}</span>
+                                </div>
+                            </template>
+                            <template v-else>
+                                <div class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 bg-white z-10">
+                                    <span class="text-gray-500 font-medium text-sm">{{ index + 1 }}</span>
+                                </div>
+                            </template>
+                            
+                            <span class="mt-2 text-sm font-medium text-center whitespace-nowrap"
+                                :class="index <= currentStep ? 'text-blue-600' : 'text-gray-500'">
+                                {{ step.name }}
+                            </span>
+                        </div>
+                    </li>
+                </ol>
+            </nav>
 		</div>
 
 		<!-- Form Content -->
@@ -66,6 +61,39 @@
 					<div>
 						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Basic Information</h3>
 						<div class="flex flex-col gap-6">
+							<!-- Campaign Type -->
+							<div>
+								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+									Campaign Type *
+								</label>
+								<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+									<label v-for="type in campaignTypes" :key="type.value"
+										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
+										:class="formData.campaignType === type.value
+											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
+										<input v-model="formData.campaignType" :value="type.value" type="radio"
+											class="sr-only" />
+										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="formData.campaignType === type.value
+											? 'bg-blue-600'
+											: 'bg-blue-50 dark:bg-blue-900/20'">
+											<component :is="type.icon" class="h-6 w-6" :class="formData.campaignType === type.value
+												? 'text-white'
+												: 'text-blue-600'" />
+										</div>
+										<div class="flex-1 min-w-0">
+											<div class="text-base font-medium text-gray-900 dark:text-white">{{
+												type.label }}
+											</div>
+											<div class="text-sm text-gray-500">{{ type.description }}</div>
+										</div>
+										<div v-if="formData.campaignType === type.value" class="ml-2">
+											<CheckIcon class="h-5 w-5 text-blue-600" />
+										</div>
+									</label>
+								</div>
+							</div>
+
 							<div>
 								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 									Campaign Title *
@@ -441,9 +469,12 @@
 
 							<!-- Total Distribution Amount -->
 							<div>
+								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+									Total Distribution Amount *
+								</label>
 								<div class="flex items-center justify-between" v-if="whitelistTotalAmount > 0">
 									<span class="text-sm font-medium text-blue-900 dark:text-blue-100">
-										Total Distribution Amount:
+										Calculated from whitelist:
 									</span>
 									<span class="text-lg font-bold text-blue-900 dark:text-blue-100">
 										{{ whitelistTotalAmount.toLocaleString() }} tokens
@@ -451,10 +482,27 @@
 								</div>
 								<input v-model.number="formData.totalAmount" type="number" required min="1" 
 									placeholder="1000000"
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" :disabled="whitelistTotalAmount > 0" />
-								<p class="mt-2 text-xs text-gray-500">Total amount of tokens to distribute (in smallest
-									unit)
-								</p>
+									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" 
+									:disabled="whitelistTotalAmount > 0" />
+								<p class="mt-2 text-xs text-gray-500">Total amount of tokens to distribute (in smallest unit)</p>
+								
+								<!-- Auto-set total amount for whitelist -->
+								<div v-if="whitelistTotalAmount > 0 && formData.totalAmount !== whitelistTotalAmount" class="mt-2">
+									<button 
+										type="button"
+										@click="formData.totalAmount = whitelistTotalAmount"
+										class="text-xs text-blue-600 hover:text-blue-700 underline">
+										Auto-set to {{ whitelistTotalAmount.toLocaleString() }} tokens
+									</button>
+								</div>
+								
+								<!-- Warning for mismatch -->
+								<div v-if="whitelistTotalAmount > 0 && formData.totalAmount > 0 && formData.totalAmount !== whitelistTotalAmount" 
+									class="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+									<p class="text-xs text-yellow-700 dark:text-yellow-300">
+										⚠️ Warning: Total amount ({{ formData.totalAmount.toLocaleString() }}) doesn't match whitelist calculation ({{ whitelistTotalAmount.toLocaleString() }})
+									</p>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -817,7 +865,46 @@
 									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
 								<p class="mt-2 text-xs text-gray-500">Principal that can manage this distribution (MiniDAO, SNS, etc.)</p>
 							</div>
-
+							<!-- Summary -->
+							<div
+								class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Distribution
+									Summary</h4>
+								<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+									<div>
+										<span class="text-gray-500">Campaign:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.title || 'Not set' }}</span>
+									</div>
+									<div>
+										<span class="text-gray-500">Type:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.campaignType || 'Not set' }}</span>
+									</div>
+									<div>
+										<span class="text-gray-500">Token:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.tokenInfo.symbol || 'Not set' }}</span>
+									</div>
+									<div>
+										<span class="text-gray-500">Total Amount:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.totalAmount || 0 }}</span>
+									</div>
+									<div>
+										<span class="text-gray-500">Eligibility:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.eligibilityType || 'Not set' }}</span>
+									</div>
+									<div>
+										<span class="text-gray-500">Vesting:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.vestingType || 'Not set' }}</span>
+									</div>
+									<div>
+										<span class="text-gray-500">Fee Type:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.feeType || 'Not set' }}</span>
+									</div>
+									<div v-if="formData.eligibilityType === 'Whitelist' && whitelistTotalRecipients > 0">
+										<span class="text-gray-500">Recipients:</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ whitelistTotalRecipients }} addresses</span>
+									</div>
+								</div>
+							</div>
 							<!-- Payment Section -->
 							<div
 								class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
@@ -933,38 +1020,7 @@
 								</div>
 							</div>
 
-							<!-- Summary -->
-							<div
-								class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Distribution
-									Summary</h4>
-								<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-									<div>
-										<span class="text-gray-500">Campaign:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.title || 'Not set' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Token:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.tokenInfo.symbol || 'Not set' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Total Amount:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.totalAmount || 0 }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Eligibility:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.eligibilityType || 'Not set' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Vesting:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.vestingType || 'Not set' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Fee Type:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.feeType || 'Not set' }}</span>
-									</div>
-								</div>
-							</div>
+							
 						</div>
 					</div>
 				</div>
@@ -991,8 +1047,8 @@
 								{{ paymentStep || 'Processing...' }}
 							</div>
 							<div v-else class="flex items-center">
-								<RocketIcon class="h-4 w-4 mr-2" />
-								Pay & Deploy Distribution
+								<!-- <RocketIcon class="h-4 w-4 mr-2" />
+								Pay & Deploy Distribution -->
 							</div>
 						</button>
 					</div>
@@ -1024,6 +1080,7 @@
 			</div>
 		</div>
 	</div>
+</AdminLayout>
 </template>
 
 <script setup lang="ts">
@@ -1053,7 +1110,10 @@ import {
 	TrendingUpIcon,
 	ClockIcon,
 	LayersIcon,
-	SettingsIcon
+	SettingsIcon,
+	GiftIcon,
+	LockIcon,
+	CalendarIcon
 } from 'lucide-vue-next'
 import type {
 	DistributionFormData,
@@ -1061,8 +1121,9 @@ import type {
 	RecipientMode,
 	VestingType,
 	FeeType,
-	DeploymentResult
+	CampaignType
 } from '@/types/distribution'
+import AdminLayout from '@/components/layout/AdminLayout.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -1074,7 +1135,7 @@ const progress = useProgressDialog()
 const currentStep = ref(0)
 const isSubmitting = ref(false)
 const showSuccessModal = ref(false)
-const deploymentResult = ref<DeploymentResult | null>(null)
+const deploymentResult = ref<{ distributionCanisterId?: string } | null>(null)
 
 // Payment state
 const isPaying = ref(false)
@@ -1117,6 +1178,7 @@ const formData = reactive<DistributionFormData>({
 	title: '',
 	description: '',
 	isPublic: true,
+	campaignType: 'Airdrop', // New field for campaign type
 	useBlockId: false,
 
 	// Step 2: Token Selection
@@ -1187,6 +1249,12 @@ const steps = [
 ]
 
 // Configuration options
+const campaignTypes = [
+	{ value: 'Airdrop', label: 'Airdrop', description: 'Free token distribution to community', icon: GiftIcon },
+	{ value: 'Vesting', label: 'Vesting', description: 'Gradual token unlock over time', icon: CalendarIcon },
+	{ value: 'Lock', label: 'Token Lock', description: 'Lock tokens for a specific period', icon: LockIcon }
+]
+
 const eligibilityTypes = [
 	{ value: 'Open', label: 'Open to All', description: 'Anyone can participate', icon: GlobeIcon },
 	{ value: 'Whitelist', label: 'Whitelist Only', description: 'Pre-approved addresses only', icon: ShieldCheckIcon },
@@ -1228,6 +1296,14 @@ const availableRecipientModes = computed(() => {
 	return recipientModes
 })
 
+// Calculate total whitelist recipients
+const whitelistTotalRecipients = computed(() => {
+	if (formData.eligibilityType !== 'Whitelist') return 0
+	
+	const recipients = whitelistText.value.split('\n').filter(line => line.trim().length > 0)
+	return recipients.length
+})
+
 // Calculate total whitelist distribution amount
 const whitelistTotalAmount = computed(() => {
 	if (formData.eligibilityType !== 'Whitelist') return 0
@@ -1250,7 +1326,7 @@ const whitelistTotalAmount = computed(() => {
 const canProceed = computed(() => {
 	switch (currentStep.value) {
 		case 0: // Basic Info
-			const basicValid = formData.title.trim() && formData.description.trim()
+			const basicValid = formData.title.trim() && formData.description.trim() && formData.campaignType
 			if (formData.useBlockId) {
 				return basicValid && formData.blockIdScore > 0
 			}
@@ -1347,11 +1423,68 @@ const previousStep = () => {
 	}
 }
 
+// Process all steps to ensure data integrity before deployment
+const processAllSteps = () => {
+	console.log('Processing all steps before deployment')
+	// Process step 1 (Eligibility)
+	if (formData.eligibilityType === 'Whitelist') {
+		console.log('Processing whitelist data:', whitelistText.value)
+		console.log('Whitelist amount type:', whitelistAmountType.value)
+		if (whitelistAmountType.value === 'same') {
+			formData.whitelistAddresses = whitelistText.value
+				.split('\n')
+				.map(line => line.trim())
+				.filter(line => line.length > 0)
+		} else {
+			formData.whitelistAddresses = whitelistText.value
+				.split('\n')
+				.filter(line => line.trim().length > 0)
+				.map(line => {
+					const [principal, amount, note] = line.trim().split(',');
+					return { principal: principal?.trim() || '', amount: parseInt(amount, 10), note: note?.trim() || '' };
+				})
+				.filter(item => item.principal.length > 0 && !isNaN(item.amount))
+		}
+		console.log('Processed whitelist addresses:', formData.whitelistAddresses)
+	}
+	
+	// Process step 3 (Vesting) - Convert days to nanoseconds
+	if (formData.vestingType === 'Linear') {
+		formData.linearConfig!.duration = linearDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+	}
+	if (formData.vestingType === 'Cliff') {
+		formData.cliffConfig!.cliffDuration = cliffDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+		formData.cliffConfig!.vestingDuration = vestingDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+	}
+	
+	// Process step 4 (Timing)
+	formData.distributionStart = new Date(distributionStartDate.value)
+	if (distributionEndDate.value) {
+		formData.distributionEnd = new Date(distributionEndDate.value)
+	}
+	if (formData.hasRegistrationPeriod && registrationStartDate.value && registrationEndDate.value) {
+		formData.registrationPeriod = {
+			startTime: new Date(registrationStartDate.value),
+			endTime: new Date(registrationEndDate.value),
+			maxParticipants: undefined
+		}
+	} else {
+		formData.registrationPeriod = null
+	}
+	
+	if (!hasMaxRecipients.value) {
+		formData.maxRecipients = undefined
+	}
+}
+
 // Process current step data
 const processCurrentStep = () => {
+	console.log('Processing step:', currentStep.value)
 	switch (currentStep.value) {
 		case 1: // Eligibility
 			if (formData.eligibilityType === 'Whitelist') {
+				console.log('Processing whitelist data:', whitelistText.value)
+				console.log('Whitelist amount type:', whitelistAmountType.value)
 				if (whitelistAmountType.value === 'same') {
 					formData.whitelistAddresses = whitelistText.value
 						.split('\n')
@@ -1367,6 +1500,7 @@ const processCurrentStep = () => {
 						})
 						.filter(item => item.principal.length > 0 && !isNaN(item.amount))
 				}
+				console.log('Processed whitelist addresses:', formData.whitelistAddresses)
 			}
 			if (!hasMaxRecipients.value) {
 				formData.maxRecipients = undefined
@@ -1415,6 +1549,7 @@ const buildDistributionConfig = () => {
 		title: formData.title,
 		description: formData.description,
 		isPublic: formData.isPublic,
+		campaignType: formData.campaignType || 'Airdrop', // Default to Airdrop if not set
 		tokenInfo: {
 			canisterId: formData.tokenInfo.canisterId!,
 			symbol: formData.tokenInfo.symbol!,
@@ -1423,7 +1558,14 @@ const buildDistributionConfig = () => {
 		},
 		totalAmount: formData.totalAmount,
 		eligibilityType: formData.eligibilityType,
-
+		// Include whitelist data when eligibility type is Whitelist
+		whitelistAddresses: formData.whitelistAddresses || [],
+		whitelistAmountType: whitelistAmountType.value,
+		whitelistSameAmount: whitelistSameAmount.value,
+		// Include token/NFT holder configurations
+		tokenHolderConfig: formData.tokenHolderConfig,
+		nftHolderConfig: formData.nftHolderConfig,
+		blockIdScore: formData.blockIdScore,
 		recipientMode: formData.recipientMode,
 		maxRecipients: formData.maxRecipients,
 		vestingSchedule: buildVestingSchedule(),
@@ -1439,6 +1581,7 @@ const buildDistributionConfig = () => {
 		externalCheckers: formData.externalCheckers?.length ? formData.externalCheckers : null
 	}
 
+	console.log('Distribution config being sent:', config)
 	return config
 }
 
@@ -1513,6 +1656,7 @@ const closeSuccessModal = () => {
 		title: '',
 		description: '',
 		isPublic: true,
+		campaignType: 'Airdrop',
 		tokenInfo: { canisterId: '', symbol: '', name: '', decimals: 8 },
 		totalAmount: 0,
 		eligibilityType: 'Open',
@@ -1523,7 +1667,9 @@ const closeSuccessModal = () => {
 		distributionStart: new Date(),
 		feeType: 'Free',
 		allowCancel: true,
-		allowModification: false
+		allowModification: false,
+		whitelistAddresses: [],
+		blockIdScore: 0
 	})
 	currentStep.value = 0
 }
@@ -1745,7 +1891,8 @@ const handlePayment = async () => {
 						break
 
 					case 3: // Deploy distribution
-						processCurrentStep()
+						// Process all steps to ensure data is properly set
+						processAllSteps()
 						const config = buildDistributionConfig()
 						const backendRequest = DistributionUtils.convertToBackendRequest(config)
 						const deployDistributionResult = await backendService.deployDistribution(backendRequest)
@@ -2007,11 +2154,29 @@ loadDeploymentCost()
 </script>
 
 <style scoped>
-.btn-primary {
-	@apply inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed;
-}
+	/* Custom CSS for connector lines */
+	.step-item:not(:last-child)::after {
+		content: '';
+		position: absolute;
+		top: 1rem;
+		left: calc(50% + 1.25rem); /* Distance from current step */
+		width: calc(100% - 2.5rem); /* Length of line */
+		height: 2px;
+		background-color: #e5e7eb;
+		z-index: 0;
+	}
 
-.btn-secondary {
-	@apply inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500;
-}
+	.step-item.completed:not(:last-child)::after {
+		background-color: #2563eb;
+	}
+	
+	/* Alternative approach with better positioning */
+	.connector-line {
+		position: absolute;
+		top: 1rem;
+		left: calc(50% + 1rem);
+		right: calc(-50% + 1rem);
+		height: 2px;
+		z-index: 0;
+	}
 </style>

@@ -3,8 +3,26 @@ import Principal "mo:base/Principal";
 import Text "mo:base/Text";
 import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
+import Array "mo:base/Array";
+import Float "mo:base/Float";
 
 module DistributionTypes {
+
+    // ================ CORE TYPES ================
+
+    // Campaign Types
+    public type CampaignType = {
+        #Airdrop;
+        #Vesting;
+        #Lock;
+    };
+
+    // Unified Recipient type for all participant data
+    public type Recipient = {
+        address: Principal;
+        amount: Nat;
+        note: ?Text;
+    };
 
 
 
@@ -14,6 +32,7 @@ module DistributionTypes {
         title: Text;
         description: Text;
         isPublic: Bool;
+        campaignType: CampaignType; // New field
         
         // Token Configuration
         tokenInfo: TokenInfo;
@@ -24,6 +43,9 @@ module DistributionTypes {
         eligibilityLogic: ?EligibilityLogic;
         recipientMode: RecipientMode;
         maxRecipients: ?Nat;
+        
+        // Unified Recipients List (replaces separate whitelist, etc.)
+        recipients: [Recipient]; // New unified field
         
         // Vesting Configuration
         vestingSchedule: VestingSchedule;
@@ -55,8 +77,8 @@ module DistributionTypes {
     };
 
     public type EligibilityType = {
-        #Open;
-        #Whitelist: [Principal];
+        #Open;        // Anyone can register themselves
+        #Whitelist;   // Only pre-defined recipients (from recipients field)
         #TokenHolder: TokenHolderConfig;
         #NFTHolder: NFTHolderConfig;
         #BlockIDScore: Nat;
@@ -192,5 +214,155 @@ module DistributionTypes {
         }
     };
 
+    // ================ PARTICIPANT TYPES ================
+
+    public type ParticipantStatus = {
+        #Registered;
+        #Eligible;
+        #Ineligible;
+        #Claimed;
+        #PartialClaim;
+    };
+
+    public type Participant = {
+        principal: Principal;
+        registeredAt: Time.Time;
+        eligibleAmount: Nat;
+        claimedAmount: Nat;
+        lastClaimTime: ?Time.Time;
+        status: ParticipantStatus;
+        vestingStart: ?Time.Time;
+        note: ?Text; // From Recipient.note
+    };
+
+    public type ClaimRecord = {
+        participant: Principal;
+        amount: Nat;
+        timestamp: Time.Time;
+        blockHeight: ?Nat;
+        transactionId: ?Text;
+    };
+
+    public type DistributionStats = {
+        totalParticipants: Nat;
+        totalDistributed: Nat;
+        totalClaimed: Nat;
+        remainingAmount: Nat;
+        completionPercentage: Float;
+        isActive: Bool;
+    };
+
+    // ================ RESULT TYPES ================
+
+    public type DistributionResult<T> = {
+        #Ok: T;
+        #Err: DistributionError;
+    };
+
+    public type DistributionError = {
+        #Unauthorized: Text;
+        #NotFound: Text;
+        #AlreadyExists: Text;
+        #InvalidInput: Text;
+        #InternalError: Text;
+        #InsufficientFunds: Text;
+        #DistributionNotActive: Text;
+        #RegistrationClosed: Text;
+        #MaxParticipantsReached: Text;
+        #NotEligible: Text;
+        #NothingToClaim: Text;
+        #VestingNotStarted: Text;
+        #InvalidPrincipal: Text;
+    };
+
+    // ================ HELPER FUNCTIONS ================
+
+    // Convert campaign type to text
+    public func campaignTypeToText(campaignType: CampaignType) : Text {
+        switch (campaignType) {
+            case (#Airdrop) { "Airdrop" };
+            case (#Vesting) { "Vesting" };
+            case (#Lock) { "Lock" };
+        }
+    };
+
+    // Convert text to campaign type
+    public func textToCampaignType(text: Text) : ?CampaignType {
+        switch (text) {
+            case ("Airdrop") { ?#Airdrop };
+            case ("Vesting") { ?#Vesting };
+            case ("Lock") { ?#Lock };
+            case (_) { null };
+        }
+    };
+
+    // Validate recipient address
+    public func isValidRecipient(recipient: Recipient) : Bool {
+        // Basic validation
+        recipient.amount > 0 and Principal.toText(recipient.address) != ""
+    };
+
+    // Create recipient from address and amount
+    public func createRecipient(address: Principal, amount: Nat, note: ?Text) : Recipient {
+        {
+            address = address;
+            amount = amount;
+            note = note;
+        }
+    };
+
+    // Extract principals from recipients
+    public func extractPrincipals(recipients: [Recipient]) : [Principal] {
+        Array.map<Recipient, Principal>(recipients, func(r) = r.address)
+    };
+
+    // Calculate total amount from recipients
+    public func calculateTotalAmount(recipients: [Recipient]) : Nat {
+        Array.foldLeft<Recipient, Nat>(recipients, 0, func(acc, r) = acc + r.amount)
+    };
+
+    // Validate distribution config
+    public func validateConfig(config: DistributionConfig) : DistributionResult<()> {
+        // Basic validation
+        if (config.title == "") {
+            return #Err(#InvalidInput("Title cannot be empty"));
+        };
+
+        if (config.totalAmount == 0) {
+            return #Err(#InvalidInput("Total amount must be greater than 0"));
+        };
+
+        // Validate recipients based on eligibility type
+        switch (config.eligibilityType) {
+            case (#Whitelist) {
+                // For whitelist, recipients must be pre-defined
+                if (config.recipients.size() == 0) {
+                    return #Err(#InvalidInput("Whitelist recipients cannot be empty"));
+                };
+                
+                // Validate each recipient
+                for (recipient in config.recipients.vals()) {
+                    if (not isValidRecipient(recipient)) {
+                        return #Err(#InvalidInput("Invalid recipient: " # Principal.toText(recipient.address)));
+                    };
+                };
+                
+                // Check if total amount matches recipients
+                let calculatedTotal = calculateTotalAmount(config.recipients);
+                if (calculatedTotal != config.totalAmount) {
+                    return #Err(#InvalidInput("Total amount does not match sum of recipient amounts"));
+                };
+            };
+            case (#Open) {
+                // For open distributions, recipients array can be empty initially
+                // Recipients will register themselves and be added to the list
+            };
+            case (_) {
+                // For other types (TokenHolder, NFT, etc.), specific validation logic needed
+            };
+        };
+
+        #Ok(())
+    };
 
 }

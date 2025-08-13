@@ -72,7 +72,7 @@ persistent actor Backend {
     private transient var microserviceState : MicroserviceTypes.State = MicroserviceService.initState();
     private transient var projectState : ProjectTypes.State = ProjectService.initState(stableBackend);
     private transient var distributionFactoryState : DistributionFactoryTypes.StableState = DistributionFactoryService.initState();
-    private transient var factoryRegistryState : FactoryRegistryTypes.State = FactoryRegistryService.initState(stableBackend);
+    private transient var factoryRegistryState : FactoryRegistryTypes.State = FactoryRegistryService.initState();
     private transient var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
     private transient var defaultTokens : [Common.TokenInfo] = [];
 
@@ -129,7 +129,7 @@ persistent actor Backend {
             case (?s) { DistributionFactoryService.fromStableState(s) };
         };
         factoryRegistryState := switch (stableFactoryRegistryState) {
-            case null { FactoryRegistryService.initState(owner) };
+            case null { FactoryRegistryService.initState() };
             case (?s) { FactoryRegistryService.fromStableState(s) };
         };
 
@@ -146,7 +146,7 @@ persistent actor Backend {
     // ==================================================================================================
 
     private func _isAdmin(caller : Principal) : Bool {
-        ConfigService.isAdmin(configState, caller);
+        Principal.isController(caller) or ConfigService.isAdmin(configState, caller);
     };
 
     private func _isSuperAdmin(caller : Principal) : Bool {
@@ -189,7 +189,7 @@ persistent actor Backend {
         caller : Principal,
         actionType : AuditTypes.ActionType,
         projectId : ?ProjectTypes.ProjectId,
-        payload : Deployments.DeploymentPayload,
+        payload : Deployments.DeploymentPayload
     ) : async Result.Result<Deployments.StandardDeploymentResult, Text> {
 
         // 1. Authorization & Pre-flight checks
@@ -399,9 +399,14 @@ persistent actor Backend {
                 // Register user relationships into Factory Registry (if applicable)
                 switch (actionType, payload) {
                     case (#CreateDistribution, #Distribution(config)) {
-                        // Extract recipients for whitelist distributions
+                        // Extract recipients from unified recipients field
                         let recipients : ?[Principal] = switch (config.eligibilityType) {
-                            case (#Whitelist(list)) { ?list };
+                            case (#Whitelist) { 
+                                // Extract principals from unified recipients field
+                                if (config.recipients.size() > 0) {
+                                    ?DistributionFactoryService.extractPrincipals(config.recipients)
+                                } else { null }
+                            };
                             case _ { null }; // Other eligibility types handled by external contract callback
                         };
                         
@@ -409,6 +414,7 @@ persistent actor Backend {
                             case (?recipientList) {
                                 ignore FactoryRegistryService.batchAddUserRelationshipsFromFlow(
                                     factoryRegistryState,
+                                    microserviceState,
                                     #DistributionRecipient,
                                     canisterId,
                                     recipientList,
@@ -668,7 +674,10 @@ persistent actor Backend {
             AuditService.setExternalAuditStorage(auditState, Option.get(canisterIds.auditStorage, owner));
         };
 
-        // 3. Mark setup as complete
+        // 3. Populate Factory Registry with factory canisters
+
+
+        // 4. Mark setup as complete
         microserviceState.setupCompleted := true;
 
         // 4. Log the action
@@ -1224,15 +1233,9 @@ persistent actor Backend {
 
     // --- PUBLIC FACTORY INFO ---
 
-    public shared query func getFactory(
-        actionType: AuditTypes.ActionType
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<Principal> {
-        FactoryRegistryService.getFactory(factoryRegistryState, actionType)
-    };
 
-    public shared query func getAllFactories() : async [(AuditTypes.ActionType, Principal)] {
-        FactoryRegistryService.getAllFactories(factoryRegistryState)
-    };
+
+
 
     // --- USER RELATIONSHIP QUERIES (PUBLIC) ---
 
@@ -1297,18 +1300,33 @@ persistent actor Backend {
     // Query relationship details with filters
     public shared query ({ caller }) func queryRelationships(
         queryObj: FactoryRegistryTypes.RelationshipQuery
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<[FactoryRegistryTypes.RelationshipInfo]> {
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<[FactoryRegistryTypes.CanisterRelationship]> {
         if (Principal.isAnonymous(caller)) {
             return #Err(#Unauthorized("Anonymous users cannot query relationships"));
         };
         FactoryRegistryService.queryRelationships(factoryRegistryState, queryObj)
     };
 
-    // Get relationship info by ID (public read access)
-    public shared query func getRelationshipInfo(
-        relationshipId: Text
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.RelationshipInfo> {
-        FactoryRegistryService.getRelationshipInfo(factoryRegistryState, relationshipId)
+    // Get detailed user relationships (new API)
+    public shared query ({ caller }) func getUserCanisterRelationships(
+        user: ?Principal
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<FactoryRegistryTypes.UserCanisterRelationships> {
+        let targetUser = switch (user) {
+            case (?u) {
+                if (not _isAdminOrSelf(caller, u)) {
+                    return #Err(#Unauthorized("Not authorized to view user relationships"));
+                };
+                u
+            };
+            case null { caller };
+        };
+        
+        let queryObj : FactoryRegistryTypes.UserRelationshipQuery = {
+            user = targetUser;
+            relationshipType = null;
+            includeInactive = false;
+        };
+        FactoryRegistryService.getUserCanisterRelationships(factoryRegistryState, queryObj)
     };
 
     // --- PUBLIC CALLBACK API FOR EXTERNAL CONTRACTS ---
@@ -1320,8 +1338,10 @@ persistent actor Backend {
         users: [Principal],
         metadata: FactoryRegistryTypes.RelationshipMetadata
     ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
-        FactoryRegistryService.updateUserRelationships(
+        // Use the new external batch function with caller verification
+        FactoryRegistryService.batchAddUserRelationshipsExternal(
             factoryRegistryState,
+            microserviceState,
             caller,
             relationshipType,
             canisterId,
@@ -1338,6 +1358,7 @@ persistent actor Backend {
     ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
         FactoryRegistryService.removeUserRelationship(
             factoryRegistryState,
+            microserviceState,
             caller,
             user,
             relationshipType,
@@ -1347,15 +1368,9 @@ persistent actor Backend {
 
     // --- UTILITY FUNCTIONS ---
 
-    public shared query func isFactoryTypeSupported(
-        actionType: AuditTypes.ActionType
-    ) : async Bool {
-        FactoryRegistryService.isFactoryTypeSupported(factoryRegistryState, actionType)
-    };
 
-    public shared query func getSupportedFactoryTypes() : async [AuditTypes.ActionType] {
-        FactoryRegistryService.getSupportedFactoryTypes(factoryRegistryState)
-    };
+
+
 
     // --- ADMIN FUNCTIONS (Manual Correction Only) ---
 
@@ -1366,7 +1381,7 @@ persistent actor Backend {
         canisterId: Principal,
         metadata: FactoryRegistryTypes.RelationshipMetadata,
         reason: Text
-    ) : async FactoryRegistryTypes.FactoryRegistryResult<Text> {
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
         if (not _isAdmin(caller)) {
             return #Err(#Unauthorized("Admin access required"));
         };
@@ -1388,7 +1403,7 @@ persistent actor Backend {
             null // referenceId
         );
 
-        FactoryRegistryService.addUserRelationship(factoryRegistryState, user, relationshipType, canisterId, metadata)
+        FactoryRegistryService.addUserRelationship(factoryRegistryState, microserviceState, user, relationshipType, canisterId, metadata)
     };
 
     // Manually remove user relationship (if incorrectly indexed)
@@ -1419,7 +1434,7 @@ persistent actor Backend {
             null // referenceId
         );
         
-        FactoryRegistryService.removeUserRelationship(factoryRegistryState, caller, user, relationshipType, canisterId)
+        FactoryRegistryService.removeUserRelationship(factoryRegistryState, microserviceState, caller, user, relationshipType, canisterId)
     };
 
 };

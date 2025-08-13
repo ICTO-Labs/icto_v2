@@ -78,7 +78,7 @@ export class DistributionUtils {
                 const tokenConfig = (config as any).tokenHolderConfig;
                 return { 
                     TokenHolder: {
-                        canisterId: tokenConfig?.canisterId ||canisterId: Principal.fromText(tokenConfig?.canisterId || ''),
+                        canisterId: Principal.fromText(tokenConfig?.canisterId || ''),
                         minAmount: BigInt(tokenConfig?.minAmount || 0),
                         snapshotTime: tokenConfig?.snapshotTime ? 
                             BigInt(tokenConfig.snapshotTime.getTime() * 1_000_000) : undefined
@@ -89,7 +89,7 @@ export class DistributionUtils {
                 const nftConfig = (config as any).nftHolderConfig;
                 return { 
                     NFTHolder: {
-                        canisterId: nftConfig?.canisterId ||canisterId: Principal.fromText(tokenConfig?.canisterId || ''),
+                        canisterId: Principal.fromText(nftConfig?.canisterId || ''),
                         minCount: BigInt(nftConfig?.minCount || 1),
                         collections: nftConfig?.collections?.length ? nftConfig.collections : undefined
                     }

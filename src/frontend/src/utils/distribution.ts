@@ -21,6 +21,7 @@ export class DistributionUtils {
             title: config.title,
             description: config.description,
             isPublic: config.isPublic,
+            campaignType: this.convertCampaignType((config as any).campaignType),
             tokenInfo: {
                 canisterId: Principal.fromText(config.tokenInfo.canisterId),
                 symbol: config.tokenInfo.symbol,
@@ -37,6 +38,7 @@ export class DistributionUtils {
             allowCancel: config.allowCancel,
             allowModification: config.allowModification,
             owner: Principal.fromText(config.owner),
+            recipients: this.buildRecipientsArray(config),
             // registrationPeriod will be handled as Candid optional below
         };
 
@@ -70,21 +72,8 @@ export class DistributionUtils {
                 return { Open: null };
             
             case 'Whitelist':
-                // Convert whitelist addresses to Principal objects
-                const addresses = (config as any).whitelistAddresses || [];
-                if (Array.isArray(addresses) && addresses.length > 0) {
-                    // Handle both simple string arrays and complex objects with principal/amount
-                    const principals = addresses.map((addr: any) => {
-                        if (typeof addr === 'string') {
-                            return Principal.fromText(addr.trim());
-                        } else if (addr && typeof addr === 'object' && addr.principal) {
-                            return Principal.fromText(addr.principal.trim());
-                        }
-                        return null;
-                    }).filter((p: any) => p !== null);
-                    return { Whitelist: principals };
-                }
-                return { Whitelist: [] };
+                // For whitelist, just return the marker - recipients are handled separately
+                return { Whitelist: null };
             
             case 'TokenHolder':
                 const tokenConfig = (config as any).tokenHolderConfig;
@@ -137,6 +126,59 @@ export class DistributionUtils {
             default:
                 return { AND: null };
         }
+    }
+
+    /**
+     * Convert frontend CampaignType to backend CampaignTypeMotoko
+     */
+    private static convertCampaignType(campaignType: string): any {
+        switch (campaignType) {
+            case 'Airdrop':
+                return { Airdrop: null };
+            case 'Vesting':
+                return { Vesting: null };
+            case 'Lock':
+                return { Lock: null };
+            default:
+                return { Airdrop: null }; // Default to Airdrop
+        }
+    }
+
+    /**
+     * Build unified recipients array from whitelist data
+     */
+    private static buildRecipientsArray(config: DistributionConfig): any[] {
+        // Only build recipients for Whitelist distributions
+        if (config.eligibilityType !== 'Whitelist') {
+            return []; // For Open distributions, recipients are added dynamically
+        }
+
+        const addresses = (config as any).whitelistAddresses || [];
+        if (!Array.isArray(addresses) || addresses.length === 0) {
+            return [];
+        }
+
+        // Handle both simple string arrays and complex objects with principal/amount
+        const recipients = addresses.map((addr: any) => {
+            if (typeof addr === 'string') {
+                // Simple string format - use default amount
+                return {
+                    address: Principal.fromText(addr.trim()),
+                    amount: BigInt((config as any).whitelistSameAmount || 0),
+                    note: []  // Candid optional: no note
+                };
+            } else if (addr && typeof addr === 'object' && addr.principal) {
+                // Complex object format with principal/amount/note
+                return {
+                    address: Principal.fromText(addr.principal.trim()),
+                    amount: BigInt(addr.amount || 0),
+                    note: addr.note ? [addr.note] : []  // Candid optional
+                };
+            }
+            return null;
+        }).filter((r: any) => r !== null);
+
+        return recipients;
     }
 
     /**

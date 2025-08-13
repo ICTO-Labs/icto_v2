@@ -1,389 +1,1498 @@
 <template>
-  <div class="gap-4 md:gap-6">
-    <!-- Loading State -->
-    <div v-if="isLoading" class="flex justify-center items-center py-12">
-      <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-    </div>
+  <AdminLayout>
+    <div class="distribution-detail min-h-screen">
+      <!-- Back Button -->
+      <div class="mb-6">
+        <button @click="router.back()"
+          class="flex items-center text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-200">
+          <ArrowLeftIcon class="w-5 h-5 mr-2" />
+          <span class="font-medium">Back to Distributions</span>
+        </button>
+      </div>
 
-    <!-- Error State -->
-    <div v-else-if="!campaign" class="bg-red-50 border-l-4 border-red-400 p-4">
-      <p class="text-sm text-red-700">Could not find the distribution campaign.</p>
-    </div>
+      <!-- Loading State -->
+      <div v-if="loading" class="animate-pulse space-y-8">
+        <div class="flex items-center space-x-4">
+          <div class="w-16 h-16 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+          <div class="space-y-2">
+            <div class="h-8 bg-gray-200 dark:bg-gray-700 rounded w-64"></div>
+            <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-96"></div>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
+          <div class="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" v-for="i in 4" :key="i"></div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div class="lg:col-span-2 space-y-6">
+            <div class="h-96 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+            <div class="h-64 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+          </div>
+          <div class="space-y-6">
+            <div class="h-48 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+            <div class="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl"></div>
+          </div>
+        </div>
+      </div>
 
-    <!-- Campaign Content -->
-    <div v-else-if="campaign">
-      <!-- Header -->
-      <div class="mb-8">
-        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-6">
+      <!-- Error State -->
+      <div v-else-if="error" class="text-center py-16">
+        <div class="max-w-md mx-auto">
+          <div class="w-16 h-16 mx-auto mb-4 text-red-500">
+            <AlertCircleIcon class="w-full h-full" />
+          </div>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            Something went wrong
+          </h3>
+          <p class="text-gray-500 dark:text-gray-400 mb-6">{{ error }}</p>
+          <button @click="fetchDetails"
+            class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
+            <RefreshCwIcon class="w-4 h-4 mr-2" />
+            Try Again
+          </button>
+        </div>
+      </div>
+
+      <!-- Content -->
+      <div v-else-if="details" class="space-y-6">
+        <!-- Campaign Header -->
+        <div class="flex items-center justify-between">
           <div class="flex items-center space-x-4">
-            <div class="w-16 h-16 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-              <img :src="campaign.token.icon || '/default-token-icon.svg'" :alt="campaign.token.symbol" class="w-10 h-10"/>
-            </div>
+            <TokenLogo :canister-id="details.tokenInfo.canisterId" :symbol="details.tokenInfo.symbol" :size="64" />
             <div>
-              <h1 class="text-2xl font-bold text-gray-900 dark:text-white">{{ campaign.title }}</h1>
-              <div class="flex items-center space-x-3 mt-1">
-                <span :class="statusInfo.class" class="px-2.5 py-0.5 rounded-full text-xs font-medium">{{ statusInfo.text }}</span>
-                <span class="text-sm text-gray-500 dark:text-gray-400">{{ campaign.type }}</span>
+              <h4 class="text-xl font-bold text-gray-900 dark:text-white">
+                {{ details.title }}
+              </h4>
+              <div class="flex items-center space-x-4">
+                <p class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">{{ canisterId }} <CopyIcon class="w-3.5 h-3.5" :data="canisterId" /></p>
+                <Label variant="green" size="xs" >{{ canisterCycles }} T</Label>
+                <Label :variant="stats?.isActive ? 'green' : 'yellow'" size="xs" class="flex items-center gap-1">
+                  <div class="w-2 h-2 rounded-full mr-1" :class="{
+                    'bg-green-400': stats?.isActive,
+                    'bg-yellow-400': !stats?.isActive
+                  }">
+                  </div>
+                  {{ stats?.isActive ? 'Active' : 'Not Active' }} 
+                </Label>
+                <Label size="xs" class="flex items-center gap-1" variant="purple">
+                  {{ getVariantKey(details.eligibilityType) }}
+                </Label>
+              
               </div>
             </div>
           </div>
-          <div class="flex items-center space-x-3 mt-4 sm:mt-0">
-            <button @click="router.back()" class="btn-secondary">
-              <CircleArrowLeftIcon class="h-4 w-4 mr-2" />
-              Back
+
+          <!-- Action Toolbar -->
+          <div class="flex items-center space-x-3">
+            <button v-if="!eligibilityStatus" @click="checkEligibility" :disabled="eligibilityLoading"
+              class="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50">
+              <SearchIcon class="w-4 h-4 mr-2" />
+              {{ eligibilityLoading ? 'Checking...' : 'Check Eligibility' }}
+            </button>
+
+            <button @click="registerForCampaign" :disabled="registering"
+              class="inline-flex items-center px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 disabled:opacity-50">
+              <UserPlusIcon class="w-4 h-4 mr-2" />
+              {{ registering ? 'Registering...' : 'Register' }}
+            </button>
+
+            <button v-if="canClaim && availableToClaim > 0" @click="claimTokens" :disabled="claiming"
+              class="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 disabled:opacity-50">
+              <GiftIcon class="w-4 h-4 mr-2" />
+              {{ claiming ? 'Claiming...' : 'Claim Tokens' }}
+            </button>
+
+            <button @click="refreshData" :disabled="refreshing"
+              class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50">
+              <RefreshCwIcon class="w-4 h-4 mr-2" :class="{ 'animate-spin': refreshing }" />
+              {{ refreshing ? 'Refreshing...' : 'Refresh' }}
             </button>
           </div>
         </div>
 
-        <!-- Campaign Info Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <!-- Campaign Info -->
-          <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Campaign Info</h3>
-            <div class="space-y-4">
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Token</span>
-                <div class="flex items-center mt-1">
-                  <img :src="campaign.token.icon || '/default-token-icon.svg'" :alt="campaign.token.symbol" class="w-6 h-6 mr-2 rounded-full"/>
-                  <span class="text-sm font-medium text-gray-900 dark:text-white">{{ campaign.token.symbol }} - {{ campaign.token.name }}</span>
+        <!-- Description -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">About This Campaign</h3>
+          <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ details.description }}</p>
+        </div>
+
+        
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <!-- Left Column - Charts & Analytics -->
+          <div class="lg:col-span-2 space-y-8">
+            <!-- Key Statistics -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <MetricCard 
+                title="Start Date" 
+                :value="startDate"
+                icon="CalendarIcon"
+                size="sm"
+              />
+              <MetricCard 
+                title="End Date" 
+                :value="endDate"
+                icon="ClockIcon"
+                size="sm"
+              />
+              <MetricCard 
+                title="Max Recipients" 
+                :value="maxRecipients"
+                icon="UserPlusIcon"
+                size="sm"
+              />
+              <MetricCard 
+                v-if="registrationPeriod"
+                title="Registration" 
+                :value="registrationPeriod.isActive ? 'Open' : 'Closed'"
+                icon="ShieldCheckIcon"
+                size="sm"
+              />
+              <MetricCard 
+                v-else
+                title="Campaign Type" 
+                :value="getVariantKey(details.campaignType)"
+                icon="ZapIcon"
+                size="sm"
+              />
+            </div>
+
+            <!-- ApexCharts Vesting Schedule (for comparison) -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+              <div class="flex items-center justify-between mb-8">
+                <div>
+                  <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    Token Unlock Schedule
+                    <Label size="sm" variant="gray">
+                      {{ vestingFrequency }}
+                    </Label>
+                  </h2>
+                  <p class="text-gray-600 dark:text-gray-400">Token unlock timeline and distribution pattern
+                  </p>
+                </div>
+                
+              </div>
+
+              <VestingChart
+                :vesting-data="vestingScheduleData"
+                :has-cliff-period="hasCliffPeriod"
+                :has-instant-unlock="hasInstantUnlock"
+                :current-time-position="currentTimePosition"
+                :cliff-end-position="cliffEndPosition"
+              />
+
+              <div class="flex items-center space-x-2 text-xs mt-4" v-if="vestingScheduleData.length > 0">
+                  <div class="flex items-center space-x-1">
+                    <div class="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span>Initial Unlock</span>
+                  </div>
+                  <div v-if="hasInstantUnlock" class="flex items-center space-x-1">
+                    <div class="w-2 h-2 bg-purple-500 rounded-full"></div>
+                    <span>Instant Unlock (100%)</span>
+                  </div>
+                  <div v-if="hasCliffPeriod" class="flex items-center space-x-1">
+                    <div class="w-2 h-2 bg-amber-500 rounded-full"></div>
+                    <span>Cliff Unlock</span>
+                  </div>
+                  <div class="flex items-center space-x-1">
+                    <div class="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                    <span>Linear Vesting</span>
+                  </div>
+                  <div class="flex items-center space-x-2">
+                    <div class="w-3 h-0.5 bg-blue-500"></div>
+                    <span class="">Current Time</span>
+                  </div>
+                </div>
+            </div>
+
+            <!-- Recipients & Transactions -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+              <!-- Tab Headers -->
+              <div class="flex items-center justify-between mb-6">
+                <div class="flex space-x-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+                  <button
+                    @click="activeTab = 'recipients'"
+                    :class="[
+                      'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
+                      activeTab === 'recipients'
+                        ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    ]"
+                  >
+                    <UsersIcon class="w-4 h-4 mr-2 inline" />
+                    Recipients
+                  </button>
+                  <button
+                    @click="activeTab = 'transactions'"
+                    :class="[
+                      'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
+                      activeTab === 'transactions'
+                        ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    ]"
+                  >
+                    <HistoryIcon class="w-4 h-4 mr-2 inline" />
+                    Transactions
+                  </button>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <button
+                    class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
+                    <FilterIcon class="w-5 h-5" />
+                  </button>
+                  <button
+                    class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
+                    <DownloadIcon class="w-5 h-5" />
+                  </button>
                 </div>
               </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Distribution Method</span>
-                <p class="text-sm font-medium text-gray-900 dark:text-white capitalize">{{ campaign?.method?.toLowerCase().replace('_', ' ') }}</p>
+
+              <!-- Recipients Tab -->
+              <div v-if="activeTab === 'recipients'">
+                <div v-if="details?.recipients && details.recipients.length > 0" class="overflow-x-auto">
+                  <table class="w-full">
+                    <thead>
+                      <tr class="border-b border-gray-200 dark:border-gray-600">
+                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Address</th>
+                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Amount</th>
+                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Claimed</th>
+                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr 
+                        v-for="recipient in details.recipients" 
+                        :key="recipient.address"
+                        class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200"
+                      >
+                        <td class="py-4 px-4">
+                          <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                              <span class="text-white text-xs font-medium">
+                                {{ getFirstLetter(recipient.address) }}
+                              </span>
+                            </div>
+                            <div>
+                              <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1" :title="recipient.address">
+                                {{ shortPrincipal(recipient.address) }}
+                                <CopyIcon :data="recipient.address" class="w-4 h-4 cursor-pointer" />
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-4 px-4 text-right">
+                          <span class="font-semibold text-gray-900 dark:text-white">
+                            {{ formatNumber(Number(recipient.amount)) }} {{ details.tokenInfo.symbol }}
+                          </span>
+                        </td>
+                        <td class="py-4 px-4 text-right">
+                          <span class="text-gray-500 dark:text-gray-400">
+                            0 {{ details.tokenInfo.symbol }}
+                          </span>
+                        </td>
+                        <td class="py-4 px-4">
+                          <span v-if="recipient.note && recipient.note.length > 0" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                            {{ recipient.note[0] }}
+                          </span>
+                          <span v-else class="text-gray-400 text-xs">—</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-else class="text-center py-12">
+                  <UsersIcon class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                  <p class="text-gray-500 dark:text-gray-400">No recipients yet</p>
+                  <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Recipients will appear here once added</p>
+                </div>
               </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Whitelist Required</span>
-                <span :class="campaign?.isWhitelisted ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800'" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium">
-                  {{ campaign?.isWhitelisted ? 'Yes' : 'No' }}
-                </span>
-              </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Max per Wallet</span>
-                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ campaign?.maxPerWallet ? campaign.maxPerWallet.toLocaleString() + ' tokens' : 'Unlimited' }}</p>
-              </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Creator</span>
-                <p class="text-sm font-mono text-gray-900 dark:text-white font-medium">{{ campaign?.creator?.slice(0, 8) }}...{{ campaign?.creator?.slice(-6) }}</p>
+
+              <!-- Transactions Tab -->
+              <div v-if="activeTab === 'transactions'">
+                <div class="space-y-4">
+                  <div v-for="claim in claimHistory" :key="claim.id"
+                    class="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
+                    <div class="flex items-center space-x-4">
+                      <div class="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
+                        <CheckIcon class="w-5 h-5 text-green-600 dark:text-green-400" />
+                      </div>
+                      <div>
+                        <p class="font-semibold text-gray-900 dark:text-white">
+                          {{ BackendUtils.formatTokenAmount(claim.amount, details.tokenInfo.decimals) }} {{
+                            details.tokenInfo.symbol }}
+                        </p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">{{ claim.date }}</p>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <p class="text-sm font-medium text-green-600 dark:text-green-400">Claimed</p>
+                      <p class="text-xs text-gray-500 dark:text-gray-400">{{ claim.txHash.slice(0, 8) }}...</p>
+                    </div>
+                  </div>
+
+                  <div v-if="claimHistory.length === 0" class="text-center py-12">
+                    <HistoryIcon class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                    <p class="text-gray-500 dark:text-gray-400">No transactions yet</p>
+                    <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Transaction history will appear here</p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
 
-          <!-- Timeline -->
-          <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Timeline</h3>
-            <div class="space-y-4">
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Start Time</span>
-                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ formatDate(campaign?.startTime) }}</p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatRelativeTime(campaign?.startTime) }}</p>
+          <!-- Right Column - Actions & Info -->
+          <div class="space-y-6">
+            <!-- Eligibility Status -->
+            <div v-if="eligibilityStatus"
+              class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
+              <div class="flex items-center space-x-3 mb-4">
+                <div class="p-2 bg-green-100 dark:bg-green-900 rounded-lg">
+                  <ShieldCheckIcon class="w-5 h-5 text-green-600 dark:text-green-400" />
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Your Eligibility</h3>
               </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">End Time</span>
-                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ formatDate(campaign?.endTime) }}</p>
-                <p class="text-xs text-gray-500 dark:text-gray-400">{{ formatRelativeTime(campaign?.endTime) }}</p>
-              </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Duration</span>
-                <p class="text-sm font-medium text-gray-900 dark:text-white">{{ formatDuration(campaign?.startTime, campaign?.endTime) }}</p>
-              </div>
-            </div>
-          </div>
 
-          <!-- Stats -->
-          <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Statistics</h3>
-            <div class="space-y-4">
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Total Amount</span>
-                <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatNumber(campaign.totalAmount) }} {{ campaign.token.symbol }}</p>
-              </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Distributed</span>
-                <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatNumber(campaign.distributedAmount) }} {{ campaign.token.symbol }}</p>
-              </div>
-              <div>
-                <span class="text-sm text-gray-500 dark:text-gray-400">Progress</span>
-                <div class="mt-1">
+              <div class="space-y-4">
+                <div
+                  class="flex items-center justify-between p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                  <div class="flex items-center space-x-3">
+                    <CheckCircleIcon class="w-6 h-6 text-green-500" />
+                    <div>
+                      <p class="font-semibold text-green-800 dark:text-green-200">Eligible</p>
+                      <p class="text-sm text-green-600 dark:text-green-300">You can participate</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="space-y-3">
                   <div class="flex justify-between text-sm">
-                    <span>{{ Math.round((campaign.distributedAmount / campaign.totalAmount) * 100) }}%</span>
-                    <span>{{ formatNumber(campaign.distributedAmount) }} / {{ formatNumber(campaign.totalAmount) }}</span>
+                    <span class="text-gray-500 dark:text-gray-400">Your Allocation</span>
+                    <span class="font-semibold text-gray-900 dark:text-white">
+                      {{ BackendUtils.formatTokenAmount(userAllocation, details.tokenInfo.decimals) }} {{
+                        details.tokenInfo.symbol }}
+                    </span>
                   </div>
-                  <div class="w-full bg-gray-200 rounded-full h-2 mt-1">
-                    <div class="bg-blue-600 h-2 rounded-full" :style="`width: ${(campaign.distributedAmount / campaign.totalAmount) * 100}%`"></div>
+                  <div class="flex justify-between text-sm">
+                    <span class="text-gray-500 dark:text-gray-400">Available to Claim</span>
+                    <span class="font-semibold text-green-600 dark:text-green-400">
+                      {{ BackendUtils.formatTokenAmount(availableToClaim, details.tokenInfo.decimals) }} {{
+                        details.tokenInfo.symbol }}
+                    </span>
+                  </div>
+                  <div class="flex justify-between text-sm">
+                    <span class="text-gray-500 dark:text-gray-400">Already Claimed</span>
+                    <span class="font-semibold text-gray-900 dark:text-white">
+                      {{ BackendUtils.formatTokenAmount(alreadyClaimed, details.tokenInfo.decimals) }} {{
+                        details.tokenInfo.symbol }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- Campaign Details -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700 h-fit">
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Campaign Details</h3>
+
+              <!-- Circle Chart -->
+              <div v-if="circleChartData" class="mb-6">
+                <div class="relative w-48 h-48 mx-auto">
+                  <svg class="w-full h-full -rotate-90" viewBox="0 0 100 100">
+                    <!-- Background circle -->
+                    <circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" stroke-width="8" class="dark:stroke-gray-600"/>
+                    
+                    <!-- Distributed arc -->
+                    <circle 
+                      cx="50" 
+                      cy="50" 
+                      r="40" 
+                      fill="none" 
+                      stroke="#10b981" 
+                      stroke-width="8"
+                      stroke-linecap="round"
+                      :stroke-dasharray="`${circleChartData.distributedPercentage * 2.51} 251.2`"
+                      class="transition-all duration-1000"
+                    />
+                    
+                    <!-- Remaining arc -->
+                    <circle 
+                      cx="50" 
+                      cy="50" 
+                      r="40" 
+                      fill="none" 
+                      stroke="#3b82f6" 
+                      stroke-width="8"
+                      stroke-linecap="round"
+                      :stroke-dasharray="`${circleChartData.remainingPercentage * 2.51} 251.2`"
+                      :stroke-dashoffset="`-${circleChartData.distributedPercentage * 2.51}`"
+                      class="transition-all duration-1000"
+                    />
+                  </svg>
+                  
+                  <!-- Center text -->
+                  <div class="absolute inset-0 flex flex-col items-center justify-center">
+                    <div class="text-2xl font-bold text-gray-900 dark:text-white">
+                      {{ formatNumber(circleChartData.total) }}
+                    </div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ details?.tokenInfo?.symbol }}
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Legend -->
+                <div class="flex justify-center space-x-6 mt-4">
+                  <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <span class="text-sm text-gray-600 dark:text-gray-300">
+                      Distributed ({{ circleChartData.distributedPercentage.toFixed(1) }}%)
+                    </span>
+                  </div>
+                  <div class="flex items-center space-x-2">
+                    <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                    <span class="text-sm text-gray-600 dark:text-gray-300">
+                      Remaining ({{ circleChartData.remainingPercentage.toFixed(1) }}%)
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Campaign Info -->
+              <div class="space-y-4 mb-6">
+                <div class="flex items-center space-x-3">
+                  <ZapIcon class="w-5 h-5 text-gray-400" />
+                  <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Vesting Type</p>
+                    <p class="font-medium text-gray-900 dark:text-white">
+                      {{ vestingFrequency }} {{ hasCliffPeriod ? 'with Cliff' : 'Linear' }}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                  <LockIcon class="w-5 h-5 text-gray-400" />
+                  <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Initial Unlock</p>
+                    <p class="font-medium text-gray-900 dark:text-white">
+                      {{ initialUnlockPercentage }}% at start
+                    </p>
+                  </div>
+                </div>
+
+                <div v-if="details?.allowModification !== undefined" class="flex items-center space-x-3">
+                  <ShieldCheckIcon class="w-5 h-5 text-gray-400" />
+                  <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Modifications</p>
+                    <p class="font-medium text-gray-900 dark:text-white">
+                      {{ details.allowModification ? 'Allowed' : 'Locked' }}
+                    </p>
+                  </div>
+                </div>
+
+                <div v-if="details?.allowCancel !== undefined" class="flex items-center space-x-3">
+                  <AlertCircleIcon class="w-5 h-5 text-gray-400" />
+                  <div>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Cancellation</p>
+                    <p class="font-medium text-gray-900 dark:text-white">
+                      {{ details.allowCancel ? 'Allowed' : 'Not Allowed' }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Upcoming Milestones -->
+              <div class="mb-6">
+                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Upcoming Milestones</h4>
+                <div class="space-y-3">
+                  <div class="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                      <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
+                      <div>
+                        <p class="font-medium text-gray-900 dark:text-white">Initial Unlock</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                          {{ distributionStartDate ? formatDate(distributionStartDate) : 'Not available' }}
+                        </p>
+                      </div>
+                    </div>
+                    <span class="text-sm font-semibold text-blue-600 dark:text-blue-400">{{ initialUnlockPercentage }}%</span>
+                  </div>
+                  <div class="flex items-center justify-between p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                      <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                      <div>
+                        <p class="font-medium text-gray-900 dark:text-white">Linear Vesting Complete</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                          {{ vestingEndDate ? formatDate(vestingEndDate) : 'Not available' }}
+                        </p>
+                      </div>
+                    </div>
+                    <span class="text-sm font-semibold text-green-600 dark:text-green-400">{{ vestingFrequency }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Distribution Progress -->
+              <div>
+                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Distribution Progress</h4>
+                <div class="space-y-3">
+                  <div class="flex justify-between text-sm">
+                    <span class="text-gray-500 dark:text-gray-400">Current Period</span>
+                    <span class="font-medium text-gray-900 dark:text-white">{{ 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) }}% unlocked</span>
+                  </div>
+                  <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
+                    <div class="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full" :style="{ width: `${100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0))}%` }" :class="{
+                      'bg-blue-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) < 25,
+                      'bg-green-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) >= 25 && 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) < 50,
+                      'bg-yellow-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) >= 50 && 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) < 75,
+                      'bg-red-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) >= 75
+                    }">
+                    </div>
+                  </div>
+                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                    <span>Start</span>
+                    <span>Current</span>
+                    <span>Complete</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-      </div>
-
-      <!-- Stats Grid -->
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div class="stat-card">
-          <h3 class="stat-title">Total Amount</h3>
-          <p class="stat-value">{{ formatNumber(campaign.totalAmount) }} {{ campaign.token.symbol }}</p>
-        </div>
-        <div class="stat-card">
-          <h3 class="stat-title">Distributed</h3>
-          <p class="stat-value">{{ formatNumber(campaign.distributedAmount) }} {{ campaign.token.symbol }}</p>
-        </div>
-        <div class="stat-card">
-          <h3 class="stat-title">Start Time</h3>
-          <p class="stat-value">{{ formatDate(campaign.startTime) }}</p>
-        </div>
-        <div class="stat-card">
-          <h3 class="stat-title">End Time</h3>
-          <p class="stat-value">{{ formatDate(campaign.endTime) }}</p>
-        </div>
-      </div>
-
-      <!-- Tabs -->
-      <div>
-        <div class="border-b border-gray-200 dark:border-gray-700">
-          <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-            <button v-for="tab in tabs" :key="tab.name" @click="activeTab = tab.name"
-              :class="[
-                'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm',
-                activeTab === tab.name
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:border-gray-600'
-              ]">
-              {{ tab.name }}
-            </button>
-          </nav>
-        </div>
-        <div class="mt-6">
-          <!-- Overview Tab -->
-          <CampaignOverviewTab v-if="activeTab === 'Overview'" :campaign="campaign" :format-number="formatNumber" :format-duration="formatDuration" />
-          
-          <!-- Participants Tab -->
-          <ParticipantsTab v-else-if="activeTab === 'Participants'" :participants="mockParticipants" :format-number="formatNumber" />
-          
-          <!-- History Tab -->
-          <HistoryTab v-else-if="activeTab === 'History'" :history="mockHistory" :format-number="formatNumber" :format-date="formatDate" />
-          
-          <!-- My Activity Tab -->
-          <MyActivityTab v-else-if="activeTab === 'My Activity'" :format-number="formatNumber" />
-          
-          <!-- Analytics Tab -->
-          <AnalyticsTab v-else-if="activeTab === 'Analytics'" :regions="mockRegions" :format-number="formatNumber" />
       </div>
     </div>
-  </div>
-  </div>
+  </AdminLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import CampaignOverviewTab from './tabs/CampaignOverviewTab.vue';
-import ParticipantsTab from './tabs/ParticipantsTab.vue';
-import HistoryTab from './tabs/HistoryTab.vue';
-import MyActivityTab from './tabs/MyActivityTab.vue';
-import AnalyticsTab from './tabs/AnalyticsTab.vue';
-import { useDistributionStore } from '@/stores/distribution';
-import { CircleArrowLeftIcon } from 'lucide-vue-next';
-import type { CampaignStatus } from '@/types/distribution';
+import { ref, onMounted, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { DistributionService } from '@/api/services/distribution'
+import {
+  ArrowLeftIcon,
+  AlertCircleIcon,
+  RefreshCwIcon,
+  CoinsIcon,
+  TrendingUpIcon,
+  CheckCircleIcon,
+  UsersIcon,
+  UserPlusIcon,
+  LockIcon,
+  ClockIcon,
+  BarChart3Icon,
+  FilterIcon,
+  DownloadIcon,
+  CheckIcon,
+  HistoryIcon,
+  ShieldCheckIcon,
+  SearchIcon,
+  GiftIcon,
+  CalendarIcon,
+  LinkIcon,
+  ZapIcon
+} from 'lucide-vue-next'
+import { CopyIcon } from '@/icons'
+import Label from '@/components/common/Label.vue'
+import TokenLogo from '@/components/token/TokenLogo.vue'
+import MetricCard from '@/components/token/MetricCard.vue'
+import AdminLayout from '@/components/layout/AdminLayout.vue'
+import VestingChart from '@/components/distribution/VestingChart.vue'
+import type { DistributionDetails, DistributionStats } from '@/types/distribution'
+import { BackendUtils } from '@/utils/backend'
+import { getVariantKey, shortPrincipal, getFirstLetter } from '@/utils/common'
+import { toast } from 'vue-sonner'
+const route = useRoute()
+const router = useRouter()
+const loading = ref(true)
+const error = ref<string | null>(null)
+const details = ref<DistributionDetails | null>(null)
+const stats = ref<DistributionStats | null>(null)
+const claiming = ref(false)
+const refreshing = ref(false)
+const eligibilityLoading = ref(false)
+const eligibilityStatus = ref(false)
+const registering = ref(false)
+const chartPeriod = ref('Monthly')
+const activeTab = ref('recipients')
 
-// Tab components are now inline - no external imports needed
+// User data
+const userAllocation = ref<bigint>(BigInt(0))
+const availableToClaim = ref<bigint>(BigInt(0))
+const alreadyClaimed = ref<bigint>(BigInt(0))
 
-const route = useRoute();
-const router = useRouter();
-const store = useDistributionStore();
+const canisterCycles = ref(0)
 
-const campaignId = route.params.id as string;
-// Mock data for display when backend has no data
-const mockCampaign = {
-  id: campaignId,
-  title: 'Community Airdrop Campaign',
-  type: 'Airdrop' as const,
-  token: {
-    symbol: 'ICTO',
-    name: 'ICTO Token',
-    icon: '🪙'
+// Mock claim history data
+const claimHistory = ref([
+  {
+    id: '1',
+    amount: BigInt(1000000000), // 10 tokens with 8 decimals
+    date: 'January 15, 2024',
+    txHash: 'abc123def456789'
   },
-  totalAmount: 1000000,
-  distributedAmount: 750000,
-  startTime: new Date('2024-01-15T10:00:00Z'),
-  endTime: new Date('2024-02-15T10:00:00Z'),
-  method: 'Immediate' as const,
-  isWhitelisted: true,
-  status: 'Ongoing' as const,
-  creator: '0x742d35Cc6634C0532925a3b8D2A6C8d1e1b92c3A',
-  description: 'A community airdrop campaign to reward early supporters and active community members through fair and transparent distribution mechanisms.',
-  maxPerWallet: 5000
-};
-
-// Mock data for tabs
-const mockParticipants = [
-  { address: '0x1234...5678', claimedAmount: 2500, totalEligibleAmount: 5000 },
-  { address: '0xabcd...efgh', claimedAmount: 4000, totalEligibleAmount: 4000 },
-  { address: '0x9876...5432', claimedAmount: 1800, totalEligibleAmount: 3000 },
-  { address: '0xzyxw...vuts', claimedAmount: 5000, totalEligibleAmount: 5000 },
-  { address: '0x1111...2222', claimedAmount: 1200, totalEligibleAmount: 2500 },
-  { address: '0x3333...4444', claimedAmount: 3200, totalEligibleAmount: 4000 },
-  { address: '0x5555...6666', claimedAmount: 2800, totalEligibleAmount: 3500 },
-  { address: '0x7777...8888', claimedAmount: 4500, totalEligibleAmount: 5000 }
-];
-
-const mockHistory = [
-  { recipient: '0x1234...5678', amount: 2500, timestamp: new Date('2024-01-20T10:30:00Z'), status: 'Success' },
-  { recipient: '0xabcd...efgh', amount: 4000, timestamp: new Date('2024-01-20T09:15:00Z'), status: 'Success' },
-  { recipient: '0x9876...5432', amount: 1800, timestamp: new Date('2024-01-19T14:22:00Z'), status: 'Success' },
-  { recipient: '0xzyxw...vuts', amount: 5000, timestamp: new Date('2024-01-19T11:45:00Z'), status: 'Success' },
-  { recipient: '0x1111...2222', amount: 1200, timestamp: new Date('2024-01-18T16:20:00Z'), status: 'Success' },
-  { recipient: '0x3333...4444', amount: 3200, timestamp: new Date('2024-01-18T13:10:00Z'), status: 'Success' },
-  { recipient: '0x5555...6666', amount: 2800, timestamp: new Date('2024-01-17T15:30:00Z'), status: 'Success' },
-  { recipient: '0x7777...8888', amount: 4500, timestamp: new Date('2024-01-17T12:00:00Z'), status: 'Success' }
-];
-
-const mockRegions = [
-  { name: 'North America', percentage: 35, color: 'bg-blue-500' },
-  { name: 'Europe', percentage: 28, color: 'bg-green-500' },
-  { name: 'Asia', percentage: 22, color: 'bg-purple-500' },
-  { name: 'South America', percentage: 8, color: 'bg-yellow-500' },
-  { name: 'Africa', percentage: 4, color: 'bg-red-500' },
-  { name: 'Oceania', percentage: 3, color: 'bg-indigo-500' }
-];
-
-const campaign = computed(() => {
-  // Return mock data when no store data available
-  // const storeCampaign = store.getCampaignById(campaignId);
-  return mockCampaign;
-});
-
-const isLoading = computed(() => false); // Mock: no loading
-const error = computed(() => null); // Mock: no error
-
-onMounted(() => {
-  if (store.campaigns.length === 0) {
-    store.fetchCampaigns();
+  {
+    id: '2',
+    amount: BigInt(500000000), // 5 tokens with 8 decimals
+    date: 'February 15, 2024',
+    txHash: 'def456ghi789012'
   }
-});
+])
 
-const tabs = [
-  { name: 'Overview' },
-  { name: 'Participants' },
-  { name: 'History' },
-  { name: 'My Activity' },
-  { name: 'Analytics' }
-];
+const canisterId = computed(() => route.params.id as string)
 
-const activeTab = ref('Overview');
+const statusClasses = {
+  'Active': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  'Paused': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+  'Completed': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  'Cancelled': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
+}
 
-const statusInfo = computed(() => {
-  if (!campaign.value) return { class: '', text: '' };
-  const status = campaign.value.status as CampaignStatus;
-  switch (status) {
-    case 'Ongoing':
-      return { class: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300', text: 'Active' };
-    case 'Upcoming':
-      return { class: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300', text: 'Upcoming' };
-    case 'Ended':
-      return { class: 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300', text: 'Ended' };
-    default:
-      return { class: 'bg-gray-100 text-gray-800', text: status };
+const canClaim = computed(() => {
+  return stats.value?.isActive && availableToClaim.value > 0
+})
+
+// Computed properties for milestone dates
+const distributionStartDate = computed(() => {
+  if (!details.value?.distributionStart) return null
+  // Convert nanoseconds to milliseconds
+  const timestamp = Number(details.value.distributionStart) / 1_000_000
+  return new Date(timestamp)
+})
+
+const vestingEndDate = computed(() => {
+  if (!details.value?.distributionStart || !details.value?.vestingSchedule) return null
+  
+  const startTimestamp = Number(details.value.distributionStart) / 1_000_000
+  
+  if ('Linear' in details.value.vestingSchedule) {
+    const durationNanos = Number(details.value.vestingSchedule.Linear.duration)
+    const durationMs = durationNanos / 1_000_000
+    return new Date(startTimestamp + durationMs)
   }
-});
+  
+  return null
+})
 
-// Helper functions
-const formatNumber = (num: number) => {
-  return new Intl.NumberFormat('en-US').format(num);
-};
+const initialUnlockPercentage = computed(() => {
+  return details.value?.initialUnlockPercentage ? Number(details.value.initialUnlockPercentage) : 0
+})
+
+const vestingFrequency = computed(() => {
+  if (!details.value?.vestingSchedule) return 'Unknown'
+  
+  if ('Linear' in details.value.vestingSchedule) {
+    const frequency = details.value.vestingSchedule.Linear.frequency
+    if ('Monthly' in frequency) return 'Monthly'
+    if ('Weekly' in frequency) return 'Weekly'
+    if ('Daily' in frequency) return 'Daily'
+  }
+  
+  return 'Unknown'
+})
+
+const vestingScheduleData = computed(() => {
+  if (!details.value?.distributionStart || !details.value?.vestingSchedule || !details.value?.totalAmount) {
+    return []
+  }
+
+  const startTimestamp = Number(details.value.distributionStart) / 1_000_000
+  const totalAmount = Number(details.value.totalAmount)
+  const initialUnlock = Number(details.value.initialUnlockPercentage || 0)
+  
+  // Add 2-day buffer (in milliseconds)
+  const bufferMs = 2 * 24 * 60 * 60 * 1000 // 2 days
+  
+  if ('Linear' in details.value.vestingSchedule) {
+    const durationNanos = Number(details.value.vestingSchedule.Linear.duration)
+    const durationMs = durationNanos / 1_000_000
+    const frequency = details.value.vestingSchedule.Linear.frequency
+    
+    let intervalMs = 0
+    let periods = 0
+    
+    if ('Monthly' in frequency) {
+      intervalMs = 30 * 24 * 60 * 60 * 1000 // ~30 days
+      periods = Math.ceil(durationMs / intervalMs)
+    } else if ('Weekly' in frequency) {
+      intervalMs = 7 * 24 * 60 * 60 * 1000
+      periods = Math.ceil(durationMs / intervalMs)
+    } else if ('Daily' in frequency) {
+      intervalMs = 24 * 60 * 60 * 1000
+      periods = Math.ceil(durationMs / intervalMs)
+    }
+    
+    if (periods === 0) return []
+    
+    const initialAmount = (totalAmount * initialUnlock) / 100
+    const remainingAmount = totalAmount - initialAmount
+    const amountPerPeriod = remainingAmount / periods
+    
+    const schedule = []
+    let cumulativeAmount = 0
+    
+    // Start buffer point (2 days before start)
+    schedule.push({
+      date: new Date(startTimestamp - bufferMs),
+      amount: 0,
+      cumulative: 0,
+      percentage: 0,
+      type: 'buffer'
+    })
+    
+    // Initial unlock - Handle Instant case
+    if (initialUnlock > 0) {
+      cumulativeAmount = initialAmount
+      schedule.push({
+        date: new Date(startTimestamp),
+        amount: initialAmount,
+        cumulative: cumulativeAmount,
+        percentage: initialUnlock,
+        type: initialUnlock === 100 ? 'instant' : 'initial'
+      })
+    }
+    
+    // Linear vesting periods
+    for (let i = 1; i <= periods; i++) {
+      const periodDate = new Date(startTimestamp + (intervalMs * i))
+      cumulativeAmount += amountPerPeriod
+      
+      schedule.push({
+        date: periodDate,
+        amount: amountPerPeriod,
+        cumulative: Math.min(cumulativeAmount, totalAmount),
+        percentage: Math.min((cumulativeAmount / totalAmount) * 100, 100),
+        type: 'vesting'
+      })
+    }
+    
+    // End buffer point (2 days after end)
+    const endTimestamp = startTimestamp + durationMs
+    schedule.push({
+      date: new Date(endTimestamp + bufferMs),
+      amount: 0,
+      cumulative: Math.min(cumulativeAmount, totalAmount),
+      percentage: Math.min((cumulativeAmount / totalAmount) * 100, 100),
+      type: 'buffer'
+    })
+    
+    return schedule
+  }
+  
+  if ('Cliff' in details.value.vestingSchedule) {
+    const cliffConfig = details.value.vestingSchedule.Cliff
+    const cliffDurationNanos = Number(cliffConfig.cliffPeriod)
+    const cliffDurationMs = cliffDurationNanos / 1_000_000
+    const vestingDurationNanos = Number(cliffConfig.vestingPeriod)
+    const vestingDurationMs = vestingDurationNanos / 1_000_000
+    const frequency = cliffConfig.frequency
+    
+    let intervalMs = 0
+    let periods = 0
+    
+    if ('Monthly' in frequency) {
+      intervalMs = 30 * 24 * 60 * 60 * 1000
+      periods = Math.ceil(vestingDurationMs / intervalMs)
+    } else if ('Weekly' in frequency) {
+      intervalMs = 7 * 24 * 60 * 60 * 1000
+      periods = Math.ceil(vestingDurationMs / intervalMs)
+    } else if ('Daily' in frequency) {
+      intervalMs = 24 * 60 * 60 * 1000
+      periods = Math.ceil(vestingDurationMs / intervalMs)
+    }
+    
+    const cliffEndTimestamp = startTimestamp + cliffDurationMs
+    const initialAmount = (totalAmount * initialUnlock) / 100
+    const cliffAmount = (totalAmount * Number(cliffConfig.cliffPercentage || 0)) / 100
+    const remainingAmount = totalAmount - initialAmount - cliffAmount
+    const amountPerPeriod = periods > 0 ? remainingAmount / periods : 0
+    
+    const schedule = []
+    let cumulativeAmount = 0
+    
+    // Start buffer point (2 days before start)
+    schedule.push({
+      date: new Date(startTimestamp - bufferMs),
+      amount: 0,
+      cumulative: 0,
+      percentage: 0,
+      type: 'buffer'
+    })
+    
+    // Initial unlock - Handle Instant case  
+    if (initialAmount > 0) {
+      cumulativeAmount = initialAmount
+      schedule.push({
+        date: new Date(startTimestamp),
+        amount: initialAmount,
+        cumulative: cumulativeAmount,
+        percentage: initialUnlock,
+        type: initialUnlock === 100 ? 'instant' : 'initial'
+      })
+    }
+    
+    // Cliff period (flat line)
+    schedule.push({
+      date: new Date(cliffEndTimestamp),
+      amount: cliffAmount,
+      cumulative: cumulativeAmount + cliffAmount,
+      percentage: ((cumulativeAmount + cliffAmount) / totalAmount) * 100,
+      type: 'cliff'
+    })
+    
+    cumulativeAmount += cliffAmount
+    
+    // Linear vesting after cliff
+    for (let i = 1; i <= periods; i++) {
+      const periodDate = new Date(cliffEndTimestamp + (intervalMs * i))
+      cumulativeAmount += amountPerPeriod
+      
+      schedule.push({
+        date: periodDate,
+        amount: amountPerPeriod,
+        cumulative: Math.min(cumulativeAmount, totalAmount),
+        percentage: Math.min((cumulativeAmount / totalAmount) * 100, 100),
+        type: 'vesting'
+      })
+    }
+    
+    // End buffer point (2 days after end)
+    const endTimestamp = cliffEndTimestamp + vestingDurationMs
+    schedule.push({
+      date: new Date(endTimestamp + bufferMs),
+      amount: 0,
+      cumulative: Math.min(cumulativeAmount, totalAmount),
+      percentage: Math.min((cumulativeAmount / totalAmount) * 100, 100),
+      type: 'buffer'
+    })
+    
+    return schedule
+  }
+  
+  return []
+})
+
+// Utility functions
+const formatNumber = (value: number) => {
+  return new Intl.NumberFormat().format(value)
+}
 
 const formatDate = (date: Date) => {
   return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date);
-};
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  }).format(date)
+}
 
-const formatDuration = (start: Date, end: Date) => {
-  const diff = end.getTime() - start.getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  return `${days} days`;
-};
-
-const formatRelativeTime = (date: Date) => {
-  const now = new Date();
-  const diff = date.getTime() - now.getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  
-  if (days > 0) {
-    return `in ${days} day${days > 1 ? 's' : ''}`;
-  } else if (days < 0) {
-    return `${Math.abs(days)} day${Math.abs(days) > 1 ? 's' : ''} ago`;
-  } else {
-    return 'Today';
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text)
+    // You can add a toast notification here if needed
+    console.log('Copied to clipboard:', text)
+  } catch (err) {
+    console.error('Failed to copy to clipboard:', err)
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea')
+    textArea.value = text
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    try {
+      document.execCommand('copy')
+      console.log('Copied to clipboard (fallback):', text)
+    } catch (fallbackErr) {
+      console.error('Fallback copy failed:', fallbackErr)
+    }
+    document.body.removeChild(textArea)
   }
-};
+}
+
+const fetchDetails = async () => {
+  try {
+    loading.value = true
+    error.value = null
+    details.value = await DistributionService.getDistributionDetails(canisterId.value)
+
+  } catch (err) {
+    error.value = err instanceof Error ? err.message : 'Failed to fetch distribution details'
+    console.error('Error fetching distribution details:', err)
+  } finally {
+    loading.value = false
+  }
+}
+
+const fetchStats = async () => {
+  try {
+    stats.value = await DistributionService.getDistributionStats(canisterId.value)
+  } catch (err) {
+    console.error('Error fetching distribution stats:', err)
+  }
+}
+
+const fetchCanisterInfo = async () => {
+  try {
+    const info = await DistributionService.getCanisterInfo(canisterId.value)
+    console.log('info', info)
+    canisterCycles.value = Number((Number(info.cyclesBalance)/1_000_000_000).toFixed(2))
+  } catch (err) {
+    console.error('Error fetching canister info:', err)
+  }
+}
+
+const checkEligibility = async () => {
+  try {
+    eligibilityLoading.value = true
+    // Simulate eligibility check
+    await new Promise(resolve => setTimeout(resolve, 2000))
+    eligibilityStatus.value = true
+  } catch (err) {
+    console.error('Error checking eligibility:', err)
+  } finally {
+    eligibilityLoading.value = false
+  }
+}
+
+const claimTokens = async () => {
+  try {
+    claiming.value = true
+    await DistributionService.claimTokens(canisterId.value)
+
+    // Update available and claimed amounts
+    alreadyClaimed.value += availableToClaim.value
+    availableToClaim.value = BigInt(0)
+
+    // Add to claim history
+    claimHistory.value.unshift({
+      id: Date.now().toString(),
+      amount: availableToClaim.value,
+      date: formatDate(new Date()),
+      txHash: Math.random().toString(36).substring(2, 18)
+    })
+
+    await refreshData()
+  } catch (err) {
+    console.error('Error claiming tokens:', err)
+  } finally {
+    claiming.value = false
+  }
+}
+
+const refreshData = async () => {
+  refreshing.value = true
+  await fetchDetails()
+  await fetchStats()
+  refreshing.value = false
+}
+
+const registerForCampaign = async () => {
+  try {
+    registering.value = true
+    const result = await DistributionService.register(canisterId.value)
+    if ('ok' in result) {
+      toast.success('Successfully registered for campaign')
+    } else {
+      toast.error('Error: ' + result.err)
+    }
+    
+    // Refresh data after successful registration
+    await refreshData()
+  } catch (err) {
+    toast.error('Error: ' + err)
+    // Handle error - could show toast notification
+  } finally {
+    registering.value = false
+  }
+}
+
+// Chart functionality
+const tooltipData = ref(null)
+const tooltipPosition = ref({ x: 0, y: 0 })
+
+// Current time and cliff indicators
+const currentTimePosition = computed(() => {
+  if (vestingScheduleData.value.length === 0) return null
+  
+  const now = new Date()
+  const startTime = vestingScheduleData.value[0].date.getTime()
+  const endTime = vestingScheduleData.value[vestingScheduleData.value.length - 1].date.getTime()
+  
+  if (now.getTime() < startTime || now.getTime() > endTime) return null
+  
+  const progress = (now.getTime() - startTime) / (endTime - startTime)
+  return progress * 100
+})
+
+const cliffEndPosition = computed(() => {
+  const cliffPoint = vestingScheduleData.value.find(point => point.type === 'cliff')
+  if (!cliffPoint) return null
+  
+  const startTime = vestingScheduleData.value[0].date.getTime()
+  const endTime = vestingScheduleData.value[vestingScheduleData.value.length - 1].date.getTime()
+  
+  const progress = (cliffPoint.date.getTime() - startTime) / (endTime - startTime)
+  return progress * 100
+})
+
+const hasCliffPeriod = computed(() => {
+  return vestingScheduleData.value.some(point => point.type === 'cliff')
+})
+
+const hasInstantUnlock = computed(() => {
+  return vestingScheduleData.value.some(point => point.type === 'instant')
+})
+
+const generateSteppedPath = computed(() => {
+  if (vestingScheduleData.value.length === 0) return ''
+  
+  let path = `M 0 100`
+  
+  vestingScheduleData.value.forEach((point, index) => {
+    const x = (index / (vestingScheduleData.value.length - 1)) * 100
+    const y = 100 - point.percentage
+    
+    if (index === 0) {
+      path += ` L ${x} ${y}`
+    } else {
+      // Create stepped effect
+      const prevX = ((index - 1) / (vestingScheduleData.value.length - 1)) * 100
+      path += ` L ${prevX} ${y} L ${x} ${y}`
+    }
+  })
+  
+  // Close the path for fill
+  const lastX = ((vestingScheduleData.value.length - 1) / (vestingScheduleData.value.length - 1)) * 100
+  path += ` L ${lastX} 100 Z`
+  
+  return path
+})
+
+const showTooltip = (data, event) => {
+  tooltipData.value = data
+  const rect = event.target.closest('.relative').getBoundingClientRect()
+  tooltipPosition.value = {
+    x: event.clientX - rect.left + 10,
+    y: event.clientY - rect.top - 10
+  }
+}
+
+const hideTooltip = () => {
+  tooltipData.value = null
+}
+
+// Circle chart data for Campaign Details
+const circleChartData = computed(() => {
+  if (!details.value?.totalAmount || !stats.value) return null
+  
+  const total = Number(details.value.totalAmount)
+  const distributed = Number(stats.value.totalClaimed || 0)
+  const remaining = total - distributed
+  
+  return {
+    total,
+    distributed,
+    remaining,
+    distributedPercentage: total > 0 ? (distributed / total) * 100 : 0,
+    remainingPercentage: total > 0 ? (remaining / total) * 100 : 100
+  }
+})
+
+// Additional metrics for cards
+const startDate = computed(() => {
+  if (!details.value?.distributionStart) return 'Not set'
+  return formatDate(new Date(Number(details.value.distributionStart) / 1_000_000))
+})
+
+const endDate = computed(() => {
+  if (!details.value?.distributionEnd || details.value.distributionEnd.length === 0) {
+    return vestingEndDate.value ? formatDate(vestingEndDate.value) : 'Not set'
+  }
+  return formatDate(new Date(Number(details.value.distributionEnd) / 1_000_000))
+})
+
+const maxRecipients = computed(() => {
+  if (!details.value?.maxRecipients || details.value.maxRecipients.length === 0) return 'Unlimited'
+  return formatNumber(Number(details.value.maxRecipients[0]))
+})
+
+const registrationPeriod = computed(() => {
+  if (!details.value?.registrationPeriod || details.value.registrationPeriod.length === 0) return null
+  
+  const start = new Date(Number(details.value.registrationPeriod[0]) / 1_000_000)
+  const end = new Date(Number(details.value.registrationPeriod[1]) / 1_000_000)
+  
+  return {
+    start: formatDate(start),
+    end: formatDate(end),
+    isActive: Date.now() >= start.getTime() && Date.now() <= end.getTime()
+  }
+})
+
+const daysUntilStart = computed(() => {
+  if (!distributionStartDate.value) return null
+  
+  const now = new Date()
+  const diff = distributionStartDate.value.getTime() - now.getTime()
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
+  
+  if (days <= 0) return null
+  return days
+})
+
+const daysUntilEnd = computed(() => {
+  if (!vestingEndDate.value) return null
+  
+  const now = new Date()
+  const diff = vestingEndDate.value.getTime() - now.getTime()
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24))
+  
+  if (days <= 0) return null
+  return days
+})
+
+// Check if user can register for this campaign
+const canRegister = computed(() => {
+  if (!details.value || !stats.value) return false
+  
+  // Check recipient mode is SelfService
+  const isSelfService = details.value.recipientMode && 'SelfService' in details.value.recipientMode
+  
+  // Check eligibility type is Open  
+  const isOpen = details.value.eligibilityType && 'Open' in details.value.eligibilityType
+  
+  // Check campaign is active
+  const isActive = stats.value.isActive
+  
+  // Check if registration period is active (if exists)
+  let isRegistrationOpen = true
+  if (registrationPeriod.value) {
+    isRegistrationOpen = registrationPeriod.value.isActive
+  }
+  
+  return isSelfService && isOpen && isActive && isRegistrationOpen
+})
+
+
+onMounted(() => {
+  fetchDetails()
+  fetchCanisterInfo()
+  fetchStats()
+  checkEligibility()
+})
 </script>
 
 <style scoped>
-.btn-secondary {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.5rem 1rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
-  background-color: white;
-  cursor: pointer;
-}
-.btn-secondary:hover {
-  background-color: #f9fafb;
-}
-.btn-secondary:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px #3b82f6, 0 0 0 4px rgba(59, 130, 246, 0.5);
+.distribution-detail {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  min-height: 100vh;
 }
 
-.dark .btn-secondary {
-  background-color: #1f2937;
-  border-color: #4b5563;
-  color: #d1d5db;
-}
-
-.dark .btn-secondary:hover {
-  background-color: #374151;
+.dark .distribution-detail {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
 }
 
 .stat-card {
-  background-color: white;
-  border-radius: 0.75rem;
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-  padding: 1.5rem;
+  @apply bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-6 border border-gray-100 dark:border-gray-700;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+
+
 .dark .stat-card {
-  background-color: #1f2937;
+  background: rgba(31, 41, 55, 0.8);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(75, 85, 99, 0.3);
+}
+
+.stat-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.dark .stat-card:hover {
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
 }
 
 .stat-title {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #6b7280;
-}
-
-.dark .stat-title {
-  color: #9ca3af;
+  @apply text-sm font-medium text-gray-500 dark:text-gray-400;
+  letter-spacing: 0.025em;
 }
 
 .stat-value {
-  margin-top: 0.25rem;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: #111827;
+  @apply mt-2 font-bold text-gray-900 dark:text-white;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-size: 200% 200%;
+  animation: gradient-shift 3s ease infinite;
+}
+
+@keyframes gradient-shift {
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 .dark .stat-value {
-  color: white;
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Enhanced button styles */
+.btn-gradient {
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  background-size: 200% 200%;
+  animation: gradient-shift 3s ease infinite;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-gradient::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.5s;
+}
+
+.btn-gradient:hover::before {
+  left: 100%;
+}
+
+/* Card animations */
+@keyframes card-entrance {
+  0% {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stat-card {
+  animation: card-entrance 0.6s ease-out forwards;
+}
+
+.stat-card:nth-child(1) {
+  animation-delay: 0.1s;
+}
+
+.stat-card:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.stat-card:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.stat-card:nth-child(4) {
+  animation-delay: 0.4s;
+}
+
+/* Glassmorphism effects */
+.glass-card {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+}
+
+.dark .glass-card {
+  background: rgba(31, 41, 55, 0.1);
+  border: 1px solid rgba(75, 85, 99, 0.2);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+/* Progress bars with glow */
+.progress-bar {
+  position: relative;
+  overflow: hidden;
+}
+
+.progress-bar::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.3) 50%, transparent 100%);
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+  .stat-card {
+    padding: 1rem;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .distribution-detail {
+    padding: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .grid.grid-cols-2.lg\:grid-cols-4 {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .grid.grid-cols-1.lg\:grid-cols-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .stat-value {
+    font-size: 1.25rem;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(135deg, #2563eb, #7c3aed);
+}
+
+/* Loading animation improvements */
+@keyframes pulse-glow {
+
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+  }
+
+  50% {
+    opacity: 0.8;
+    box-shadow: 0 0 40px rgba(59, 130, 246, 0.5);
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Web3 aesthetic enhancements */
+.neon-border {
+  border: 2px solid transparent;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6) border-box;
+  border-radius: 12px;
+  position: relative;
+}
+
+.neon-border::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  border-radius: inherit;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: xor;
+  -webkit-mask-composite: xor;
+}
+
+/* Hover effects for interactive elements */
+.interactive-hover {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.interactive-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+}
+
+.dark .interactive-hover:hover {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+}
+
+/* Status indicator glow */
+.status-indicator {
+  position: relative;
+}
+
+.status-indicator::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  padding: 2px;
+  background: linear-gradient(45deg, currentColor, transparent, currentColor);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: xor;
+  -webkit-mask-composite: xor;
+  opacity: 0.5;
+  animation: rotate 3s linear infinite;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Typography enhancements */
+.heading-gradient {
+  background: linear-gradient(135deg, #1f2937 0%, #3b82f6 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.dark .heading-gradient {
+  background: linear-gradient(135deg, #f8fafc 0%, #60a5fa 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 </style>

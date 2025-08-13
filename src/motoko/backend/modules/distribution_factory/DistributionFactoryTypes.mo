@@ -9,7 +9,8 @@ module DistributionFactoryTypes {
 
     // Re-export all types from the shared module for backward compatibility
     public type DistributionConfig = DistributionTypes.DistributionConfig;
-
+    public type Recipient = DistributionTypes.Recipient;
+    public type CampaignType = DistributionTypes.CampaignType;
     public type TokenInfo = DistributionTypes.TokenInfo;
     public type EligibilityType = DistributionTypes.EligibilityType;
     public type TokenHolderConfig = DistributionTypes.TokenHolderConfig;

@@ -2,6 +2,7 @@ import Principal "mo:base/Principal";
 import Result "mo:base/Result";
 import Option "mo:base/Option";
 import Time "mo:base/Time";
+import Array "mo:base/Array";
 
 import DistributionFactoryTypes "DistributionFactoryTypes";
 import DistributionFactoryInterface "DistributionFactoryInterface";
@@ -148,6 +149,10 @@ module DistributionFactoryService {
         };
 
         #ok(true);
+    };
+
+    public func extractPrincipals(recipients: [DistributionFactoryTypes.Recipient]) : [Principal] {
+        Array.map<DistributionFactoryTypes.Recipient, Principal>(recipients, func(r) = r.address)
     };
 
 

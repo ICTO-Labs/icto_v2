@@ -30,3 +30,18 @@ export const hex2Bytes = (hex: string): number[] => {
     }
     return bytes;
 }
+export const getVariantKey = (obj: Record<string, any>): string | undefined => {
+    try {
+        const keys = Object.keys(obj);
+        console.log('keys', keys);
+        return keys.length > 0 ? keys[0] : undefined;
+    } catch (error) {
+        console.error('Error getting variant key:', error);
+        return undefined;
+    }
+}
+export const getFirstLetter = (principal: string | Principal) => {
+    return (
+        typeof principal === "string" ? principal : principal.toText()
+    ).slice(0, 2).toUpperCase();
+}
