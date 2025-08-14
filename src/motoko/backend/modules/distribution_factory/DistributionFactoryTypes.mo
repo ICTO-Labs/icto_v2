@@ -1,5 +1,5 @@
 // Import shared distribution types to avoid duplication
-import DistributionTypes "../../shared/types/DistributionTypes";
+import DistributionTypes "../../../shared/types/DistributionTypes";
 
 module DistributionFactoryTypes {
 

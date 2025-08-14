@@ -182,15 +182,14 @@
 								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
 									<label v-for="type in eligibilityTypes" :key="type.value"
 										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
-										:class="formData.eligibilityType === type.value
+										:class="keyToText(formData.eligibilityType) == keyToText(type.value)
 											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
 											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
-										<input v-model="formData.eligibilityType" :value="type.value" type="radio"
-											class="sr-only" />
-										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="formData.eligibilityType === type.value
+										<input v-model="formData.eligibilityType" :value="type.value" type="radio" class="sr-only" />
+										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="keyToText(formData.eligibilityType) == keyToText(type.value)
 											? 'bg-blue-600'
 											: 'bg-blue-50 dark:bg-blue-900/20'">
-											<component :is="type.icon" class="h-6 w-6" :class="formData.eligibilityType === type.value
+											<component :is="type.icon" class="h-6 w-6" :class="keyToText(formData.eligibilityType) == keyToText(type.value)
 												? 'text-white'
 												: 'text-blue-600'" />
 										</div>
@@ -200,7 +199,7 @@
 											</div>
 											<div class="text-sm text-gray-500">{{ type.description }}</div>
 										</div>
-										<div v-if="formData.eligibilityType === type.value" class="ml-2">
+										<div v-if="formData.eligibilityType && keyToText(formData.eligibilityType) == keyToText(type.value)" class="ml-2">
 											<CheckIcon class="h-5 w-5 text-blue-600" />
 										</div>
 									</label>
@@ -208,7 +207,7 @@
 							</div>
 
 							<!-- Whitelist Configuration -->
-							<div v-if="formData.eligibilityType === 'Whitelist'" class="space-y-4">
+							<div v-if="formData.eligibilityType && keyToText(formData.eligibilityType) === 'Whitelist'" class="space-y-4">
 								<div>
 									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
 										Whitelist Amount Type
@@ -271,7 +270,7 @@
 							</div>
 
 							<!-- Token Holder Configuration -->
-							<div v-if="formData.eligibilityType === 'TokenHolder'" class="space-y-4">
+							<div v-if="formData.eligibilityType && keyToText(formData.eligibilityType) === 'TokenHolder'" class="space-y-4">
 								<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 									<div>
 										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -307,7 +306,7 @@
 							</div>
 
 							<!-- NFT Holder Configuration -->
-							<div v-if="formData.eligibilityType === 'NFTHolder'" class="space-y-4">
+							<div v-if="formData.eligibilityType && keyToText(formData.eligibilityType) === 'NFTHolder'" class="space-y-4">
 								<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 									<div>
 										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -348,21 +347,20 @@
 
 
 							<!-- Recipient Mode (hidden when Whitelist Only is selected) -->
-							<div v-if="formData.eligibilityType !== 'Whitelist'">
+							<div v-if="formData.eligibilityType && keyToText(formData.eligibilityType) !== 'Whitelist'">
 								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
 									Recipient Mode *
 								</label>
 								<div class="flex flex-wrap gap-4">
-									<label v-for="mode in availableRecipientModes" :key="mode.value"
+									<label v-for="mode in availableRecipientModes" :key="keyToText(mode.value)"
 										class="flex items-center gap-3 px-4 py-3 rounded-lg border transition cursor-pointer shadow-sm min-w-[180px]"
-										:class="formData.recipientMode === mode.value
+										:class="formData.recipientMode && keyToText(formData.recipientMode) === keyToText(mode.value)
 											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
 											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
 										<input v-model="formData.recipientMode" :value="mode.value" type="radio"
 											class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
 										<div>
-											<div class="text-sm font-medium text-gray-900 dark:text-white">{{ mode.label
-												}}
+											<div class="text-sm font-medium text-gray-900 dark:text-white">{{ mode.label }}
 											</div>
 											<div class="text-xs text-gray-500">{{ mode.description }}</div>
 										</div>
@@ -728,17 +726,17 @@
 									Fee Structure *
 								</label>
 								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-									<label v-for="fee in feeTypes" :key="fee.value"
+									<label v-for="fee in feeStructures" :key="keyToText(fee.value)"
 										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
-										:class="formData.feeType === fee.value
+										:class="keyToText(formData.feeStructure) == keyToText(fee.value)
 											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
 											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
-										<input v-model="formData.feeType" :value="fee.value" type="radio"
+										<input v-model="formData.feeStructure" :value="fee.value" type="radio"
 											class="sr-only" />
-										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="formData.feeType === fee.value
+										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="keyToText(formData.feeStructure) == keyToText(fee.value)
 											? 'bg-blue-600'
 											: 'bg-blue-50 dark:bg-blue-900/20'">
-											<component :is="fee.icon || 'SettingsIcon'" class="h-6 w-6" :class="formData.feeType === fee.value
+											<component :is="fee.icon || 'SettingsIcon'" class="h-6 w-6" :class="keyToText(formData.feeStructure) == keyToText(fee.value)
 												? 'text-white'
 												: 'text-blue-600'" />
 										</div>
@@ -748,7 +746,7 @@
 											</div>
 											<div class="text-sm text-gray-500">{{ fee.description }}</div>
 										</div>
-										<div v-if="formData.feeType === fee.value" class="ml-2">
+										<div v-if="keyToText(formData.feeStructure) == keyToText(fee.value)" class="ml-2">
 											<CheckIcon class="h-5 w-5 text-blue-600" />
 										</div>
 									</label>
@@ -756,7 +754,7 @@
 							</div>
 
 							<!-- Fee Configuration -->
-							<div v-if="formData.feeType === 'Fixed'">
+							<div v-if="keyToText(formData.feeStructure) == 'Fixed'">
 								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 									Fixed Fee Amount
 								</label>
@@ -764,7 +762,7 @@
 									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
 							</div>
 
-							<div v-if="formData.feeType === 'Percentage'">
+							<div v-if="keyToText(formData.feeStructure) == 'Percentage'">
 								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 									Percentage Fee Rate (%)
 								</label>
@@ -774,7 +772,7 @@
 							</div>
 
 							<!-- Progressive Fee Configuration -->
-							<div v-if="formData.feeType === 'Progressive'" class="space-y-4">
+							<div v-if="keyToText(formData.feeStructure) == 'Progressive'" class="space-y-4">
 								<div class="flex items-center justify-between">
 									<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Fee Tiers</h4>
 									<button type="button" @click="addFeeTier"
@@ -826,7 +824,7 @@
 									</div>
 								</div>
 
-								<div v-if="formData.progressiveTiers.length > 0"
+								<div v-if="formData.progressiveTiers && formData.progressiveTiers.length > 0"
 									class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
 									<p class="text-sm text-blue-700 dark:text-blue-300">
 										{{ formData.progressiveTiers.length }} fee tier(s) configured. Higher tiers apply to larger amounts.
@@ -889,7 +887,7 @@
 									</div>
 									<div>
 										<span class="text-gray-500">Eligibility:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.eligibilityType || 'Not set' }}</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.eligibilityType) || 'Not set' }}</span>
 									</div>
 									<div>
 										<span class="text-gray-500">Vesting:</span>
@@ -897,9 +895,9 @@
 									</div>
 									<div>
 										<span class="text-gray-500">Fee Type:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.feeType || 'Not set' }}</span>
+										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.feeStructure) || 'Not set' }}</span>
 									</div>
-									<div v-if="formData.eligibilityType === 'Whitelist' && whitelistTotalRecipients > 0">
+									<div v-if="keyToText(formData.eligibilityType) == 'Whitelist' && whitelistTotalRecipients > 0">
 										<span class="text-gray-500">Recipients:</span>
 										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ whitelistTotalRecipients }} addresses</span>
 									</div>
@@ -1093,6 +1091,7 @@ import { useProgressDialog } from '@/composables/useProgressDialog'
 import { IcrcService } from '@/api/services/icrc'
 import { backendService } from '@/api/services/backend'
 import { DistributionUtils } from '@/utils/distribution'
+import { keyToText } from '@/utils/common'
 import { toast } from 'vue-sonner'
 import { Principal } from '@dfinity/principal'
 import { handleTransferResult, hanldeApproveResult } from '@/utils/icrc'
@@ -1120,7 +1119,7 @@ import type {
 	EligibilityType,
 	RecipientMode,
 	VestingType,
-	FeeType,
+	FeeStructure,
 	CampaignType
 } from '@/types/distribution'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
@@ -1191,7 +1190,7 @@ const formData = reactive<DistributionFormData>({
 	totalAmount: 0,
 
 	// Step 3: Eligibility
-	eligibilityType: 'Open',
+	eligibilityType: { Open: null },
 	whitelistAddresses: [],
 	tokenHolderConfig: {
 		canisterId: '',
@@ -1202,20 +1201,20 @@ const formData = reactive<DistributionFormData>({
 		minCount: 1
 	},
 	blockIdScore: 0,
-	recipientMode: 'SelfService',
+	recipientMode: { SelfService: null },
 	maxRecipients: undefined,
 
 	// Step 4: Vesting
 	vestingType: 'Instant',
 	linearConfig: {
 		duration: 0,
-		frequency: 'Monthly'
+		frequency: { Monthly: null }
 	},
 	cliffConfig: {
 		cliffDuration: 0,
 		cliffPercentage: 25,
 		vestingDuration: 0,
-		frequency: 'Monthly'
+		frequency: { Monthly: null }
 	},
 	steppedCliffConfig: [],
 	customConfig: [],
@@ -1223,12 +1222,12 @@ const formData = reactive<DistributionFormData>({
 
 	// Step 5: Timing
 	hasRegistrationPeriod: false,
-	registrationPeriod: null,
+	registrationPeriod: undefined,
 	distributionStart: new Date(),
 	distributionEnd: undefined,
 
 	// Step 6: Settings
-	feeType: 'Free',
+	feeStructure: { Free: null },
 	fixedFeeAmount: 0,
 	percentageFeeRate: 0,
 	progressiveTiers: [],
@@ -1256,18 +1255,18 @@ const campaignTypes = [
 ]
 
 const eligibilityTypes = [
-	{ value: 'Open', label: 'Open to All', description: 'Anyone can participate', icon: GlobeIcon },
-	{ value: 'Whitelist', label: 'Whitelist Only', description: 'Pre-approved addresses only', icon: ShieldCheckIcon },
-	{ value: 'TokenHolder', label: 'Token Holders', description: 'Must hold specific tokens', icon: CoinsIcon },
-	{ value: 'NFTHolder', label: 'NFT Holders', description: 'Must hold specific NFTs', icon: CoinsIcon },
+	{ value: { Open: null }, label: 'Open to All', description: 'Anyone can participate', icon: GlobeIcon },
+	{ value: { Whitelist: null }, label: 'Whitelist Only', description: 'Pre-approved addresses only', icon: ShieldCheckIcon },
+	{ value: { TokenHolder: null }, label: 'Token Holders', description: 'Must hold specific tokens', icon: CoinsIcon },
+	{ value: { NFTHolder: null }, label: 'NFT Holders', description: 'Must hold specific NFTs', icon: CoinsIcon },
 
 
 ]
 
 const recipientModes = [
-	{ value: 'Fixed', label: 'Fixed Recipients', description: 'Pre-defined list of recipients' },
-	{ value: 'Dynamic', label: 'Dynamic Recipients', description: 'Recipients can be added/modified' },
-	{ value: 'SelfService', label: 'Self-Service', description: 'Users register themselves' }
+	// { value: 'Fixed', label: 'Fixed Recipients', description: 'Pre-defined list of recipients' },
+	{ value: { Dynamic: null }, label: 'Dynamic Recipients', description: 'Recipients can be added/modified' },
+	{ value: { SelfService: null }, label: 'Self-Service', description: 'Users register themselves' }
 ]
 
 const vestingTypes = [
@@ -1278,27 +1277,27 @@ const vestingTypes = [
 	{ value: 'Custom', label: 'Custom Schedule', description: 'Define your own schedule', icon: SettingsIcon }
 ]
 
-const feeTypes = [
-	{ value: 'Free', label: 'Free', description: 'No fees charged', icon: SettingsIcon },
-	{ value: 'Fixed', label: 'Fixed Fee', description: 'Fixed amount per distribution', icon: CoinsIcon },
-	{ value: 'Percentage', label: 'Percentage Fee', description: 'Percentage of distributed amount', icon: TrendingUpIcon },
-	{ value: 'Progressive', label: 'Progressive Tiers', description: 'Different fees for different tiers', icon: LayersIcon },
-	{ value: 'RecipientPays', label: 'Recipient Pays', description: 'Recipients pay the fees', icon: ShieldCheckIcon },
-	{ value: 'CreatorPays', label: 'Creator Pays', description: 'Campaign creator pays fees', icon: ShieldCheckIcon }
+const feeStructures = [
+	{ value: { Free: null }, label: 'Free', description: 'No fees charged', icon: SettingsIcon },
+	{ value: { Fixed: null }, label: 'Fixed Fee', description: 'Fixed amount per distribution', icon: CoinsIcon },
+	{ value: { Percentage: null }, label: 'Percentage Fee', description: 'Percentage of distributed amount', icon: TrendingUpIcon },
+	{ value: { Progressive: null }, label: 'Progressive Tiers', description: 'Different fees for different tiers', icon: LayersIcon },
+	{ value: { RecipientPays: null }, label: 'Recipient Pays', description: 'Recipients pay the fees', icon: ShieldCheckIcon },
+	{ value: { CreatorPays: null }, label: 'Creator Pays', description: 'Campaign creator pays fees', icon: ShieldCheckIcon }
 ]
 
 // Available recipient modes based on eligibility type
 const availableRecipientModes = computed(() => {
 	// Token and NFT holders should only use Fixed mode
-	if (formData.eligibilityType === 'TokenHolder' || formData.eligibilityType === 'NFTHolder') {
-		return recipientModes.filter(mode => mode.value === 'Fixed')
-	}
+	// if (keyToText(formData.eligibilityType) === 'TokenHolder' || keyToText(formData.eligibilityType) === 'NFTHolder') {
+	// 	return recipientModes.filter(mode => keyToText(mode.value) === 'Dynamic')
+	// }
 	return recipientModes
 })
 
 // Calculate total whitelist recipients
 const whitelistTotalRecipients = computed(() => {
-	if (formData.eligibilityType !== 'Whitelist') return 0
+	if (keyToText(formData.eligibilityType) !== 'Whitelist') return 0
 	
 	const recipients = whitelistText.value.split('\n').filter(line => line.trim().length > 0)
 	return recipients.length
@@ -1306,7 +1305,7 @@ const whitelistTotalRecipients = computed(() => {
 
 // Calculate total whitelist distribution amount
 const whitelistTotalAmount = computed(() => {
-	if (formData.eligibilityType !== 'Whitelist') return 0
+	if (keyToText(formData.eligibilityType) !== 'Whitelist') return 0
 	
 	const recipients = whitelistText.value.split('\n').filter(line => line.trim().length > 0)
 	if (recipients.length === 0) return 0
@@ -1328,11 +1327,11 @@ const canProceed = computed(() => {
 		case 0: // Basic Info
 			const basicValid = formData.title.trim() && formData.description.trim() && formData.campaignType
 			if (formData.useBlockId) {
-				return basicValid && formData.blockIdScore > 0
+				return basicValid && formData?.blockIdScore && formData?.blockIdScore > 0
 			}
 			return basicValid
 		case 1: // Eligibility
-			if (formData.eligibilityType === 'Whitelist') {
+			if (formData?.eligibilityType && keyToText(formData.eligibilityType) === 'Whitelist') {
 				if (whitelistAmountType.value === 'same') {
 					const validLines = whitelistText.value.split('\n').filter(line => line.trim().length > 0);
 					return whitelistSameAmount.value > 0 && validLines.length > 0 && validLines.every(line => {
@@ -1347,14 +1346,14 @@ const canProceed = computed(() => {
 					});
 				}
 			}
-			if (formData.eligibilityType === 'TokenHolder') {
-				return formData.tokenHolderConfig?.canisterId && formData.tokenHolderConfig?.minAmount > 0;
+			if (keyToText(formData.eligibilityType) === 'TokenHolder') {
+				return formData.tokenHolderConfig?.canisterId && formData.tokenHolderConfig?.minAmount && formData.tokenHolderConfig?.minAmount > 0;
 			}
-			if (formData.eligibilityType === 'NFTHolder') {
-				return formData.nftHolderConfig?.canisterId && formData.nftHolderConfig?.minCount > 0;
+			if (keyToText(formData.eligibilityType) === 'NFTHolder') {
+				return formData.nftHolderConfig?.canisterId && formData.nftHolderConfig?.minCount && formData.nftHolderConfig?.minCount > 0;
 			}
 
-			return formData.eligibilityType && (formData.eligibilityType === 'Open' || formData.recipientMode)
+			return formData.eligibilityType && (keyToText(formData.eligibilityType) === 'Open' || formData.recipientMode)
 		case 2: // Token & Amount
 			const tokenValid = tokenSelectionMethod.value === 'assets' ? 
 				(selectedAssetId.value && formData.totalAmount > 0) :
@@ -1367,13 +1366,13 @@ const canProceed = computed(() => {
 		case 4: // Timing
 			return distributionStartDate.value && validateTimeLogic.value.valid
 		case 5: // Settings
-			const feeValid = formData.feeType && (
-				formData.feeType === 'Free' ||
-				(formData.feeType === 'Fixed' && (formData.fixedFeeAmount || 0) > 0) ||
-				(formData.feeType === 'Percentage' && (formData.percentageFeeRate || 0) > 0) ||
-				(formData.feeType === 'Progressive' && formData.progressiveTiers && formData.progressiveTiers.length > 0 &&
+			const feeValid = formData.feeStructure && (
+				keyToText(formData.feeStructure) === 'Free' ||
+				(keyToText(formData.feeStructure) === 'Fixed' && (formData.fixedFeeAmount || 0) > 0) ||
+				(keyToText(formData.feeStructure) === 'Percentage' && (formData.percentageFeeRate || 0) > 0) ||
+				(keyToText(formData.feeStructure) === 'Progressive' && formData.progressiveTiers && formData.progressiveTiers.length > 0 &&
 					formData.progressiveTiers.every(tier => tier.threshold >= 0 && tier.feeRate > 0)) ||
-				['RecipientPays', 'CreatorPays'].includes(formData.feeType)
+				['RecipientPays', 'CreatorPays'].includes(keyToText(formData.feeStructure))
 			)
 			const progressiveValid = validateProgressiveFees.value.valid
 			return feeValid && progressiveValid
@@ -1427,7 +1426,7 @@ const previousStep = () => {
 const processAllSteps = () => {
 	console.log('Processing all steps before deployment')
 	// Process step 1 (Eligibility)
-	if (formData.eligibilityType === 'Whitelist') {
+	if (formData.eligibilityType && keyToText(formData.eligibilityType) === 'Whitelist') {
 		console.log('Processing whitelist data:', whitelistText.value)
 		console.log('Whitelist amount type:', whitelistAmountType.value)
 		if (whitelistAmountType.value === 'same') {
@@ -1469,7 +1468,7 @@ const processAllSteps = () => {
 			maxParticipants: undefined
 		}
 	} else {
-		formData.registrationPeriod = null
+		formData.registrationPeriod = undefined
 	}
 	
 	if (!hasMaxRecipients.value) {
@@ -1482,7 +1481,7 @@ const processCurrentStep = () => {
 	console.log('Processing step:', currentStep.value)
 	switch (currentStep.value) {
 		case 1: // Eligibility
-			if (formData.eligibilityType === 'Whitelist') {
+			if (keyToText(formData.eligibilityType) === 'Whitelist') {
 				console.log('Processing whitelist data:', whitelistText.value)
 				console.log('Whitelist amount type:', whitelistAmountType.value)
 				if (whitelistAmountType.value === 'same') {
@@ -1528,7 +1527,7 @@ const processCurrentStep = () => {
 					maxParticipants: undefined
 				}
 			} else {
-				formData.registrationPeriod = null
+				formData.registrationPeriod = undefined
 			}
 			break
 	}
@@ -1627,7 +1626,7 @@ const buildVestingSchedule = () => {
 }
 
 const buildFeeStructure = () => {
-	switch (formData.feeType) {
+	switch (keyToText(formData.feeStructure)) {
 		case 'Free':
 			return { type: 'Free' }
 		case 'Fixed':
@@ -1659,13 +1658,13 @@ const closeSuccessModal = () => {
 		campaignType: 'Airdrop',
 		tokenInfo: { canisterId: '', symbol: '', name: '', decimals: 8 },
 		totalAmount: 0,
-		eligibilityType: 'Open',
-		recipientMode: 'SelfService',
+		eligibilityType: { Open: null },
+		recipientMode: { SelfService: null },
 		vestingType: 'Instant',
 		initialUnlockPercentage: 0,
 		hasRegistrationPeriod: false,
 		distributionStart: new Date(),
-		feeType: 'Free',
+		feeStructure: { Free: null },
 		allowCancel: true,
 		allowModification: false,
 		whitelistAddresses: [],
@@ -1702,8 +1701,8 @@ watch(() => hasMaxRecipients.value, (newVal) => {
 
 // Auto-set recipient mode to Fixed for Token/NFT holders
 watch(() => formData.eligibilityType, (newType) => {
-	if (newType === 'TokenHolder' || newType === 'NFTHolder') {
-		formData.recipientMode = 'Fixed'
+	if (keyToText(newType) === 'TokenHolder' || keyToText(newType) === 'NFTHolder') {
+		formData.recipientMode = { Fixed: null }
 	}
 })
 
@@ -1894,7 +1893,7 @@ const handlePayment = async () => {
 						// Process all steps to ensure data is properly set
 						processAllSteps()
 						const config = buildDistributionConfig()
-						const backendRequest = DistributionUtils.convertToBackendRequest(config)
+						const backendRequest = DistributionUtils.convertToBackendRequest(config as any)
 						const deployDistributionResult = await backendService.deployDistribution(backendRequest)
 
 						if (!deployDistributionResult.success) {
@@ -2041,7 +2040,7 @@ const validateAmountVsRecipients = computed(() => {
 	if (!formData.totalAmount || formData.totalAmount <= 0) return { valid: false, message: 'Total amount is required' }
 	
 	// For whitelist, check if amount covers all recipients
-	if (formData.eligibilityType === 'Whitelist') {
+	if (formData.eligibilityType && keyToText(formData.eligibilityType) === 'Whitelist') {
 		const recipients = whitelistText.value.split('\n').filter(line => line.trim().length > 0)
 		if (recipients.length === 0) return { valid: false, message: 'No recipients specified' }
 		
@@ -2126,7 +2125,7 @@ const validateTimeLogic = computed(() => {
 })
 
 const validateProgressiveFees = computed(() => {
-	if (formData.feeType !== 'Progressive' || !formData.progressiveTiers || formData.progressiveTiers.length === 0) {
+	if (formData.feeStructure && keyToText(formData.feeStructure) !== 'Progressive' || !formData.progressiveTiers || formData.progressiveTiers.length === 0) {
 		return { valid: true, message: '' }
 	}
 	

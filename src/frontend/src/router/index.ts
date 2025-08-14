@@ -214,6 +214,16 @@ const router = createRouter({
       },
     },
     {
+      path: '/distribution/:id/manage',
+      name: 'DistributionManage',
+      component: () => import('../views/Distribution/DistributionManage.vue'),
+      meta: {
+        title: 'Manage Distribution',
+        requiresAuth: true,
+        adminOnly: true
+      },
+    },
+    {
       path: '/launchpad',
       name: 'LaunchpadIndex',
       component: () => import('@/views/Launchpad/LaunchpadIndex.vue'),

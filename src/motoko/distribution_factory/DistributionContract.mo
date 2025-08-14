@@ -13,7 +13,10 @@ import Float "mo:base/Float";
 import Nat "mo:base/Nat";
 
 // Import shared types (trust source)
-import DistributionTypes "../backend/shared/types/DistributionTypes";
+import DistributionTypes "../shared/types/DistributionTypes";
+import Timer "mo:base/Timer";
+import ICRC "../shared/types/ICRC";
+import BlockID "../shared/utils/BlockID";
 
 persistent actor class DistributionContract(init_config: DistributionTypes.DistributionConfig, init_creator: Principal) = self {
 
@@ -66,6 +69,22 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private transient var participants: Trie.Trie<Principal, Participant> = Trie.empty();
     private transient var claimRecords: Buffer.Buffer<ClaimRecord> = Buffer.Buffer(0);
     private transient var whitelist: Trie.Trie<Principal, Bool> = Trie.empty();
+    
+    // Timer and token management
+    private var timerId: Nat = 0;
+    private var tokenCanister: ?ICRC.ICRCLedger = null;
+    
+    // BlockID integration
+    private let BLOCK_ID_CANISTER_ID = "3c7yh-4aaaa-aaaap-qhria-cai";
+    private let BLOCK_ID_APPLICATION = "block-id";
+    private let blockID: BlockID.Self = actor(BLOCK_ID_CANISTER_ID);
+
+    //Token info
+    private var transferFee: Nat = 0;
+    
+    // Constants
+    private let E8S: Nat = 100_000_000;
+    private let NANO_TIME: Nat = 1_000_000_000;
 
     // Initialize whitelist and participants from config on contract creation
     public shared({ caller }) func init() : async Result.Result<(), Text> {
@@ -77,10 +96,23 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             return #err("Distribution already initialized");
         };
         
+        // Initialize token canister
+        tokenCanister := ?actor(Principal.toText(config.tokenInfo.canisterId));
+        transferFee := await _getTransferFee(tokenCanister);
+        
         // Initialize whitelist and participants from config
         _initializeWhitelist();
         initialized := true;
         #ok()
+    };
+
+    private func _getTransferFee(tokenCanister: ?ICRC.ICRCLedger) : async Nat {
+        switch (tokenCanister) {
+            case (?icrcLedger) {
+                await icrcLedger.icrc1_fee();
+            };
+            case null { 0 };
+        };
     };
 
     // ================ INITIALIZATION ================
@@ -208,9 +240,13 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     };
     
     private func _checkBlockIDScore(participant: Principal, minScore: Nat) : async Bool {
-        // TODO: Implement Block ID score checking
-        // For now, return true as placeholder
-        true
+        try {
+            if (minScore == 0) return true;
+            let score = await blockID.getWalletScore(participant, BLOCK_ID_APPLICATION);
+            score.totalScore >= minScore;
+        } catch (_) {
+            false;
+        };
     };
     
     private func _checkHybridEligibility(participant: Principal, hybridConfig: { conditions: [EligibilityType]; logic: EligibilityLogic }) : async Bool {
@@ -276,6 +312,64 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
                 if (unlockedAmount > totalAmount) totalAmount else unlockedAmount
             };
         }
+    };
+
+    // ================ TOKEN MANAGEMENT ================
+    
+    private func _getContractTokenBalance() : async Nat {
+        switch (tokenCanister) {
+            case (?canister) {
+                let balance = await canister.icrc1_balance_of({ 
+                    owner = Principal.fromActor(self); 
+                    subaccount = null 
+                });
+                balance
+            };
+            case null { 0 };
+        }
+    };
+    
+    private func _transfer(to: Principal, amount: Nat) : async* Result.Result<Nat, ICRC.TransferError> {
+        switch (tokenCanister) {
+            case (?canister) {
+                let transferAmount = if (amount > transferFee) {
+                    Nat.sub(amount, transferFee)
+                } else { 0 };
+                
+                if (transferAmount == 0) {
+                    return #err(#InsufficientFunds { balance = amount });
+                };
+                
+                let transfer_result = await canister.icrc1_transfer({
+                    to = {
+                        owner = to;
+                        subaccount = null;
+                    };
+                    fee = ?transferFee;
+                    amount = transferAmount;
+                    memo = null;
+                    from_subaccount = null;
+                    created_at_time = null;
+                });
+                
+                switch (transfer_result) {
+                    case (#Ok(txIndex)) { #ok(txIndex) };
+                    case (#Err(err)) { #err(err) };
+                }
+            };
+            case null {
+                #err(#GenericError { error_code = 500; message = "Token canister not initialized" })
+            };
+        }
+    };
+    
+    private func _checkStartTime() : async () {
+        if (Time.now() >= config.distributionStart and status == #Created and initialized) {
+            let contractBalance = await _getContractTokenBalance();
+            if (contractBalance >= config.totalAmount) {
+                ignore activate();
+            };
+        };
     };
 
     // ================ PUBLIC INTERFACE ================
@@ -400,8 +494,20 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             return #err("No tokens available to claim at this time");
         };
         
-        // TODO: Transfer tokens to participant
-        // For now, just update records
+        // Check BlockID score if required
+        let isEligible = await _checkEligibility(caller);
+        if (not isEligible) {
+            return #err("Not eligible for this distribution");
+        };
+        
+        // Transfer tokens to participant
+        let transferResult = await* _transfer(caller, claimableAmount);
+        let txIndex = switch (transferResult) {
+            case (#ok(index)) { ?index };
+            case (#err(err)) {
+                return #err("Token transfer failed: " # debug_show(err));
+            };
+        };
         
         // Update participant record
         let updatedParticipant: Participant = {
@@ -426,8 +532,11 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             participant = caller;
             amount = claimableAmount;
             timestamp = Time.now();
-            blockHeight = null; // TODO: Get from token transfer
-            transactionId = null; // TODO: Get from token transfer
+            blockHeight = null; // TODO: Get from blockchain
+            transactionId = switch (txIndex) {
+                case (?index) { ?Nat.toText(index) };
+                case null { null };
+            }; // Transaction ID from ICRC transfer
         };
         
         claimRecords.add(claimRecord);
@@ -488,7 +597,14 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             return #err("Distribution can only be activated from Created status");
         };
         
+        // Check contract has sufficient token balance
+        let contractBalance = await _getContractTokenBalance();
+        if (contractBalance < config.totalAmount) {
+            return #err("Insufficient token balance. Required: " # debug_show(config.totalAmount) # " " # config.tokenInfo.symbol # ", Available: " # debug_show(contractBalance / E8S) # " " # config.tokenInfo.symbol);
+        };
+        
         status := #Active;
+        Timer.cancelTimer(timerId); // Cancel auto-start timer if running
         #ok()
     };
     
@@ -528,6 +644,18 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         };
         
         status := #Cancelled;
+        Timer.cancelTimer(timerId); // Cancel timer
+        
+        // Return remaining tokens to owner if any
+        let balance = await _getContractTokenBalance();
+        if (balance >= Nat.mul(transferFee, 2)) {
+            let transferResult = await* _transfer(config.owner, balance);
+            switch (transferResult) {
+                case (#ok(_)) { /* Transfer successful */ };
+                case (#err(_)) { /* Log error but don't fail cancellation */ };
+            };
+        };
+        
         #ok()
     };
     
@@ -600,6 +728,45 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             participantCount = participantCount;
             totalDistributed = totalDistributed;
             status = status;
+        }
+    };
+    
+    // ================ TIMER MANAGEMENT ================
+    
+    public func startTimer() : async () {
+        timerId := Timer.recurringTimer<system>(#seconds(30), _checkStartTime);
+    };
+    
+    public func cancelTimer() : async () {
+        Timer.cancelTimer(timerId);
+    };
+    
+    public query func getTimerStatus() : async { timerId: Nat; isRunning: Bool } {
+        { timerId = timerId; isRunning = timerId > 0 }
+    };
+    
+    // ================ ADDITIONAL QUERY FUNCTIONS ================
+    
+    public query func getContractBalance() : async Nat {
+        // This is a query approximation; use getContractBalanceAsync for real-time balance
+        0 // Placeholder since we can't make async calls in query functions
+    };
+    
+    public func getContractBalanceAsync() : async Nat {
+        await _getContractTokenBalance()
+    };
+    
+    public query func checkEligibilitySync(principal: Principal) : async Bool {
+        // Synchronous eligibility check for simple cases
+        switch (config.eligibilityType) {
+            case (#Open) { true };
+            case (#Whitelist) {
+                switch (Trie.get(whitelist, _principalKey(principal), Principal.equal)) {
+                    case (?eligible) { eligible };
+                    case null { false };
+                }
+            };
+            case (_) { false }; // Complex eligibility requires async call
         }
     };
 }

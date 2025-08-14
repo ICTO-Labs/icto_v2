@@ -64,15 +64,11 @@
               </h4>
               <div class="flex items-center space-x-4">
                 <p class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">{{ canisterId }} <CopyIcon class="w-3.5 h-3.5" :data="canisterId" /></p>
-                <Label variant="green" size="xs" >{{ canisterCycles }} T</Label>
-                <Label :variant="stats?.isActive ? 'green' : 'yellow'" size="xs" class="flex items-center gap-1">
-                  <div class="w-2 h-2 rounded-full mr-1" :class="{
-                    'bg-green-400': stats?.isActive,
-                    'bg-yellow-400': !stats?.isActive
-                  }">
-                  </div>
-                  {{ stats?.isActive ? 'Active' : 'Not Active' }} 
-                </Label>
+                <Label variant="gray" size="xs" >{{ cyclesToT(canisterCycles) }}</Label>
+                <div :class="statusColor" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium">
+                  <div class="w-2 h-2 rounded-full mr-2" :class="statusDotColor"></div>
+                  {{ statusText }}
+                </div>
                 <Label size="xs" class="flex items-center gap-1" variant="purple">
                   {{ getVariantKey(details.eligibilityType) }}
                 </Label>
@@ -83,26 +79,33 @@
 
           <!-- Action Toolbar -->
           <div class="flex items-center space-x-3">
+            <!-- Admin Management Link -->
+            <router-link v-if="isOwner" :to="`/distribution/${distributionId}/manage`"
+              class="inline-flex text-sm items-center px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors duration-200">
+              <SettingsIcon class="w-4 h-4 mr-2" />
+              Manage
+            </router-link>
+            
             <button v-if="!eligibilityStatus" @click="checkEligibility" :disabled="eligibilityLoading"
-              class="inline-flex items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50">
+              class="inline-flex text-sm items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50">
               <SearchIcon class="w-4 h-4 mr-2" />
               {{ eligibilityLoading ? 'Checking...' : 'Check Eligibility' }}
             </button>
 
             <button @click="registerForCampaign" :disabled="registering"
-              class="inline-flex items-center px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 disabled:opacity-50">
+              class="inline-flex text-sm items-center px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 disabled:opacity-50">
               <UserPlusIcon class="w-4 h-4 mr-2" />
               {{ registering ? 'Registering...' : 'Register' }}
             </button>
 
-            <button v-if="canClaim && availableToClaim > 0" @click="claimTokens" :disabled="claiming"
-              class="inline-flex items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 disabled:opacity-50">
+            <button @click="claimTokens" :disabled="claiming"
+              class="inline-flex text-sm items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 disabled:opacity-50">
               <GiftIcon class="w-4 h-4 mr-2" />
               {{ claiming ? 'Claiming...' : 'Claim Tokens' }}
             </button>
 
             <button @click="refreshData" :disabled="refreshing"
-              class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50">
+              class="inline-flex text-sm items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50">
               <RefreshCwIcon class="w-4 h-4 mr-2" :class="{ 'animate-spin': refreshing }" />
               {{ refreshing ? 'Refreshing...' : 'Refresh' }}
             </button>
@@ -249,7 +252,7 @@
 
               <!-- Recipients Tab -->
               <div v-if="activeTab === 'recipients'">
-                <div v-if="details?.recipients && details.recipients.length > 0" class="overflow-x-auto">
+                <div v-if="participants && participants.length > 0" class="overflow-x-auto">
                   <table class="w-full">
                     <thead>
                       <tr class="border-b border-gray-200 dark:border-gray-600">
@@ -261,7 +264,7 @@
                     </thead>
                     <tbody>
                       <tr 
-                        v-for="recipient in details.recipients" 
+                        v-for="recipient in participants" 
                         :key="recipient.address"
                         class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200"
                       >
@@ -269,25 +272,25 @@
                           <div class="flex items-center space-x-3">
                             <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
                               <span class="text-white text-xs font-medium">
-                                {{ getFirstLetter(recipient.address) }}
+                                {{ getFirstLetter(recipient.principal) }}
                               </span>
                             </div>
                             <div>
-                              <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1" :title="recipient.address">
-                                {{ shortPrincipal(recipient.address) }}
-                                <CopyIcon :data="recipient.address" class="w-4 h-4 cursor-pointer" />
+                              <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1" :title="recipient.principal">
+                                {{ shortPrincipal(recipient.principal) }}
+                                <CopyIcon :data="recipient.principal" class="w-4 h-4 cursor-pointer" />
                               </p>
                             </div>
                           </div>
                         </td>
                         <td class="py-4 px-4 text-right">
                           <span class="font-semibold text-gray-900 dark:text-white">
-                            {{ formatNumber(Number(recipient.amount)) }} {{ details.tokenInfo.symbol }}
+                            {{ formatNumber(parseTokenAmount(recipient.eligibleAmount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
                           </span>
                         </td>
                         <td class="py-4 px-4 text-right">
                           <span class="text-gray-500 dark:text-gray-400">
-                            0 {{ details.tokenInfo.symbol }}
+                            {{ formatNumber(parseTokenAmount(recipient.claimedAmount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
                           </span>
                         </td>
                         <td class="py-4 px-4">
@@ -309,33 +312,56 @@
 
               <!-- Transactions Tab -->
               <div v-if="activeTab === 'transactions'">
-                <div class="space-y-4">
-                  <div v-for="claim in claimHistory" :key="claim.id"
-                    class="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-                    <div class="flex items-center space-x-4">
-                      <div class="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
-                        <CheckIcon class="w-5 h-5 text-green-600 dark:text-green-400" />
-                      </div>
-                      <div>
-                        <p class="font-semibold text-gray-900 dark:text-white">
-                          {{ BackendUtils.formatTokenAmount(claim.amount, details.tokenInfo.decimals) }} {{
-                            details.tokenInfo.symbol }}
-                        </p>
-                        <p class="text-sm text-gray-500 dark:text-gray-400">{{ claim.date }}</p>
-                      </div>
-                    </div>
-                    <div class="text-right">
-                      <p class="text-sm font-medium text-green-600 dark:text-green-400">Claimed</p>
-                      <p class="text-xs text-gray-500 dark:text-gray-400">{{ claim.txHash.slice(0, 8) }}...</p>
-                    </div>
-                  </div>
 
-                  <div v-if="claimHistory.length === 0" class="text-center py-12">
-                    <HistoryIcon class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                    <p class="text-gray-500 dark:text-gray-400">No transactions yet</p>
-                    <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Transaction history will appear here</p>
-                  </div>
-                </div>
+                <table class="w-full">
+                    <thead>
+                      <tr class="border-b border-gray-200 dark:border-gray-600">
+                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Address</th>
+                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Amount</th>
+                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Claimed</th>
+                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">TxId</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr 
+                        v-for="claim in claimHistory" 
+                        :key="claim.id"
+                        class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200"
+                      >
+                        <td class="py-4 px-4">
+                          <div class="flex items-center space-x-3">
+                            <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                              <span class="text-white text-xs font-medium">
+                                {{ getFirstLetter(claim.participant) }}
+                              </span>
+                            </div>
+                            <div>
+                              <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1" :title="claim.participant">
+                                {{ shortPrincipal(claim.participant) }}
+                                <CopyIcon :data="claim.participant" class="w-4 h-4 cursor-pointer" />
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-4 px-4 text-right">
+                          <span class="font-semibold text-gray-900 dark:text-white">
+                            {{ formatNumber(parseTokenAmount(claim.amount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
+                          </span>
+                        </td>
+                        <td class="py-4 px-4 text-right">
+                          <span class="text-gray-500 dark:text-gray-400">
+                            {{ formatNumber(parseTokenAmount(claim.amount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
+                          </span>
+                        </td>
+                        <td class="py-2 px-2">
+                          <span v-if="claim.transactionId" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                            #{{ claim.transactionId.length > 0 ? claim.transactionId[0] : 'N/A' }}
+                          </span>
+                          <span v-else class="text-gray-400 text-xs">—</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
               </div>
             </div>
           </div>
@@ -431,7 +457,7 @@
                   <!-- Center text -->
                   <div class="absolute inset-0 flex flex-col items-center justify-center">
                     <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                      {{ formatNumber(circleChartData.total) }}
+                      {{ formatNumber(parseTokenAmount(circleChartData.total, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
                     </div>
                     <div class="text-sm text-gray-500 dark:text-gray-400">
                       {{ details?.tokenInfo?.symbol }}
@@ -587,7 +613,8 @@ import {
   GiftIcon,
   CalendarIcon,
   LinkIcon,
-  ZapIcon
+  ZapIcon,
+  SettingsIcon
 } from 'lucide-vue-next'
 import { CopyIcon } from '@/icons'
 import Label from '@/components/common/Label.vue'
@@ -598,6 +625,13 @@ import VestingChart from '@/components/distribution/VestingChart.vue'
 import type { DistributionDetails, DistributionStats } from '@/types/distribution'
 import { BackendUtils } from '@/utils/backend'
 import { getVariantKey, shortPrincipal, getFirstLetter } from '@/utils/common'
+import { 
+  getDistributionStatusColor,
+  getDistributionStatusDotColor,
+  getDistributionStatusText
+} from '@/utils/distribution'
+import { cyclesToT } from '@/utils/common'
+import { parseTokenAmount } from '@/utils/token'
 import { toast } from 'vue-sonner'
 const route = useRoute()
 const router = useRouter()
@@ -610,8 +644,10 @@ const refreshing = ref(false)
 const eligibilityLoading = ref(false)
 const eligibilityStatus = ref(false)
 const registering = ref(false)
+const distributionStatus = ref<string>('')
 const chartPeriod = ref('Monthly')
 const activeTab = ref('recipients')
+const participants = ref<any[]>([])
 
 // User data
 const userAllocation = ref<bigint>(BigInt(0))
@@ -621,29 +657,22 @@ const alreadyClaimed = ref<bigint>(BigInt(0))
 const canisterCycles = ref(0)
 
 // Mock claim history data
-const claimHistory = ref([
-  {
-    id: '1',
-    amount: BigInt(1000000000), // 10 tokens with 8 decimals
-    date: 'January 15, 2024',
-    txHash: 'abc123def456789'
-  },
-  {
-    id: '2',
-    amount: BigInt(500000000), // 5 tokens with 8 decimals
-    date: 'February 15, 2024',
-    txHash: 'def456ghi789012'
-  }
-])
+const claimHistory = ref<any[]>([])
 
 const canisterId = computed(() => route.params.id as string)
 
-const statusClasses = {
-  'Active': 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
-  'Paused': 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
-  'Completed': 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
-  'Cancelled': 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'
-}
+// Distribution status computed properties using utility functions
+const statusColor = computed(() => {
+  return getDistributionStatusColor(distributionStatus.value)
+})
+
+const statusDotColor = computed(() => {
+  return getDistributionStatusDotColor(distributionStatus.value)
+})
+
+const statusText = computed(() => {
+  return getDistributionStatusText(distributionStatus.value)
+})
 
 const canClaim = computed(() => {
   return stats.value?.isActive && availableToClaim.value > 0
@@ -882,28 +911,6 @@ const formatDate = (date: Date) => {
   }).format(date)
 }
 
-const copyToClipboard = async (text: string) => {
-  try {
-    await navigator.clipboard.writeText(text)
-    // You can add a toast notification here if needed
-    console.log('Copied to clipboard:', text)
-  } catch (err) {
-    console.error('Failed to copy to clipboard:', err)
-    // Fallback for older browsers
-    const textArea = document.createElement('textarea')
-    textArea.value = text
-    document.body.appendChild(textArea)
-    textArea.focus()
-    textArea.select()
-    try {
-      document.execCommand('copy')
-      console.log('Copied to clipboard (fallback):', text)
-    } catch (fallbackErr) {
-      console.error('Fallback copy failed:', fallbackErr)
-    }
-    document.body.removeChild(textArea)
-  }
-}
 
 const fetchDetails = async () => {
   try {
@@ -927,11 +934,19 @@ const fetchStats = async () => {
   }
 }
 
+const fetchDistributionStatus = async () => {
+  try {
+    const status = await DistributionService.getDistributionStatus(canisterId.value)
+    distributionStatus.value = status
+  } catch (err) {
+    console.error('Error fetching distribution status:', err)
+  }
+}
+
 const fetchCanisterInfo = async () => {
   try {
     const info = await DistributionService.getCanisterInfo(canisterId.value)
-    console.log('info', info)
-    canisterCycles.value = Number((Number(info.cyclesBalance)/1_000_000_000).toFixed(2))
+    canisterCycles.value = info.cyclesBalance
   } catch (err) {
     console.error('Error fetching canister info:', err)
   }
@@ -953,7 +968,12 @@ const checkEligibility = async () => {
 const claimTokens = async () => {
   try {
     claiming.value = true
-    await DistributionService.claimTokens(canisterId.value)
+    const result = await DistributionService.claimTokens(canisterId.value)
+    if ('ok' in result) {
+      toast.success('Successfully claimed tokens')
+    } else {
+      toast.error('Error: ' + result.err)
+    }
 
     // Update available and claimed amounts
     alreadyClaimed.value += availableToClaim.value
@@ -979,7 +999,25 @@ const refreshData = async () => {
   refreshing.value = true
   await fetchDetails()
   await fetchStats()
+  await fetchDistributionStatus()
+  await fetchAllParticipants()
+  await fetchClaimHistory()
   refreshing.value = false
+}
+
+const fetchClaimHistory = async () => {
+  try {
+    claimHistory.value = await DistributionService.getClaimHistory(canisterId.value)
+  } catch (err) {
+    console.error('Error fetching claim history:', err)
+  }
+}
+const fetchAllParticipants = async () => {
+  try {
+    participants.value = await DistributionService.getAllParticipants(canisterId.value)
+  } catch (err) {
+    console.error('Error fetching all participants:', err)
+  }
 }
 
 const registerForCampaign = async () => {
@@ -1002,9 +1040,6 @@ const registerForCampaign = async () => {
   }
 }
 
-// Chart functionality
-const tooltipData = ref(null)
-const tooltipPosition = ref({ x: 0, y: 0 })
 
 // Current time and cliff indicators
 const currentTimePosition = computed(() => {
@@ -1039,43 +1074,6 @@ const hasInstantUnlock = computed(() => {
   return vestingScheduleData.value.some(point => point.type === 'instant')
 })
 
-const generateSteppedPath = computed(() => {
-  if (vestingScheduleData.value.length === 0) return ''
-  
-  let path = `M 0 100`
-  
-  vestingScheduleData.value.forEach((point, index) => {
-    const x = (index / (vestingScheduleData.value.length - 1)) * 100
-    const y = 100 - point.percentage
-    
-    if (index === 0) {
-      path += ` L ${x} ${y}`
-    } else {
-      // Create stepped effect
-      const prevX = ((index - 1) / (vestingScheduleData.value.length - 1)) * 100
-      path += ` L ${prevX} ${y} L ${x} ${y}`
-    }
-  })
-  
-  // Close the path for fill
-  const lastX = ((vestingScheduleData.value.length - 1) / (vestingScheduleData.value.length - 1)) * 100
-  path += ` L ${lastX} 100 Z`
-  
-  return path
-})
-
-const showTooltip = (data, event) => {
-  tooltipData.value = data
-  const rect = event.target.closest('.relative').getBoundingClientRect()
-  tooltipPosition.value = {
-    x: event.clientX - rect.left + 10,
-    y: event.clientY - rect.top - 10
-  }
-}
-
-const hideTooltip = () => {
-  tooltipData.value = null
-}
 
 // Circle chart data for Campaign Details
 const circleChartData = computed(() => {
@@ -1169,12 +1167,29 @@ const canRegister = computed(() => {
   return isSelfService && isOpen && isActive && isRegistrationOpen
 })
 
+// Check if current user is the owner of this distribution
+const isOwner = computed(() => {
+  if (!details.value) return false
+  // This would need to be implemented based on your auth system
+  // For now, return true for demo purposes
+  return true
+})
+
+const distributionId = computed(() => route.params.id as string)
+
+const parallelFetch = async () => {
+  await Promise.all([
+    fetchDetails(),
+    fetchCanisterInfo(),
+    fetchStats(),
+    fetchDistributionStatus(),
+    fetchAllParticipants(),
+    fetchClaimHistory()
+  ])
+}
 
 onMounted(() => {
-  fetchDetails()
-  fetchCanisterInfo()
-  fetchStats()
-  checkEligibility()
+  parallelFetch()
 })
 </script>
 

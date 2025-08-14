@@ -1,4 +1,11 @@
-import type { DistributionConfig, EligibilityType, EligibilityLogic } from '@/types/distribution';
+import type { 
+    DistributionConfig, 
+    EligibilityType, 
+    EligibilityLogic, 
+    DistributionDetails, 
+    NFTHolderConfig,
+    TokenHolderConfig
+} from '@/types/distribution';
 import type { 
     MotokoDistributionConfig,
     EligibilityTypeMotoko,
@@ -10,12 +17,15 @@ import type {
     RegistrationPeriodMotoko
 } from '@/types/motoko-backend';
 import { Principal } from '@dfinity/principal';
+import { keyToText } from './common';
+import { formatTokenAmount } from './token';
 
 export class DistributionUtils {
     /**
      * Convert frontend DistributionConfig to backend MotokoDistributionConfig
      */
     public static convertToBackendRequest(config: DistributionConfig): MotokoDistributionConfig {
+        console.log('config', config);
         // Build the base config object
         const result: any = {
             title: config.title,
@@ -23,21 +33,21 @@ export class DistributionUtils {
             isPublic: config.isPublic,
             campaignType: this.convertCampaignType((config as any).campaignType),
             tokenInfo: {
-                canisterId: Principal.fromText(config.tokenInfo.canisterId),
+                canisterId: Principal.fromText(config.tokenInfo.canisterId.toString()),
                 symbol: config.tokenInfo.symbol,
                 name: config.tokenInfo.name,
                 decimals: config.tokenInfo.decimals
             },
-            totalAmount: BigInt(config.totalAmount),
-            eligibilityType: this.convertEligibilityType(config.eligibilityType, config),
-            recipientMode: this.convertRecipientMode(config.recipientMode),
+            totalAmount: formatTokenAmount(config.totalAmount, config.tokenInfo.decimals).toNumber(),
+            eligibilityType: config.eligibilityType,
+            recipientMode: config.recipientMode,
             vestingSchedule: this.convertVestingSchedule(config.vestingSchedule),
             initialUnlockPercentage: BigInt(config.initialUnlockPercentage),
             distributionStart: BigInt(config.distributionStart.getTime() * 1_000_000), // Convert to nanoseconds
             feeStructure: this.convertFeeStructure(config.feeStructure),
             allowCancel: config.allowCancel,
             allowModification: config.allowModification,
-            owner: Principal.fromText(config.owner),
+            owner: Principal.fromText(config.owner.toString()),
             recipients: this.buildRecipientsArray(config),
             // registrationPeriod will be handled as Candid optional below
         };
@@ -66,13 +76,12 @@ export class DistributionUtils {
     /**
      * Convert frontend EligibilityType to backend EligibilityTypeMotoko
      */
-    private static convertEligibilityType(eligibilityType: EligibilityType, config: DistributionConfig): EligibilityTypeMotoko {
+    private static convertEligibilityType(eligibilityType: string, config: DistributionConfig): EligibilityType {
         switch (eligibilityType) {
             case 'Open':
                 return { Open: null };
             
             case 'Whitelist':
-                // For whitelist, just return the marker - recipients are handled separately
                 return { Whitelist: null };
             
             case 'TokenHolder':
@@ -118,7 +127,7 @@ export class DistributionUtils {
      * Convert frontend EligibilityLogic to backend EligibilityLogicMotoko
      */
     private static convertEligibilityLogic(logic: EligibilityLogic): EligibilityLogicMotoko {
-        switch (logic) {
+        switch (keyToText(logic)) {
             case 'AND':
                 return { AND: null };
             case 'OR':
@@ -147,10 +156,10 @@ export class DistributionUtils {
     /**
      * Build unified recipients array from whitelist data
      */
-    private static buildRecipientsArray(config: DistributionConfig): any[] {
+    private static buildRecipientsArray(config: any): any[] {
         // Only build recipients for Whitelist distributions
         if (config.eligibilityType !== 'Whitelist') {
-            return []; // For Open distributions, recipients are added dynamically
+            return []; // For Open distributions, recipients are added dynamically or register themselves
         }
 
         const addresses = (config as any).whitelistAddresses || [];
@@ -162,16 +171,18 @@ export class DistributionUtils {
         const recipients = addresses.map((addr: any) => {
             if (typeof addr === 'string') {
                 // Simple string format - use default amount
+                const amount = formatTokenAmount((config as any).whitelistSameAmount, (config as any).tokenInfo.decimals);
                 return {
                     address: Principal.fromText(addr.trim()),
-                    amount: BigInt((config as any).whitelistSameAmount || 0),
+                    amount: amount,
                     note: []  // Candid optional: no note
                 };
             } else if (addr && typeof addr === 'object' && addr.principal) {
                 // Complex object format with principal/amount/note
+                const amount = formatTokenAmount(addr.amount, (config as any).tokenInfo.decimals);
                 return {
                     address: Principal.fromText(addr.principal.trim()),
-                    amount: BigInt(addr.amount || 0),
+                    amount: amount,
                     note: addr.note ? [addr.note] : []  // Candid optional
                 };
             }
@@ -322,4 +333,142 @@ export class DistributionUtils {
         const { backendService } = await import('@/api/services/backend');
         return backendService.getDeploymentFee('distribution_factory');
     }
+}
+
+// ================ DISTRIBUTION STATUS UTILITIES ================
+
+export type DistributionStatus = 'Created' | 'Deployed' | 'Active' | 'Paused' | 'Completed' | 'Cancelled'
+
+/**
+ * Get status color classes for distribution status badge
+ */
+export function getDistributionStatusColor(status: string): string {
+  switch (status) {
+    case 'Active':
+      return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+    case 'Paused':
+      return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
+    case 'Completed':
+      return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+    case 'Cancelled':
+      return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+    case 'Created':
+    case 'Deployed':
+      return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+    default:
+      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+  }
+}
+
+/**
+ * Get status dot color for distribution status indicator
+ */
+export function getDistributionStatusDotColor(status: string): string {
+  switch (status) {
+    case 'Active':
+      return 'bg-green-400'
+    case 'Paused':
+      return 'bg-orange-400'
+    case 'Completed':
+      return 'bg-blue-400'
+    case 'Cancelled':
+      return 'bg-red-400'
+    case 'Created':
+    case 'Deployed':
+      return 'bg-gray-400'
+    default:
+      return 'bg-yellow-400'
+  }
+}
+
+/**
+ * Get human-readable status text for distribution status
+ */
+export function getDistributionStatusText(status: string): string {
+  switch (status) {
+    case 'Created': return 'Created'
+    case 'Deployed': return 'Deployed'
+    case 'Active': return 'Active'
+    case 'Paused': return 'Paused'
+    case 'Completed': return 'Completed'
+    case 'Cancelled': return 'Cancelled'
+    default: return status
+  }
+}
+
+/**
+ * Check if distribution can be activated
+ */
+export function canActivateDistribution(status: string, hasEnoughBalance: boolean): boolean {
+  return (status === 'Created' || status === 'Deployed') && hasEnoughBalance
+}
+
+/**
+ * Check if distribution can be paused
+ */
+export function canPauseDistribution(status: string): boolean {
+  return status === 'Active'
+}
+
+/**
+ * Check if distribution can be resumed
+ */
+export function canResumeDistribution(status: string): boolean {
+  return status === 'Paused'
+}
+
+/**
+ * Check if distribution can be cancelled
+ */
+export function canCancelDistribution(status: string, allowCancel: boolean): boolean {
+  return allowCancel && status !== 'Completed' && status !== 'Cancelled'
+}
+
+/**
+ * Check if distribution can be initialized
+ */
+export function canInitializeDistribution(status: string): boolean {
+  return status === 'Created'
+}
+
+/**
+ * Check if distribution should show insufficient balance alert
+ */
+export function shouldShowInsufficientBalanceAlert(status: string, hasInsufficientBalance: boolean): boolean {
+  if (!hasInsufficientBalance) return false
+  return status !== 'Active' && status !== 'Completed' && status !== 'Cancelled'
+}
+
+/**
+ * Check if distribution is in a final state (completed or cancelled)
+ */
+export function isDistributionFinalState(status: string): boolean {
+  return status === 'Completed' || status === 'Cancelled'
+}
+
+/**
+ * Check if distribution is active or running
+ */
+export function isDistributionActive(status: string): boolean {
+  return status === 'Active'
+}
+
+/**
+ * Get distribution state category for grouping
+ */
+export function getDistributionStateCategory(status: string): 'inactive' | 'active' | 'paused' | 'final' {
+  switch (status) {
+    case 'Created':
+    case 'Deployed':
+      return 'inactive'
+    case 'Active':
+      return 'active'
+    case 'Paused':
+      return 'paused'
+    case 'Completed':
+    case 'Cancelled':
+      return 'final'
+    default:
+      return 'inactive'
+  }
 }

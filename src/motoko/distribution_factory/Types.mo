@@ -1,5 +1,5 @@
 // Import shared distribution types to avoid duplication
-import DistributionTypes "../backend/shared/types/DistributionTypes";
+import DistributionTypes "../shared/types/DistributionTypes";
 
 module Types {
     // Re-export all types from the shared module for backward compatibility

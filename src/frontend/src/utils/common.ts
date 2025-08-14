@@ -33,7 +33,6 @@ export const hex2Bytes = (hex: string): number[] => {
 export const getVariantKey = (obj: Record<string, any>): string | undefined => {
     try {
         const keys = Object.keys(obj);
-        console.log('keys', keys);
         return keys.length > 0 ? keys[0] : undefined;
     } catch (error) {
         console.error('Error getting variant key:', error);
@@ -44,4 +43,18 @@ export const getFirstLetter = (principal: string | Principal) => {
     return (
         typeof principal === "string" ? principal : principal.toText()
     ).slice(0, 2).toUpperCase();
+}
+
+//Extract the key from an object, e.g. { Open: null } -> 'Open'
+export const keyToText = (obj: Record<string, any>): string => {
+    let keys = Object.keys(obj);
+    if (keys.length === 1) {
+        return keys[0];
+    }
+    return '---';
+}
+
+//Convert Cycles to T
+export const cyclesToT = (cycles: number | bigint) => {
+    return (Number(cycles) / 1_000_000_000_000).toFixed(2) + ' T';
 }

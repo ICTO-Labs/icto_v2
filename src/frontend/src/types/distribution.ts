@@ -1,5 +1,5 @@
 // Types for Distribution Campaigns - V2 Architecture
-import type { DeploymentRecord, EligibilityType, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic } from '../../../declarations/backend/backend.did'
+import type { DeploymentRecord, EligibilityType, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic, FeeStructure } from '../../../declarations/backend/backend.did'
 import type { DistributionConfig, DistributionStats, Result } from '../../../declarations/distribution_contract/distribution_contract.did'
 
 export type CampaignStatus = 'Ongoing' | 'Upcoming' | 'Ended' | 'Created' | 'Deployed' | 'Active' | 'Paused' | 'Completed' | 'Cancelled';
@@ -12,7 +12,7 @@ export interface TokenInfo {
   icon?: string;
 }
 
-export type { DistributionConfig as DistributionDetails, DistributionStats, Result };
+export type { DistributionConfig, DistributionConfig as DistributionDetails, DistributionStats, Result };
 export type { EligibilityType, DeploymentRecord, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic };
 // export type EligibilityType = 'Open' | 'Whitelist' | 'TokenHolder' | 'NFTHolder' | 'BlockIDScore' | 'Hybrid';
 // export type RecipientMode = 'Fixed' | 'Dynamic' | 'SelfService';
@@ -66,43 +66,6 @@ export interface FeeTier {
   feeRate: number;
 }
 
-export interface DistributionConfig1 {
-  // Basic Information
-  title: string;
-  description: string;
-  isPublic: boolean;
-  
-  // Token Configuration
-  tokenInfo: TokenInfo;
-  totalAmount: number;
-  
-  // Eligibility & Recipients
-  eligibilityType: EligibilityType;
-  eligibilityLogic?: EligibilityLogic;
-  recipientMode: RecipientMode;
-  maxRecipients?: number;
-  
-  // Vesting Configuration
-  vestingSchedule: VestingSchedule;
-  initialUnlockPercentage: number;
-  
-  // Timing
-  registrationPeriod?: RegistrationPeriod;
-  distributionStart: Date;
-  distributionEnd?: Date;
-  
-  // Fees & Permissions
-  feeStructure: FeeStructure;
-  allowCancel: boolean;
-  allowModification: boolean;
-  
-  // Owner & Governance
-  owner: string;
-  governance?: string;
-  
-  // External Integrations
-  externalCheckers?: Array<{name: string, canisterId: string}>;
-}
 
 export type VestingSchedule = 
   | { type: 'Instant' }
@@ -110,14 +73,6 @@ export type VestingSchedule =
   | { type: 'Cliff', config: CliffVesting }
   | { type: 'SteppedCliff', config: CliffStep[] }
   | { type: 'Custom', config: UnlockEvent[] };
-
-export type FeeStructure =
-  | { type: 'Free' }
-  | { type: 'Fixed', amount: number }
-  | { type: 'Percentage', rate: number }
-  | { type: 'Progressive', tiers: FeeTier[] }
-  | { type: 'RecipientPays' }
-  | { type: 'CreatorPays' };
 
 export interface DistributionCampaign {
   id: string;
@@ -195,7 +150,7 @@ export interface DistributionFormData {
   distributionEnd?: Date;
   
   // Step 6: Settings
-  feeType: FeeType;
+  feeStructure: FeeStructure;
   fixedFeeAmount?: number;
   percentageFeeRate?: number;
   progressiveTiers?: FeeTier[];
