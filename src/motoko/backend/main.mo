@@ -396,6 +396,54 @@ persistent actor Backend {
                 // SUCCESSFUL DEPLOYMENT
                 await AuditService.updateAuditStatus(auditState, owner, auditId, #Completed, ?("Successfully deployed canister " # Principal.toText(canisterId)));
 
+                // Register deployed canister in Factory Registry
+                let deploymentType = switch (actionType) {
+                    case (#CreateDistribution) { ?#Distribution };
+                    case (#CreateToken) { ?#Token };
+                    case (#CreateTemplate) { ?#Template };
+                    case _ { null };
+                };
+                
+                switch (deploymentType) {
+                    case (?depType) {
+                        let metadata = switch (payload) {
+                            case (#Distribution(config)) {
+                                ?{
+                                    name = ?config.title;
+                                    description = ?config.description;
+                                    version = null;
+                                }
+                            };
+                            case (#Token(config)) {
+                                ?{
+                                    name = ?(config.tokenConfig.name # " (" # config.tokenConfig.symbol # ")");
+                                    description = config.tokenConfig.description;
+                                    version = null;
+                                }
+                            };
+                            case _ {
+                                ?{
+                                    name = ?("Deployed " # FactoryRegistryTypes.deploymentTypeToText(depType));
+                                    description = null;
+                                    version = null;
+                                }
+                            };
+                        };
+                        
+                        ignore FactoryRegistryService.registerDeployedCanister(
+                            factoryRegistryState,
+                            canisterId,
+                            depType,
+                            stableBackend, // This backend deployed it
+                            caller, // User who requested deployment
+                            metadata
+                        );
+                    };
+                    case null {
+                        Debug.print("⚠️ Unknown deployment type for canister registration: " # debug_show(actionType));
+                    };
+                };
+
                 // Register user relationships into Factory Registry (if applicable)
                 switch (actionType, payload) {
                     case (#CreateDistribution, #Distribution(config)) {
@@ -1435,6 +1483,41 @@ persistent actor Backend {
         );
         
         FactoryRegistryService.removeUserRelationship(factoryRegistryState, microserviceState, caller, user, relationshipType, canisterId)
+    };
+
+    // ==================================================================================================
+    // DEPLOYED CANISTER REGISTRY API
+    // ==================================================================================================
+
+    // Check if a canister is registered in our deployed canister registry
+    public query func isCanisterDeployed(canisterId: Principal) : async Bool {
+        switch (FactoryRegistryService.getDeployedCanister(factoryRegistryState, canisterId)) {
+            case (?_) { true };
+            case null { false };
+        }
+    };
+
+    // Check if a canister was deployed by this backend
+    public query func isCanisterDeployedByThisBackend(canisterId: Principal) : async Bool {
+        FactoryRegistryService.isCanisterDeployedByBackend(factoryRegistryState, canisterId, stableBackend)
+    };
+
+    // Get deployed canister information
+    public query func getDeployedCanisterInfo(canisterId: Principal) : async ?FactoryRegistryTypes.DeployedCanister {
+        FactoryRegistryService.getDeployedCanister(factoryRegistryState, canisterId)
+    };
+
+    // Get all canisters of a specific deployment type
+    public query func getCanistersByType(deploymentType: FactoryRegistryTypes.DeploymentType) : async [Principal] {
+        FactoryRegistryService.getCanistersByType(factoryRegistryState, deploymentType)
+    };
+
+    // Validate canister for external relationship (used by external contracts)
+    public query func validateCanisterForExternalRelationship(
+        canisterId: Principal,
+        relationshipType: FactoryRegistryTypes.RelationshipType
+    ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
+        FactoryRegistryService.validateCanisterForExternalRelationship(factoryRegistryState, canisterId, relationshipType)
     };
 
 };

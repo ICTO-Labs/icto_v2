@@ -115,7 +115,9 @@ persistent actor DistributionFactory {
             Cycles.add(CYCLES_FOR_INSTALL);
             
             // Deploy new DistributionContract canister
-            let distributionCanister = await DistributionContractClass.DistributionContract(args.config, caller);
+            // Pass the caller as the backend canister if they're whitelisted
+            let backendCanister = if (_isWhitelisted(caller)) { ?caller } else { null };
+            let distributionCanister = await DistributionContractClass.DistributionContract(args.config, args.owner, backendCanister);
             
             // Get the canister's principal
             let canisterId = Principal.fromActor(distributionCanister);

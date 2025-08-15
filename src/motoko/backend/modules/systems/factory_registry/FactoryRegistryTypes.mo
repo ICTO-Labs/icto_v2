@@ -44,19 +44,51 @@ module FactoryRegistryTypes {
     // Single map: User Principal -> List of their canister relationships
     public type UserCanisterRelationships = [CanisterRelationship];
 
+    // --- DEPLOYED CANISTER TRACKING ---
+    
+    public type DeployedCanister = {
+        canisterId: Principal;
+        deploymentType: DeploymentType;
+        deployedBy: Principal; // Backend that deployed this
+        creator: Principal; // User who requested deployment
+        deployedAt: Common.Timestamp;
+        metadata: ?{
+            name: ?Text;
+            description: ?Text;
+            version: ?Text;
+        };
+        isActive: Bool;
+    };
+
+    public type DeploymentType = {
+        #Token;
+        #Distribution;
+        #Launchpad;
+        #Lock;
+        #Template;
+        #DAO;
+        #Multisig;
+    };
+
     // --- FACTORY REGISTRY STATE ---
     
     public type State = {
         var userRelationships: Trie.Trie<Text, UserCanisterRelationships>; // user principal text -> relationships
+        var deployedCanisters: Trie.Trie<Principal, DeployedCanister>; // canister id -> deployed canister info
+        var canistersByType: Trie.Trie<Text, [Principal]>; // deployment type text -> list of canister ids
     };
 
     public type StableState = {
         userRelationships: [(Text, UserCanisterRelationships)];
+        deployedCanisters: [(Principal, DeployedCanister)];
+        canistersByType: [(Text, [Principal])];
     };
 
     public func emptyState() : State {
         {
             var userRelationships = Trie.empty();
+            var deployedCanisters = Trie.empty();
+            var canistersByType = Trie.empty();
         }
     };
 
@@ -254,6 +286,56 @@ module FactoryRegistryTypes {
             launchpads = [];
             daos = [];
             multisigs = [];
+        }
+    };
+
+    // --- DEPLOYMENT TYPE UTILITIES ---
+
+    public func deploymentTypeToText(dt: DeploymentType) : Text {
+        switch (dt) {
+            case (#Token) { "Token" };
+            case (#Distribution) { "Distribution" };
+            case (#Launchpad) { "Launchpad" };
+            case (#Lock) { "Lock" };
+            case (#Template) { "Template" };
+            case (#DAO) { "DAO" };
+            case (#Multisig) { "Multisig" };
+        }
+    };
+
+    public func textToDeploymentType(text: Text) : ?DeploymentType {
+        switch (text) {
+            case ("Token") { ?#Token };
+            case ("Distribution") { ?#Distribution };
+            case ("Launchpad") { ?#Launchpad };
+            case ("Lock") { ?#Lock };
+            case ("Template") { ?#Template };
+            case ("DAO") { ?#DAO };
+            case ("Multisig") { ?#Multisig };
+            case (_) { null };
+        }
+    };
+
+    // Create new deployed canister record
+    public func createDeployedCanister(
+        canisterId: Principal,
+        deploymentType: DeploymentType,
+        deployedBy: Principal,
+        creator: Principal,
+        metadata: ?{
+            name: ?Text;
+            description: ?Text;
+            version: ?Text;
+        }
+    ) : DeployedCanister {
+        {
+            canisterId = canisterId;
+            deploymentType = deploymentType;
+            deployedBy = deployedBy;
+            creator = creator;
+            deployedAt = Time.now();
+            metadata = metadata;
+            isActive = true;
         }
     };
 }

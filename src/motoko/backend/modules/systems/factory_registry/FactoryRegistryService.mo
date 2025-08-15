@@ -70,12 +70,34 @@ module FactoryRegistryService {
             ).0;
         };
 
+        // Restore deployed canisters
+        for ((canisterId, deployedCanister) in stableState.deployedCanisters.vals()) {
+            state.deployedCanisters := Trie.put(
+                state.deployedCanisters,
+                {key = canisterId; hash = Principal.hash(canisterId)},
+                Principal.equal,
+                deployedCanister
+            ).0;
+        };
+
+        // Restore canisters by type
+        for ((typeText, canisters) in stableState.canistersByType.vals()) {
+            state.canistersByType := Trie.put(
+                state.canistersByType,
+                {key = typeText; hash = Text.hash(typeText)},
+                Text.equal,
+                canisters
+            ).0;
+        };
+
         state
     };
 
     public func toStableState(state: State) : StableState {
         {
             userRelationships = Iter.toArray(Trie.iter(state.userRelationships));
+            deployedCanisters = Iter.toArray(Trie.iter(state.deployedCanisters));
+            canistersByType = Iter.toArray(Trie.iter(state.canistersByType));
         }
     };
 
@@ -213,6 +235,16 @@ module FactoryRegistryService {
         users: [Principal],
         metadata: RelationshipMetadata
     ) : FactoryRegistryResult<()> {
+        
+        // First, validate that the canister is in our deployed canister registry
+        switch (validateCanisterForExternalRelationship(state, canisterId, relationshipType)) {
+            case (#Err(error)) {
+                return #Err(error);
+            };
+            case (#Ok(_)) {
+                Debug.print("✅ Canister " # Principal.toText(canisterId) # " is registered for relationship type " # FactoryRegistryTypes.relationshipTypeToText(relationshipType));
+            };
+        };
         
         // Verify caller is authorized factory for this relationship type using enhanced auth
         switch (getFactoryForRelationshipTypeWithAuth(state, microserviceState, ?caller, relationshipType)) {
@@ -482,5 +514,140 @@ module FactoryRegistryService {
         false
     };
 
+    // ==================================================================================================
+    // DEPLOYED CANISTER REGISTRY FUNCTIONS
+    // ==================================================================================================
+
+    // Register a new deployed canister
+    public func registerDeployedCanister(
+        state: State,
+        canisterId: Principal,
+        deploymentType: FactoryRegistryTypes.DeploymentType,
+        deployedBy: Principal,
+        creator: Principal,
+        metadata: ?{
+            name: ?Text;
+            description: ?Text;
+            version: ?Text;
+        }
+    ) : FactoryRegistryResult<()> {
+        
+        // Check if canister already exists
+        switch (Trie.get(state.deployedCanisters, {key = canisterId; hash = Principal.hash(canisterId)}, Principal.equal)) {
+            case (?_) {
+                return #Err(#AlreadyExists("Canister " # Principal.toText(canisterId) # " is already registered"));
+            };
+            case null {};
+        };
+
+        let typeText = FactoryRegistryTypes.deploymentTypeToText(deploymentType);
+        
+        // Create deployed canister record
+        let deployedCanister = FactoryRegistryTypes.createDeployedCanister(
+            canisterId,
+            deploymentType,
+            deployedBy,
+            creator,
+            metadata
+        );
+
+        // Add to main registry
+        state.deployedCanisters := Trie.put(
+            state.deployedCanisters,
+            {key = canisterId; hash = Principal.hash(canisterId)},
+            Principal.equal,
+            deployedCanister
+        ).0;
+
+        // Add to type-specific list
+        let currentList = switch (Trie.get(state.canistersByType, {key = typeText; hash = Text.hash(typeText)}, Text.equal)) {
+            case (?list) { list };
+            case null { [] };
+        };
+        let newList = Array.append(currentList, [canisterId]);
+        state.canistersByType := Trie.put(
+            state.canistersByType,
+            {key = typeText; hash = Text.hash(typeText)},
+            Text.equal,
+            newList
+        ).0;
+
+        Debug.print("📝 Registered canister: " # Principal.toText(canisterId) # " (type: " # typeText # ")");
+        #Ok(())
+    };
+
+    // Check if a canister is registered and get its info
+    public func getDeployedCanister(state: State, canisterId: Principal) : ?FactoryRegistryTypes.DeployedCanister {
+        Trie.get(state.deployedCanisters, {key = canisterId; hash = Principal.hash(canisterId)}, Principal.equal)
+    };
+
+    // Check if a canister was deployed by this backend
+    public func isCanisterDeployedByBackend(state: State, canisterId: Principal, backendId: Principal) : Bool {
+        switch (getDeployedCanister(state, canisterId)) {
+            case (?canister) {
+                Principal.equal(canister.deployedBy, backendId)
+            };
+            case null { false };
+        }
+    };
+
+    // Check if a canister is of a specific type
+    public func isCanisterOfType(state: State, canisterId: Principal, deploymentType: FactoryRegistryTypes.DeploymentType) : Bool {
+        switch (getDeployedCanister(state, canisterId)) {
+            case (?canister) {
+                canister.deploymentType == deploymentType
+            };
+            case null { false };
+        }
+    };
+
+    // Get all canisters of a specific type
+    public func getCanistersByType(state: State, deploymentType: FactoryRegistryTypes.DeploymentType) : [Principal] {
+        let typeText = FactoryRegistryTypes.deploymentTypeToText(deploymentType);
+        switch (Trie.get(state.canistersByType, {key = typeText; hash = Text.hash(typeText)}, Text.equal)) {
+            case (?list) { list };
+            case null { [] };
+        }
+    };
+
+    // Validate that a canister is in the registry before allowing external relationships
+    public func validateCanisterForExternalRelationship(
+        state: State,
+        canisterId: Principal,
+        relationshipType: RelationshipType
+    ) : FactoryRegistryResult<()> {
+        
+        switch (getDeployedCanister(state, canisterId)) {
+            case (?deployedCanister) {
+                // Check if the relationship type matches the deployment type
+                let expectedDeploymentType = switch (relationshipType) {
+                    case (#DistributionRecipient) { ?#Distribution };
+                    case (#LaunchpadParticipant) { ?#Launchpad };
+                    case (#DAOMember) { ?#DAO };
+                    case (#MultisigSigner) { ?#Multisig };
+                };
+                
+                switch (expectedDeploymentType) {
+                    case (?expectedType) {
+                        if (deployedCanister.deploymentType != expectedType) {
+                            return #Err(#InvalidInput("Relationship type " # FactoryRegistryTypes.relationshipTypeToText(relationshipType) # " does not match deployment type " # FactoryRegistryTypes.deploymentTypeToText(deployedCanister.deploymentType)));
+                        };
+                    };
+                    case null {
+                        // No specific type requirement
+                    };
+                };
+                
+                if (not deployedCanister.isActive) {
+                    return #Err(#InvalidInput("Canister " # Principal.toText(canisterId) # " is not active"));
+                };
+                
+                #Ok(())
+            };
+            case null {
+                #Err(#NotFound("Canister " # Principal.toText(canisterId) # " is not registered in the deployed canister registry"));
+            };
+        }
+    };
 
 }

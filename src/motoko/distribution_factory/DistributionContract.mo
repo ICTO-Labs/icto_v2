@@ -11,14 +11,15 @@ import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Float "mo:base/Float";
 import Nat "mo:base/Nat";
-
+import Error "mo:base/Error";
 // Import shared types (trust source)
 import DistributionTypes "../shared/types/DistributionTypes";
 import Timer "mo:base/Timer";
 import ICRC "../shared/types/ICRC";
 import BlockID "../shared/utils/BlockID";
+import FactoryRegistryTypes "../backend/modules/systems/factory_registry/FactoryRegistryTypes";
 
-persistent actor class DistributionContract(init_config: DistributionTypes.DistributionConfig, init_creator: Principal) = self {
+persistent actor class DistributionContract(init_config: DistributionTypes.DistributionConfig, init_creator: Principal, init_backend_canister: ?Principal) = self {
 
     // ================ TYPE ALIASES (from shared types) ================
     
@@ -78,6 +79,9 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private let BLOCK_ID_CANISTER_ID = "3c7yh-4aaaa-aaaap-qhria-cai";
     private let BLOCK_ID_APPLICATION = "block-id";
     private let blockID: BlockID.Self = actor(BLOCK_ID_CANISTER_ID);
+    
+    // Backend integration for relationship updates
+    private var backendCanisterId: ?Principal = init_backend_canister;
 
     //Token info
     private var transferFee: Nat = 0;
@@ -170,6 +174,15 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private func _isActive() : Bool {
         status == #Active and Time.now() >= config.distributionStart and
         (Option.isNull(config.distributionEnd) or Time.now() <= Option.get(config.distributionEnd, Time.now()))
+    };
+    
+    private func _findRecipientAmount(principal: Principal) : ?Nat {
+        for (recipient in config.recipients.vals()) {
+            if (Principal.equal(recipient.address, principal)) {
+                return ?recipient.amount;
+            };
+        };
+        null
     };
     
     private func _initializeWhitelist() {
@@ -447,10 +460,53 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             return #err("Not eligible for this distribution");
         };
         
-        // Calculate eligible amount (for now using equal distribution)
-        let eligibleAmount = if (config.totalAmount > 0 and participantCount < config.totalAmount) {
-            config.totalAmount / (participantCount + 1) // Simplified calculation
-        } else { 0 };
+        // Calculate eligible amount based on distribution type
+        let eligibleAmount = switch (config.eligibilityType) {
+            case (#Whitelist) {
+                // For whitelist distributions, get amount from recipients list
+                switch (_findRecipientAmount(caller)) {
+                    case (?amount) { amount };
+                    case null { 0 };
+                }
+            };
+            case (#Open) {
+                // For Open distributions, divide totalAmount equally among maxRecipients
+                switch (config.maxRecipients) {
+                    case (?maxRecipients) {
+                        if (maxRecipients > 0) {
+                            Nat.div(config.totalAmount, maxRecipients)
+                        } else { 0 }
+                    };
+                    case null { 0 };
+                }
+            };
+            case (_) {
+                // For other distribution types with SelfService mode
+                if (config.recipientMode == #SelfService) {
+                    switch (config.maxRecipients) {
+                        case (?maxRecipients) {
+                            if (maxRecipients > 0) {
+                                Nat.div(config.totalAmount, maxRecipients)
+                            } else { 0 }
+                        };
+                        case null { 0 };
+                    }
+                } else {
+                    0
+                }
+            };
+        };
+        
+        // Check if there's still allocation available
+        if (eligibleAmount == 0) {
+            return #err("No allocation available for new participants");
+        };
+        
+        // Check if adding this participant would exceed total distribution amount
+        let projectedDistribution = totalDistributed + eligibleAmount;
+        if (projectedDistribution > config.totalAmount) {
+            return #err("No more allocation available - distribution is full");
+        };
         
         // Create participant record
         let participant: Participant = {
@@ -467,7 +523,84 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
         participantCount += 1;
         
+        // Update backend with new relationship
+        ignore _registerBackendRelationship(config, caller);
+        
         #ok()
+    };
+
+    // Notify backend of new relationship
+    private func _registerBackendRelationship(
+        config: DistributionConfig, userId: Principal
+    ) : async () {
+        switch (backendCanisterId) {
+            case (?backendId) {
+                try {
+                    let backendCanister = actor(Principal.toText(backendId)) : actor {
+                        updateUserRelationships: (
+                            FactoryRegistryTypes.RelationshipType,
+                            Principal,
+                            [Principal],
+                            FactoryRegistryTypes.RelationshipMetadata
+                        ) -> async FactoryRegistryTypes.FactoryRegistryResult<()>;
+                    };
+                    
+                    // Notify backend that this user is now a recipient of this distribution
+                    ignore backendCanister.updateUserRelationships(
+                        #DistributionRecipient,
+                        Principal.fromActor(self),
+                        [userId],
+                        {
+                            name = config.title;
+                            description = ?config.description;
+                            additionalData = null;
+                        }
+                    );
+                } catch (error) {
+                    // Log error but don't fail registration
+                    Debug.print("Warning: Failed to update backend relationship: " # Error.message(error));
+                };
+            };
+            case null {
+                Debug.print("Warning: No backend canister configured for relationship updates");
+            };
+        };
+    };
+    //Remove backend relationship
+    private func _removeBackendRelationship(
+        config: DistributionConfig, userId: Principal
+    ) : async () {
+        switch (backendCanisterId) {
+            case (?backendId) {
+                try {
+                    let backendCanister = actor(Principal.toText(backendId)) : actor {
+                        removeUserRelationship: (
+                            Principal,
+                            FactoryRegistryTypes.RelationshipType,
+                            Principal
+                        ) -> async FactoryRegistryTypes.FactoryRegistryResult<()>;
+                    };
+                    // user: Principal,
+                    // relationshipType: FactoryRegistryTypes.RelationshipType,
+                    // canisterId: Principal
+
+                    
+                    // Notify backend that this user is no longer a recipient of this distribution
+                    ignore backendCanister.removeUserRelationship(
+                        userId,
+                        #DistributionRecipient,
+                        Principal.fromActor(self)
+                    );
+                } catch (error) {
+                    // Log error but don't fail registration
+                    Debug.print("Warning: Failed to update backend relationship: " # Error.message(error));
+                };
+            };
+            case null {
+                Debug.print("Warning: No backend canister configured for relationship updates");
+            };
+        };
+        
     };
     
     public shared({ caller }) func claim() : async Result.Result<Nat, Text> {
@@ -548,6 +681,132 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     // Query functions
     public query func getParticipant(principal: Principal) : async ?Participant {
         Trie.get(participants, _principalKey(principal), Principal.equal)
+    };
+    
+    // Get comprehensive user context information
+    public shared({ caller }) func whoami() : async {
+        principal: Principal;
+        isOwner: Bool;
+        isRegistered: Bool;
+        isEligible: Bool;
+        participant: ?Participant;
+        claimableAmount: Nat;
+        distributionStatus: DistributionStatus;
+        canRegister: Bool;
+        canClaim: Bool;
+        registrationError: ?Text;
+    } {
+        let participant = Trie.get(participants, _principalKey(caller), Principal.equal);
+        let isRegistered = switch (participant) {
+            case (?_) { true };
+            case null { false };
+        };
+        
+        // Check eligibility (simplified for query function)
+        let isEligible = switch (config.eligibilityType) {
+            case (#Open) { true };
+            case (#Whitelist) {
+                switch (Trie.get(whitelist, _principalKey(caller), Principal.equal)) {
+                    case (?eligible) { eligible };
+                    case null { false };
+                }
+            };
+            case _ { true }; // For other types, assume eligible (would need async check)
+        };
+        
+        let claimableAmount = switch (participant) {
+            case (?p) {
+                let unlockedAmount = _calculateUnlockedAmount(p);
+                if (unlockedAmount > p.claimedAmount) {
+                    Nat.sub(unlockedAmount, p.claimedAmount)
+                } else { 0 }
+            };
+            case null { 0 };
+        };
+        
+        // Check if can register
+        let canRegister = if (isRegistered) {
+            false // Already registered
+        } else {
+            // Check registration period and eligibility
+            let registrationOpen = switch (config.registrationPeriod) {
+                case (?period) {
+                    let now = Time.now();
+                    now >= period.startTime and now <= period.endTime
+                };
+                case null {
+                    config.recipientMode == #SelfService
+                };
+            };
+            registrationOpen and isEligible
+        };
+        
+        // Check if can claim
+        let canClaim = isRegistered and _isActive() and claimableAmount > 0;
+        
+        // Determine registration error if any
+        let registrationError = if (isRegistered) {
+            ?"Already registered"
+        } else if (not isEligible) {
+            ?"Not eligible for this distribution"
+        } else {
+            switch (config.registrationPeriod) {
+                case (?period) {
+                    let now = Time.now();
+                    if (now < period.startTime) {
+                        ?"Registration period has not started yet"
+                    } else if (now > period.endTime) {
+                        ?"Registration period has ended"
+                    } else {
+                        switch (period.maxParticipants) {
+                            case (?max) {
+                                if (participantCount >= max) {
+                                    ?"Maximum participants reached"
+                                } else { null }
+                            };
+                            case null { null };
+                        }
+                    }
+                };
+                case null {
+                    if (config.recipientMode != #SelfService) {
+                        ?"Registration not available for this distribution mode"
+                    } else {
+                        // Check if allocation is available
+                        let eligibleAmount = switch (config.maxRecipients) {
+                            case (?maxRecipients) {
+                                if (maxRecipients > 0) {
+                                    config.totalAmount / maxRecipients
+                                } else { 0 }
+                            };
+                            case null { 0 };
+                        };
+                        
+                        if (eligibleAmount == 0) {
+                            ?"No allocation available for new participants"
+                        } else {
+                            let projectedDistribution = totalDistributed + eligibleAmount;
+                            if (projectedDistribution > config.totalAmount) {
+                                ?"No more allocation available - distribution is full"
+                            } else { null }
+                        }
+                    }
+                };
+            }
+        };
+        
+        {
+            principal = caller;
+            isOwner = _isOwner(caller);
+            isRegistered = isRegistered;
+            isEligible = isEligible;
+            participant = participant;
+            claimableAmount = claimableAmount;
+            distributionStatus = status;
+            canRegister = canRegister;
+            canClaim = canClaim;
+            registrationError = registrationError;
+        }
     };
     
     public query func getClaimableAmount(principal: Principal) : async Nat {
@@ -768,5 +1027,10 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             };
             case (_) { false }; // Complex eligibility requires async call
         }
+    };
+    
+    // Query function to get the configured backend canister
+    public query func getBackendCanisterId() : async ?Principal {
+        backendCanisterId
     };
 }
