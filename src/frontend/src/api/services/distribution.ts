@@ -413,6 +413,43 @@ export class DistributionService {
   // ================ CONVENIENCE FUNCTIONS ================
 
   // Get comprehensive distribution data for admin view
+  // ================ USER CONTEXT FUNCTIONS ================
+
+  // Get comprehensive user context (whoami function)
+  static async getUserContext(canisterId: string): Promise<{
+    principal: string;
+    isOwner: boolean;
+    isRegistered: boolean;
+    isEligible: boolean;
+    participant: any;
+    claimableAmount: bigint;
+    distributionStatus: string;
+    canRegister: boolean;
+    canClaim: boolean;
+    registrationError?: string;
+  }> {
+    try {
+      const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
+      const context = await distributionContract.whoami();
+      
+      return {
+        principal: context.principal.toString(),
+        isOwner: context.isOwner,
+        isRegistered: context.isRegistered,
+        isEligible: context.isEligible,
+        participant: context.participant,
+        claimableAmount: context.claimableAmount as bigint,
+        distributionStatus: Object.keys(context.distributionStatus)[0], // Extract variant key
+        canRegister: context.canRegister,
+        canClaim: context.canClaim,
+        registrationError: context.registrationError?.[0] // Extract optional text
+      };
+    } catch (error) {
+      console.error(`Error fetching user context for ${canisterId}:`, error);
+      throw error;
+    }
+  }
+
   static async getDistributionAdminData(canisterId: string): Promise<{
     config: any;
     stats: DistributionStats;

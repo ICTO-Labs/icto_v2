@@ -79,31 +79,35 @@
 
           <!-- Action Toolbar -->
           <div class="flex items-center space-x-3">
-            <!-- Admin Management Link -->
+            <!-- Admin Management Link - Only show if user is owner -->
             <router-link v-if="isOwner" :to="`/distribution/${distributionId}/manage`"
               class="inline-flex text-sm items-center px-3 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors duration-200">
               <SettingsIcon class="w-4 h-4 mr-2" />
               Manage
             </router-link>
             
-            <button v-if="!eligibilityStatus" @click="checkEligibility" :disabled="eligibilityLoading"
+            <!-- Check Eligibility Button - Only show if user is not registered and not eligible yet -->
+            <button v-if="!isRegistered && !isEligible && !eligibilityStatus" @click="checkEligibility" :disabled="eligibilityLoading"
               class="inline-flex text-sm items-center px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50">
               <SearchIcon class="w-4 h-4 mr-2" />
               {{ eligibilityLoading ? 'Checking...' : 'Check Eligibility' }}
             </button>
 
-            <button @click="registerForCampaign" :disabled="registering"
+            <!-- Register Button - Only show if user can register (not registered and eligible or open campaign) -->
+            <button v-if="!isRegistered && canRegisterFromContext" @click="registerForCampaign" :disabled="registering"
               class="inline-flex text-sm items-center px-3 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors duration-200 disabled:opacity-50">
               <UserPlusIcon class="w-4 h-4 mr-2" />
               {{ registering ? 'Registering...' : 'Register' }}
             </button>
 
-            <button @click="claimTokens" :disabled="claiming"
+            <!-- Claim Button - Only show if user can claim tokens -->
+            <button v-if="canClaimFromContext && availableToClaim > 0" @click="claimTokens" :disabled="claiming"
               class="inline-flex text-sm items-center px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 disabled:opacity-50">
               <GiftIcon class="w-4 h-4 mr-2" />
               {{ claiming ? 'Claiming...' : 'Claim Tokens' }}
             </button>
 
+            <!-- Refresh Button - Always visible -->
             <button @click="refreshData" :disabled="refreshing"
               class="inline-flex text-sm items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors duration-200 disabled:opacity-50">
               <RefreshCwIcon class="w-4 h-4 mr-2" :class="{ 'animate-spin': refreshing }" />
@@ -369,7 +373,7 @@
           <!-- Right Column - Actions & Info -->
           <div class="space-y-6">
             <!-- Eligibility Status -->
-            <div v-if="eligibilityStatus"
+            <div v-if="isEligible || eligibilityStatus"
               class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
               <div class="flex items-center space-x-3 mb-4">
                 <div class="p-2 bg-green-100 dark:bg-green-900 rounded-lg">
@@ -384,8 +388,24 @@
                   <div class="flex items-center space-x-3">
                     <CheckCircleIcon class="w-6 h-6 text-green-500" />
                     <div>
-                      <p class="font-semibold text-green-800 dark:text-green-200">Eligible</p>
-                      <p class="text-sm text-green-600 dark:text-green-300">You can participate</p>
+                      <p class="font-semibold text-green-800 dark:text-green-200">
+                        {{ isRegistered ? 'Registered' : 'Eligible' }}
+                      </p>
+                      <p class="text-sm text-green-600 dark:text-green-300">
+                        {{ isRegistered ? 'You are registered for this distribution' : 'You can participate' }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Registration Error Display -->
+                <div v-if="userContext?.registrationError" 
+                  class="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+                  <div class="flex items-center space-x-3">
+                    <AlertCircleIcon class="w-5 h-5 text-red-500" />
+                    <div>
+                      <p class="font-semibold text-red-800 dark:text-red-200">Registration Issue</p>
+                      <p class="text-sm text-red-600 dark:text-red-300">{{ userContext.registrationError }}</p>
                     </div>
                   </div>
                 </div>
@@ -649,7 +669,21 @@ const chartPeriod = ref('Monthly')
 const activeTab = ref('recipients')
 const participants = ref<any[]>([])
 
-// User data
+// User context data
+const userContext = ref<{
+  principal: string;
+  isOwner: boolean;
+  isRegistered: boolean;
+  isEligible: boolean;
+  participant: any;
+  claimableAmount: bigint;
+  distributionStatus: string;
+  canRegister: boolean;
+  canClaim: boolean;
+  registrationError?: string;
+} | null>(null)
+
+// User data  
 const userAllocation = ref<bigint>(BigInt(0))
 const availableToClaim = ref<bigint>(BigInt(0))
 const alreadyClaimed = ref<bigint>(BigInt(0))
@@ -675,7 +709,7 @@ const statusText = computed(() => {
 })
 
 const canClaim = computed(() => {
-  return stats.value?.isActive && availableToClaim.value > 0
+  return canClaimFromContext.value && availableToClaim.value > 0
 })
 
 // Computed properties for milestone dates
@@ -1002,6 +1036,7 @@ const refreshData = async () => {
   await fetchDistributionStatus()
   await fetchAllParticipants()
   await fetchClaimHistory()
+  await fetchUserContext()
   refreshing.value = false
 }
 
@@ -1145,8 +1180,14 @@ const daysUntilEnd = computed(() => {
   return days
 })
 
-// Check if user can register for this campaign
+// Check if user can register for this campaign (legacy - prefer canRegisterFromContext)
 const canRegister = computed(() => {
+  // Use context-based registration check if available, otherwise fall back to old logic
+  if (userContext.value) {
+    return canRegisterFromContext.value
+  }
+  
+  // Fallback logic for when context is not available
   if (!details.value || !stats.value) return false
   
   // Check recipient mode is SelfService
@@ -1167,12 +1208,48 @@ const canRegister = computed(() => {
   return isSelfService && isOpen && isActive && isRegistrationOpen
 })
 
+// Get user context function
+const fetchUserContext = async () => {
+  try {
+    const context = await DistributionService.getUserContext(canisterId.value)
+    userContext.value = context
+    
+    // Update local user data from context
+    if (context.participant) {
+      userAllocation.value = context.participant.eligibleAmount || BigInt(0)
+      alreadyClaimed.value = context.participant.claimedAmount || BigInt(0)
+    }
+    availableToClaim.value = context.claimableAmount
+  } catch (err) {
+    console.error('Error fetching user context:', err)
+    // Set default values on error
+    userContext.value = null
+  }
+}
+
 // Check if current user is the owner of this distribution
 const isOwner = computed(() => {
-  if (!details.value) return false
-  // This would need to be implemented based on your auth system
-  // For now, return true for demo purposes
-  return true
+  return userContext.value?.isOwner ?? false
+})
+
+// Check if user is registered
+const isRegistered = computed(() => {
+  return userContext.value?.isRegistered ?? false
+})
+
+// Check if user is eligible
+const isEligible = computed(() => {
+  return userContext.value?.isEligible ?? false
+})
+
+// Check if user can register (from context)
+const canRegisterFromContext = computed(() => {
+  return userContext.value?.canRegister ?? false
+})
+
+// Check if user can claim (from context)
+const canClaimFromContext = computed(() => {
+  return userContext.value?.canClaim ?? false
 })
 
 const distributionId = computed(() => route.params.id as string)
@@ -1184,7 +1261,8 @@ const parallelFetch = async () => {
     fetchStats(),
     fetchDistributionStatus(),
     fetchAllParticipants(),
-    fetchClaimHistory()
+    fetchClaimHistory(),
+    fetchUserContext()
   ])
 }
 
