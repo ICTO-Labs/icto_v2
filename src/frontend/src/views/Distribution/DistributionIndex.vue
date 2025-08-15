@@ -8,7 +8,7 @@
           <button 
             v-auth-required="{ message: 'Please connect your wallet to create distribution!', autoOpenModal: true }"
             @click="createNewCampaign"
-            class="ml-4 inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-900"
+            class="ml-4 bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded flex items-center justify-center text-sm"
           >
             <PlusIcon class="h-4 w-4 mr-2" />
             Create New Campaign
@@ -150,7 +150,7 @@ import AdminLayout from '@/components/layout/AdminLayout.vue'
 import { useModalStore } from '@/stores/modal'
 import { PlusIcon, SearchIcon, AlertCircleIcon, Share2Icon, RefreshCcwIcon, SlidersIcon } from 'lucide-vue-next'
 import type { DistributionCanister } from '@/types/distribution'
-
+import BrandButton from '@/components/common/BrandButton.vue'
 const router = useRouter()
 const modalStore = useModalStore()
 

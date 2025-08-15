@@ -34,6 +34,31 @@
         </div>
       </div>
 
+      <!-- Unauthorized State -->
+      <div v-else-if="unauthorizedError" class="text-center py-16">
+        <div class="max-w-md mx-auto">
+          <div class="w-16 h-16 mx-auto mb-4 text-orange-500">
+            <ShieldXIcon class="w-full h-full" />
+          </div>
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            Access Denied
+          </h3>
+          <p class="text-gray-500 dark:text-gray-400 mb-6">{{ unauthorizedError }}</p>
+          <div class="flex justify-center space-x-3">
+            <button @click="router.back()"
+              class="inline-flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors duration-200">
+              <ArrowLeftIcon class="w-4 h-4 mr-2" />
+              Go Back
+            </button>
+            <button @click="fetchDetails"
+              class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200">
+              <RefreshCwIcon class="w-4 h-4 mr-2" />
+              Retry
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Error State -->
       <div v-else-if="error" class="text-center py-16">
         <div class="max-w-md mx-auto">
@@ -52,8 +77,8 @@
         </div>
       </div>
 
-      <!-- Main Content -->
-      <div v-else-if="details && stats">
+      <!-- Main Content - Only visible for authorized owners -->
+      <div v-else-if="details && stats && isAuthorized">
         <!-- Header Section -->
         <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 p-8 mb-8">
           <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between">
@@ -62,8 +87,8 @@
                 <SettingsIcon class="w-8 h-8 text-white" />
               </div>
               <div class="flex-1 min-w-0">
-                <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                  {{ details.title }}
+                <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                  Manage `{{ details.title }}` Distribution
                 </h1>
                 <p class="text-gray-600 dark:text-gray-300 mb-4">
                   {{ details.description }}
@@ -596,7 +621,7 @@ import {
   ArrowLeftIcon, AlertCircleIcon, RefreshCwIcon, SettingsIcon, CalendarIcon,
   PlayIcon, PauseIcon, XCircleIcon, UsersIcon, CoinsIcon, CheckCircleIcon,
   WalletIcon, TrendingUpIcon, PercentIcon, ActivityIcon, DollarSignIcon,
-  SearchIcon, PlusIcon, UserIcon, EyeIcon, EditIcon, XIcon
+  SearchIcon, PlusIcon, UserIcon, EyeIcon, EditIcon, XIcon, ShieldXIcon
 } from 'lucide-vue-next'
 import { toast } from 'vue-sonner'
 import { parseTokenAmount, formatTokenAmount } from '@/utils/token'
@@ -650,6 +675,21 @@ const contractBalance = ref(0)
 const cyclesBalance = ref(0)
 const distributionStatus = ref<string>('')
 
+// User context data
+const userContext = ref<{
+  principal: string;
+  isOwner: boolean;
+  isRegistered: boolean;
+  isEligible: boolean;
+  participant: any;
+  claimableAmount: bigint;
+  distributionStatus: string;
+  canRegister: boolean;
+  canClaim: boolean;
+  registrationError?: string;
+} | null>(null)
+const unauthorizedError = ref<string | null>(null)
+
 // Action states
 const activating = ref(false)
 const pausing = ref(false)
@@ -679,6 +719,15 @@ const newParticipant = ref({
 
 // Computed properties
 const distributionId = computed(() => route.params.id as string)
+
+// Authorization computed properties
+const isOwner = computed(() => {
+  return userContext.value?.isOwner ?? false
+})
+
+const isAuthorized = computed(() => {
+  return isOwner.value
+})
 
 const statusColor = computed(() => {
   return getDistributionStatusColor(distributionStatus.value)
@@ -1065,10 +1114,38 @@ const claimTimelineOptions = computed(() => ({
 }))
 
 // Methods
+const fetchUserContext = async () => {
+  try {
+    const context = await DistributionService.getUserContext(distributionId.value)
+    userContext.value = context
+    
+    // Check if user is authorized (owner)
+    if (!context.isOwner) {
+      unauthorizedError.value = 'You are not authorized to manage this distribution. Only the owner can access this page.'
+      return false // Not authorized
+    }
+    
+    unauthorizedError.value = null
+    return true // Authorized
+  } catch (err) {
+    console.error('Error fetching user context:', err)
+    unauthorizedError.value = 'Failed to verify your authorization for this distribution.'
+    userContext.value = null
+    return false
+  }
+}
+
 const fetchDetails = async () => {
   try {
     loading.value = true
     error.value = null
+    
+    // First check authorization
+    const isAuthorized = await fetchUserContext()
+    if (!isAuthorized) {
+      loading.value = false
+      return // Don't fetch data if not authorized
+    }
     
     const [distributionData, statsData, participantsData, claimsData] = await Promise.all([
       DistributionService.getDistributionDetails(distributionId.value),
@@ -1158,7 +1235,13 @@ const fetchDistributionStatus = async () => {
 
 const refreshData = async () => {
   refreshing.value = true
-  await fetchDetails()
+  
+  // Re-check authorization before refreshing data
+  const isAuthorized = await fetchUserContext()
+  if (isAuthorized) {
+    await fetchDetails()
+  }
+  
   refreshing.value = false
 }
 

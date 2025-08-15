@@ -82,7 +82,7 @@
 												: 'text-blue-600'" />
 										</div>
 										<div class="flex-1 min-w-0">
-											<div class="text-base font-medium text-gray-900 dark:text-white">{{
+											<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{
 												type.label }}
 											</div>
 											<div class="text-sm text-gray-500">{{ type.description }}</div>
@@ -180,7 +180,7 @@
 									Eligibility Type *
 								</label>
 								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-									<label v-for="type in eligibilityTypes" :key="type.value"
+									<label v-for="type in eligibilityTypes" :key="keyToText(type.value)"
 										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
 										:class="keyToText(formData.eligibilityType) == keyToText(type.value)
 											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
@@ -194,7 +194,7 @@
 												: 'text-blue-600'" />
 										</div>
 										<div class="flex-1 min-w-0">
-											<div class="text-base font-medium text-gray-900 dark:text-white">{{
+											<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{
 												type.label }}
 											</div>
 											<div class="text-sm text-gray-500">{{ type.description }}</div>
@@ -532,7 +532,7 @@
 												: 'text-blue-600'" />
 										</div>
 										<div class="flex-1 min-w-0">
-											<div class="text-base font-medium text-gray-900 dark:text-white">{{ type.label }}
+											<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{ type.label }}
 											</div>
 											<div class="text-sm text-gray-500">{{ type.description }}</div>
 										</div>
@@ -741,7 +741,7 @@
 												: 'text-blue-600'" />
 										</div>
 										<div class="flex-1 min-w-0">
-											<div class="text-base font-medium text-gray-900 dark:text-white">{{
+											<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{
 												fee.label }}
 											</div>
 											<div class="text-sm text-gray-500">{{ fee.description }}</div>
@@ -2166,7 +2166,7 @@ loadDeploymentCost()
 	}
 
 	.step-item.completed:not(:last-child)::after {
-		background-color: #2563eb;
+		background-color: #b27c10;
 	}
 	
 	/* Alternative approach with better positioning */

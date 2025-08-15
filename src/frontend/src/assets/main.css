@@ -41,7 +41,51 @@ layer(base);
   --color-white: #ffffff;
   --color-black: #101828;
 
-  --color-brand-25: #f2f7ff;
+  /* Custom brand colors */
+  --color-brand-25:  #fdf9ec;
+  --color-brand-50:  #fcf3d9;
+  --color-brand-100: #fae7b0;
+  --color-brand-200: #f6d979;
+  --color-brand-300: #f0c94d;
+  --color-brand-400: #e8b82c;
+  --color-brand-500: #d8a735;
+  --color-brand-600: #b27c10;
+  --color-brand-700: #916308;
+  --color-brand-800: #6f4c05;
+  --color-brand-900: #553803;
+  --color-brand-950: #2f2001;
+
+  /* Blue override */
+  --color-blue-25:  #fdf9ec;
+  --color-blue-50:  #fcf3d9;
+  --color-blue-100: #fae7b0;
+  --color-blue-200: #f6d979;
+  --color-blue-300: #f0c94d;
+  --color-blue-400: #e8b82c;
+  --color-blue-500: #d8a735;
+  --color-blue-600: #b27c10;
+  --color-blue-700: #916308;
+  --color-blue-800: #6f4c05;
+  --color-blue-900: #553803;
+  --color-blue-950: #2f2001;
+
+  /* Gradient */
+  --brand-gradient: linear-gradient(
+    to right,
+    var(--color-brand-200),
+    var(--color-brand-400),
+    var(--color-brand-600)
+  );
+
+  /* Gradient hover */
+  --brand-gradient-hover: linear-gradient(
+    to right,
+    var(--color-brand-300),
+    var(--color-brand-500),
+    var(--color-brand-700)
+  );
+
+  /* --color-brand-25: #f2f7ff;
   --color-brand-50: #ecf3ff;
   --color-brand-100: #dde9ff;
   --color-brand-200: #c2d6ff;
@@ -52,7 +96,7 @@ layer(base);
   --color-brand-700: #2a31d8;
   --color-brand-800: #252dae;
   --color-brand-900: #262e89;
-  --color-brand-950: #161950;
+  --color-brand-950: #161950; */
 
   --color-blue-light-25: #f5fbff;
   --color-blue-light-50: #f0f9ff;
@@ -284,6 +328,57 @@ layer(base);
     display: none;
     -webkit-appearance: none;
   }
+  /* Background colors */
+  .bg-blue-50  { background-color: var(--color-brand-50) !important; }
+  .bg-blue-100 { background-color: var(--color-brand-100) !important; }
+  .bg-blue-200 { background-color: var(--color-brand-200) !important; }
+  .bg-blue-300 { background-color: var(--color-brand-300) !important; }
+  .bg-blue-400 { background-color: var(--color-brand-400) !important; }
+  .bg-blue-500 { background-color: var(--color-brand-500) !important; }
+  .bg-blue-600 { background-color: var(--color-brand-600) !important; }
+  .bg-blue-700 { background-color: var(--color-brand-700) !important; }
+  .bg-blue-800 { background-color: var(--color-brand-800) !important; }
+  .bg-blue-900 { background-color: var(--color-brand-900) !important; }
+
+  /* Text colors */
+  .text-blue-50  { color: var(--color-brand-50) !important; }
+  .text-blue-100 { color: var(--color-brand-100) !important; }
+  .text-blue-200 { color: var(--color-brand-200) !important; }
+  .text-blue-300 { color: var(--color-brand-300) !important; }
+  .text-blue-400 { color: var(--color-brand-400) !important; }
+  .text-blue-500 { color: var(--color-brand-500) !important; }
+  .text-blue-600 { color: var(--color-brand-600) !important; }
+  .text-blue-700 { color: var(--color-brand-700) !important; }
+  .text-blue-800 { color: var(--color-brand-800) !important; }
+  .text-blue-900 { color: var(--color-brand-900) !important; }
+
+  /* Border colors */
+  .border-blue-50  { border-color: var(--color-brand-50) !important; }
+  .border-blue-100 { border-color: var(--color-brand-100) !important; }
+  .border-blue-200 { border-color: var(--color-brand-200) !important; }
+  .border-blue-300 { border-color: var(--color-brand-300) !important; }
+  .border-blue-400 { border-color: var(--color-brand-400) !important; }
+  .border-blue-500 { border-color: var(--color-brand-500) !important; }
+  .border-blue-600 { border-color: var(--color-brand-600) !important; }
+  .border-blue-700 { border-color: var(--color-brand-700) !important; }
+  .border-blue-800 { border-color: var(--color-brand-800) !important; }
+  .border-blue-900 { border-color: var(--color-brand-900) !important; }
+
+  /* Hover states */
+  .hover\:bg-blue-50:hover { background-color: var(--color-brand-50) !important; }
+  .hover\:bg-blue-100:hover { background-color: var(--color-brand-100) !important; }
+  .hover\:bg-blue-200:hover { background-color: var(--color-brand-200) !important; }
+  .hover\:bg-blue-300:hover { background-color: var(--color-brand-300) !important; }
+  .hover\:bg-blue-400:hover { background-color: var(--color-brand-400) !important; }
+  .hover\:bg-blue-500:hover { background-color: var(--color-brand-500) !important; }
+  .hover\:bg-blue-600:hover { background-color: var(--color-brand-600) !important; }
+  .hover\:text-blue-600:hover { color: var(--color-brand-600) !important; }
+  .hover\:border-blue-600:hover { border-color: var(--color-brand-600) !important; }
+
+  /* Focus ring (Tailwind's ring-blue-*) */
+  .ring-blue-500 { --tw-ring-color: var(--color-brand-500) !important; }
+  .focus\:ring-blue-500:focus { --tw-ring-color: var(--color-brand-500) !important; }
+
 }
 
 .sidebar:hover {

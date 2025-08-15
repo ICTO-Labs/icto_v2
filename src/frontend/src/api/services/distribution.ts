@@ -143,6 +143,7 @@ export class DistributionService {
       return details as unknown as DistributionDetails;
       
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching details for ${canisterId}:`, error);
       throw error;
     }
@@ -155,6 +156,7 @@ export class DistributionService {
       const result = await distributionContract.claim();
       return result as unknown as Result;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error claiming tokens for ${canisterId}:`, error);
       throw error;
     }
@@ -177,6 +179,7 @@ export class DistributionService {
       return result as unknown as Result;
     } catch (error) {
       console.error(`Error initializing contract ${canisterId}:`, error);
+      toast.error('Error: ' + error)
       throw error;
     }
   }
@@ -188,6 +191,7 @@ export class DistributionService {
       const result = await distributionContract.activate();
       return result as unknown as Result;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error activating distribution ${canisterId}:`, error);
       throw error;
     }
@@ -206,6 +210,7 @@ export class DistributionService {
       return result as unknown as Result;
 
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error pausing distribution ${canisterId}:`, error);
       throw error;
     }
@@ -223,6 +228,7 @@ export class DistributionService {
       }
       return result as unknown as Result;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error resuming distribution ${canisterId}:`, error);
       throw error;
     }
@@ -240,6 +246,7 @@ export class DistributionService {
       }
       return result as unknown as Result;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error cancelling distribution ${canisterId}:`, error);
       throw error;
     }
@@ -254,6 +261,7 @@ export class DistributionService {
       const participants = await distributionContract.getAllParticipants();
       return participants as any[];
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching participants for ${canisterId}:`, error);
       throw error;
     }
@@ -266,6 +274,7 @@ export class DistributionService {
       const participant = await distributionContract.getParticipant(Principal.fromText(principalId));
       return participant;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching participant ${principalId} for ${canisterId}:`, error);
       throw error;
     }
@@ -278,6 +287,7 @@ export class DistributionService {
       const result = await distributionContract.addParticipants(participants as unknown as [Principal, bigint][]);
       return result as unknown as Result;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error adding participants to ${canisterId}:`, error);
       throw error;
     }
@@ -290,6 +300,7 @@ export class DistributionService {
       const history = await distributionContract.getClaimHistory(principalId ? [Principal.fromText(principalId)] : []);
       return history as any[];
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching claim history for ${canisterId}:`, error);
       throw error;
     }
@@ -302,6 +313,7 @@ export class DistributionService {
       const amount = await distributionContract.getClaimableAmount(Principal.fromText(principalId));
       return amount as bigint;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching claimable amount for ${principalId} in ${canisterId}:`, error);
       throw error;
     }
@@ -319,6 +331,7 @@ export class DistributionService {
       console.log('balance', balance)
       return balance as bigint;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching contract balance for ${token.canisterId.toString()}:`, error);
       throw error;
     }
@@ -343,6 +356,7 @@ export class DistributionService {
       const status = await distributionContract.getStatus();
       return Object.keys(status)[0]; // Extract variant key
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching status for ${canisterId}:`, error);
       throw error;
     }
@@ -355,6 +369,7 @@ export class DistributionService {
       const health = await distributionContract.healthCheck();
       return health as boolean;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error checking health for ${canisterId}:`, error);
       throw error;
     }
@@ -367,7 +382,9 @@ export class DistributionService {
     try {
       const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
       await distributionContract.startTimer();
+      toast.success('Timer started')
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error starting timer for ${canisterId}:`, error);
       throw error;
     }
@@ -378,7 +395,9 @@ export class DistributionService {
     try {
       const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
       await distributionContract.cancelTimer();
+      toast.success('Timer cancelled')
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error cancelling timer for ${canisterId}:`, error);
       throw error;
     }
@@ -391,6 +410,7 @@ export class DistributionService {
       const status = await distributionContract.getTimerStatus();
       return status as { timerId: bigint; isRunning: boolean };
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching timer status for ${canisterId}:`, error);
       throw error;
     }
@@ -405,6 +425,7 @@ export class DistributionService {
       const eligible = await distributionContract.checkEligibilitySync(Principal.fromText(principalId));
       return eligible as boolean;
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error checking eligibility for ${principalId} in ${canisterId}:`, error);
       throw error;
     }
@@ -445,6 +466,7 @@ export class DistributionService {
         registrationError: context.registrationError?.[0] // Extract optional text
       };
     } catch (error) {
+      toast.error('Error: ' + error)
       console.error(`Error fetching user context for ${canisterId}:`, error);
       throw error;
     }
@@ -460,14 +482,14 @@ export class DistributionService {
     contractBalance: bigint;
   }> {
     try {
-      const [config, stats, participants, claimHistory, canisterInfo, timerStatus, contractBalance] = await Promise.all([
+      const [config, stats, participants, claimHistory, canisterInfo, timerStatus] = await Promise.all([
         this.getDistributionDetails(canisterId),
         this.getDistributionStats(canisterId),
         this.getAllParticipants(canisterId),
         this.getClaimHistory(canisterId),
         this.getCanisterInfo(canisterId),
         this.getTimerStatus(canisterId),
-        this.getContractBalance(canisterId)
+        // this.getContractBalance(canisterId)
       ]);
 
       return {
@@ -477,7 +499,7 @@ export class DistributionService {
         claimHistory,
         canisterInfo,
         timerStatus,
-        contractBalance
+        contractBalance: BigInt(0)
       };
     } catch (error) {
       console.error(`Error fetching comprehensive admin data for ${canisterId}:`, error);

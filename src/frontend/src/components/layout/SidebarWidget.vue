@@ -8,9 +8,20 @@
     </p>
     <router-link
       to="/tokens"
-      class="flex items-center justify-center p-3 font-medium text-white rounded-lg bg-brand-500 text-theme-sm hover:bg-brand-600"
+      class="flex items-center justify-center"
     >
-      Get Started
+      <BrandButton
+        :left-icon="ArrowRightIcon"
+        variant="brand"
+        size="md"
+        class="w-full"
+      >
+        Get Started
+      </BrandButton>
     </router-link>
   </div>
 </template>
+<script setup lang="ts">
+import BrandButton from '@/components/common/BrandButton.vue'
+import { ArrowRightIcon } from 'lucide-vue-next'
+</script>

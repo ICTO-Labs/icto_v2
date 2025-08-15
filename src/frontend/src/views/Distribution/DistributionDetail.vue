@@ -57,7 +57,7 @@
         <!-- Campaign Header -->
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-4">
-            <TokenLogo :canister-id="details.tokenInfo.canisterId" :symbol="details.tokenInfo.symbol" :size="64" />
+            <TokenLogo :canister-id="details.tokenInfo.canisterId.toString()" :symbol="details.tokenInfo.symbol" :size="64" />
             <div>
               <h4 class="text-xl font-bold text-gray-900 dark:text-white">
                 {{ details.title }}
@@ -65,14 +65,14 @@
               <div class="flex items-center space-x-4">
                 <p class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">{{ canisterId }} <CopyIcon class="w-3.5 h-3.5" :data="canisterId" /></p>
                 <Label variant="gray" size="xs" >{{ cyclesToT(canisterCycles) }}</Label>
-                <div :class="statusColor" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium">
-                  <div class="w-2 h-2 rounded-full mr-2" :class="statusDotColor"></div>
-                  {{ statusText }}
-                </div>
-                <Label size="xs" class="flex items-center gap-1" variant="purple">
+                  <div :class="statusColor" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium">
+                    <div class="w-2 h-2 rounded-full mr-2" :class="statusDotColor"></div>
+                    {{ statusText }}
+                  </div>
+                  <Label variant="blue" class="inline-flex items-center gap-1">
+                  <ZapIcon class="w-3 h-3 mr-1" />
                   {{ getVariantKey(details.eligibilityType) }}
-                </Label>
-              
+                </Label>              
               </div>
             </div>
           </div>
@@ -373,33 +373,46 @@
           <!-- Right Column - Actions & Info -->
           <div class="space-y-6">
             <!-- Eligibility Status -->
-            <div v-if="isEligible || eligibilityStatus"
+            <div v-if="userContext"
               class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
               <div class="flex items-center space-x-3 mb-4">
-                <div class="p-2 bg-green-100 dark:bg-green-900 rounded-lg">
-                  <ShieldCheckIcon class="w-5 h-5 text-green-600 dark:text-green-400" />
+                <div class="p-2" :class="isEligible ? 'bg-green-100 dark:bg-green-900' : 'bg-gray-100 dark:bg-gray-700'">
+                  <ShieldCheckIcon class="w-5 h-5" :class="isEligible ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'" />
                 </div>
-                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Your Eligibility</h3>
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Your Status</h3>
               </div>
 
               <div class="space-y-4">
-                <div
-                  class="flex items-center justify-between p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                <!-- Status Display -->
+                <div class="p-4 rounded-lg border" 
+                  :class="isRegistered ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' : 
+                          isEligible ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' :
+                          'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'">
                   <div class="flex items-center space-x-3">
-                    <CheckCircleIcon class="w-6 h-6 text-green-500" />
+                    <CheckCircleIcon v-if="isRegistered" class="w-6 h-6 text-blue-500" />
+                    <CheckCircleIcon v-else-if="isEligible" class="w-6 h-6 text-green-500" />
+                    <XCircleIcon v-else class="w-6 h-6 text-gray-500" />
                     <div>
-                      <p class="font-semibold text-green-800 dark:text-green-200">
-                        {{ isRegistered ? 'Registered' : 'Eligible' }}
+                      <p class="font-semibold" 
+                        :class="isRegistered ? 'text-blue-800 dark:text-blue-200' : 
+                                isEligible ? 'text-green-800 dark:text-green-200' :
+                                'text-gray-800 dark:text-gray-200'">
+                        {{ isRegistered ? 'Registered' : isEligible ? 'Eligible' : 'Not Eligible' }}
                       </p>
-                      <p class="text-sm text-green-600 dark:text-green-300">
-                        {{ isRegistered ? 'You are registered for this distribution' : 'You can participate' }}
+                      <p class="text-sm" 
+                        :class="isRegistered ? 'text-blue-600 dark:text-blue-300' : 
+                                isEligible ? 'text-green-600 dark:text-green-300' :
+                                'text-gray-600 dark:text-gray-300'">
+                        {{ isRegistered ? 'You are registered and can claim tokens when available' : 
+                            isEligible ? 'You are eligible to participate in this distribution' :
+                            'You are not eligible for this distribution' }}
                       </p>
                     </div>
                   </div>
                 </div>
 
                 <!-- Registration Error Display -->
-                <div v-if="userContext?.registrationError" 
+                <!-- <div v-if="userContext?.registrationError" 
                   class="p-4 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
                   <div class="flex items-center space-x-3">
                     <AlertCircleIcon class="w-5 h-5 text-red-500" />
@@ -408,30 +421,47 @@
                       <p class="text-sm text-red-600 dark:text-red-300">{{ userContext.registrationError }}</p>
                     </div>
                   </div>
-                </div>
+                </div> -->
 
-                <div class="space-y-3">
+                <!-- Token Information - Only show if user is registered or has allocation -->
+                <div v-if="isRegistered || userAllocation > 0" class="space-y-3">
                   <div class="flex justify-between text-sm">
                     <span class="text-gray-500 dark:text-gray-400">Your Allocation</span>
                     <span class="font-semibold text-gray-900 dark:text-white">
-                      {{ BackendUtils.formatTokenAmount(userAllocation, details.tokenInfo.decimals) }} {{
-                        details.tokenInfo.symbol }}
+                      {{ userAllocation > 0 ? BackendUtils.formatTokenAmount(userAllocation, details.tokenInfo.decimals) : '0' }} {{ details.tokenInfo.symbol }}
                     </span>
                   </div>
                   <div class="flex justify-between text-sm">
                     <span class="text-gray-500 dark:text-gray-400">Available to Claim</span>
                     <span class="font-semibold text-green-600 dark:text-green-400">
-                      {{ BackendUtils.formatTokenAmount(availableToClaim, details.tokenInfo.decimals) }} {{
-                        details.tokenInfo.symbol }}
+                      {{ availableToClaim > 0 ? BackendUtils.formatTokenAmount(availableToClaim, details.tokenInfo.decimals) : '0' }} {{ details.tokenInfo.symbol }}
                     </span>
                   </div>
                   <div class="flex justify-between text-sm">
                     <span class="text-gray-500 dark:text-gray-400">Already Claimed</span>
                     <span class="font-semibold text-gray-900 dark:text-white">
-                      {{ BackendUtils.formatTokenAmount(alreadyClaimed, details.tokenInfo.decimals) }} {{
-                        details.tokenInfo.symbol }}
+                      {{ alreadyClaimed > 0 ? BackendUtils.formatTokenAmount(alreadyClaimed, details.tokenInfo.decimals) : '0' }} {{ details.tokenInfo.symbol }}
                     </span>
                   </div>
+                  
+                  <!-- Progress bar for user's claim progress -->
+                  <div v-if="userAllocation > 0" class="mt-4">
+                    <ProgressBar
+                      :percentage="Math.min((Number(alreadyClaimed) / Number(userAllocation)) * 100, 100)"
+                      label="Claim Progress"
+                      variant="brand"
+                      size="sm"
+                      :animated="true"
+                      :glow-effect="true"
+                    />
+                  </div>
+                </div>
+
+                <!-- Not Eligible Message -->
+                <div v-if="!isEligible && !isRegistered" class="text-center py-4">
+                  <p class="text-gray-500 dark:text-gray-400 text-sm">
+                    You are not eligible for this distribution. Check the eligibility requirements or contact the distribution owner.
+                  </p>
                 </div>
               </div>
             </div>
@@ -580,24 +610,18 @@
               <div>
                 <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Distribution Progress</h4>
                 <div class="space-y-3">
-                  <div class="flex justify-between text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">Current Period</span>
-                    <span class="font-medium text-gray-900 dark:text-white">{{ 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) }}% unlocked</span>
-                  </div>
-                  <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3">
-                    <div class="bg-gradient-to-r from-blue-500 to-green-500 h-3 rounded-full" :style="{ width: `${100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0))}%` }" :class="{
-                      'bg-blue-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) < 25,
-                      'bg-green-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) >= 25 && 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) < 50,
-                      'bg-yellow-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) >= 50 && 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) < 75,
-                      'bg-red-500': 100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0)) >= 75
-                    }">
-                    </div>
-                  </div>
-                  <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                    <span>Start</span>
-                    <span>Current</span>
-                    <span>Complete</span>
-                  </div>
+                  <ProgressBar
+                    :percentage="100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0))"
+                    :label="`Current Period - ${(100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0))).toFixed(1)}% unlocked`"
+                    variant="brand"
+                    size="lg"
+                    :animated="true"
+                    :glow-effect="true"
+                    :sub-labels="{
+                      left: 'Start',
+                      right: 'Complete'
+                    }"
+                  />
                 </div>
               </div>
             </div>
@@ -619,6 +643,7 @@ import {
   CoinsIcon,
   TrendingUpIcon,
   CheckCircleIcon,
+  XCircleIcon,
   UsersIcon,
   UserPlusIcon,
   LockIcon,
@@ -642,6 +667,7 @@ import TokenLogo from '@/components/token/TokenLogo.vue'
 import MetricCard from '@/components/token/MetricCard.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
+import ProgressBar from '@/components/common/ProgressBar.vue'
 import type { DistributionDetails, DistributionStats } from '@/types/distribution'
 import { BackendUtils } from '@/utils/backend'
 import { getVariantKey, shortPrincipal, getFirstLetter } from '@/utils/common'
@@ -682,6 +708,9 @@ const userContext = ref<{
   canClaim: boolean;
   registrationError?: string;
 } | null>(null)
+
+// User participant data
+const participantData = ref<any>(null)
 
 // User data  
 const userAllocation = ref<bigint>(BigInt(0))
@@ -1220,10 +1249,40 @@ const fetchUserContext = async () => {
       alreadyClaimed.value = context.participant.claimedAmount || BigInt(0)
     }
     availableToClaim.value = context.claimableAmount
+    
+    // If user is registered, fetch detailed participant data
+    if (context.isRegistered && context.principal) {
+      await fetchParticipantData(context.principal)
+    }
   } catch (err) {
     console.error('Error fetching user context:', err)
     // Set default values on error
     userContext.value = null
+  }
+}
+
+// Fetch detailed participant data
+const fetchParticipantData = async (principalId?: string) => {
+  try {
+    // Use the principal from context or auth store
+    const principal = principalId || userContext.value?.principal
+    if (!principal) return
+    
+    const participant = await DistributionService.getParticipant(canisterId.value, principal)
+    participantData.value = participant
+    
+    // Update user data with participant info if available
+    if (participant && participant.length > 0) {
+      const participantInfo = participant[0] // getParticipant returns an optional array
+      userAllocation.value = participantInfo.eligibleAmount || BigInt(0)
+      alreadyClaimed.value = participantInfo.claimedAmount || BigInt(0)
+      
+      // Calculate available to claim from claimable amount in context
+      availableToClaim.value = userContext.value?.claimableAmount || BigInt(0)
+    }
+  } catch (err) {
+    console.error('Error fetching participant data:', err)
+    participantData.value = null
   }
 }
 
