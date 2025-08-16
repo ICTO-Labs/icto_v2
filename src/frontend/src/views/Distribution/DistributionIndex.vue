@@ -145,6 +145,7 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { DistributionService } from '@/api/services/distribution'
 import { backendService } from '@/api/services/backend'
+import { useAuthStore } from '@/stores/auth'
 import DistributionCard from '@/components/distribution/DistributionCard.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import { useModalStore } from '@/stores/modal'
@@ -153,6 +154,7 @@ import type { DistributionCanister } from '@/types/distribution'
 import BrandButton from '@/components/common/BrandButton.vue'
 const router = useRouter()
 const modalStore = useModalStore()
+const authStore = useAuthStore()
 
 // Reactive variables
 const loading = ref(true)
@@ -160,16 +162,17 @@ const error = ref<string | null>(null)
 const distributions = ref<DistributionCanister[]>([])
 const joinedDistributions = ref<DistributionCanister[]>([])
 const createdDistributions = ref<DistributionCanister[]>([])
+const publicDistributions = ref<DistributionCanister[]>([])
 const searchQuery = ref('')
 const activeFilter = ref('all')
 const sortBy = ref('recent')
 
 // Filter options
 const filterOptions = [
-  { label: 'All', value: 'all' },
+  { label: 'Public', value: 'public' },
   { label: 'Joined', value: 'joined' },
   { label: 'My Campaigns', value: 'mine' },
-  { label: 'Public', value: 'public' }
+  { label: 'All', value: 'all' }
 ]
 
 // Computed filtered and sorted distributions
@@ -184,30 +187,35 @@ const filteredDistributions = computed(() => {
     case 'mine':
       filtered = [...createdDistributions.value]
       break
+    case 'public':
+      filtered = [...publicDistributions.value]
+      break
     case 'all':
     default:
-      filtered = [...joinedDistributions.value, ...createdDistributions.value]
+      // Remove duplicates by canisterId (in case a user is both creator and recipient)
+      const allDistributions = [
+        ...publicDistributions.value,
+        ...joinedDistributions.value,
+        ...createdDistributions.value
+      ]
+      const uniqueDistributions = new Map()
+      allDistributions.forEach(dist => {
+        if (!uniqueDistributions.has(dist.canisterId)) {
+          uniqueDistributions.set(dist.canisterId, dist)
+        }
+      })
+      filtered = Array.from(uniqueDistributions.values())
       break
   }
   
   // Apply search filter
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
-    // Note: We'll need to enhance this when we have more distribution metadata
     filtered = filtered.filter(distribution => 
       distribution.canisterId.toLowerCase().includes(query) ||
-      distribution.metadata.name.toLowerCase().includes(query)
+      distribution.metadata.name.toLowerCase().includes(query) ||
+      (distribution.metadata.description && distribution.metadata.description.toLowerCase().includes(query))
     )
-  }
-  
-  // Apply public filter if needed
-  if (activeFilter.value === 'public') {
-    // TODO: Implement logic to determine if distribution is public
-    // This might require additional API calls or metadata
-    filtered = filtered.filter(distribution => {
-      // For now, return all distributions for public filter
-      return true
-    })
   }
   
   // Apply sorting
@@ -229,38 +237,60 @@ const filteredDistributions = computed(() => {
   return filtered
 })
 
-// Fetch distributions where user is a recipient
-const fetchJoinedDistributions = async () => {
+// Fetch public distributions (works for anonymous users)
+const fetchPublicDistributions = async () => {
   try {
-    joinedDistributions.value = await DistributionService.getUserDistributions()
+    publicDistributions.value = await DistributionService.getPublicDistributions()
   } catch (err) {
-    console.error('Error fetching joined distributions:', err)
-    throw err
+    console.error('Error fetching public distributions:', err)
+    // Don't throw - public distributions are optional
   }
 }
 
-// Fetch distributions created by the user
+// Fetch distributions where user is a recipient (requires authentication)
+const fetchJoinedDistributions = async () => {
+  try {
+    // Only fetch if user is authenticated
+    if (authStore.isConnected) {
+      joinedDistributions.value = await DistributionService.getUserDistributions()
+    } else {
+      joinedDistributions.value = []
+    }
+  } catch (err) {
+    console.error('Error fetching joined distributions:', err)
+    joinedDistributions.value = []
+    // Don't throw - user-specific distributions are optional
+  }
+}
+
+// Fetch distributions created by the user (requires authentication)
 const fetchCreatedDistributions = async () => {
   try {
-    const deployments = await backendService.getUserDeployments()
-    
-    // Filter only distribution deployments and map to DistributionCanister format
-    const distributionDeployments = deployments.filter(
-      deployment => deployment.deploymentType === 'Distribution'
-    )
-    
-    createdDistributions.value = distributionDeployments.map(deployment => ({
-      canisterId: deployment.canisterId.toString(),
-      relationshipType: 'DistributionCreator' as const,
-      metadata: {
-        name: deployment.name,
-        description: deployment.description,
-        isActive: true
-      }
-    }))
+    // Only fetch if user is authenticated
+    if (authStore.isConnected) {
+      const deployments = await backendService.getUserDeployments()
+      
+      // Filter only distribution deployments and map to DistributionCanister format
+      const distributionDeployments = deployments.filter(
+        deployment => deployment.deploymentType === 'Distribution'
+      )
+      
+      createdDistributions.value = distributionDeployments.map(deployment => ({
+        canisterId: deployment.canisterId.toString(),
+        relationshipType: 'DistributionCreator' as const,
+        metadata: {
+          name: deployment.name,
+          description: deployment.description,
+          isActive: true
+        }
+      }))
+    } else {
+      createdDistributions.value = []
+    }
   } catch (err) {
     console.error('Error fetching created distributions:', err)
-    throw err
+    createdDistributions.value = []
+    // Don't throw - user-specific distributions are optional
   }
 }
 
@@ -270,14 +300,19 @@ const fetchDistributions = async () => {
     loading.value = true
     error.value = null
     
-    // Fetch both joined and created distributions in parallel
+    // Fetch all types of distributions in parallel
     await Promise.all([
-      fetchJoinedDistributions(),
-      fetchCreatedDistributions()
+      fetchPublicDistributions(),     // Always fetch public (anonymous-friendly)
+      fetchJoinedDistributions(),     // Fetch user's joined distributions (if authenticated)
+      fetchCreatedDistributions()     // Fetch user's created distributions (if authenticated)
     ])
     
     // Update the main distributions array for backward compatibility
-    distributions.value = [...joinedDistributions.value, ...createdDistributions.value]
+    distributions.value = [
+      ...publicDistributions.value,
+      ...joinedDistributions.value, 
+      ...createdDistributions.value
+    ]
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch distributions'
     console.error('Error fetching distributions:', err)

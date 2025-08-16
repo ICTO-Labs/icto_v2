@@ -69,7 +69,7 @@
 // Service for real-time distribution data integration
 
 import { Actor } from '@dfinity/agent';
-import { useAuthStore, distributionContractActor, backendActor } from '@/stores/auth';
+import { distributionContractActor, backendActor } from '@/stores/auth';
 import type { DistributionCanister, DistributionStats, DistributionDetails, Result } from '@/types/distribution';
 import { Principal } from '@dfinity/principal';
 import { IcrcService } from './icrc';

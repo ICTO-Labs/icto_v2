@@ -466,7 +466,39 @@ module FactoryRegistryService {
                                     return #Ok(factory);
                                 };
                                 
-// Unauthorized caller
+                                // NEW: Check if caller is a deployed canister from this backend (for relationship updates)
+                                // This allows distribution contracts to update their own relationships
+                                Debug.print("🔍 Checking if caller " # Principal.toText(callerPrincipal) # " is a deployed canister");
+                                Debug.print("📊 Total deployed canisters in registry: " # debug_show(Trie.size(state.deployedCanisters)));
+                                switch (getDeployedCanister(state, callerPrincipal)) {
+                                    case (?deployedCanister) {
+                                        Debug.print("✅ Found deployed canister: " # debug_show(deployedCanister.deploymentType));
+                                        Debug.print("🔍 Deployed by: " # Principal.toText(deployedCanister.deployedBy));
+                                        Debug.print("👤 Creator: " # Principal.toText(deployedCanister.creator));
+                                        // Verify it's the right type of deployment for this relationship
+                                        let isValidDeployment = switch (relationshipType, deployedCanister.deploymentType) {
+                                            case (#DistributionRecipient, #Distribution) { true };
+                                            case (#LaunchpadParticipant, #Launchpad) { true };
+                                            case (#DAOMember, #Template) { true };
+                                            case (#MultisigSigner, #Template) { true };
+                                            case _ { false };
+                                        };
+                                        
+                                        Debug.print("📋 Relationship type: " # debug_show(relationshipType) # ", Deployment type: " # debug_show(deployedCanister.deploymentType) # ", Valid: " # debug_show(isValidDeployment));
+                                        
+                                        if (isValidDeployment) {
+                                            Debug.print("✅ Authorization granted for deployed canister");
+                                            return #Ok(factory);
+                                        } else {
+                                            Debug.print("❌ Invalid deployment type for relationship");
+                                        };
+                                    };
+                                    case null { 
+                                        Debug.print("❌ Caller not found in deployed canister registry");
+                                    };
+                                };
+                                
+                                // Unauthorized caller
                                 return #Err(#Unauthorized("Caller not authorized to update relationships"));
                             };
                             case null {
@@ -558,6 +590,9 @@ module FactoryRegistryService {
             Principal.equal,
             deployedCanister
         ).0;
+        
+        Debug.print("✅ Registered deployed canister: " # Principal.toText(canisterId) # " of type " # typeText);
+        Debug.print("📊 Total deployed canisters after registration: " # debug_show(Trie.size(state.deployedCanisters)));
 
         // Add to type-specific list
         let currentList = switch (Trie.get(state.canistersByType, {key = typeText; hash = Text.hash(typeText)}, Text.equal)) {
@@ -579,6 +614,11 @@ module FactoryRegistryService {
     // Check if a canister is registered and get its info
     public func getDeployedCanister(state: State, canisterId: Principal) : ?FactoryRegistryTypes.DeployedCanister {
         Trie.get(state.deployedCanisters, {key = canisterId; hash = Principal.hash(canisterId)}, Principal.equal)
+    };
+
+    // Get total deployed canisters count for debugging
+    public func getDeployedCanistersCount(state: State) : Nat {
+        Trie.size(state.deployedCanisters)
     };
 
     // Check if a canister was deployed by this backend

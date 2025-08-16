@@ -60,6 +60,7 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private var participantsStable: [(Principal, Participant)] = [];
     private var claimRecordsStable: [ClaimRecord] = [];
     private var whitelistStable: [(Principal, Bool)] = [];
+    private var blacklistStable: [(Principal, Bool)] = []; // Blacklist is a list of principals that are not allowed to participate in the distribution
     
     // Stats
     private var totalDistributed: Nat = 0;
@@ -70,7 +71,8 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private transient var participants: Trie.Trie<Principal, Participant> = Trie.empty();
     private transient var claimRecords: Buffer.Buffer<ClaimRecord> = Buffer.Buffer(0);
     private transient var whitelist: Trie.Trie<Principal, Bool> = Trie.empty();
-    
+    private transient var blacklist: Trie.Trie<Principal, Bool> = Trie.empty();
+
     // Timer and token management
     private var timerId: Nat = 0;
     private var tokenCanister: ?ICRC.ICRCLedger = null;
@@ -126,6 +128,7 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         participantsStable := Trie.toArray<Principal, Participant, (Principal, Participant)>(participants, func (k, v) = (k, v));
         claimRecordsStable := Buffer.toArray(claimRecords);
         whitelistStable := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelist, func (k, v) = (k, v));
+        blacklistStable := Trie.toArray<Principal, Bool, (Principal, Bool)>(blacklist, func (k, v) = (k, v));
         Debug.print("DistributionContract: Preupgrade completed");
     };
 
@@ -147,6 +150,11 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             whitelist := Trie.put(whitelist, _principalKey(principal), Principal.equal, eligible).0;
         };
         
+        // Restore blacklist
+        for ((principal, eligible) in blacklistStable.vals()) {
+            blacklist := Trie.put(blacklist, _principalKey(principal), Principal.equal, eligible).0;
+        };
+        
         // Initialize whitelist from config if first run
         if (Trie.size(whitelist) == 0) {
             _initializeWhitelist();
@@ -156,7 +164,7 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         participantsStable := [];
         claimRecordsStable := [];
         whitelistStable := [];
-        
+        blacklistStable := [];
         Debug.print("DistributionContract: Postupgrade completed");
     };
 
@@ -524,8 +532,35 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         participantCount += 1;
         
         // Update backend with new relationship
-        ignore _registerBackendRelationship(config, caller);
+        await _registerBackendRelationship(config, caller);
         
+        #ok()
+    };
+
+    // Admin remove participant
+    public shared({ caller }) func removeParticipant(principal: Principal) : async Result.Result<(), Text> {
+        if (not _isOwner(caller)) {
+            return #err("Unauthorized: Only owner can remove participant");
+        };
+        ignore _removeBackendRelationship(config, principal);
+        #ok()
+    };
+
+    // Admin add to blacklist
+    public shared({ caller }) func addToBlacklist(principal: Principal) : async Result.Result<(), Text> {
+        if (not _isOwner(caller)) {
+            return #err("Unauthorized: Only owner can add to blacklist");
+        };
+        blacklist := Trie.put(blacklist, _principalKey(principal), Principal.equal, true).0;
+        #ok()
+    };
+
+    // Admin remove from blacklist
+    public shared({ caller }) func removeFromBlacklist(principal: Principal) : async Result.Result<(), Text> {
+        if (not _isOwner(caller)) {
+            return #err("Unauthorized: Only owner can remove from blacklist");
+        };
+        blacklist := Trie.put(blacklist, _principalKey(principal), Principal.equal, false).0;
         #ok()
     };
 
@@ -546,7 +581,7 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
                     };
                     
                     // Notify backend that this user is now a recipient of this distribution
-                    ignore backendCanister.updateUserRelationships(
+                    let updateResult = await backendCanister.updateUserRelationships(
                         #DistributionRecipient,
                         Principal.fromActor(self),
                         [userId],
@@ -556,13 +591,22 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
                             additionalData = null;
                         }
                     );
+                    
+                    switch (updateResult) {
+                        case (#Ok(_)) {
+                            Debug.print("✅ Successfully updated backend relationship for user: " # Principal.toText(userId));
+                        };
+                        case (#Err(error)) {
+                            Debug.print("❌ Failed to update backend relationship: " # debug_show(error));
+                        };
+                    };
                 } catch (error) {
                     // Log error but don't fail registration
                     Debug.print("Warning: Failed to update backend relationship: " # Error.message(error));
                 };
             };
             case null {
-                Debug.print("Warning: No backend canister configured for relationship updates");
+                Debug.print("❌ Warning: No backend canister configured for relationship updates. This means the distribution factory didn't whitelist the backend canister.");
             };
         };
     };
@@ -1032,5 +1076,18 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     // Query function to get the configured backend canister
     public query func getBackendCanisterId() : async ?Principal {
         backendCanisterId
+    };
+    
+    // Debug function to help troubleshoot backend relationship issues
+    public query func getRelationshipDebugInfo() : async {
+        hasBackendCanister: Bool;
+        backendCanisterId: ?Principal;
+        contractAddress: Principal;
+    } {
+        {
+            hasBackendCanister = Option.isSome(backendCanisterId);
+            backendCanisterId = backendCanisterId;
+            contractAddress = Principal.fromActor(self);
+        }
     };
 }

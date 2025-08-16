@@ -430,7 +430,7 @@ persistent actor Backend {
                             };
                         };
                         
-                        ignore FactoryRegistryService.registerDeployedCanister(
+                        let registrationResult = FactoryRegistryService.registerDeployedCanister(
                             factoryRegistryState,
                             canisterId,
                             depType,
@@ -438,6 +438,15 @@ persistent actor Backend {
                             caller, // User who requested deployment
                             metadata
                         );
+                        
+                        switch (registrationResult) {
+                            case (#Ok(_)) {
+                                Debug.print("✅ Successfully registered deployed canister: " # Principal.toText(canisterId));
+                            };
+                            case (#Err(error)) {
+                                Debug.print("❌ Failed to register deployed canister: " # debug_show(error));
+                            };
+                        };
                     };
                     case null {
                         Debug.print("⚠️ Unknown deployment type for canister registration: " # debug_show(actionType));
@@ -1550,6 +1559,16 @@ persistent actor Backend {
         relationshipType: FactoryRegistryTypes.RelationshipType
     ) : async FactoryRegistryTypes.FactoryRegistryResult<()> {
         FactoryRegistryService.validateCanisterForExternalRelationship(factoryRegistryState, canisterId, relationshipType)
+    };
+
+    // Debug function to check deployed canister registry
+    public query func debugGetDeployedCanister(canisterId: Principal) : async ?FactoryRegistryTypes.DeployedCanister {
+        FactoryRegistryService.getDeployedCanister(factoryRegistryState, canisterId)
+    };
+
+    // Debug function to get total deployed canisters count
+    public query func debugGetDeployedCanistersCount() : async Nat {
+        FactoryRegistryService.getDeployedCanistersCount(factoryRegistryState)
     };
 
 };

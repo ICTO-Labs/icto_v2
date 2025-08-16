@@ -103,6 +103,12 @@
                     <CalendarIcon class="w-4 h-4 mr-1" />
                     {{ formatDate(details.distributionStart) }}
                   </span>
+                  <!-- Countdown Component -->
+                  <DistributionCountdown 
+                    :start-time="details.distributionStart"
+                    :end-time="details.distributionEnd && details.distributionEnd.length > 0 ? details.distributionEnd[0] : null"
+                    :status="distributionStatus"
+                  />
                 </div>
               </div>
             </div>
@@ -573,6 +579,7 @@ import { DistributionService } from '@/api/services/distribution'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
 import ContractBalanceStatus from '@/components/distribution/ContractBalanceStatus.vue'
+import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
 import VueApexCharts from 'vue3-apexcharts'
 import { 
   ArrowLeftIcon, AlertCircleIcon, RefreshCwIcon, SettingsIcon, CalendarIcon,

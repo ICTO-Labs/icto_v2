@@ -118,7 +118,15 @@
 
         <!-- Description -->
         <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">About This Campaign</h3>
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">About This Campaign</h3>
+            <!-- Countdown Component -->
+            <DistributionCountdown 
+              :start-time="details.distributionStart"
+              :end-time="details.distributionEnd && details.distributionEnd.length > 0 ? details.distributionEnd[0] : null"
+              :status="distributionStatus"
+            />
+          </div>
           <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ details.description }}</p>
         </div>
 
@@ -681,6 +689,7 @@ import AdminLayout from '@/components/layout/AdminLayout.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
 import ContractBalanceStatus from '@/components/distribution/ContractBalanceStatus.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
+import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
 import type { DistributionDetails, DistributionStats } from '@/types/distribution'
 import { BackendUtils } from '@/utils/backend'
 import { getVariantKey, shortPrincipal, getFirstLetter } from '@/utils/common'

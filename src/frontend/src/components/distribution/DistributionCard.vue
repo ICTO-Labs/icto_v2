@@ -19,7 +19,8 @@ import {
   ZapIcon,
   EyeIcon,
   AlertCircleIcon,
-  RefreshCwIcon
+  RefreshCwIcon,
+  UnlockIcon
 } from 'lucide-vue-next'
 import TokenLogo from '@/components/token/TokenLogo.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
@@ -167,6 +168,9 @@ const vestingType = computed(() => {
   if ('Cliff' in distributionData.value.vestingSchedule) {
     return 'Cliff Vesting'
   }
+  if ('Instant' in distributionData.value.vestingSchedule) {
+    return 'Instant'
+  }
   
   return 'Custom'
 })
@@ -304,17 +308,15 @@ onMounted(() => {
             <!-- Quick Info Tags -->
             <div class="flex flex-wrap gap-1.5">
               <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
-                <CoinsIcon class="w-3 h-3 mr-1" /> {{ formattedTotalAmount }} {{ distributionData.tokenInfo?.symbol }}
-              </span>
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
                 <ZapIcon class="w-3 h-3 mr-1" />
                 {{ eligibilityType }}
               </span>
-              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
-                <LockIcon class="w-3 h-3 mr-1" />
+              <span :class="`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${vestingType === 'Instant' ? 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300'}`">
+                <LockIcon class="w-3 h-3 mr-1" v-if="vestingType !== 'Instant'"/>
+                <UnlockIcon class="w-3 h-3 mr-1" v-if="vestingType === 'Instant'"/>
                 {{ vestingType }}
               </span>
-              <span v-if="initialUnlockPercentage > 0" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+              <span v-if="initialUnlockPercentage > 0" class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
                 {{ initialUnlockPercentage }}% Initial
               </span>
             </div>
@@ -366,21 +368,21 @@ onMounted(() => {
                 <UsersIcon class="w-4 h-4 text-gray-500 dark:text-gray-400" />
                 <span class="text-xs text-gray-600 dark:text-gray-300">Participants</span>
               </div>
-              <span class="text-lg font-bold text-gray-900 dark:text-white">
+              <span class="text-sm font-bold text-gray-900 dark:text-white">
                 {{ stats?.totalParticipants || 0 }}
               </span>
             </div>
           </div>
           
-          <!-- Recipient Mode -->
+          <!-- Total Amount -->
           <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
             <div class="flex items-center justify-between">
               <div class="flex items-center space-x-2">
-                <TrendingUpIcon class="w-4 h-4 text-gray-500 dark:text-gray-400" />
-                <span class="text-xs text-gray-600 dark:text-gray-300">Mode</span>
+                <CoinsIcon class="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                <span class="text-xs text-gray-600 dark:text-gray-300">Amount</span>
               </div>
-              <span class="text-sm font-semibold text-gray-900 dark:text-white">
-                {{ recipientMode }}
+              <span class="text-sm font-bold text-gray-900 dark:text-white">
+                {{ formattedTotalAmount }} {{ distributionData.tokenInfo?.symbol }}
               </span>
             </div>
           </div>
