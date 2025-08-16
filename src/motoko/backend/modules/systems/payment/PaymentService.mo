@@ -238,9 +238,9 @@ module PaymentService {
         let serviceType = switch (actionType) {
             case (#CreateToken) { "token_factory" };
             case (#CreateTemplate) { "template_deployer" };
-            case (#CreateLock) { "template_deployer" };
-            case (#CreateDistribution) { "template_deployer" };
-            case (#CreateLaunchpad) { "template_deployer" };
+            case (#CreateLock) { "lock_factory" };
+            case (#CreateDistribution) { "distribution_factory" };
+            case (#CreateLaunchpad) { "launchpad_factory" };
             case (_) { "generic" };
         };
         Debug.print("Resolved service type: " # serviceType);
