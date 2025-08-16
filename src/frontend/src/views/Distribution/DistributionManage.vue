@@ -147,64 +147,20 @@
           </div>
         </div>
 
-        <!-- Insufficient Balance Alert -->
-        <div v-if="hasInsufficientBalance" class="bg-red-50 border border-red-200 rounded-xl p-6 mb-8 dark:bg-red-900/20 dark:border-red-800">
-          <div class="flex items-start">
-            <div class="flex-shrink-0">
-              <AlertCircleIcon class="w-6 h-6 text-red-600 dark:text-red-400" />
-            </div>
-            <div class="ml-3 flex-1">
-              <h3 class="text-lg font-semibold text-red-800 dark:text-red-200 mb-2">
-                Insufficient  {{ details.tokenInfo.symbol }} balance in the contract
-              </h3>
-              <p class="text-red-700 text-sm dark:text-red-300 mb-4">
-                Campaign cannot be started due to insufficient ICP balance. The contract needs <span class="font-bold">{{ formatNumber(missingAmount) }} more {{ details.tokenInfo.symbol }}</span> to fulfill all distributions. Please transfer additional {{ details.tokenInfo.symbol }} to the contract.
-              </p>
-              <div class="bg-red-100 dark:bg-red-900/40 rounded-lg p-4 mb-4">
-                <div class="flex flex-col lg:flex-row gap-4">
-                  <!-- Canister ID -->
-                  <div class="flex-1 text-center lg:text-left">
-                    <div class="text-xs text-red-600 dark:text-red-400 font-medium mb-1">Contract Address</div>
-                    <div class="flex items-center justify-center lg:justify-start space-x-2">
-                      <code class="text-xs font-mono text-gray-900 dark:text-white bg-white dark:bg-gray-700 px-2 py-1 rounded border truncate">
-                        {{ distributionId }}
-                      </code>
-                      <CopyIcon :data="distributionId" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-                    </div>
-                  </div>
-                  <!-- Required Amount -->
-                  <div class="flex-1 text-center lg:text-left">
-                    <div class="text-xs text-red-600 dark:text-red-400 font-medium mb-1">Required Amount</div>
-                    <div class="text-lg font-bold text-red-800 dark:text-red-200">
-                      {{ formatNumber(parseTokenAmount(details.totalAmount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
-                    </div>
-                  </div>
-                  
-                  <!-- Current Balance -->
-                  <div class="flex-1 text-center lg:text-left">
-                    <div class="text-xs text-red-600 dark:text-red-400 font-medium mb-1">Current Balance</div>
-                    <div class="text-lg font-bold text-red-800 dark:text-red-200">
-                      {{ formatNumber(parseTokenAmount(contractBalance, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
-                    </div>
-                  </div>
-                  
-                  
-                </div>
-              </div>
-              
-              <div class="flex items-center space-x-3">
-                <button @click="checkBalance" :disabled="checkingBalance"
-                  class="inline-flex text-sm items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200">
-                  <RefreshCwIcon class="w-4 h-4 mr-2" :class="{ 'animate-spin': checkingBalance }" />
-                  {{ checkingBalance ? 'Checking...' : 'Check Balance' }}
-                </button>
-                <div class="text-sm text-red-600 dark:text-red-400">
-                  Transfer {{ formatNumber(missingAmount) }} {{ details.tokenInfo.symbol }} to the canister ID above
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <!-- Contract Balance Status -->
+        <ContractBalanceStatus 
+          v-if="details"
+          :contract-id="distributionId"
+          :current-balance="contractBalance"
+          :required-amount="details.totalAmount"
+          :token-symbol="details.tokenInfo.symbol"
+          :token-decimals="details.tokenInfo.decimals"
+          :contract-status="distributionStatus"
+          :refreshing="checkingBalance"
+          @refresh="checkBalance"
+          @initial-check="checkBalance"
+          class="mb-8"
+        />
 
         <!-- Analytics Dashboard -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
@@ -616,6 +572,7 @@ import { useAuthStore } from '@/stores/auth'
 import { DistributionService } from '@/api/services/distribution'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
+import ContractBalanceStatus from '@/components/distribution/ContractBalanceStatus.vue'
 import VueApexCharts from 'vue3-apexcharts'
 import { 
   ArrowLeftIcon, AlertCircleIcon, RefreshCwIcon, SettingsIcon, CalendarIcon,
@@ -671,7 +628,7 @@ const details = ref<any>(null)
 const stats = ref<any>(null)
 const participants = ref<Participant[]>([])
 const claimHistory = ref<ClaimRecord[]>([])
-const contractBalance = ref(0)
+const contractBalance = ref(BigInt(0))
 const cyclesBalance = ref(0)
 const distributionStatus = ref<string>('')
 
@@ -1195,7 +1152,7 @@ const fetchContractBalance = async () => {
       DistributionService.getContractBalance(token, distributionId.value),
       DistributionService.getCanisterInfo(distributionId.value)
     ])
-    contractBalance.value = Number(balance)
+    contractBalance.value = balance
     cyclesBalance.value = Number(canisterInfo.cyclesBalance)
   } catch (err) {
     console.error('Error fetching contract balance:', err)

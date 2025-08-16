@@ -122,7 +122,19 @@
           <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ details.description }}</p>
         </div>
 
-        
+        <!-- Contract Balance Status (only show for owners) -->
+        <ContractBalanceStatus 
+          v-if="details && isOwner"
+          :contract-id="canisterId"
+          :current-balance="contractBalance"
+          :required-amount="details.totalAmount"
+          :token-symbol="details.tokenInfo.symbol"
+          :token-decimals="details.tokenInfo.decimals"
+          :contract-status="distributionStatus"
+          :refreshing="checkingBalance"
+          @refresh="checkBalance"
+          @initial-check="checkBalance"
+        />
 
         <!-- Main Content Grid -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -667,6 +679,7 @@ import TokenLogo from '@/components/token/TokenLogo.vue'
 import MetricCard from '@/components/token/MetricCard.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
+import ContractBalanceStatus from '@/components/distribution/ContractBalanceStatus.vue'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import type { DistributionDetails, DistributionStats } from '@/types/distribution'
 import { BackendUtils } from '@/utils/backend'
@@ -718,6 +731,8 @@ const availableToClaim = ref<bigint>(BigInt(0))
 const alreadyClaimed = ref<bigint>(BigInt(0))
 
 const canisterCycles = ref(0)
+const contractBalance = ref(BigInt(0))
+const checkingBalance = ref(false)
 
 // Mock claim history data
 const claimHistory = ref<any[]>([])
@@ -1058,6 +1073,29 @@ const claimTokens = async () => {
   }
 }
 
+const checkBalance = async () => {
+  if (!details.value) return
+  try {
+    checkingBalance.value = true
+    // Create a proper Token object with required properties
+    const token = {
+      canisterId: details.value.tokenInfo.canisterId.toString(),
+      name: details.value.tokenInfo.name,
+      symbol: details.value.tokenInfo.symbol,
+      decimals: details.value.tokenInfo.decimals,
+      fee: 10000, // Default fee
+      standards: ['ICRC-1'], // Default standards
+      metrics: { totalSupply: 0, holders: 0, marketCap: 0, price: 0, volume: 0 } // Default metrics
+    }
+    const balance = await DistributionService.getContractBalance(token, canisterId.value)
+    contractBalance.value = balance
+  } catch (err) {
+    console.error('Error fetching contract balance:', err)
+  } finally {
+    checkingBalance.value = false
+  }
+}
+
 const refreshData = async () => {
   refreshing.value = true
   await fetchDetails()
@@ -1066,6 +1104,7 @@ const refreshData = async () => {
   await fetchAllParticipants()
   await fetchClaimHistory()
   await fetchUserContext()
+  await checkBalance()
   refreshing.value = false
 }
 

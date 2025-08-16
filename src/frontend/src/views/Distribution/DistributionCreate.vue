@@ -114,6 +114,119 @@
 								<p class="mt-2 text-xs text-gray-500">Explain the purpose and benefits of this
 									distribution</p>
 							</div>
+
+							<!-- Token & Amount Configuration -->
+							<div class="bg-gradient-to-r from-blue-50/30 to-indigo-50/30 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-xl p-5 border border-blue-200/50 dark:border-blue-700/50">
+								<h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-5 flex items-center gap-2">
+									<CoinsIcon class="w-5 h-5 text-blue-600 dark:text-blue-400" />
+									Token Selection
+								</h4>
+								
+								<!-- Compact Token Selection -->
+								<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+									<!-- Token Selection Method -->
+									<div>
+										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+											Selection Method
+										</label>
+										<div class="flex gap-2">
+											<label class="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400 flex-1 text-center">
+												<input v-model="tokenSelectionMethod" value="assets" type="radio"
+													class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
+												<span class="text-sm text-gray-700 dark:text-gray-300">From Assets</span>
+											</label>
+											<label class="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400 flex-1 text-center">
+												<input v-model="tokenSelectionMethod" value="custom" type="radio"
+													class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
+												<span class="text-sm text-gray-700 dark:text-gray-300">Custom ID</span>
+											</label>
+										</div>
+									</div>
+
+									<!-- Token Input -->
+									<div>
+										<!-- Assets Selection -->
+										<div v-if="tokenSelectionMethod === 'assets'">
+											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+												Select Token *
+											</label>
+											<select v-model="selectedAssetId" required
+												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+												@change="onAssetSelected">
+												<option value="">Choose token</option>
+												<option v-for="asset in availableAssets" :key="asset.canisterId"
+													:value="asset.canisterId">
+													{{ asset.symbol }} - {{ asset.name }}
+												</option>
+											</select>
+										</div>
+
+										<!-- Custom Canister ID -->
+										<div v-if="tokenSelectionMethod === 'custom'">
+											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+												Canister ID *
+											</label>
+											<input v-model="formData.tokenInfo.canisterId" type="text" required
+												placeholder="rdmx6-jaaaa-aaaah-qcaiq-cai"
+												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+												@blur="fetchTokenInfo" />
+										</div>
+									</div>
+								</div>
+
+								<!-- Token Info Display - Compact Version -->
+								<div v-if="formData.tokenInfo.canisterId"
+									class="bg-gradient-to-r from-amber-50/30 to-orange-50/30 dark:from-amber-900/10 dark:to-orange-900/10 rounded-lg p-4 border border-amber-200/50 dark:border-amber-700/50">
+									<div class="flex items-center justify-between">
+										<!-- Left: Token Info -->
+										<div class="flex items-center gap-3 flex-1">
+											<TokenLogo 
+												:canister-id="formData.tokenInfo.canisterId" 
+												:symbol="formData.tokenInfo.symbol || 'T'"
+												:size="40"
+												class="flex-shrink-0"
+											/>
+											<div class="flex-1 min-w-0">
+												<h6 class="text-base font-semibold text-gray-900 dark:text-white truncate">
+													{{ formData.tokenInfo.name || 'Loading...' }}
+												</h6>
+												<div class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
+													<span>{{ formData.tokenInfo.symbol || 'Loading...' }}</span>
+													<span>•</span>
+													<span>{{ formData.tokenInfo.decimals || 8 }} decimals</span>
+												</div>
+											</div>
+										</div>
+										
+										<!-- Right: Balance -->
+										<div class="text-right ml-4">
+											<div class="text-xs text-amber-700 dark:text-amber-300 font-medium">
+												Your Balance
+											</div>
+											<div v-if="authStore.isConnected" class="flex items-center gap-2">
+												<div class="text-lg font-bold text-gray-900 dark:text-white">
+													{{ userTokenBalance !== null ? formatTokenBalance(userTokenBalance) : 'Loading...' }}
+												</div>
+												<button 
+													@click="refreshUserBalance"
+													:disabled="isLoadingBalance"
+													class="p-1 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors duration-200 disabled:opacity-50"
+													title="Refresh Balance"
+												>
+													<RefreshCwIcon 
+														class="w-4 h-4" 
+														:class="{ 'animate-spin': isLoadingBalance }"
+													/>
+												</button>
+											</div>
+											<div v-else class="text-sm text-gray-500 dark:text-gray-400">
+												Connect wallet
+											</div>
+										</div>
+									</div>
+								</div>
+
+							</div>
 							
 							<!-- BlockID Optional Configuration -->
 							<div>
@@ -346,168 +459,98 @@
 							</div>
 
 
-							<!-- Recipient Mode (hidden when Whitelist Only is selected) -->
+							<!-- Open Distribution Configuration OR Max Recipients -->
 							<div v-if="formData.eligibilityType && keyToText(formData.eligibilityType) !== 'Whitelist'">
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-									Recipient Mode *
-								</label>
-								<div class="flex flex-wrap gap-4">
-									<label v-for="mode in availableRecipientModes" :key="keyToText(mode.value)"
-										class="flex items-center gap-3 px-4 py-3 rounded-lg border transition cursor-pointer shadow-sm min-w-[180px]"
-										:class="formData.recipientMode && keyToText(formData.recipientMode) === keyToText(mode.value)
-											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
-										<input v-model="formData.recipientMode" :value="mode.value" type="radio"
-											class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
-										<div>
-											<div class="text-sm font-medium text-gray-900 dark:text-white">{{ mode.label }}
-											</div>
-											<div class="text-xs text-gray-500">{{ mode.description }}</div>
+								<!-- Open Distribution Configuration (for Open to all, Token holders, NFT holders) -->
+								<div class="bg-gradient-to-r from-amber-50/30 to-orange-50/30 dark:from-amber-900/10 dark:to-orange-900/10 rounded-xl p-6 border border-amber-200/50 dark:border-amber-700/50">
+									<!-- Header with Self-Service Toggle -->
+									<div class="flex items-center justify-between mb-6">
+										<div class="flex items-center gap-2">
+											<SlidersIcon class="w-5 h-5 text-amber-600 dark:text-amber-400" />
+											<h4 class="text-lg font-semibold text-gray-900 dark:text-white">
+												Distribution Configuration
+											</h4>
 										</div>
-									</label>
-								</div>
-							</div>
+										<!-- Self-Service Mode Toggle -->
+										<div class="flex items-center gap-3">
+											<label class="text-sm font-medium text-gray-700 dark:text-gray-300">Mode:</label>
+											<div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
+												<input 
+													v-model="formData.recipientMode" 
+													:value="{ SelfService: null }" 
+													type="radio"
+													class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" 
+												/>
+												<span class="text-sm font-medium text-gray-900 dark:text-white">Self-Service</span>
+												<span class="text-xs text-gray-500">Users register themselves</span>
+											</div>
+										</div>
+									</div>
+									
+									<!-- Security Warning -->
+									<div v-if="keyToText(formData.eligibilityType) === 'Open'" class="bg-amber-50/60 dark:bg-amber-900/15 border border-amber-200/60 dark:border-amber-700/60 rounded-lg p-4 mb-6">
+										<div class="flex items-start gap-3">
+											<AlertTriangleIcon class="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+											<div>
+												<h6 class="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">
+													Security Recommendation
+												</h6>
+												<p class="text-sm text-amber-700 dark:text-amber-300">
+													We recommend enabling BlockID and set a minimum score to prevent malicious users/bots from claiming tokens at settings section.
+												</p>
+											</div>
+										</div>
+									</div>
 
-							<!-- Max Recipients -->
-							<div>
-								<div class="flex items-center gap-3 mb-3">
-									<input v-model="hasMaxRecipients" type="checkbox" id="hasMaxRecipients"
-										class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-									<label class="text-sm font-medium text-gray-700 dark:text-gray-300" for="hasMaxRecipients">
-										Limit maximum number of recipients
-									</label>
-								</div>
-								<div v-if="hasMaxRecipients" class="mt-3">
-									<input v-model.number="formData.maxRecipients" type="number" min="1"
-										placeholder="1000"
-										class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
+									<!-- Compact Configuration Fields - All in One Line -->
+									<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+										<!-- Total Distribution Amount -->
+										<div>
+											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+												Total Amount *
+											</label>
+											<div v-if="whitelistTotalAmount > 0" class="mb-2">
+												<span class="text-xs text-blue-600 dark:text-blue-400">
+													From whitelist: {{ whitelistTotalAmount.toLocaleString() }}
+												</span>
+											</div>
+											<input v-model.number="formData.totalAmount" type="number" required min="1" 
+												placeholder="1000000"
+												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm" 
+												:disabled="whitelistTotalAmount > 0" />
+											<p class="mt-1 text-xs text-gray-500">Total tokens to distribute</p>
+										</div>
+
+										<!-- Total Recipients -->
+										<div>
+											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+												Recipients *
+											</label>
+											<input v-model.number="openDistributionConfig.totalRecipients" type="number" required min="1" 
+												placeholder="1000"
+												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+												@input="calculateOpenDistribution" />
+											<p class="mt-1 text-xs text-gray-500">Max number of participants</p>
+										</div>
+
+										<!-- Tokens per Recipient -->
+										<div>
+											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+												Per Recipient
+											</label>
+											<div class="block w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white text-sm font-medium">
+												{{ formattedTokensPerRecipient }} {{ formData.tokenInfo.symbol || 'TOKEN' }}
+											</div>
+											<p class="mt-1 text-xs text-gray-500">Auto-calculated (supports decimals)</p>
+										</div>
+									</div>
 								</div>
 							</div>
 					
 				</div>
 
-				<!-- Step 3: Token & Amount -->
+				<!-- Step 2: Vesting Schedule -->
 				<div v-if="currentStep === 2" class="space-y-8">
-					<div>
-						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Token & Amount Configuration</h3>
-						<div class="flex flex-col gap-6">
-							<!-- Token Selection Method -->
-							<div>
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-									Token Selection Method
-								</label>
-								<div class="flex gap-4">
-									<label class="flex items-center gap-3">
-										<input v-model="tokenSelectionMethod" value="assets" type="radio"
-											class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
-										<span class="text-sm text-gray-700 dark:text-gray-300">Select from Assets</span>
-									</label>
-									<label class="flex items-center gap-3">
-										<input v-model="tokenSelectionMethod" value="custom" type="radio"
-											class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
-										<span class="text-sm text-gray-700 dark:text-gray-300">Custom Canister ID</span>
-									</label>
-								</div>
-							</div>
-
-							<!-- Assets Selection -->
-							<div v-if="tokenSelectionMethod === 'assets'">
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Select Token *
-								</label>
-								<select v-model="selectedAssetId" required
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
-									@change="onAssetSelected">
-									<option value="">Select a token from your assets</option>
-									<option v-for="asset in availableAssets" :key="asset.canisterId"
-										:value="asset.canisterId">
-										{{ asset.symbol }} - {{ asset.name }}
-									</option>
-								</select>
-								<p class="mt-2 text-xs text-gray-500">Choose from your available token assets</p>
-							</div>
-
-							<!-- Custom Canister ID -->
-							<div v-if="tokenSelectionMethod === 'custom'">
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Token Canister ID *
-								</label>
-								<input v-model="formData.tokenInfo.canisterId" type="text" required
-									placeholder="rdmx6-jaaaa-aaaah-qcaiq-cai"
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"
-									@blur="fetchTokenInfo" />
-								<p class="mt-2 text-xs text-gray-500">Enter the canister ID of the token to distribute
-								</p>
-							</div>
-
-							<!-- Token Info Display -->
-							<div v-if="formData.tokenInfo.canisterId"
-								class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Token Information
-								</h4>
-								<div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-									<div>
-										<span class="text-gray-500">Symbol:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{
-											formData.tokenInfo.symbol || 'Loading...' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Name:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{
-											formData.tokenInfo.name
-											|| 'Loading...' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Decimals:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{
-											formData.tokenInfo.decimals || 'Loading...' }}</span>
-									</div>
-								</div>
-							</div>
-
-							<!-- Total Distribution Amount -->
-							<div>
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Total Distribution Amount *
-								</label>
-								<div class="flex items-center justify-between" v-if="whitelistTotalAmount > 0">
-									<span class="text-sm font-medium text-blue-900 dark:text-blue-100">
-										Calculated from whitelist:
-									</span>
-									<span class="text-lg font-bold text-blue-900 dark:text-blue-100">
-										{{ whitelistTotalAmount.toLocaleString() }} tokens
-									</span>
-								</div>
-								<input v-model.number="formData.totalAmount" type="number" required min="1" 
-									placeholder="1000000"
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" 
-									:disabled="whitelistTotalAmount > 0" />
-								<p class="mt-2 text-xs text-gray-500">Total amount of tokens to distribute (in smallest unit)</p>
-								
-								<!-- Auto-set total amount for whitelist -->
-								<div v-if="whitelistTotalAmount > 0 && formData.totalAmount !== whitelistTotalAmount" class="mt-2">
-									<button 
-										type="button"
-										@click="formData.totalAmount = whitelistTotalAmount"
-										class="text-xs text-blue-600 hover:text-blue-700 underline">
-										Auto-set to {{ whitelistTotalAmount.toLocaleString() }} tokens
-									</button>
-								</div>
-								
-								<!-- Warning for mismatch -->
-								<div v-if="whitelistTotalAmount > 0 && formData.totalAmount > 0 && formData.totalAmount !== whitelistTotalAmount" 
-									class="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-									<p class="text-xs text-yellow-700 dark:text-yellow-300">
-										⚠️ Warning: Total amount ({{ formData.totalAmount.toLocaleString() }}) doesn't match whitelist calculation ({{ whitelistTotalAmount.toLocaleString() }})
-									</p>
-								</div>
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Step 4: Vesting Schedule -->
-				<div v-if="currentStep === 3" class="space-y-8">
 					<div>
 						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Vesting Schedule</h3>
 						<div class="flex flex-col gap-8">
@@ -659,8 +702,8 @@
 					</div>
 				</div>
 
-				<!-- Step 5: Timing -->
-				<div v-if="currentStep === 4" class="space-y-8">
+				<!-- Step 3: Timing -->
+				<div v-if="currentStep === 3" class="space-y-8">
 					<div>
 						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Distribution Timing</h3>
 						<div class="flex flex-col gap-8">
@@ -715,8 +758,8 @@
 					</div>
 				</div>
 
-				<!-- Step 6: Settings -->
-				<div v-if="currentStep === 5" class="space-y-8">
+				<!-- Step 4: Settings -->
+				<div v-if="currentStep === 4" class="space-y-8">
 					<div>
 						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Additional Settings</h3>
 						<div class="flex flex-col gap-8">
@@ -1089,6 +1132,8 @@ import { useDistributionStore } from '@/stores/distribution'
 import { useUserTokensStore } from '@/stores/userTokens'
 import { useProgressDialog } from '@/composables/useProgressDialog'
 import { IcrcService } from '@/api/services/icrc'
+import { DistributionService } from '@/api/services/distribution'
+import { parseTokenAmount } from '@/utils/token'
 import { backendService } from '@/api/services/backend'
 import { DistributionUtils } from '@/utils/distribution'
 import { keyToText } from '@/utils/common'
@@ -1112,7 +1157,11 @@ import {
 	SettingsIcon,
 	GiftIcon,
 	LockIcon,
-	CalendarIcon
+	RefreshCwIcon,
+	CalendarIcon,
+	AlertTriangleIcon,
+	UsersIcon,
+	SlidersIcon
 } from 'lucide-vue-next'
 import type {
 	DistributionFormData,
@@ -1123,6 +1172,7 @@ import type {
 	CampaignType
 } from '@/types/distribution'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
+import TokenLogo from '@/components/token/TokenLogo.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -1148,6 +1198,55 @@ const creationCost = computed(() => {
 	return (Number(creationCostBigInt.value) / 100000000).toFixed(2) // Convert from e8s to ICP
 })
 
+// Check if current configuration is Open + Self-Service
+const isOpenSelfService = computed(() => {
+	const isOpen = formData.eligibilityType && keyToText(formData.eligibilityType) === 'Open'
+	const isSelfService = formData.recipientMode && keyToText(formData.recipientMode) === 'SelfService'
+	return isOpen && isSelfService
+})
+
+// Calculate tokens per recipient for Open Distribution Configuration
+const tokensPerRecipient = computed(() => {
+	if (openDistributionConfig.totalRecipients === 0 || formData.totalAmount === 0) {
+		return 0
+	}
+	return formatAmountPerRecipient(formData.totalAmount, openDistributionConfig.totalRecipients)
+})
+
+// Format tokens per recipient for display with proper decimals
+const formattedTokensPerRecipient = computed(() => {
+	if (!formData.tokenInfo.decimals) return '0'
+	const perRecipient = tokensPerRecipient.value
+	if (perRecipient === 0) return '0'
+	// Convert from smallest unit to token unit for display
+	return perRecipient
+})
+
+// Method to calculate Open Distribution
+const calculateOpenDistribution = () => {
+	// Set maxRecipients if configured
+	if (openDistributionConfig.totalRecipients > 0) {
+		formData.maxRecipients = openDistributionConfig.totalRecipients
+		hasMaxRecipients.value = true
+	} else {
+		formData.maxRecipients = undefined
+		hasMaxRecipients.value = false
+	}
+}
+
+const formatAmountPerRecipient = (total: number, recipients: number): string => {
+	if (recipients <= 0) return "0";
+
+	const amount = total / recipients;
+
+	if (amount >= 1) {
+		return amount.toFixed(2);
+	} else {
+		return parseFloat(amount.toFixed(6)).toString();
+	}
+}
+
+
 // Additional form state
 const hasMaxRecipients = ref(false)
 const whitelistText = ref('')
@@ -1170,6 +1269,52 @@ const availableAssets = ref<{ canisterId: string; symbol: string; name: string }
 const tokenHolderSnapshotDate = ref('')
 const nftCollectionsText = ref('')
 
+// User balance state
+const userTokenBalance = ref<bigint | null>(null)
+const isLoadingBalance = ref(false)
+
+// Format token balance helper function using existing utility
+const formatTokenBalance = (balance: bigint) => {
+	if (!formData.tokenInfo.decimals) return '0'
+	return parseTokenAmount(balance, formData.tokenInfo.decimals).toFormat()
+}
+
+// Refresh user balance function using existing service
+const refreshUserBalance = async () => {
+	if (!authStore.isConnected || !formData.tokenInfo.canisterId) return
+	
+	try {
+		isLoadingBalance.value = true
+		const token = {
+			canisterId: formData.tokenInfo.canisterId,
+			symbol: formData.tokenInfo.symbol || '',
+			name: formData.tokenInfo.name || '',
+			decimals: formData.tokenInfo.decimals || 8,
+			fee: 0,
+			standards: ['ICRC-1'],
+			metrics: {
+				price: 0,
+				volume: 0,
+				marketCap: 0,
+				totalSupply: 0
+			}
+		}
+		const balance = await IcrcService.getIcrc1Balance(token, Principal.fromText(authStore.principal as string))
+		// Handle both bigint and complex return types
+		if (typeof balance === 'bigint') {
+			userTokenBalance.value = balance
+		} else if (balance && typeof balance === 'object' && 'default' in balance) {
+			userTokenBalance.value = balance.default
+		} else {
+			userTokenBalance.value = BigInt(0)
+		}
+	} catch (error) {
+		console.error('Error fetching user balance:', error)
+		userTokenBalance.value = BigInt(0)
+	} finally {
+		isLoadingBalance.value = false
+	}
+}
 
 // Form data
 const formData = reactive<DistributionFormData>({
@@ -1237,11 +1382,16 @@ const formData = reactive<DistributionFormData>({
 	externalCheckers: []
 })
 
+// Open Distribution Configuration for Open + Self-Service
+const openDistributionConfig = reactive({
+	totalRecipients: 0,
+	totalTokens: 0
+})
+
 // Steps configuration
 const steps = [
 	{ id: 'basic', name: 'Basic Info' },
 	{ id: 'eligibility', name: 'Eligibility' },
-	{ id: 'token', name: 'Token & Amount' },
 	{ id: 'vesting', name: 'Vesting' },
 	{ id: 'timing', name: 'Timing' },
 	{ id: 'settings', name: 'Settings' }
@@ -1265,7 +1415,7 @@ const eligibilityTypes = [
 
 const recipientModes = [
 	// { value: 'Fixed', label: 'Fixed Recipients', description: 'Pre-defined list of recipients' },
-	{ value: { Dynamic: null }, label: 'Dynamic Recipients', description: 'Recipients can be added/modified' },
+	// { value: { Dynamic: null }, label: 'Dynamic Recipients', description: 'Recipients can be added/modified' }, // Removed per user request
 	{ value: { SelfService: null }, label: 'Self-Service', description: 'Users register themselves' }
 ]
 
@@ -1324,12 +1474,19 @@ const whitelistTotalAmount = computed(() => {
 // Validation
 const canProceed = computed(() => {
 	switch (currentStep.value) {
-		case 0: // Basic Info
+		case 0: // Basic Info + Token Selection (no amount validation here anymore)
 			const basicValid = formData.title.trim() && formData.description.trim() && formData.campaignType
+			const tokenValid = tokenSelectionMethod.value === 'assets' ? 
+				selectedAssetId.value :
+				formData.tokenInfo.canisterId?.trim()
+			
+			let allValid = basicValid && tokenValid
+			
 			if (formData.useBlockId) {
-				return basicValid && formData?.blockIdScore && formData?.blockIdScore > 0
+				allValid = allValid && formData?.blockIdScore && formData?.blockIdScore > 0
 			}
-			return basicValid
+			
+			return allValid
 		case 1: // Eligibility
 			if (formData?.eligibilityType && keyToText(formData.eligibilityType) === 'Whitelist') {
 				if (whitelistAmountType.value === 'same') {
@@ -1353,19 +1510,22 @@ const canProceed = computed(() => {
 				return formData.nftHolderConfig?.canisterId && formData.nftHolderConfig?.minCount && formData.nftHolderConfig?.minCount > 0;
 			}
 
-			return formData.eligibilityType && (keyToText(formData.eligibilityType) === 'Open' || formData.recipientMode)
-		case 2: // Token & Amount
-			const tokenValid = tokenSelectionMethod.value === 'assets' ? 
-				(selectedAssetId.value && formData.totalAmount > 0) :
-				(formData.tokenInfo.canisterId?.trim() && formData.totalAmount > 0)
-			const amountValid = validateAmountVsRecipients.value.valid
-			return tokenValid && amountValid
-		case 3: // Vesting
+			let eligibilityValid = formData.eligibilityType && (keyToText(formData.eligibilityType) === 'Open' || formData.recipientMode)
+			
+			// Always require totalAmount in this step (moved from Step 1)
+			const amountValid = formData.totalAmount > 0
+			
+			// For Open Distribution Configuration, also validate recipients
+			const openConfigValid = keyToText(formData.eligibilityType) !== 'Whitelist' ? 
+				openDistributionConfig.totalRecipients > 0 : true
+			
+			return eligibilityValid && amountValid && openConfigValid
+		case 2: // Vesting
 			return formData.vestingType &&
 				(formData.vestingType === 'Instant' || validateVestingConfig())
-		case 4: // Timing
+		case 3: // Timing
 			return distributionStartDate.value && validateTimeLogic.value.valid
-		case 5: // Settings
+		case 4: // Settings
 			const feeValid = formData.feeStructure && (
 				keyToText(formData.feeStructure) === 'Free' ||
 				(keyToText(formData.feeStructure) === 'Fixed' && (formData.fixedFeeAmount || 0) > 0) ||
@@ -1501,11 +1661,18 @@ const processCurrentStep = () => {
 				}
 				console.log('Processed whitelist addresses:', formData.whitelistAddresses)
 			}
-			if (!hasMaxRecipients.value) {
-				formData.maxRecipients = undefined
+			// For non-Whitelist distributions, check if we should preserve maxRecipients from Open Distribution Config
+			if (keyToText(formData.eligibilityType) === 'Whitelist') {
+				// For Whitelist, hasMaxRecipients controls the optional max recipients limit
+				if (!hasMaxRecipients.value) {
+					formData.maxRecipients = undefined
+				}
+			} else {
+				// For non-Whitelist distributions, maxRecipients should come from Open Distribution Config
+				// Don't reset it here as it's controlled by calculateOpenDistribution
 			}
 			break
-		case 3: // Vesting
+		case 2: // Vesting
 			// Convert days to nanoseconds (1 day = 24 * 60 * 60 * 1_000_000_000 nanoseconds)
 			if (formData.vestingType === 'Linear') {
 				formData.linearConfig!.duration = linearDurationDays.value * 24 * 60 * 60 * 1_000_000_000
@@ -1515,7 +1682,7 @@ const processCurrentStep = () => {
 				formData.cliffConfig!.vestingDuration = vestingDurationDays.value * 24 * 60 * 60 * 1_000_000_000
 			}
 			break
-		case 4: // Timing
+		case 3: // Timing
 			formData.distributionStart = new Date(distributionStartDate.value)
 			if (distributionEndDate.value) {
 				formData.distributionEnd = new Date(distributionEndDate.value)
@@ -1694,15 +1861,35 @@ const initializeDates = () => {
 
 // Watch for changes
 watch(() => hasMaxRecipients.value, (newVal) => {
-	if (!newVal) {
+	// Only apply to Whitelist distributions, others use Open Distribution Config
+	if (!newVal && keyToText(formData.eligibilityType) === 'Whitelist') {
 		formData.maxRecipients = undefined
 	}
 })
 
+// Watch for Open Distribution Configuration changes
+watch(() => [openDistributionConfig.totalRecipients, formData.eligibilityType], () => {
+	if (keyToText(formData.eligibilityType) !== 'Whitelist') {
+		calculateOpenDistribution()
+	}
+}, { deep: true })
+
 // Auto-set recipient mode to Fixed for Token/NFT holders
 watch(() => formData.eligibilityType, (newType) => {
 	if (keyToText(newType) === 'TokenHolder' || keyToText(newType) === 'NFTHolder') {
-		formData.recipientMode = { Fixed: null }
+		formData.recipientMode = { SelfService: null }
+	}
+})
+
+// Auto-refresh user balance when token info changes
+watch(() => formData.tokenInfo.canisterId, (newCanisterId) => {
+	if (newCanisterId && authStore.isConnected) {
+		// Small delay to ensure token info is fully loaded
+		setTimeout(() => {
+			refreshUserBalance()
+		}, 500)
+	} else {
+		userTokenBalance.value = null
 	}
 })
 
@@ -1711,6 +1898,13 @@ const fetchAvailableAssets = async () => {
 	try {
 		const assets = await userTokensStore.enabledTokensList
 		availableAssets.value = assets
+		
+		// Auto-select ICP as default if available
+		const icpAsset = assets.find(asset => asset.symbol === 'ICP')
+		if (icpAsset && !selectedAssetId.value) {
+			selectedAssetId.value = icpAsset.canisterId
+			onAssetSelected()
+		}
 	} catch (error) {
 		console.error('Failed to fetch available assets:', error)
 		alert('Failed to fetch available assets. Please try again.')
@@ -1783,6 +1977,7 @@ const handlePayment = async () => {
 		'Approving payment amount...',
 		'Verifying approval...',
 		'Deploying distribution to canister...',
+		'Initializing contract...',
 		'Finalizing deployment...'
 	]
 
@@ -1906,7 +2101,23 @@ const handlePayment = async () => {
 						}
 						break
 
-					case 4: // Finalize
+					case 4: // Initialize contract
+					if (deployResult.value?.distributionCanisterId) {
+						try {
+							const initResult = await DistributionService.initializeContract(deployResult.value.distributionCanisterId)
+							if ('ok' in initResult) {
+								console.log('Contract initialized successfully')
+							} else {
+								console.warn('Contract initialization failed:', initResult.err)
+								toast.warning('Contract deployed but initialization failed. You may need to initialize manually.')
+							}
+						} catch (error) {
+							console.error('Error during auto-initialization:', error)
+							toast.warning('Contract deployed but auto-initialization failed. You may need to initialize manually.')
+						}
+					}
+					break
+				case 5: // Finalize
 						progress.setLoading(false)
 						progress.close()
 

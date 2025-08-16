@@ -77,9 +77,35 @@ import type { Token } from '@/types/token';
 import { toast } from 'vue-sonner';
 
 export class DistributionService {
+  // Get all public distributions available for discovery
+  static async getPublicDistributions(): Promise<DistributionCanister[]> {
+    const backend = backendActor({ anon: true, requiresSigning: false });
+    
+    if (!backend) {
+      throw new Error('Backend actor not available');
+    }
+    
+    try {
+      const result = await (backend as any).getPublicDistributions();
+      
+      return result.map((dist: any) => ({
+        canisterId: dist.canisterId.toString(),
+        relationshipType: 'Public' as const,
+        metadata: { 
+          name: dist.title,
+          description: dist.description,
+          isActive: true 
+        }
+      }));
+    } catch (error) {
+      console.error('Error fetching public distributions:', error);
+      // Return empty array instead of throwing to prevent app crash
+      return [];
+    }
+  }
+
   // Get user's related distribution canisters from backend (distributions where user is recipient)
   static async getUserDistributions(): Promise<DistributionCanister[]> {
-    const authStore = useAuthStore();
     const backend = backendActor({ anon: false, requiresSigning: true });
     
     if (!backend) {

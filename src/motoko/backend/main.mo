@@ -1512,6 +1512,38 @@ persistent actor Backend {
         FactoryRegistryService.getCanistersByType(factoryRegistryState, deploymentType)
     };
 
+    // Get all public distribution canisters with their configs for discovery
+    public func getPublicDistributions() : async [{ canisterId: Principal; title: Text; description: Text; isPublic: Bool }] {
+        let distributionCanisters = FactoryRegistryService.getCanistersByType(factoryRegistryState, #Distribution);
+        let results = Buffer.Buffer<{ canisterId: Principal; title: Text; description: Text; isPublic: Bool }>(distributionCanisters.size());
+        
+        for (canisterId in distributionCanisters.vals()) {
+            try {
+                let distributionActor = actor(Principal.toText(canisterId)) : actor {
+                    getConfig: () -> async {
+                        title: Text;
+                        description: Text;
+                        isPublic: Bool;
+                    };
+                };
+                let config = await distributionActor.getConfig();
+                if (config.isPublic) {
+                    results.add({
+                        canisterId = canisterId;
+                        title = config.title;
+                        description = config.description;
+                        isPublic = config.isPublic;
+                    });
+                };
+            } catch (error) {
+                // Skip inaccessible canisters
+                Debug.print("Warning: Could not fetch config for distribution canister " # Principal.toText(canisterId) # ": " # Error.message(error));
+            };
+        };
+        
+        Buffer.toArray(results)
+    };
+
     // Validate canister for external relationship (used by external contracts)
     public query func validateCanisterForExternalRelationship(
         canisterId: Principal,
