@@ -150,7 +150,12 @@
 											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 												Select Token *
 											</label>
-											<select v-model="selectedAssetId" required
+											<Select 
+												v-model="selectedAssetId" 
+												:options="availableAssets.map(asset => ({ label: `${asset.symbol} - ${asset.name}`, value: asset.canisterId }))"
+												placeholder="Choose token"
+											/>
+											<!-- <select v-model="selectedAssetId" required
 												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
 												@change="onAssetSelected">
 												<option value="">Choose token</option>
@@ -158,7 +163,7 @@
 													:value="asset.canisterId">
 													{{ asset.symbol }} - {{ asset.name }}
 												</option>
-											</select>
+											</select> -->
 										</div>
 
 										<!-- Custom Canister ID -->

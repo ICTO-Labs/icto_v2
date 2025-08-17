@@ -69,14 +69,19 @@
         <!-- Sort Dropdown -->
         <div class="flex items-center space-x-2">
           <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</label>
-          <select 
+          <Select 
+            v-model="sortBy" 
+            :options="['recent', 'status', 'progress']"
+            placeholder="Choose an option"
+          />
+          <!-- <select 
             v-model="sortBy"
             class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="recent">Most Recent</option>
             <option value="status">Status</option>
             <option value="progress">Progress</option>
-          </select>
+          </select> -->
         </div>
       </div>
 

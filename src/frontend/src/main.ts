@@ -16,6 +16,7 @@ import 'sweetalert2/dist/sweetalert2.min.css'
 import './assets/custom-swal2.css'
 import { setupDirectives } from './plugins/directives'
 import TooltipPlugin from '@/plugins/tooltip'
+import SelectPlugin from '@/plugins/select'
 
 const app = createApp(App)
 
@@ -24,6 +25,7 @@ app.use(router)
 app.use(VueApexCharts as any)
 app.use(VueSweetalert2)
 app.use(TooltipPlugin)
+app.use(SelectPlugin)
 setupDirectives(app)
 
 app.mount('#app')
