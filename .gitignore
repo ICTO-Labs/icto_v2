@@ -45,3 +45,6 @@ sns_icrc_wasm_v2.wasm
 .opencode/
 .claude/
 CLAUDE.md
+GEMINI.md
+QWEN.md
+.bmad-core/
