@@ -17,6 +17,7 @@ import './assets/custom-swal2.css'
 import { setupDirectives } from './plugins/directives'
 import TooltipPlugin from '@/plugins/tooltip'
 import SelectPlugin from '@/plugins/select'
+import { SwitchPlugin } from '@/plugins/switch'
 
 const app = createApp(App)
 
@@ -26,6 +27,7 @@ app.use(VueApexCharts as any)
 app.use(VueSweetalert2)
 app.use(TooltipPlugin)
 app.use(SelectPlugin)
+app.use(SwitchPlugin)
 setupDirectives(app)
 
 app.mount('#app')
