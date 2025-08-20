@@ -20,7 +20,7 @@
           </div>
         </div>
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-6">
-          <div class="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" v-for="i in 6" :key="i"></div>
+          <div class="h-32 bg-gray-200 dark:bg-gray-700 rounded-xl" v-for="i in 4" :key="i"></div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div class="lg:col-span-2 space-y-6">

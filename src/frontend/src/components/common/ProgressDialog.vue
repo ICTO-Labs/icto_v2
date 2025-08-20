@@ -5,7 +5,7 @@
             <div class="fixed inset-0 bg-black/60 transition-opacity" />
             <!-- Dialog -->
             <div
-                class="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-md mx-auto p-8 flex flex-col items-center">
+                class="relative bg-white dark:bg-gray-900 rounded-xl shadow-2xl w-full max-w-lg mx-4 p-8 flex flex-col items-center max-h-[90vh] overflow-y-auto">
                 <div class="flex flex-col items-center w-full">
                     <slot name="icon">
                         <svg class="w-12 h-12 text-blue-500 mb-4" fill="none" viewBox="0 0 24 24">
@@ -52,11 +52,13 @@
                             </div>
                             <!-- Error message under current step -->
                             <div v-if="error && idx === currentStep"
-                                class="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded p-3 text-sm flex items-center gap-2 mt-2 ml-7">
-                                <svg class="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24">
+                                class="bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300 rounded p-3 text-sm flex items-start gap-2 mt-2 ml-7">
+                                <svg class="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24">
                                     <path stroke="currentColor" stroke-width="2" d="M12 8v4m0 4h.01M21 12c0 4.97-4.03 9-9 9s-9-4.03-9-9 4.03-9 9-9 9 4.03 9 9z" />
                                 </svg>
-                                <span>{{ error }}</span>
+                                <div class="flex-1 max-h-32 overflow-y-auto scrollbar-thin scrollbar-thumb-red-300 scrollbar-track-red-100 dark:scrollbar-thumb-red-600 dark:scrollbar-track-red-900/30">
+                                    <span class="break-words whitespace-pre-wrap">{{ error }}</span>
+                                </div>
                             </div>
                         </li>
                     </ol>

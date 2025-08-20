@@ -9,6 +9,7 @@ import {
   getDistributionStatusDotColor,
   getDistributionStatusText
 } from '@/utils/distribution'
+import { getCampaignTypeLabel } from '@/utils/lockConfig'
 import { 
   CalendarIcon,
   ClockIcon,
@@ -307,6 +308,13 @@ onMounted(() => {
             </div>
             <!-- Quick Info Tags -->
             <div class="flex flex-wrap gap-1.5">
+              <!-- Campaign Type -->
+              <span :class="`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getCampaignTypeLabel(getVariantKey(distributionData.campaignType) || 'Airdrop').bgClass}`">
+                <div class="w-2 h-2 rounded-full mr-1.5" :class="getCampaignTypeLabel(getVariantKey(distributionData.campaignType) || 'Airdrop').className.replace('text-', 'bg-')"></div>
+                <span :class="getCampaignTypeLabel(getVariantKey(distributionData.campaignType) || 'Airdrop').className">
+                  {{ getCampaignTypeLabel(getVariantKey(distributionData.campaignType) || 'Airdrop').label }}
+                </span>
+              </span>
               <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
                 <ZapIcon class="w-3 h-3 mr-1" />
                 {{ eligibilityType }}

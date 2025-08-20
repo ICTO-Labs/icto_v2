@@ -43,7 +43,8 @@ export class DistributionUtils {
             recipientMode: config.recipientMode,
             vestingSchedule: this.convertVestingSchedule(config.vestingSchedule),
             initialUnlockPercentage: BigInt(config.initialUnlockPercentage),
-            distributionStart: BigInt(config.distributionStart.getTime() * 1_000_000), // Convert to nanoseconds
+            penaltyUnlock: config.penaltyUnlock ? [this.convertPenaltyUnlock(config.penaltyUnlock)] : [], // Candid optional
+            distributionStart: BigInt(Math.floor(config.distributionStart.getTime()) * 1_000_000), // Convert to nanoseconds
             feeStructure: this.convertFeeStructure(config.feeStructure),
             allowCancel: config.allowCancel,
             allowModification: config.allowModification,
@@ -64,7 +65,7 @@ export class DistributionUtils {
         }
 
         // Handle other optional fields as Candid optionals
-        result.distributionEnd = config.distributionEnd ? [BigInt(config.distributionEnd.getTime() * 1_000_000)] : [];
+        result.distributionEnd = config.distributionEnd ? [BigInt(Math.floor(config.distributionEnd.getTime()) * 1_000_000)] : [];
         result.governance = (config.governance && config.governance.trim()) ? [Principal.fromText(config.governance)] : [];
         result.externalCheckers = (config.externalCheckers && config.externalCheckers.length > 0) ? 
             [config.externalCheckers.map(checker => [checker.name, Principal.fromText(checker.canisterId)] as [string, Principal])] : 
@@ -158,37 +159,44 @@ export class DistributionUtils {
      */
     private static buildRecipientsArray(config: any): any[] {
         // Only build recipients for Whitelist distributions
-        if (config.eligibilityType !== 'Whitelist') {
+        if (keyToText(config.eligibilityType) != 'Whitelist') {
             return []; // For Open distributions, recipients are added dynamically or register themselves
         }
 
         const addresses = (config as any).whitelistAddresses || [];
         if (!Array.isArray(addresses) || addresses.length === 0) {
+            console.log('No whitelistAddresses found or empty array');
             return [];
         }
+
+        console.log('Building recipients from addresses:', addresses);
+        console.log('Config whitelistAmountType:', (config as any).whitelistAmountType);
+        console.log('Config whitelistSameAmount:', (config as any).whitelistSameAmount);
 
         // Handle both simple string arrays and complex objects with principal/amount
         const recipients = addresses.map((addr: any) => {
             if (typeof addr === 'string') {
                 // Simple string format - use default amount
-                const amount = formatTokenAmount((config as any).whitelistSameAmount, (config as any).tokenInfo.decimals);
+                const amount = formatTokenAmount((config as any).whitelistSameAmount || 0, (config as any).tokenInfo.decimals || 8);
                 return {
                     address: Principal.fromText(addr.trim()),
-                    amount: amount,
+                    amount: amount.toNumber(), // Convert BigNumber to number for Candid nat
                     note: []  // Candid optional: no note
                 };
             } else if (addr && typeof addr === 'object' && addr.principal) {
-                // Complex object format with principal/amount/note
-                const amount = formatTokenAmount(addr.amount, (config as any).tokenInfo.decimals);
+                // Complex object format with principal/amount/note (from Lock campaigns)
+                const amount = formatTokenAmount(addr.amount, (config as any).tokenInfo.decimals || 8);
                 return {
                     address: Principal.fromText(addr.principal.trim()),
-                    amount: amount,
+                    amount: amount.toNumber(), // Convert BigNumber to number for Candid nat
                     note: addr.note ? [addr.note] : []  // Candid optional
                 };
             }
+            console.warn('Invalid address format:', addr);
             return null;
         }).filter((r: any) => r !== null);
 
+        console.log('Built recipients:', recipients);
         return recipients;
     }
 
@@ -213,8 +221,8 @@ export class DistributionUtils {
      */
     private static convertRegistrationPeriod(period: any): RegistrationPeriodMotoko {
         return {
-            startTime: BigInt(period.startTime.getTime() * 1_000_000), // Convert to nanoseconds
-            endTime: BigInt(period.endTime.getTime() * 1_000_000),
+            startTime: BigInt(Math.floor(period.startTime.getTime()) * 1_000_000), // Convert to nanoseconds
+            endTime: BigInt(Math.floor(period.endTime.getTime()) * 1_000_000),
             // Handle maxParticipants as Candid optional: null → [], ?value → [value]
             maxParticipants: period.maxParticipants ? [BigInt(period.maxParticipants)] : []
         };
@@ -246,6 +254,13 @@ export class DistributionUtils {
                     }
                 };
             
+            case 'Single':
+                return {
+                    Single: {
+                        duration: BigInt(schedule.config.duration)
+                    }
+                };
+            
             case 'SteppedCliff':
                 return {
                     SteppedCliff: schedule.config.map((step: any) => ({
@@ -257,7 +272,7 @@ export class DistributionUtils {
             case 'Custom':
                 return {
                     Custom: schedule.config.map((event: any) => ({
-                        timestamp: BigInt(event.timestamp.getTime() * 1_000_000), // Convert to nanoseconds
+                        timestamp: BigInt(Math.floor(event.timestamp.getTime()) * 1_000_000), // Convert to nanoseconds
                         amount: BigInt(event.amount)
                     }))
                 };
@@ -265,6 +280,18 @@ export class DistributionUtils {
             default:
                 return { Instant: null };
         }
+    }
+
+    /**
+     * Convert frontend PenaltyUnlock to backend PenaltyUnlock
+     */
+    private static convertPenaltyUnlock(penaltyUnlock: any): any {
+        return {
+            enableEarlyUnlock: penaltyUnlock.enableEarlyUnlock,
+            penaltyPercentage: BigInt(penaltyUnlock.penaltyPercentage || 0),
+            penaltyRecipient: penaltyUnlock.penaltyRecipient ? [penaltyUnlock.penaltyRecipient] : [], // Candid optional
+            minLockTime: penaltyUnlock.minLockTime ? [BigInt(penaltyUnlock.minLockTime)] : [] // Candid optional
+        };
     }
 
     /**

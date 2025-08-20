@@ -36,6 +36,8 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     public type VestingSchedule = DistributionTypes.VestingSchedule;
     public type LinearVesting = DistributionTypes.LinearVesting;
     public type CliffVesting = DistributionTypes.CliffVesting;
+    public type SingleVesting = DistributionTypes.SingleVesting;
+    public type PenaltyUnlock = DistributionTypes.PenaltyUnlock;
     public type CliffStep = DistributionTypes.CliffStep;
     public type UnlockEvent = DistributionTypes.UnlockEvent;
     public type UnlockFrequency = DistributionTypes.UnlockFrequency;
@@ -108,6 +110,9 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         
         // Initialize whitelist and participants from config
         _initializeWhitelist();
+        // Start the timer
+        await startTimer();
+
         initialized := true;
         #ok()
     };
@@ -278,6 +283,25 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
 
     // ================ VESTING CALCULATIONS ================
     
+    // Check if early unlock with penalty is allowed
+    private func _canEarlyUnlock(elapsed: Nat, penaltyConfig: ?PenaltyUnlock) : Bool {
+        switch (penaltyConfig) {
+            case (?penalty) {
+                if (not penalty.enableEarlyUnlock) { return false; };
+                switch (penalty.minLockTime) {
+                    case (?minTime) { elapsed >= minTime };
+                    case null { true };
+                }
+            };
+            case null { false };
+        }
+    };
+    
+    // Calculate penalty amount for early unlock
+    private func _calculatePenalty(totalAmount: Nat, penaltyConfig: PenaltyUnlock) : Nat {
+        (totalAmount * penaltyConfig.penaltyPercentage) / 100
+    };
+    
     private func _calculateUnlockedAmount(participant: Participant) : Nat {
         let vestingStart = switch (participant.vestingStart) {
             case (?start) { start };
@@ -311,6 +335,14 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
                     let postCliffElapsed = Nat.sub(elapsed, cliff.cliffDuration);
                     let vestedAmount = remainingAmount * postCliffElapsed / cliff.vestingDuration;
                     initialUnlock + cliffAmount + vestedAmount
+                }
+            };
+            case (#Single(single)) {
+                // Single vesting: tokens fully locked until duration ends, then 100% unlock
+                if (elapsed >= single.duration) {
+                    totalAmount  // Full unlock after duration
+                } else {
+                    initialUnlock  // Only initial unlock before duration ends (usually 0 for locks)
                 }
             };
             case (#SteppedCliff(steps)) {
@@ -386,9 +418,11 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     
     private func _checkStartTime() : async () {
         if (Time.now() >= config.distributionStart and status == #Created and initialized) {
-            let contractBalance = await _getContractTokenBalance();
-            if (contractBalance >= config.totalAmount) {
-                ignore activate();
+            ignore {
+                let contractBalance = await _getContractTokenBalance();
+                if (contractBalance >= config.totalAmount) {
+                    ignore activate();
+                };
             };
         };
     };
@@ -647,17 +681,119 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         
     };
     
+    // Auto-register participant when no registration period is configured
+    private func _autoRegisterParticipant(caller: Principal) : async Result.Result<Participant, Text> {
+        // Check if user is anonymous
+        if(Principal.isAnonymous(caller)) {
+            return #err("Anonymous users cannot participate");
+        };
+        
+        // Check if already registered
+        switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
+            case (?p) { return #ok(p) };
+            case null {};
+        };
+        
+        // Check eligibility
+        let isEligible = await _checkEligibility(caller);
+        if (not isEligible) {
+            return #err("Not eligible for this distribution");
+        };
+        
+        // Calculate eligible amount based on distribution type
+        let eligibleAmount = switch (config.eligibilityType) {
+            case (#Whitelist) {
+                // For whitelist distributions, get amount from recipients list
+                switch (_findRecipientAmount(caller)) {
+                    case (?amount) { amount };
+                    case null { 0 };
+                }
+            };
+            case (#Open) {
+                // For Open distributions, divide totalAmount equally among maxRecipients
+                switch (config.maxRecipients) {
+                    case (?maxRecipients) {
+                        if (maxRecipients > 0) {
+                            Nat.div(config.totalAmount, maxRecipients)
+                        } else { 0 }
+                    };
+                    case null { 0 };
+                }
+            };
+            case (_) {
+                // For other distribution types with SelfService mode
+                if (config.recipientMode == #SelfService) {
+                    switch (config.maxRecipients) {
+                        case (?maxRecipients) {
+                            if (maxRecipients > 0) {
+                                Nat.div(config.totalAmount, maxRecipients)
+                            } else { 0 }
+                        };
+                        case null { 0 };
+                    }
+                } else {
+                    0
+                }
+            };
+        };
+        
+        // Check if there's still allocation available
+        if (eligibleAmount == 0) {
+            return #err("No allocation available for new participants");
+        };
+        
+        // Check if adding this participant would exceed total distribution amount
+        let projectedDistribution = totalDistributed + eligibleAmount;
+        if (projectedDistribution > config.totalAmount) {
+            return #err("No more allocation available - distribution is full");
+        };
+        
+        // Create participant record
+        let participant: Participant = {
+            principal = caller;
+            registeredAt = Time.now();
+            eligibleAmount = eligibleAmount;
+            claimedAmount = 0;
+            lastClaimTime = null;
+            status = #Registered;
+            vestingStart = null;
+            note = null; // No specific note for auto-registered participants
+        };
+        
+        participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
+        participantCount += 1;
+        
+        // Update backend with new relationship
+        await _registerBackendRelationship(config, caller);
+        
+        #ok(participant)
+    };
+    
     public shared({ caller }) func claim() : async Result.Result<Nat, Text> {
         // Check if distribution is active
         if (not _isActive()) {
             return #err("Distribution is not currently active");
         };
         
-        // Get participant
+        // Get participant, with auto-registration if enabled
         let participant = switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
             case (?p) { p };
             case null {
-                return #err("Not registered for this distribution");
+                // Check if we should auto-register when no registration period is configured
+                switch (config.registrationPeriod) {
+                    case null {
+                        // No registration period configured - auto-register eligible participants
+                        let registrationResult = await _autoRegisterParticipant(caller);
+                        switch (registrationResult) {
+                            case (#ok(newParticipant)) { newParticipant };
+                            case (#err(error)) { return #err(error) };
+                        };
+                    };
+                    case (?_) {
+                        // Registration period exists but participant not registered
+                        return #err("Not registered for this distribution");
+                    };
+                };
             };
         };
         
@@ -720,6 +856,120 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         totalClaimed += claimableAmount;
         
         #ok(claimableAmount)
+    };
+    
+    // Early unlock with penalty
+    public shared({ caller }) func earlyUnlockWithPenalty() : async Result.Result<{unlockedAmount: Nat; penaltyAmount: Nat}, Text> {
+        // Check if distribution is active
+        if (not _isActive()) {
+            return #err("Distribution is not currently active");
+        };
+        
+        // Get participant
+        let participant = switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
+            case (?p) { p };
+            case null { return #err("You are not registered for this distribution"); };
+        };
+        
+        // Check penalty unlock configuration
+        let penaltyConfig = switch (config.penaltyUnlock) {
+            case (?penalty) { penalty };
+            case null { return #err("Early unlock with penalty is not enabled for this distribution"); };
+        };
+        
+        // Calculate elapsed time
+        let vestingStart = switch (participant.vestingStart) {
+            case (?start) { start };
+            case null { config.distributionStart };
+        };
+        let elapsed = Int.abs(Time.now() - vestingStart);
+        
+        // Check if early unlock is allowed
+        if (not _canEarlyUnlock(elapsed, config.penaltyUnlock)) {
+            return #err("Early unlock is not allowed at this time. Check minimum lock time requirements.");
+        };
+        
+        // Calculate full vested amount (what would be unlocked without penalty)
+        let totalAmount = participant.eligibleAmount;
+        let remainingAmount = if (totalAmount > participant.claimedAmount) {
+            Nat.sub(totalAmount, participant.claimedAmount)
+        } else { 0 };
+        
+        if (remainingAmount == 0) {
+            return #err("No remaining tokens to unlock");
+        };
+        
+        // Calculate penalty
+        let penaltyAmount = _calculatePenalty(remainingAmount, penaltyConfig);
+        let unlockedAmount = if (remainingAmount > penaltyAmount) {
+            Nat.sub(remainingAmount, penaltyAmount)
+        } else { 0 };
+        
+        if (unlockedAmount == 0) {
+            return #err("Penalty amount equals or exceeds remaining tokens");
+        };
+        
+        // Transfer unlocked tokens to participant
+        let transferResult = await* _transfer(caller, unlockedAmount);
+        let txIndex = switch (transferResult) {
+            case (#ok(index)) { ?index };
+            case (#err(err)) {
+                return #err("Token transfer failed: " # debug_show(err));
+            };
+        };
+        
+        // Handle penalty tokens (transfer to recipient or burn)
+        if (penaltyAmount > 0) {
+            switch (penaltyConfig.penaltyRecipient) {
+                case (?recipient) {
+                    // Transfer penalty to specified recipient
+                    let penaltyPrincipal = Principal.fromText(recipient);
+                    let penaltyTransferResult = await* _transfer(penaltyPrincipal, penaltyAmount);
+                    switch (penaltyTransferResult) {
+                        case (#err(err)) {
+                            // Log error but don't fail the whole transaction
+                            Debug.print("Warning: Penalty transfer failed: " # debug_show(err));
+                        };
+                        case (#ok(_)) { /* Success */ };
+                    };
+                };
+                case null {
+                    // Penalty tokens are effectively burned (not transferred)
+                    Debug.print("Penalty tokens burned: " # Nat.toText(penaltyAmount));
+                };
+            };
+        };
+        
+        // Update participant as fully claimed (early unlock claims all remaining)
+        let updatedParticipant: Participant = {
+            principal = participant.principal;
+            registeredAt = participant.registeredAt;
+            eligibleAmount = participant.eligibleAmount;
+            claimedAmount = participant.eligibleAmount; // Mark as fully claimed
+            lastClaimTime = ?Time.now();
+            status = #Claimed;
+            vestingStart = participant.vestingStart;
+            note = participant.note;
+        };
+        
+        participants := Trie.put(participants, _principalKey(caller), Principal.equal, updatedParticipant).0;
+        
+        // Add claim record for early unlock
+        let claimRecord: ClaimRecord = {
+            participant = caller;
+            amount = unlockedAmount;
+            timestamp = Time.now();
+            blockHeight = null; // TODO: Get from blockchain
+            transactionId = switch (txIndex) {
+                case (?index) { ?Nat.toText(index) };
+                case null { null };
+            };
+        };
+        
+        claimRecords.add(claimRecord);
+        totalClaimed += unlockedAmount;
+        
+        #ok({ unlockedAmount = unlockedAmount; penaltyAmount = penaltyAmount })
     };
     
     // Query functions

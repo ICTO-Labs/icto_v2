@@ -72,7 +72,14 @@
                   <Label variant="blue" class="inline-flex items-center gap-1">
                   <ZapIcon class="w-3 h-3 mr-1" />
                   {{ getVariantKey(details.eligibilityType) }}
-                </Label>              
+                </Label>
+                <!-- Campaign Type Label -->
+                <div :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').bgClass" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border">
+                  <div class="w-2 h-2 rounded-full mr-2" :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').className.replace('text-', 'bg-')"></div>
+                  <span :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').className">
+                    {{ getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').label }}
+                  </span>
+                </div>              
               </div>
             </div>
           </div>
@@ -178,14 +185,19 @@
               <MetricCard 
                 v-else
                 title="Campaign Type" 
-                :value="getVariantKey(details.campaignType)"
+                :value="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').label"
                 icon="ZapIcon"
                 size="sm"
               />
             </div>
 
-            <!-- ApexCharts Vesting Schedule (for comparison) -->
-            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+            <!-- Lock Detail (for Lock campaigns) -->
+            <div v-if="getVariantKey(details.campaignType) === 'Lock'" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
+              <LockDetail :campaign="{ id: distributionId, creator: details.creator || '', config: details }" />
+            </div>
+
+            <!-- ApexCharts Vesting Schedule (for Airdrop/Vesting campaigns) -->
+            <div v-else class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
               <div class="flex items-center justify-between mb-8">
                 <div>
                   <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -557,9 +569,11 @@
                 <div class="flex items-center space-x-3">
                   <ZapIcon class="w-5 h-5 text-gray-400" />
                   <div>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">Vesting Type</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">
+                      {{ getVariantKey(details.campaignType) === 'Lock' ? 'Lock Type' : 'Vesting Type' }}
+                    </p>
                     <p class="font-medium text-gray-900 dark:text-white">
-                      {{ vestingFrequency }} {{ hasCliffPeriod ? 'with Cliff' : 'Linear' }}
+                      {{ getVariantKey(details.campaignType) === 'Lock' ? vestingFrequency : (vestingFrequency + (hasCliffPeriod ? ' with Cliff' : ' Linear')) }}
                     </p>
                   </div>
                 </div>
@@ -599,7 +613,22 @@
               <div class="mb-6">
                 <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Upcoming Milestones</h4>
                 <div class="space-y-3">
-                  <div class="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                  <!-- For Lock campaigns, show Lock Start instead of Initial Unlock -->
+                  <div v-if="getVariantKey(details.campaignType) === 'Lock'" class="flex items-center justify-between p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                    <div class="flex items-center space-x-3">
+                      <div class="w-3 h-3 bg-purple-500 rounded-full"></div>
+                      <div>
+                        <p class="font-medium text-gray-900 dark:text-white">Lock Starts</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400">
+                          {{ distributionStartDate ? formatDate(distributionStartDate) : 'Not available' }}
+                        </p>
+                      </div>
+                    </div>
+                    <span class="text-sm font-semibold text-purple-600 dark:text-purple-400">Locked</span>
+                  </div>
+                  
+                  <!-- For other campaigns, show Initial Unlock -->
+                  <div v-else class="flex items-center justify-between p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                     <div class="flex items-center space-x-3">
                       <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
                       <div>
@@ -611,17 +640,23 @@
                     </div>
                     <span class="text-sm font-semibold text-blue-600 dark:text-blue-400">{{ initialUnlockPercentage }}%</span>
                   </div>
+                  
+                  <!-- End milestone -->
                   <div class="flex items-center justify-between p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
                     <div class="flex items-center space-x-3">
                       <div class="w-3 h-3 bg-green-500 rounded-full"></div>
                       <div>
-                        <p class="font-medium text-gray-900 dark:text-white">Linear Vesting Complete</p>
+                        <p class="font-medium text-gray-900 dark:text-white">
+                          {{ getVariantKey(details.campaignType) === 'Lock' ? 'Tokens Unlock' : 'Linear Vesting Complete' }}
+                        </p>
                         <p class="text-sm text-gray-500 dark:text-gray-400">
                           {{ vestingEndDate ? formatDate(vestingEndDate) : 'Not available' }}
                         </p>
                       </div>
                     </div>
-                    <span class="text-sm font-semibold text-green-600 dark:text-green-400">{{ vestingFrequency }}</span>
+                    <span class="text-sm font-semibold text-green-600 dark:text-green-400">
+                      {{ getVariantKey(details.campaignType) === 'Lock' ? '100%' : vestingFrequency }}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -683,6 +718,8 @@ import {
 } from 'lucide-vue-next'
 import { CopyIcon } from '@/icons'
 import Label from '@/components/common/Label.vue'
+import LockDetail from '@/components/distribution/LockDetail.vue'
+import { getCampaignTypeLabel } from '@/utils/lockConfig'
 import TokenLogo from '@/components/token/TokenLogo.vue'
 import MetricCard from '@/components/token/MetricCard.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
@@ -778,6 +815,12 @@ const vestingEndDate = computed(() => {
   
   const startTimestamp = Number(details.value.distributionStart) / 1_000_000
   
+  if ('Single' in details.value.vestingSchedule) {
+    const durationNanos = Number(details.value.vestingSchedule.Single.duration)
+    const durationMs = durationNanos / 1_000_000
+    return new Date(startTimestamp + durationMs)
+  }
+  
   if ('Linear' in details.value.vestingSchedule) {
     const durationNanos = Number(details.value.vestingSchedule.Linear.duration)
     const durationMs = durationNanos / 1_000_000
@@ -793,6 +836,10 @@ const initialUnlockPercentage = computed(() => {
 
 const vestingFrequency = computed(() => {
   if (!details.value?.vestingSchedule) return 'Unknown'
+  
+  if ('Single' in details.value.vestingSchedule) {
+    return 'Single Unlock'
+  }
   
   if ('Linear' in details.value.vestingSchedule) {
     const frequency = details.value.vestingSchedule.Linear.frequency
@@ -1218,6 +1265,16 @@ const endDate = computed(() => {
 })
 
 const maxRecipients = computed(() => {
+  // For Whitelist campaigns, show actual number of whitelisted addresses
+  if (details.value?.eligibilityType && getVariantKey(details.value.eligibilityType) === 'Whitelist') {
+    const recipientCount = participants.value?.length || 0
+    if (recipientCount > 0) {
+      return `${formatNumber(recipientCount)} Whitelisted`
+    }
+    return 'Whitelisted'
+  }
+  
+  // For other campaigns, show maxRecipients limit
   if (!details.value?.maxRecipients || details.value.maxRecipients.length === 0) return 'Unlimited'
   return formatNumber(Number(details.value.maxRecipients[0]))
 })

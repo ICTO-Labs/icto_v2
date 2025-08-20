@@ -61,38 +61,6 @@
 					<div>
 						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Basic Information</h3>
 						<div class="flex flex-col gap-6">
-							<!-- Campaign Type -->
-							<div>
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
-									Campaign Type *
-								</label>
-								<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-									<label v-for="type in campaignTypes" :key="type.value"
-										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
-										:class="formData.campaignType === type.value
-											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
-										<input v-model="formData.campaignType" :value="type.value" type="radio"
-											class="sr-only" />
-										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="formData.campaignType === type.value
-											? 'bg-blue-600'
-											: 'bg-blue-50 dark:bg-blue-900/20'">
-											<component :is="type.icon" class="h-6 w-6" :class="formData.campaignType === type.value
-												? 'text-white'
-												: 'text-blue-600'" />
-										</div>
-										<div class="flex-1 min-w-0">
-											<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{
-												type.label }}
-											</div>
-											<div class="text-sm text-gray-500">{{ type.description }}</div>
-										</div>
-										<div v-if="formData.campaignType === type.value" class="ml-2">
-											<CheckIcon class="h-5 w-5 text-blue-600" />
-										</div>
-									</label>
-								</div>
-							</div>
 
 							<div>
 								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -233,56 +201,6 @@
 
 							</div>
 							
-							<!-- BlockID Optional Configuration -->
-							<div>
-								<label class="flex items-center gap-3 cursor-pointer">
-									<input v-model="formData.useBlockId" type="checkbox"
-										class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-									<span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-										Enable Block ID Score Requirements
-									</span>
-								</label>
-								<p class="mt-1 text-xs text-gray-500">Add Block ID score verification to eligibility criteria</p>
-								
-								<!-- Block ID Score Input (conditional) -->
-								<div v-if="formData.useBlockId" class="mt-4">
-									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-										Minimum Block ID Score *
-									</label>
-									<input v-model.number="formData.blockIdScore" type="number" required min="0"
-										placeholder="50"
-										class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-									<p class="mt-2 text-xs text-gray-500">Minimum Block ID score required for
-										eligibility</p>
-								</div>
-							</div>
-
-							<!-- Public Distribution Toggle -->
-							<div>
-								<label class="flex items-center gap-3">
-									<input
-										v-model="formData.isPublic"
-										type="checkbox"
-										class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-									/>
-									<div>
-										<span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-											Public Distribution
-										</span>
-										<p class="text-xs text-gray-500">
-											Make this distribution visible in the public ICTO marketplace
-										</p>
-									</div>
-								</label>
-								<div class="mt-2 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-									<p class="text-sm text-blue-700 dark:text-blue-300">
-										{{ formData.isPublic 
-											? '📢 This distribution will be discoverable by all users and appear in public listings.' 
-											: '🔒 This distribution will be private and only accessible via direct link or by eligible participants.' 
-										}}
-									</p>
-								</div>
-							</div>
 						</div>
 					</div>
 				</div>
@@ -290,32 +208,100 @@
 				<!-- Step 2: Eligibility -->
 				<div v-if="currentStep === 1" class="space-y-8">
 					<div>
-						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Eligibility Configuration</h3>
+						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Campaign Type & Eligibility</h3>
 						<div class="flex flex-col gap-6">
+							<!-- Campaign Type Selection -->
+							<div>
+								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+									Campaign Type *
+								</label>
+								<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+									<label v-for="type in campaignTypes" :key="type.value"
+										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
+										:class="formData.campaignType === type.value
+											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
+										<input v-model="formData.campaignType" :value="type.value" type="radio"
+											class="sr-only" />
+										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="formData.campaignType === type.value
+											? 'bg-blue-600'
+											: 'bg-blue-50 dark:bg-blue-900/20'">
+											<component :is="type.icon" class="h-6 w-6" :class="formData.campaignType === type.value
+												? 'text-white'
+												: 'text-blue-600'" />
+										</div>
+										<div class="flex-1 min-w-0">
+											<div class="text-base font-medium text-gray-900 dark:text-white">{{
+												type.label }}
+											</div>
+											<div class="text-sm text-gray-500">{{ type.description }}</div>
+										</div>
+										<div v-if="formData.campaignType === type.value" class="ml-2">
+											<CheckIcon class="h-5 w-5 text-blue-600" />
+										</div>
+									</label>
+								</div>
+							</div>
+							<!-- Lock Campaign Notice -->
+							<div v-if="formData.campaignType === 'Lock'" class="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 border border-purple-200 dark:border-purple-700">
+								<div class="flex items-start gap-3">
+									<LockIcon class="w-5 h-5 text-purple-600 dark:text-purple-400 mt-1" />
+									<div>
+										<h4 class="font-medium text-purple-800 dark:text-purple-200 mb-1">Token Lock Campaign</h4>
+										<p class="text-sm text-purple-700 dark:text-purple-300">
+											Lock campaigns are designed for predefined recipients such as team tokens, investor locks, or ICP raises. 
+											Only <strong>Whitelist</strong> eligibility is supported to ensure proper token allocation control.
+										</p>
+									</div>
+								</div>
+							</div>
+
 							<!-- Eligibility Type -->
 							<div>
 								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
 									Eligibility Type *
 								</label>
 								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-									<label v-for="type in eligibilityTypes" :key="keyToText(type.value)"
-										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
-										:class="keyToText(formData.eligibilityType) == keyToText(type.value)
-											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
-										<input v-model="formData.eligibilityType" :value="type.value" type="radio" class="sr-only" />
-										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="keyToText(formData.eligibilityType) == keyToText(type.value)
-											? 'bg-blue-600'
-											: 'bg-blue-50 dark:bg-blue-900/20'">
-											<component :is="type.icon" class="h-6 w-6" :class="keyToText(formData.eligibilityType) == keyToText(type.value)
-												? 'text-white'
-												: 'text-blue-600'" />
+									<label v-for="type in allEligibilityTypes" :key="keyToText(type.value)"
+										class="flex items-center gap-4 p-4 rounded-lg border transition shadow-sm"
+										:class="[
+											keyToText(formData.eligibilityType) == keyToText(type.value)
+												? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+												: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800',
+											isEligibilityTypeEnabled(type)
+												? 'cursor-pointer hover:border-blue-400'
+												: 'cursor-not-allowed opacity-50'
+										]">
+										<input 
+											v-model="formData.eligibilityType" 
+											:value="type.value" 
+											:disabled="!isEligibilityTypeEnabled(type)"
+											type="radio" 
+											class="sr-only" />
+										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="[
+											keyToText(formData.eligibilityType) == keyToText(type.value)
+												? 'bg-blue-600'
+												: 'bg-blue-50 dark:bg-blue-900/20',
+											!isEligibilityTypeEnabled(type) && 'opacity-50'
+										]">
+											<component :is="type.icon" class="h-6 w-6" :class="[
+												keyToText(formData.eligibilityType) == keyToText(type.value)
+													? 'text-white'
+													: 'text-blue-600',
+												!isEligibilityTypeEnabled(type) && 'opacity-50'
+											]" />
 										</div>
 										<div class="flex-1 min-w-0">
-											<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{
-												type.label }}
+											<div class="text-base font-medium" :class="[
+												'text-gray-900 dark:text-white',
+												!isEligibilityTypeEnabled(type) && 'opacity-50'
+											]">
+												{{ type.label }}
+												<span v-if="!isEligibilityTypeEnabled(type)" class="text-xs text-gray-400 ml-2">(Not available for {{ formData.campaignType }})</span>
 											</div>
-											<div class="text-sm text-gray-500">{{ type.description }}</div>
+											<div class="text-sm text-gray-500" :class="!isEligibilityTypeEnabled(type) && 'opacity-50'">
+												{{ type.description }}
+											</div>
 										</div>
 										<div v-if="formData.eligibilityType && keyToText(formData.eligibilityType) == keyToText(type.value)" class="ml-2">
 											<CheckIcon class="h-5 w-5 text-blue-600" />
@@ -347,7 +333,7 @@
 
 								<div v-if="whitelistAmountType === 'same'">
 									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-										Amount per Recipient
+										Amount {{formData.tokenInfo.symbol}} per Recipient
 									</label>
 									<input v-model.number="whitelistSameAmount" type="number" min="1" placeholder="1000"
 										class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
@@ -377,7 +363,7 @@
 												Total Distribution Amount:
 											</span>
 											<span class="text-lg font-bold text-blue-900 dark:text-blue-100">
-												{{ whitelistTotalAmount.toLocaleString() }} tokens
+												{{ whitelistTotalAmount.toLocaleString() }} {{ formData.tokenInfo.symbol }}
 											</span>
 										</div>
 										<p class="text-xs text-blue-700 dark:text-blue-300 mt-1">
@@ -514,7 +500,13 @@
 											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 												Total Amount *
 											</label>
-											<div v-if="whitelistTotalAmount > 0" class="mb-2">
+											<!-- Lock campaign auto-calculation notice -->
+											<div v-if="formData.campaignType === 'Lock'" class="mb-2">
+												<span class="text-xs text-purple-600 dark:text-purple-400">
+													🔒 Auto-calculated from whitelist: {{ formData.totalAmount.toLocaleString() }} {{ formData.tokenInfo.symbol || 'tokens' }}
+												</span>
+											</div>
+											<div v-else-if="whitelistTotalAmount > 0" class="mb-2">
 												<span class="text-xs text-blue-600 dark:text-blue-400">
 													From whitelist: {{ whitelistTotalAmount.toLocaleString() }}
 												</span>
@@ -522,8 +514,16 @@
 											<input v-model.number="formData.totalAmount" type="number" required min="1" 
 												placeholder="1000000"
 												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm" 
-												:disabled="whitelistTotalAmount > 0" />
-											<p class="mt-1 text-xs text-gray-500">Total tokens to distribute</p>
+												:disabled="formData.campaignType === 'Lock' || whitelistTotalAmount > 0" 
+												:class="{ 
+													'bg-purple-50 dark:bg-purple-900/20': formData.campaignType === 'Lock',
+													'bg-blue-50 dark:bg-blue-900/20': whitelistTotalAmount > 0 && formData.campaignType !== 'Lock'
+												}" />
+											<p class="mt-1 text-xs text-gray-500">
+												<span v-if="formData.campaignType === 'Lock'">Auto-calculated from whitelist entries</span>
+												<span v-else-if="whitelistTotalAmount > 0">Auto-calculated from whitelist ({{ whitelistTotalAmount.toLocaleString() }} tokens)</span>
+												<span v-else>Total tokens to distribute</span>
+											</p>
 										</div>
 
 										<!-- Total Recipients -->
@@ -554,18 +554,20 @@
 					
 				</div>
 
-				<!-- Step 2: Vesting Schedule -->
+				<!-- Step 2: Vesting/Lock Schedule -->
 				<div v-if="currentStep === 2" class="space-y-8">
 					<div>
-						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Vesting Schedule</h3>
+						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">
+							{{ formData.campaignType === 'Lock' ? 'Lock Configuration' : 'Vesting Schedule' }}
+						</h3>
 						<div class="flex flex-col gap-8">
-							<!-- Vesting Type -->
-							<div>
+							<!-- Vesting Type (not for Lock campaigns) -->
+							<div v-if="formData.campaignType !== 'Lock'">
 								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
 									Vesting Type *
 								</label>
 								<div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-									<label v-for="type in vestingTypes" :key="type.value"
+									<label v-for="type in availableVestingTypes" :key="type.value"
 										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
 										:class="formData.vestingType === type.value
 											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
@@ -591,8 +593,13 @@
 								</div>
 							</div>
 							
-							<!-- Universal Cliff Duration (Optional for all vesting types) -->
-							<div class="space-y-4" v-if="formData.vestingType !== 'Instant'">
+							<!-- Lock Configuration for Token Lock Campaign Type -->
+							<div v-if="formData.campaignType === 'Lock'">
+								<LockConfiguration v-model="lockConfig" />
+							</div>
+
+							<!-- Universal Cliff Duration (Optional for Airdrop/Vesting types) -->
+							<div class="space-y-4" v-if="formData.campaignType !== 'Lock' && formData.vestingType !== 'Instant'">
 								<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 									<div>
 										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -600,7 +607,7 @@
 										</label>
 										<input v-model.number="cliffDurationDays" type="number" min="0"
 											placeholder="90"
-											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
+											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
 										<p class="mt-2 text-xs text-gray-500">Optional lock period before vesting begins (leave empty for no cliff)</p>
 									</div>
 									<!-- Initial Unlock Percentage -->
@@ -610,7 +617,7 @@
 										</label>
 										<input v-model.number="formData.initialUnlockPercentage" type="number" min="0" max="100"
 											placeholder="25"
-											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
+											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
 										<p class="mt-2 text-xs text-gray-500">Percentage of tokens unlocked immediately (0-100%)
 										</p>
 									</div>
@@ -619,8 +626,8 @@
 
 							
 
-							<!-- Linear Vesting Configuration -->
-							<div v-if="formData.vestingType === 'Linear'" class="space-y-4">
+							<!-- Linear Vesting Configuration (not for Lock campaigns) -->
+							<div v-if="formData.campaignType !== 'Lock' && formData.vestingType === 'Linear'" class="space-y-4">
 								<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 									<div>
 										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -628,26 +635,63 @@
 										</label>
 										<input v-model.number="linearDurationDays" type="number" required min="1"
 											placeholder="365"
-											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
+											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
 									</div>
 									<div>
 										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
 											Unlock Frequency *
 										</label>
-										<select v-model="formData.linearConfig.frequency" required
+										<Select 
+											v-model="formData.linearConfig.frequency" 
+											:options="['Daily', 'Weekly', 'Monthly', 'Quarterly']"
+											placeholder="Select frequency"
+											required
+										/>
+										<!-- <select v-model="formData.linearConfig.frequency" required
 											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm">
 											<option value="">Select frequency</option>
 											<option value="Daily">Daily</option>
 											<option value="Weekly">Weekly</option>
 											<option value="Monthly">Monthly</option>
 											<option value="Quarterly">Quarterly</option>
-										</select>
+										</select> -->
 									</div>
 								</div>
 							</div>
 
-							<!-- Custom Vesting Configuration -->
-							<div v-if="formData.vestingType === 'Custom'" class="space-y-4">
+							<!-- Single Vesting Configuration (not for Lock campaigns) -->
+							<div v-if="formData.campaignType !== 'Lock' && formData.vestingType === 'Single'" class="space-y-4">
+								<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+									<div>
+										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+											Lock Duration *
+										</label>
+										<input v-model.number="singleDurationDays" type="number" required min="1"
+											placeholder="365"
+											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
+									</div>
+									<div>
+										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+											Duration Unit *
+										</label>
+										<Select 
+											v-model="singleDurationUnit" 
+											:options="['days', 'months', 'years']"
+											placeholder="Select unit"
+											required
+										/>
+									</div>
+								</div>
+								<div class="bg-blue-50 dark:bg-blue-900/30 rounded-lg p-4">
+									<p class="text-sm text-blue-700 dark:text-blue-300">
+										<strong>Single Unlock:</strong> Tokens will be fully locked for {{ singleDurationDays }} {{ singleDurationUnit }}, 
+										then 100% will unlock at once (plus any initial unlock percentage if specified).
+									</p>
+								</div>
+							</div>
+
+							<!-- Custom Vesting Configuration (not for Lock campaigns) -->
+							<div v-if="formData.campaignType !== 'Lock' && formData.vestingType === 'Custom'" class="space-y-4">
 								<div class="flex items-center justify-between">
 									<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Custom Unlock
 										Events</h4>
@@ -703,68 +747,53 @@
 									</p>
 								</div>
 							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Step 3: Timing -->
-				<div v-if="currentStep === 3" class="space-y-8">
-					<div>
-						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Distribution Timing</h3>
-						<div class="flex flex-col gap-8">
-							<!-- Registration Period -->
-							<div>
-								<div class="flex items-center gap-3 mb-4">
-									<input v-model="formData.hasRegistrationPeriod" type="checkbox" id="hasRegistrationPeriod"
-										class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-									<label class="text-sm font-medium text-gray-700 dark:text-gray-300" for="hasRegistrationPeriod">
-										Enable registration period
-									</label>
-								</div>
-								<div v-if="formData.hasRegistrationPeriod"
-									class="grid grid-cols-1 md:grid-cols-2 gap-4">
-									<div>
-										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-											Registration Start *
-										</label>
-										<input v-model="registrationStartDate" type="datetime-local" required
-											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-									</div>
-									<div>
-										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-											Registration End *
-										</label>
-										<input v-model="registrationEndDate" type="datetime-local" required
-											class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-									</div>
-								</div>
+							<!-- Penalty Unlock Configuration -->
+							<div v-if="formData.vestingType != 'Instant'">
+								<PenaltyUnlockConfig v-model="penaltyUnlockConfig" />
 							</div>
 
 							<!-- Distribution Timing -->
-							<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-								<div>
-									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-										Distribution Start *
-									</label>
-									<input v-model="distributionStartDate" type="datetime-local" required
-										class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-									<p class="mt-2 text-xs text-gray-500">When the distribution becomes active</p>
-								</div>
-								<div>
-									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-										Distribution End (Optional)
-									</label>
-									<input v-model="distributionEndDate" type="datetime-local"
-										class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-									<p class="mt-2 text-xs text-gray-500">Leave empty for no end date</p>
+							<div class="border-t border-gray-200 dark:border-gray-700 pt-8">
+								<h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Contract Timing</h4>
+								<div class="flex flex-col gap-6">
+									<!-- Registration Period -->
+									<div>
+										<div class="flex items-center gap-3 mb-4">
+											<BaseSwitch
+												v-model="formData.hasRegistrationPeriod"
+												label="Enable registration period"
+												label-position="right"
+											/>
+										</div>
+										<div v-if="formData.hasRegistrationPeriod">
+											<TimingConfiguration 
+												v-model="registrationTimingConfig"
+												context-type="Registration"
+												:show-end-time="true"
+												:require-end-time="true"
+											/>
+										</div>
+									</div>
+
+									<!-- Distribution Timing -->
+									<TimingConfiguration 
+										v-model="distributionTimingConfig"
+										:context-type="formData.campaignType === 'Lock' ? 'Lock' : 'Distribution'"
+										:show-end-time="formData.campaignType !== 'Lock'"
+									/>
+
+									<!-- Timing Validation Display -->
+									<div v-if="!validateTimeLogic.valid" class="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
+										<p class="text-sm text-red-700 dark:text-red-300">{{ validateTimeLogic.message }}</p>
+									</div>
 								</div>
 							</div>
 						</div>
 					</div>
 				</div>
 
-				<!-- Step 4: Settings -->
-				<div v-if="currentStep === 4" class="space-y-8">
+				<!-- Step 3: Settings -->
+				<div v-if="currentStep === 3" class="space-y-8">
 					<div>
 						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Additional Settings</h3>
 						<div class="flex flex-col gap-8">
@@ -801,25 +830,9 @@
 								</div>
 							</div>
 
-							<!-- Fee Configuration -->
-							<div v-if="keyToText(formData.feeStructure) == 'Fixed'">
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Fixed Fee Amount
-								</label>
-								<input v-model.number="formData.fixedFeeAmount" type="number" min="0" placeholder="1000"
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-							</div>
 
-							<div v-if="keyToText(formData.feeStructure) == 'Percentage'">
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Percentage Fee Rate (%)
-								</label>
-								<input v-model.number="formData.percentageFeeRate" type="number" min="0" max="100"
-									step="0.1" placeholder="2.5"
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-							</div>
-
-							<!-- Progressive Fee Configuration -->
+							<!-- Progressive Fee Configuration - COMMENTED FOR FUTURE USE -->
+							<!-- 
 							<div v-if="keyToText(formData.feeStructure) == 'Progressive'" class="space-y-4">
 								<div class="flex items-center justify-between">
 									<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Fee Tiers</h4>
@@ -879,38 +892,87 @@
 									</p>
 								</div>
 							</div>
+							-->
+
+							<!-- Fee Payment Token Configuration -->
+							<div v-if="keyToText(formData.feeStructure) === 'Fixed'">
+								<FeePaymentToken 
+									v-model="feePaymentTokenConfig"
+									:distribution-token="formData.tokenInfo"
+									:available-assets="availableAssets.map(asset => ({ canisterId: asset.canisterId, symbol: asset.symbol, name: asset.name, decimals: (asset as any).decimals || 8 }))"
+								/>
+							</div>
 
 							<!-- Permissions -->
 							<div class="space-y-4">
 								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Permissions</h4>
 								<div class="flex flex-col gap-3">
-									<div class="flex items-center gap-3">
-										<input v-model="formData.allowCancel" type="checkbox" id="allowCancel"
-											class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-										<label class="text-sm text-gray-700 dark:text-gray-300" for="allowCancel">
-											Allow campaign cancellation
-										</label>
-									</div>
-									<div class="flex items-center gap-3">
-										<input v-model="formData.allowModification" type="checkbox" id="allowModification"
-											class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
-										<label class="text-sm text-gray-700 dark:text-gray-300" for="allowModification">
-											Allow campaign modification
-										</label>
-									</div>
+									<BaseSwitch
+										v-model="formData.allowCancel"
+										label="Allow the owner to cancel the contract, remaining tokens will be transfered to the owner"
+										label-position="right"
+									/>
+									<BaseSwitch
+										v-model="formData.allowModification"
+										label="Allow the owner to modify the contract information."
+										label-position="right"
+									/>
 								</div>
 							</div>
 
 							<!-- Governance -->
-							<div>
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Governance Principal (Optional)
-								</label>
-								<input v-model="formData.governance" type="text"
-									placeholder="be2us-64aaa-aaaah-qaabq-cai"
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-								<p class="mt-2 text-xs text-gray-500">Principal that can manage this distribution (MiniDAO, SNS, etc.)</p>
-							</div>
+							<div class="space-y-4">
+								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Advanced Settings</h4>
+									<div class="flex flex-col gap-3">
+										<BaseSwitch
+											v-model="formData.governanceEnabled"
+											label="Governance control enabled, only the governance principal can manage the distribution"
+											label-position="right"
+										/>
+										<!-- <div>
+											<input v-model="formData.governance" type="text"
+												placeholder="be2us-64aaa-aaaah-qaabq-cai"
+												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
+											<p class="mt-2 text-xs text-gray-500">Principal that can manage this distribution (MiniDAO, SNS, etc.)</p>
+										</div> -->
+									
+									<!-- BlockID Optional Configuration -->
+									
+										<BaseSwitch
+											v-model="formData.useBlockId"
+											label="Require BlockID score check for eligibility"
+											label-position="right"
+										/>
+										
+										<!-- Block ID Score Input (conditional) -->
+										<div v-if="formData.useBlockId" class="mt-2">
+											<input v-model.number="formData.blockIdScore" type="number" required min="0"
+												placeholder="50"
+												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm text-sm" />
+											<p class="mt-2 text-xs text-gray-500">Minimum Block ID score required for eligibility</p>
+										</div>
+								
+
+									<!-- Public Distribution Toggle -->
+									
+										<BaseSwitch
+											v-model="formData.isPublic"
+											label="Public Distribution"
+											label-position="right"
+										/>
+										<div v-if="formData.isPublic" class="mt-1 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+											<p class="text-sm text-green-700 dark:text-green-300 flex items-center gap-2">
+												<GlobeIcon class="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" /> This distribution will be discoverable by all users and appear in public listings.
+											</p>
+										</div>
+										<div v-else class="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+											<p class="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
+												<LockIcon class="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" /> This distribution will be private and only accessible via direct link or by eligible participants.
+											</p>
+										</div>
+									</div>
+									</div>
+
 							<!-- Summary -->
 							<div
 								class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
@@ -951,27 +1013,23 @@
 									</div>
 								</div>
 							</div>
-							<!-- Payment Section -->
-							<div
-								class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-4">
+							
+							<!-- Validation Error -->
+							<div v-if="!validateAmountVsRecipients.valid" class="bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
 								<div class="flex items-start">
 									<div class="flex-shrink-0">
-										<svg class="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+										<svg class="w-5 h-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
 											<path fill-rule="evenodd"
 												d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
 												clip-rule="evenodd" />
 										</svg>
 									</div>
 									<div class="ml-3">
-										<h3 class="text-sm font-medium text-yellow-800 dark:text-yellow-200">
-											Important Notice
+										<h3 class="text-sm font-medium text-red-800 dark:text-red-200">
+											Validation Error
 										</h3>
-										<div class="mt-1 text-sm text-yellow-700 dark:text-yellow-300">
-											<p>
-												Once smart contract is successfully deployed, creation fees are
-												<strong>non-refundable</strong>.
-												Please review your distribution details carefully before proceeding.
-											</p>
+										<div class="mt-1 text-sm text-red-700 dark:text-red-300">
+											{{ validateAmountVsRecipients.message }}
 										</div>
 									</div>
 								</div>
@@ -982,11 +1040,18 @@
 								<div class="flex items-center justify-between">
 									<div>
 										<h4 class="font-medium text-blue-900 dark:text-blue-100">
-											Creation Cost
+											Creation Cost (One-time creation fee)
 										</h4>
 										<p class="text-sm text-blue-700 dark:text-blue-300">
 											One-time creation fee
 										</p>
+										<div class="mt-1 text-sm text-yellow-700 dark:text-yellow-300">
+											<p>
+												Once smart contract is successfully deployed, creation fees are
+												<strong>non-refundable</strong>.
+												Please review your distribution details carefully before proceeding.
+											</p>
+										</div>
 									</div>
 									<div class="text-right">
 										<div class="text-2xl font-bold text-blue-900 dark:text-blue-100">
@@ -1073,15 +1138,17 @@
 
 				<!-- Navigation Buttons -->
 				<div class="flex justify-between pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
-					<button type="button" v-if="currentStep > 0" @click="previousStep" class="flex items-center btn-secondary text-blue-700 text-decoration-underline">
+					<button type="button" v-if="currentStep > 0" @click="previousStep" :class="`bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded flex items-center justify-center text-sm`">
 						<ArrowLeftIcon class="h-4 w-4 mr-2" />
 						Previous
 					</button>
 					<div v-else></div>
 
 					<div class="flex space-x-3">
-						<button v-if="currentStep < steps.length - 1" type="button" @click="nextStep"
-							:class="`btn-primary hover:text-decoration flex items-center ${!canProceed ? 'opacity-30' : 'text-blue-700'}`" :disabled="!canProceed">
+						<button v-if="currentStep < steps.length - 1"
+							@click="nextStep"
+							:class="`bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded w-full flex items-center justify-center text-sm ${!canProceed ? 'opacity-30' : ''}`"  :disabled="!canProceed"
+							>
 							Next
 							<ArrowRightIcon class="h-4 w-4 ml-2" />
 						</button>
@@ -1173,11 +1240,19 @@ import type {
 	EligibilityType,
 	RecipientMode,
 	VestingType,
-	FeeStructure,
 	CampaignType
 } from '@/types/distribution'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import TokenLogo from '@/components/token/TokenLogo.vue'
+import FeePaymentToken from '@/components/distribution/FeePaymentToken.vue'
+import LockConfiguration from '@/components/distribution/LockConfiguration.vue'
+import PenaltyUnlockConfig from '@/components/distribution/PenaltyUnlockConfig.vue'
+import TimingConfiguration from '@/components/distribution/TimingConfiguration.vue'
+import type { FeePaymentTokenConfig } from '@/components/distribution/FeePaymentToken.vue'
+import type { LockUIState } from '@/utils/lockConfig'
+import type { PenaltyUnlock } from '@/types/distribution'
+import { lockConfigToSingleVesting, cliffConfigToLockConfig } from '@/utils/lockConfig'
+import { useSwal } from '@/composables/useSwal2'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -1251,6 +1326,55 @@ const formatAmountPerRecipient = (total: number, recipients: number): string => 
 	}
 }
 
+// Calculate total amount from whitelist for Lock campaigns
+const calculateWhitelistTotal = () => {
+	if (!whitelistText.value.trim()) {
+		formData.totalAmount = 0
+		formData.whitelistAddresses = []
+		return
+	}
+
+	const lines = whitelistText.value.trim().split('\n')
+	let total = 0
+	let recipientCount = 0
+	let processedAddresses: any[] = []
+
+	for (const line of lines) {
+		const trimmedLine = line.trim()
+		if (!trimmedLine) continue
+
+		if (whitelistAmountType.value === 'same') {
+			// Count valid principal lines
+			if (trimmedLine.length > 0) {
+				recipientCount++
+				total += whitelistSameAmount.value
+				processedAddresses.push(trimmedLine)
+			}
+		} else {
+			// Parse "principal,amount" format
+			const parts = trimmedLine.split(',')
+			if (parts.length >= 2) {
+				const amount = parseFloat(parts[1].trim())
+				if (!isNaN(amount)) {
+					total += amount
+					recipientCount++
+					const principal = parts[0]?.trim() || ''
+					const note = parts[2]?.trim() || ''
+					processedAddresses.push({ principal, amount, note })
+				}
+			}
+		}
+	}
+
+	// Auto-assign calculated total and processed addresses for Lock campaigns
+	if (formData.campaignType === 'Lock') {
+		formData.totalAmount = total
+		formData.whitelistAddresses = processedAddresses
+		console.log('Lock campaign - Auto-processed whitelist:', processedAddresses)
+		console.log('Lock campaign - Auto-calculated total:', total)
+	}
+}
+
 
 // Additional form state
 const hasMaxRecipients = ref(false)
@@ -1258,8 +1382,10 @@ const whitelistText = ref('')
 const whitelistAmountType = ref('same') // 'same' or 'custom'
 const whitelistSameAmount = ref(1000) // Default for 'same'
 const linearDurationDays = ref(365)
-const cliffDurationDays = ref(90)
+const cliffDurationDays = ref(0)
 const vestingDurationDays = ref(275)
+const singleDurationDays = ref(365)
+const singleDurationUnit = ref('days')
 const registrationStartDate = ref('')
 const registrationEndDate = ref('')
 const distributionStartDate = ref('')
@@ -1273,6 +1399,19 @@ const availableAssets = ref<{ canisterId: string; symbol: string; name: string }
 // Additional eligibility configuration state
 const tokenHolderSnapshotDate = ref('')
 const nftCollectionsText = ref('')
+
+// Lock configuration state
+const lockConfig = ref<LockUIState>({
+	lockDuration: '365',
+	lockDurationUnit: 'days',
+	enableEarlyUnlock: false,
+	earlyUnlockPenalty: 10,
+	penaltyRecipient: ''
+})
+
+// Timing configuration for Lock campaigns
+const lockTimingMode = ref<'immediate' | 'scheduled'>('immediate') // Start upon created vs scheduled
+const lockEndDate = ref('')
 
 // User balance state
 const userTokenBalance = ref<bigint | null>(null)
@@ -1366,9 +1505,18 @@ const formData = reactive<DistributionFormData>({
 		vestingDuration: 0,
 		frequency: { Monthly: null }
 	},
+	singleConfig: {
+		duration: 0
+	},
 	steppedCliffConfig: [],
 	customConfig: [],
 	initialUnlockPercentage: 0,
+	penaltyUnlock: {
+		enableEarlyUnlock: false,
+		penaltyPercentage: 0,
+		penaltyRecipient: '',
+		minLockTime: undefined
+	},
 
 	// Step 5: Timing
 	hasRegistrationPeriod: false,
@@ -1387,18 +1535,49 @@ const formData = reactive<DistributionFormData>({
 	externalCheckers: []
 })
 
+// Fee Payment Token Configuration
+const feePaymentTokenConfig = ref<FeePaymentTokenConfig>({
+	fixedAmount: '',
+	useDistributionToken: true,
+	customToken: {
+		method: 'assets'
+	}
+})
+
+// Penalty unlock configuration for the PenaltyUnlockConfig component
+const penaltyUnlockConfig = ref<Partial<PenaltyUnlock>>({
+	enableEarlyUnlock: formData.penaltyUnlock?.enableEarlyUnlock || false,
+	penaltyPercentage: formData.penaltyUnlock?.penaltyPercentage || 0,
+	penaltyRecipient: formData.penaltyUnlock?.penaltyRecipient || ''
+})
+
 // Open Distribution Configuration for Open + Self-Service
 const openDistributionConfig = reactive({
 	totalRecipients: 0,
 	totalTokens: 0
 })
 
+// Timing configuration states
+const distributionTimingConfig = ref({
+	mode: 'immediate' as 'immediate' | 'scheduled',
+	startTime: '',
+	endTime: ''
+})
+
+const registrationTimingConfig = ref({
+	mode: 'immediate' as 'immediate' | 'scheduled', 
+	startTime: '',
+	endTime: '',
+	maxParticipants: undefined as number | undefined
+})
+
+
+// Steps configuration
 // Steps configuration
 const steps = [
 	{ id: 'basic', name: 'Basic Info' },
 	{ id: 'eligibility', name: 'Eligibility' },
-	{ id: 'vesting', name: 'Vesting' },
-	{ id: 'timing', name: 'Timing' },
+	{ id: 'vesting', name: 'Configuration & Timing' },
 	{ id: 'settings', name: 'Settings' }
 ]
 
@@ -1409,14 +1588,30 @@ const campaignTypes = [
 	{ value: 'Lock', label: 'Token Lock', description: 'Lock tokens for a specific period', icon: LockIcon }
 ]
 
-const eligibilityTypes = [
+const allEligibilityTypes = [
 	{ value: { Open: null }, label: 'Open to All', description: 'Anyone can participate', icon: GlobeIcon },
 	{ value: { Whitelist: null }, label: 'Whitelist Only', description: 'Pre-approved addresses only', icon: ShieldCheckIcon },
 	{ value: { TokenHolder: null }, label: 'Token Holders', description: 'Must hold specific tokens', icon: CoinsIcon },
 	{ value: { NFTHolder: null }, label: 'NFT Holders', description: 'Must hold specific NFTs', icon: CoinsIcon },
-
-
 ]
+
+// Filter eligibility types based on campaign type
+const eligibilityTypes = computed(() => {
+	if (formData.campaignType === 'Lock') {
+		// Lock campaigns only support Whitelist (predefined recipients)
+		return allEligibilityTypes.filter(type => keyToText(type.value) === 'Whitelist')
+	}
+	return allEligibilityTypes
+})
+
+// Filter vesting types based on campaign type
+const availableVestingTypes = computed(() => {
+	if (formData.campaignType === 'Lock') {
+		// Lock campaigns only support Single Unlock
+		return vestingTypes.filter(type => type.value === 'Single')
+	}
+	return vestingTypes
+})
 
 const recipientModes = [
 	// { value: 'Fixed', label: 'Fixed Recipients', description: 'Pre-defined list of recipients' },
@@ -1427,7 +1622,8 @@ const recipientModes = [
 const vestingTypes = [
 	{ value: 'Instant', label: 'Instant', description: 'Immediate distribution', icon: ZapIcon },
 	{ value: 'Linear', label: 'Linear Vesting', description: 'Gradual unlock over time', icon: TrendingUpIcon },
-
+	{ value: 'Cliff', label: 'Cliff Vesting', description: 'Cliff period + gradual vesting', icon: ClockIcon },
+	{ value: 'Single', label: 'Single Unlock', description: 'Locked until specific time, then 100% unlock', icon: LockIcon },
 	// { value: 'SteppedCliff', label: 'Stepped Cliff', description: 'Multiple unlock milestones', icon: LayersIcon },
 	{ value: 'Custom', label: 'Custom Schedule', description: 'Define your own schedule', icon: SettingsIcon }
 ]
@@ -1435,10 +1631,8 @@ const vestingTypes = [
 const feeStructures = [
 	{ value: { Free: null }, label: 'Free', description: 'No fees charged', icon: SettingsIcon },
 	{ value: { Fixed: null }, label: 'Fixed Fee', description: 'Fixed amount per distribution', icon: CoinsIcon },
-	{ value: { Percentage: null }, label: 'Percentage Fee', description: 'Percentage of distributed amount', icon: TrendingUpIcon },
-	{ value: { Progressive: null }, label: 'Progressive Tiers', description: 'Different fees for different tiers', icon: LayersIcon },
-	{ value: { RecipientPays: null }, label: 'Recipient Pays', description: 'Recipients pay the fees', icon: ShieldCheckIcon },
-	{ value: { CreatorPays: null }, label: 'Creator Pays', description: 'Campaign creator pays fees', icon: ShieldCheckIcon }
+	// { value: { Percentage: null }, label: 'Percentage Fee', description: 'Percentage of distributed amount', icon: TrendingUpIcon },
+	// { value: { Progressive: null }, label: 'Progressive Tiers', description: 'Different fees for different tiers', icon: LayersIcon }
 ]
 
 // Available recipient modes based on eligibility type
@@ -1449,6 +1643,19 @@ const availableRecipientModes = computed(() => {
 	// }
 	return recipientModes
 })
+
+// Check if eligibility type is enabled based on campaign type
+const isEligibilityTypeEnabled = (type: any): boolean => {
+	const typeKey = keyToText(type.value)
+	
+	// For Lock campaigns, only Whitelist is allowed
+	if (formData.campaignType === 'Lock') {
+		return typeKey === 'Whitelist'
+	}
+	
+	// For Airdrop and Vesting campaigns, all types are allowed
+	return true
+}
 
 // Calculate total whitelist recipients
 const whitelistTotalRecipients = computed(() => {
@@ -1525,22 +1732,27 @@ const canProceed = computed(() => {
 				openDistributionConfig.totalRecipients > 0 : true
 			
 			return eligibilityValid && amountValid && openConfigValid
-		case 2: // Vesting
-			return formData.vestingType &&
-				(formData.vestingType === 'Instant' || validateVestingConfig())
-		case 3: // Timing
-			return distributionStartDate.value && validateTimeLogic.value.valid
-		case 4: // Settings
+		case 2: // Vesting & Timing
+			const vestingValid = formData.campaignType === 'Lock' ? 
+				(lockConfig.value.lockDuration && lockConfig.value.lockDurationUnit) :
+				(formData.vestingType && (formData.vestingType === 'Instant' || formData.vestingType === 'Single' || validateVestingConfig()))
+			const timingValid = 
+				(distributionTimingConfig.value.mode === 'immediate') || 
+				(distributionTimingConfig.value.mode === 'scheduled' && distributionTimingConfig.value.startTime)
+			return vestingValid && timingValid
+		case 3: // Settings
 			const feeValid = formData.feeStructure && (
 				keyToText(formData.feeStructure) === 'Free' ||
-				(keyToText(formData.feeStructure) === 'Fixed' && (formData.fixedFeeAmount || 0) > 0) ||
-				(keyToText(formData.feeStructure) === 'Percentage' && (formData.percentageFeeRate || 0) > 0) ||
-				(keyToText(formData.feeStructure) === 'Progressive' && formData.progressiveTiers && formData.progressiveTiers.length > 0 &&
-					formData.progressiveTiers.every(tier => tier.threshold >= 0 && tier.feeRate > 0)) ||
-				['RecipientPays', 'CreatorPays'].includes(keyToText(formData.feeStructure))
+				(keyToText(formData.feeStructure) === 'Fixed' && 
+					parseFloat(feePaymentTokenConfig.value.fixedAmount) > 0 &&
+					(feePaymentTokenConfig.value.useDistributionToken || 
+						feePaymentTokenConfig.value.customToken?.assetId || 
+						feePaymentTokenConfig.value.customToken?.customId)
+				)
 			)
-			const progressiveValid = validateProgressiveFees.value.valid
-			return feeValid && progressiveValid
+			// Final validation - check recipients are properly processed
+			const recipientsValid = validateAmountVsRecipients.value.valid
+			return feeValid && recipientsValid
 		default:
 			return false
 	}
@@ -1557,6 +1769,9 @@ const validateVestingConfig = () => {
 			formData.cliffConfig?.cliffPercentage &&
 			formData.cliffConfig?.cliffPercentage >= 0 &&
 			formData.cliffConfig?.cliffPercentage <= 100
+	}
+	if (formData.vestingType === 'Single') {
+		return singleDurationDays.value > 0 && singleDurationUnit.value
 	}
 	if (formData.vestingType === 'SteppedCliff') {
 		return formData.steppedCliffConfig &&
@@ -1620,9 +1835,48 @@ const processAllSteps = () => {
 		formData.cliffConfig!.cliffDuration = cliffDurationDays.value * 24 * 60 * 60 * 1_000_000_000
 		formData.cliffConfig!.vestingDuration = vestingDurationDays.value * 24 * 60 * 60 * 1_000_000_000
 	}
+	if (formData.vestingType === 'Single') {
+		// For Lock campaigns, use lockConfig values; for regular campaigns, use singleDuration values
+		let durationValue: number
+		let durationUnit: string
+		
+		if (formData.campaignType === 'Lock') {
+			durationValue = parseInt(lockConfig.value.lockDuration)
+			durationUnit = lockConfig.value.lockDurationUnit
+		} else {
+			durationValue = singleDurationDays.value
+			durationUnit = singleDurationUnit.value
+		}
+		
+		// Convert duration to nanoseconds based on unit
+		let durationInNanoseconds = durationValue * 24 * 60 * 60 * 1_000_000_000 // default days
+		if (durationUnit === 'months') {
+			durationInNanoseconds = durationValue * 30 * 24 * 60 * 60 * 1_000_000_000 // approximate months
+		} else if (durationUnit === 'years') {
+			durationInNanoseconds = durationValue * 365 * 24 * 60 * 60 * 1_000_000_000 // approximate years
+		}
+		formData.singleConfig!.duration = durationInNanoseconds
+	}
 	
 	// Process step 4 (Timing)
-	formData.distributionStart = new Date(distributionStartDate.value)
+	// For Lock campaigns with immediate timing, set distributionStart to current time + buffer
+	if (formData.campaignType === 'Lock' && lockTimingMode.value === 'immediate') {
+		const now = new Date()
+		const immediateStart = new Date(now.getTime() + 5 * 60 * 1000) // Add 5 minutes buffer
+		formData.distributionStart = immediateStart
+	} else {
+		// For scheduled campaigns, validate and adjust if needed
+		const scheduledTime = new Date(distributionStartDate.value)
+		const now = new Date()
+		
+		if (scheduledTime <= now) {
+			// If scheduled time is in the past or too close, set to current time + buffer
+			const immediateStart = new Date(now.getTime() + 5 * 60 * 1000) // Add 5 minutes buffer
+			formData.distributionStart = immediateStart
+		} else {
+			formData.distributionStart = scheduledTime
+		}
+	}
 	if (distributionEndDate.value) {
 		formData.distributionEnd = new Date(distributionEndDate.value)
 	}
@@ -1677,18 +1931,60 @@ const processCurrentStep = () => {
 				// Don't reset it here as it's controlled by calculateOpenDistribution
 			}
 			break
-		case 2: // Vesting
-			// Convert days to nanoseconds (1 day = 24 * 60 * 60 * 1_000_000_000 nanoseconds)
-			if (formData.vestingType === 'Linear') {
-				formData.linearConfig!.duration = linearDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+		case 2: // Vesting & Timing
+			// Handle Lock campaign configuration
+			if (formData.campaignType === 'Lock') {
+				// Convert Lock configuration to Single vesting + PenaltyUnlock
+				const { singleConfig, penaltyUnlock } = lockConfigToSingleVesting(lockConfig.value)
+				// Set as Single vesting (dedicated for lock campaigns)
+				formData.vestingType = 'Single'
+				formData.singleConfig = singleConfig
+				formData.penaltyUnlock = penaltyUnlock
+				// Set initial unlock to 0 for pure lock
+				formData.initialUnlockPercentage = 0
+				
+				// Handle Lock timing
+				if (lockTimingMode.value === 'immediate') {
+					// Set start time to current time + buffer for immediate start
+					const now = new Date()
+					const immediateStart = new Date(now.getTime() + 5 * 60 * 1000) // Add 5 minutes buffer
+					formData.distributionStart = immediateStart
+				}
+			} else {
+				// Convert days to nanoseconds (1 day = 24 * 60 * 60 * 1_000_000_000 nanoseconds)
+				if (formData.vestingType === 'Linear') {
+					formData.linearConfig!.duration = linearDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+				}
+				if (formData.vestingType === 'Single') {
+					// For regular (non-Lock) campaigns, use singleDuration values
+					let durationInNanoseconds = singleDurationDays.value * 24 * 60 * 60 * 1_000_000_000 // default days
+					if (singleDurationUnit.value === 'months') {
+						durationInNanoseconds = singleDurationDays.value * 30 * 24 * 60 * 60 * 1_000_000_000 // approximate months
+					} else if (singleDurationUnit.value === 'years') {
+						durationInNanoseconds = singleDurationDays.value * 365 * 24 * 60 * 60 * 1_000_000_000 // approximate years
+					}
+					formData.singleConfig!.duration = durationInNanoseconds
+				}
+				if (formData.vestingType === 'Cliff' && formData.campaignType !== 'Lock') {
+					// Only process generic cliff configuration for non-Lock campaigns
+					formData.cliffConfig!.cliffDuration = cliffDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+					formData.cliffConfig!.vestingDuration = vestingDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+				}
 			}
-			if (formData.vestingType === 'Cliff') {
-				formData.cliffConfig!.cliffDuration = cliffDurationDays.value * 24 * 60 * 60 * 1_000_000_000
-				formData.cliffConfig!.vestingDuration = vestingDurationDays.value * 24 * 60 * 60 * 1_000_000_000
+			// Process timing data
+			// For Lock campaigns, timing is already handled above; for others, validate and use scheduled time
+			if (formData.campaignType !== 'Lock') {
+				const scheduledTime = new Date(distributionStartDate.value)
+				const now = new Date()
+				
+				if (scheduledTime <= now) {
+					// If scheduled time is in the past or too close, set to current time + buffer
+					const immediateStart = new Date(now.getTime() + 5 * 60 * 1000) // Add 5 minutes buffer
+					formData.distributionStart = immediateStart
+				} else {
+					formData.distributionStart = scheduledTime
+				}
 			}
-			break
-		case 3: // Timing
-			formData.distributionStart = new Date(distributionStartDate.value)
 			if (distributionEndDate.value) {
 				formData.distributionEnd = new Date(distributionEndDate.value)
 			}
@@ -1741,6 +2037,7 @@ const buildDistributionConfig = () => {
 		maxRecipients: formData.maxRecipients,
 		vestingSchedule: buildVestingSchedule(),
 		initialUnlockPercentage: formData.initialUnlockPercentage,
+		penaltyUnlock: formData.penaltyUnlock || null,
 		registrationPeriod: formData.registrationPeriod,
 		distributionStart: formData.distributionStart,
 		distributionEnd: formData.distributionEnd,
@@ -1777,6 +2074,31 @@ const buildVestingSchedule = () => {
 				},
 				...baseConfig
 			}
+		case 'Cliff':
+			return {
+				type: 'Cliff',
+				config: {
+					cliffDuration: formData.cliffConfig?.cliffDuration || 0,
+					cliffPercentage: formData.cliffConfig?.cliffPercentage || 0,
+					vestingDuration: formData.cliffConfig?.vestingDuration || 0,
+					frequency: formData.cliffConfig?.frequency || 'Monthly'
+				},
+				...baseConfig
+			}
+		case 'Single':
+			return {
+				type: 'Single',
+				config: {
+					duration: formData.singleConfig?.duration || 0
+				},
+				penaltyUnlock: formData.penaltyUnlock ? {
+					enableEarlyUnlock: formData.penaltyUnlock.enableEarlyUnlock || false,
+					penaltyPercentage: formData.penaltyUnlock.penaltyPercentage || 0,
+					penaltyRecipient: formData.penaltyUnlock.penaltyRecipient || '',
+					minLockTime: formData.penaltyUnlock.minLockTime
+				} : null,
+				...baseConfig
+			}
 		case 'SteppedCliff':
 			return {
 				type: 'SteppedCliff',
@@ -1807,10 +2129,6 @@ const buildFeeStructure = () => {
 			return { type: 'Percentage', rate: formData.percentageFeeRate || 0 }
 		case 'Progressive':
 			return { type: 'Progressive', tiers: formData.progressiveTiers || [] }
-		case 'RecipientPays':
-			return { type: 'RecipientPays' }
-		case 'CreatorPays':
-			return { type: 'CreatorPays' }
 		default:
 			return { type: 'Free' }
 	}
@@ -1852,6 +2170,11 @@ const viewDistribution = () => {
 
 // Initialize dates
 const initializeDates = () => {
+	const now = new Date()
+	
+	// Add 5 minutes buffer for immediate distributions
+	const immediateStart = new Date(now.getTime() + 5 * 60 * 1000)
+	
 	const tomorrow = new Date()
 	tomorrow.setDate(tomorrow.getDate() + 1)
 	tomorrow.setHours(12, 0, 0, 0)
@@ -1859,9 +2182,13 @@ const initializeDates = () => {
 	const nextWeek = new Date(tomorrow)
 	nextWeek.setDate(nextWeek.getDate() + 7)
 
+	// For scheduled distributions, use tomorrow by default
 	distributionStartDate.value = tomorrow.toISOString().slice(0, 16)
-	registrationStartDate.value = new Date().toISOString().slice(0, 16)
+	registrationStartDate.value = now.toISOString().slice(0, 16)
 	registrationEndDate.value = tomorrow.toISOString().slice(0, 16)
+	
+	// Set immediate start time for immediate distributions
+	formData.distributionStart = immediateStart
 }
 
 // Watch for changes
@@ -1973,6 +2300,14 @@ const loadDeploymentCost = async () => {
 const handlePayment = async () => {
 	if (!canProceed.value) return
 
+	let isConfirmed = await useSwal.fire({
+		title: 'Are you sure?',
+		text: 'You are about to deploy a distribution. This action is irreversible.',
+		icon: 'warning',
+		showCancelButton: true,
+		confirmButtonText: 'Yes, deploy it!'
+	})
+	if (!isConfirmed.isConfirmed) return
 	isPaying.value = true
 	deployResult.value = null
 
@@ -2094,6 +2429,8 @@ const handlePayment = async () => {
 						processAllSteps()
 						const config = buildDistributionConfig()
 						const backendRequest = DistributionUtils.convertToBackendRequest(config as any)
+						console.log('Backend request:', backendRequest);
+						// return;
 						const deployDistributionResult = await backendService.deployDistribution(backendRequest)
 
 						if (!deployDistributionResult.success) {
@@ -2260,6 +2597,11 @@ const validateAmountVsRecipients = computed(() => {
 		const recipients = whitelistText.value.split('\n').filter(line => line.trim().length > 0)
 		if (recipients.length === 0) return { valid: false, message: 'No recipients specified' }
 		
+		// For Lock campaigns, ensure whitelistAddresses are properly built
+		if (formData.campaignType === 'Lock' && (!formData.whitelistAddresses || formData.whitelistAddresses.length === 0)) {
+			return { valid: false, message: 'Lock campaigns require whitelist recipients to be processed' }
+		}
+		
 		if (whitelistAmountType.value === 'same') {
 			const totalNeeded = recipients.length * whitelistSameAmount.value
 			if (totalNeeded > formData.totalAmount) {
@@ -2360,6 +2702,139 @@ const validateProgressiveFees = computed(() => {
 	}
 	
 	return { valid: true, message: '' }
+})
+
+// Auto-set eligibility to Whitelist for Lock campaigns
+watch(() => formData.campaignType, (newType) => {
+	if (newType === 'Lock') {
+		// Auto-set to Whitelist for Lock campaigns
+		formData.eligibilityType = { Whitelist: null }
+	}
+})
+
+// Auto-calculate total amount from whitelist
+watch(whitelistText, () => {
+	if (formData.campaignType === 'Lock' && whitelistText.value) {
+		calculateWhitelistTotal()
+	}
+})
+
+watch(() => whitelistSameAmount.value, () => {
+	if (formData.campaignType === 'Lock' && whitelistAmountType.value === 'same') {
+		calculateWhitelistTotal()
+	}
+})
+
+// Watch for whitelist amount type changes
+watch(whitelistAmountType, () => {
+	if (formData.campaignType === 'Lock') {
+		calculateWhitelistTotal()
+	}
+})
+
+// Watch for changes in penalty unlock config and sync with formData
+watch(penaltyUnlockConfig, (newConfig) => {
+	if (formData.penaltyUnlock) {
+		formData.penaltyUnlock.enableEarlyUnlock = newConfig.enableEarlyUnlock || false
+		formData.penaltyUnlock.penaltyPercentage = newConfig.penaltyPercentage || 0
+		formData.penaltyUnlock.penaltyRecipient = newConfig.penaltyRecipient || ''
+	}
+}, { deep: true })
+
+// Watch for changes in formData.penaltyUnlock and sync with penalty unlock config
+watch(() => formData.penaltyUnlock, (newPenaltyUnlock) => {
+	if (newPenaltyUnlock) {
+		penaltyUnlockConfig.value = {
+			enableEarlyUnlock: newPenaltyUnlock.enableEarlyUnlock || false,
+			penaltyPercentage: newPenaltyUnlock.penaltyPercentage || 0,
+			penaltyRecipient: newPenaltyUnlock.penaltyRecipient || ''
+		}
+	}
+}, { deep: true })
+
+// Auto-sync whitelistTotalAmount with formData.totalAmount for non-Lock Whitelist campaigns
+watch(whitelistTotalAmount, (newTotal) => {
+	// Only sync for non-Lock Whitelist campaigns (Lock campaigns handle this separately)
+	if (keyToText(formData.eligibilityType) === 'Whitelist' && formData.campaignType !== 'Lock') {
+		if (newTotal > 0) {
+			formData.totalAmount = newTotal
+		}
+	}
+})
+
+// Reset totalAmount when switching away from Whitelist for non-Lock campaigns
+watch(() => formData.eligibilityType, (newType, oldType) => {
+	if (formData.campaignType !== 'Lock') {
+		// If switching from Whitelist to something else, reset totalAmount
+		if (oldType && keyToText(oldType) === 'Whitelist' && keyToText(newType) !== 'Whitelist') {
+			formData.totalAmount = 0
+		}
+		// If switching to Whitelist, sync with whitelistTotalAmount
+		else if (keyToText(newType) === 'Whitelist' && whitelistTotalAmount.value > 0) {
+			formData.totalAmount = whitelistTotalAmount.value
+		}
+	}
+})
+
+// Watch for distribution timing config changes and sync with form data
+watch(distributionTimingConfig, (newConfig) => {
+	if (newConfig.mode === 'immediate') {
+		// Start immediately with 5 minutes buffer
+		const now = new Date()
+		const immediateStart = new Date(now.getTime() + 5 * 60 * 1000) // 5 minutes buffer
+		formData.distributionStart = immediateStart
+		formData.distributionEnd = newConfig.endTime ? new Date(newConfig.endTime) : undefined
+	} else if (newConfig.mode === 'scheduled' && newConfig.startTime) {
+		// Scheduled start
+		formData.distributionStart = new Date(newConfig.startTime)
+		formData.distributionEnd = newConfig.endTime ? new Date(newConfig.endTime) : undefined
+	}
+}, { deep: true })
+
+// Watch for registration timing config changes and sync with form data
+watch(registrationTimingConfig, (newConfig) => {
+	if (formData.hasRegistrationPeriod) {
+		if (newConfig.startTime && newConfig.endTime) {
+			formData.registrationPeriod = {
+				startTime: new Date(newConfig.startTime),
+				endTime: new Date(newConfig.endTime),
+				maxParticipants: newConfig.maxParticipants || undefined
+			}
+		}
+	}
+}, { deep: true })
+
+// Auto-calculate lock end date
+watch([() => lockConfig.value.lockDuration, () => lockConfig.value.lockDurationUnit, distributionTimingConfig], () => {
+	if (formData.campaignType === 'Lock' && distributionTimingConfig.value.mode === 'scheduled' && distributionTimingConfig.value.startTime) {
+		const startDate = new Date(distributionTimingConfig.value.startTime)
+		const durationNum = parseInt(lockConfig.value.lockDuration)
+		
+		let endDate = new Date(startDate)
+		switch (lockConfig.value.lockDurationUnit) {
+			case 'days':
+				endDate.setDate(endDate.getDate() + durationNum)
+				break
+			case 'months':
+				endDate.setMonth(endDate.getMonth() + durationNum)
+				break
+			case 'years':
+				endDate.setFullYear(endDate.getFullYear() + durationNum)
+				break
+		}
+		
+		// Format for datetime-local input
+		const year = endDate.getFullYear()
+		const month = String(endDate.getMonth() + 1).padStart(2, '0')
+		const day = String(endDate.getDate()).padStart(2, '0')
+		const hours = String(endDate.getHours()).padStart(2, '0')
+		const minutes = String(endDate.getMinutes()).padStart(2, '0')
+		
+		lockEndDate.value = `${year}-${month}-${day}T${hours}:${minutes}`
+		
+		// Also update the distributionTimingConfig end time
+		distributionTimingConfig.value.endTime = lockEndDate.value
+	}
 })
 
 // Initialize component

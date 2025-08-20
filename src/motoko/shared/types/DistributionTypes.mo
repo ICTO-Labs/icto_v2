@@ -50,6 +50,7 @@ module DistributionTypes {
         // Vesting Configuration
         vestingSchedule: VestingSchedule;
         initialUnlockPercentage: Nat;
+        penaltyUnlock: ?PenaltyUnlock; // Optional penalty unlock configuration for any vesting type
         
         // Timing
         registrationPeriod: ?RegistrationPeriod;
@@ -121,6 +122,7 @@ module DistributionTypes {
         #Instant;
         #Linear: LinearVesting;
         #Cliff: CliffVesting;
+        #Single: SingleVesting;
         #SteppedCliff: [CliffStep];
         #Custom: [UnlockEvent];
     };
@@ -135,6 +137,18 @@ module DistributionTypes {
         cliffPercentage: Nat;
         vestingDuration: Nat;
         frequency: UnlockFrequency;
+    };
+
+    public type SingleVesting = {
+        duration: Nat;
+    };
+
+    // Penalty unlock configuration - can be applied to any vesting type
+    public type PenaltyUnlock = {
+        enableEarlyUnlock: Bool;
+        penaltyPercentage: Nat;       // Percentage (0-100) taken as penalty
+        penaltyRecipient: ?Text;      // Optional recipient principal for penalty tokens (null = burn)
+        minLockTime: ?Nat;           // Minimum time before early unlock is allowed (nanoseconds)
     };
 
     public type CliffStep = {

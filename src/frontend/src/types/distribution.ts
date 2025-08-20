@@ -16,7 +16,7 @@ export type { DistributionConfig, DistributionConfig as DistributionDetails, Dis
 export type { EligibilityType, DeploymentRecord, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic };
 // export type EligibilityType = 'Open' | 'Whitelist' | 'TokenHolder' | 'NFTHolder' | 'BlockIDScore' | 'Hybrid';
 // export type RecipientMode = 'Fixed' | 'Dynamic' | 'SelfService';
-export type VestingType = 'Instant' | 'Linear' | 'Cliff' | 'SteppedCliff' | 'Custom';
+export type VestingType = 'Instant' | 'Linear' | 'Cliff' | 'Single' | 'SteppedCliff' | 'Custom';
 // export type UnlockFrequency = 'Continuous' | 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Yearly' | 'Custom';
 // export type FeeType = 'Free' | 'Fixed' | 'Percentage' | 'Progressive' | 'RecipientPays' | 'CreatorPays';
 // export type EligibilityLogic = 'AND' | 'OR';
@@ -49,6 +49,17 @@ export interface CliffVesting {
   cliffPercentage: number;
   vestingDuration: number;
   frequency: UnlockFrequency;
+}
+
+export interface SingleVesting {
+  duration: number; // Duration until full unlock (in nanoseconds)
+}
+
+export interface PenaltyUnlock {
+  enableEarlyUnlock: boolean;
+  penaltyPercentage: number;      // Percentage (0-100) taken as penalty
+  penaltyRecipient?: string;      // Optional recipient principal for penalty tokens (empty = burn)
+  minLockTime?: number;          // Minimum time before early unlock is allowed (nanoseconds)
 }
 
 export interface CliffStep {
@@ -128,7 +139,7 @@ export interface DistributionFormData {
   
   // Step 3: Eligibility
   eligibilityType: EligibilityType;
-  whitelistAddresses?: string[];
+  whitelistAddresses?: string[] | { principal: string; amount: number; note?: string; }[];
   tokenHolderConfig?: Partial<TokenHolderConfig>;
   nftHolderConfig?: Partial<NFTHolderConfig>;
   blockIdScore?: number;
@@ -139,9 +150,11 @@ export interface DistributionFormData {
   vestingType: VestingType;
   linearConfig?: Partial<LinearVesting>;
   cliffConfig?: Partial<CliffVesting>;
+  singleConfig?: Partial<SingleVesting>;
   steppedCliffConfig?: CliffStep[];
   customConfig?: UnlockEvent[];
   initialUnlockPercentage: number;
+  penaltyUnlock?: Partial<PenaltyUnlock>;
   
   // Step 5: Timing
   hasRegistrationPeriod: boolean;

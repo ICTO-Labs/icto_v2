@@ -8,6 +8,7 @@ import { Switch, SwitchGroup, SwitchLabel } from '@headlessui/vue'
 const props = defineProps<{
     modelValue: boolean
     label?: string
+    description?: string
     labelPosition?: 'left' | 'right'
     size?: 'sm' | 'md' | 'lg'
     activeColor?: string
@@ -81,6 +82,7 @@ const inactiveColor = computed(() => props.inactiveColor || 'bg-gray-300')
         <SwitchLabel v-if="label && labelPosition !== 'left'"
             :class="`text-sm font-normal cursor-pointer select-none ${toggle === true ? 'text-gray-900' : 'text-gray-500'}`">
             {{ label }}
+            <p v-if="description" class="text-xs text-gray-500">{{ description }}</p>
         </SwitchLabel>
     </SwitchGroup>
 </template>
