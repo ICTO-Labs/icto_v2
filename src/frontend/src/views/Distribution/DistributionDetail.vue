@@ -65,9 +65,10 @@
               <div class="flex items-center space-x-4">
                 <p class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">{{ canisterId }} <CopyIcon class="w-3.5 h-3.5" :data="canisterId" /></p>
                 <Label variant="gray" size="xs" >{{ cyclesToT(canisterCycles) }}</Label>
-                  <div :class="statusColor" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium">
-                    <div class="w-2 h-2 rounded-full mr-2" :class="statusDotColor"></div>
-                    {{ statusText }}
+                  <div :class="currentPhaseConfig.color.bg + ' ' + currentPhaseConfig.color.text + ' ' + currentPhaseConfig.color.border" 
+                       class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border">
+                    <div class="w-2 h-2 rounded-full mr-2 animate-pulse" :class="currentPhaseConfig.color.dot"></div>
+                    {{ currentPhaseConfig.label }}
                   </div>
                   <Label variant="blue" class="inline-flex items-center gap-1">
                   <ZapIcon class="w-3 h-3 mr-1" />
@@ -131,7 +132,7 @@
             <DistributionCountdown 
               :start-time="details.distributionStart"
               :end-time="details.distributionEnd && details.distributionEnd.length > 0 ? details.distributionEnd[0] : null"
-              :status="distributionStatus"
+              :status="countdownStatus"
             />
           </div>
           <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ details.description }}</p>
@@ -155,35 +156,43 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <!-- Left Column - Charts & Analytics -->
           <div class="lg:col-span-2 space-y-8">
-            <!-- Key Statistics -->
+            <!-- Phase-based Metrics -->
             <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <!-- Current Phase with Countdown -->
+              <div v-if="showPhaseCountdown" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
+                <div class="flex items-center space-x-2 mb-2">
+                  <ClockIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
+                  <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Next Phase</h3>
+                </div>
+                <vue-countdown 
+                  :time="phaseCountdownTime" 
+                  v-slot="{ days, hours, minutes, seconds }"
+                  class="text-brand-600 dark:text-brand-400 font-semibold"
+                >
+                  <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ phaseCountdownLabel }}</div>
+                  <div class="text-sm font-bold">{{ days }}d {{ hours }}h {{ minutes }}m {{ seconds }}s</div>
+                </vue-countdown>
+              </div>
+              
+              <!-- Registration Period (only for Airdrop campaigns that enable registration) -->
               <MetricCard 
-                title="Start Date" 
-                :value="startDate"
-                icon="CalendarIcon"
+                v-if="campaignTimeline.hasRegistration && getVariantKey(details.campaignType) !== 'Lock'"
+                title="Registration" 
+                :value="phaseInfo.currentPhase === 'registration_open' ? 'Open Now' : 
+                         phaseInfo.currentPhase === 'registration_closed' ? 'Closed' : 
+                         'Not Started'"
+                icon="ShieldCheckIcon"
                 size="sm"
               />
-              <MetricCard 
-                title="End Date" 
-                :value="endDate"
-                icon="ClockIcon"
-                size="sm"
-              />
+              
               <MetricCard 
                 title="Max Recipients" 
                 :value="maxRecipients"
                 icon="UserPlusIcon"
                 size="sm"
               />
+              
               <MetricCard 
-                v-if="registrationPeriod"
-                title="Registration" 
-                :value="registrationPeriod.isActive ? 'Open' : 'Closed'"
-                icon="ShieldCheckIcon"
-                size="sm"
-              />
-              <MetricCard 
-                v-else
                 title="Campaign Type" 
                 :value="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').label"
                 icon="ZapIcon"
@@ -192,12 +201,12 @@
             </div>
 
             <!-- Lock Detail (for Lock campaigns) -->
-            <div v-if="getVariantKey(details.campaignType) === 'Lock'" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-              <LockDetail :campaign="{ id: distributionId, creator: details.creator || '', config: details }" />
+            <div v-if="getVariantKey(details.campaignType) === 'Lock'" class="">
+              <LockDetail :campaign="{ id: distributionId, creator: details?.owner?.toText() || '', config: details as any }" />
             </div>
 
-            <!-- ApexCharts Vesting Schedule (for Airdrop/Vesting campaigns) -->
-            <div v-else class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+            <!-- ApexCharts Vesting Schedule (for Airdrop/Vesting campaigns with vesting data) -->
+            <div v-else-if="vestingScheduleData.length > 0" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
               <div class="flex items-center justify-between mb-8">
                 <div>
                   <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -242,6 +251,36 @@
                     <span class="">Current Time</span>
                   </div>
                 </div>
+            </div>
+
+            <!-- Claims Timeline (for Airdrop/Vesting campaigns only) -->
+            <div v-if="getVariantKey(details.campaignType) !== 'Lock'" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+              <div class="flex items-center justify-between mb-8">
+                <div>
+                  <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+                    Claims Timeline
+                    <Label size="sm" variant="blue">
+                      Daily Activity
+                    </Label>
+                  </h2>
+                  <p class="text-gray-600 dark:text-gray-400">Real-time tracking of token claims over time</p>
+                </div>
+              </div>
+
+              <div class="h-80">
+                <VueApexCharts v-if="claimTimelineData.length > 0"
+                  type="area"
+                  height="320"
+                  :options="claimTimelineOptions"
+                  :series="claimTimelineData" />
+                <div v-else class="flex flex-col items-center justify-center h-full">
+                  <div class="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4">
+                    <BarChart3Icon class="w-full h-full" />
+                  </div>
+                  <p class="text-gray-500 dark:text-gray-400 font-medium">No claims data available</p>
+                  <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Claims will appear here once users start claiming tokens</p>
+                </div>
+              </div>
             </div>
 
             <!-- Recipients & Transactions -->
@@ -404,41 +443,58 @@
 
           <!-- Right Column - Actions & Info -->
           <div class="space-y-6">
+            <!-- Campaign Timeline -->
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
+              <CampaignTimeline 
+                :timeline="campaignTimeline" 
+                :campaign-type="getVariantKey(details?.campaignType)"
+              />
+            </div>
+            
             <!-- Eligibility Status -->
             <div v-if="userContext"
               class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
               <div class="flex items-center space-x-3 mb-4">
-                <div class="p-2" :class="isEligible ? 'bg-green-100 dark:bg-green-900' : 'bg-gray-100 dark:bg-gray-700'">
-                  <ShieldCheckIcon class="w-5 h-5" :class="isEligible ? 'text-green-600 dark:text-green-400' : 'text-gray-500 dark:text-gray-400'" />
+                <div class="p-2 rounded-full" :class="statusStyles.iconBg">
+                  <component :is="statusIcon" class="w-5 h-5" :class="statusStyles.icon" />
                 </div>
                 <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Your Status</h3>
               </div>
 
               <div class="space-y-4">
-                <!-- Status Display -->
-                <div class="p-4 rounded-lg border" 
-                  :class="isRegistered ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' : 
-                          isEligible ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' :
-                          'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600'">
-                  <div class="flex items-center space-x-3">
-                    <CheckCircleIcon v-if="isRegistered" class="w-6 h-6 text-blue-500" />
-                    <CheckCircleIcon v-else-if="isEligible" class="w-6 h-6 text-green-500" />
-                    <XCircleIcon v-else class="w-6 h-6 text-gray-500" />
-                    <div>
-                      <p class="font-semibold" 
-                        :class="isRegistered ? 'text-blue-800 dark:text-blue-200' : 
-                                isEligible ? 'text-green-800 dark:text-green-200' :
-                                'text-gray-800 dark:text-gray-200'">
-                        {{ isRegistered ? 'Registered' : isEligible ? 'Eligible' : 'Not Eligible' }}
+                <!-- Enhanced Status Display -->
+                <div class="p-4 rounded-lg border transition-all duration-200" :class="statusStyles.container">
+                  <div class="flex items-start space-x-3">
+                    <div class="flex-shrink-0 mt-0.5">
+                      <component :is="statusIcon" class="w-6 h-6" :class="statusStyles.icon" />
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center justify-between">
+                        <p class="text-lg font-semibold" :class="statusStyles.title">
+                          {{ userStatus.label }}
+                        </p>
+                        <div v-if="userStatus.type === 'withdrawn'" 
+                             class="px-2 py-1 rounded-full text-xs font-medium bg-amber-200 dark:bg-amber-800 text-amber-800 dark:text-amber-200">
+                          100% Complete
+                        </div>
+                      </div>
+                      <p class="text-sm mt-1" :class="statusStyles.description">
+                        {{ userStatus.description }}
                       </p>
-                      <p class="text-sm" 
-                        :class="isRegistered ? 'text-blue-600 dark:text-blue-300' : 
-                                isEligible ? 'text-green-600 dark:text-green-300' :
-                                'text-gray-600 dark:text-gray-300'">
-                        {{ isRegistered ? 'You are registered and can claim tokens when available' : 
-                            isEligible ? 'You are eligible to participate in this distribution' :
-                            'You are not eligible for this distribution' }}
-                      </p>
+                      
+                      <!-- Progress indicator for registered users -->
+                      <div v-if="userStatus.type === 'registered' && Number(userAllocation) > 0" class="mt-3">
+                        <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                          <span>Progress</span>
+                          <span>{{ ((Number(alreadyClaimed) / Number(userAllocation)) * 100).toFixed(1) }}%</span>
+                        </div>
+                        <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5">
+                          <div 
+                            class="bg-gradient-to-r from-green-400 to-green-600 h-1.5 rounded-full transition-all duration-300"
+                            :style="{ width: Math.min((Number(alreadyClaimed) / Number(userAllocation)) * 100, 100) + '%' }"
+                          ></div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -464,13 +520,17 @@
                     </span>
                   </div>
                   <div class="flex justify-between text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">Available to Claim</span>
+                    <span class="text-gray-500 dark:text-gray-400">
+                      {{ getVariantKey(details.campaignType) === 'Lock' ? 'Available to Withdraw' : 'Available to Claim' }}
+                    </span>
                     <span class="font-semibold text-green-600 dark:text-green-400">
                       {{ availableToClaim > 0 ? BackendUtils.formatTokenAmount(availableToClaim, details.tokenInfo.decimals) : '0' }} {{ details.tokenInfo.symbol }}
                     </span>
                   </div>
                   <div class="flex justify-between text-sm">
-                    <span class="text-gray-500 dark:text-gray-400">Already Claimed</span>
+                    <span class="text-gray-500 dark:text-gray-400">
+                      {{ getVariantKey(details.campaignType) === 'Lock' ? 'Already Withdrawn' : 'Already Claimed' }}
+                    </span>
                     <span class="font-semibold text-gray-900 dark:text-white">
                       {{ alreadyClaimed > 0 ? BackendUtils.formatTokenAmount(alreadyClaimed, details.tokenInfo.decimals) : '0' }} {{ details.tokenInfo.symbol }}
                     </span>
@@ -480,7 +540,7 @@
                   <div v-if="userAllocation > 0" class="mt-4">
                     <ProgressBar
                       :percentage="Math.min((Number(alreadyClaimed) / Number(userAllocation)) * 100, 100)"
-                      label="Claim Progress"
+                      :label="getVariantKey(details.campaignType) === 'Lock' ? 'Withdrawal Progress' : 'Claim Progress'"
                       variant="brand"
                       size="sm"
                       :animated="true"
@@ -514,7 +574,7 @@
                       cy="50" 
                       r="40" 
                       fill="none" 
-                      stroke="#10b981" 
+                      stroke="#f0c94d" 
                       stroke-width="8"
                       stroke-linecap="round"
                       :stroke-dasharray="`${circleChartData.distributedPercentage * 2.51} 251.2`"
@@ -527,7 +587,7 @@
                       cy="50" 
                       r="40" 
                       fill="none" 
-                      stroke="#3b82f6" 
+                      stroke="#b27c10" 
                       stroke-width="8"
                       stroke-linecap="round"
                       :stroke-dasharray="`${circleChartData.remainingPercentage * 2.51} 251.2`"
@@ -550,7 +610,7 @@
                 <!-- Legend -->
                 <div class="flex justify-center space-x-6 mt-4">
                   <div class="flex items-center space-x-2">
-                    <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+                    <div class="w-3 h-3 bg-blue-300 rounded-full"></div>
                     <span class="text-sm text-gray-600 dark:text-gray-300">
                       Distributed ({{ circleChartData.distributedPercentage.toFixed(1) }}%)
                     </span>
@@ -618,9 +678,9 @@
                     <div class="flex items-center space-x-3">
                       <div class="w-3 h-3 bg-purple-500 rounded-full"></div>
                       <div>
-                        <p class="font-medium text-gray-900 dark:text-white">Lock Starts</p>
+                        <p class="font-medium text-gray-900 dark:text-white">Lock Period</p>
                         <p class="text-sm text-gray-500 dark:text-gray-400">
-                          {{ distributionStartDate ? formatDate(distributionStartDate) : 'Not available' }}
+                          {{ distributionStartDate ? formatDate(distributionStartDate, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not available' }}
                         </p>
                       </div>
                     </div>
@@ -634,7 +694,7 @@
                       <div>
                         <p class="font-medium text-gray-900 dark:text-white">Initial Unlock</p>
                         <p class="text-sm text-gray-500 dark:text-gray-400">
-                          {{ distributionStartDate ? formatDate(distributionStartDate) : 'Not available' }}
+                          {{ distributionStartDate ? formatDate(distributionStartDate, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not available' }}
                         </p>
                       </div>
                     </div>
@@ -647,10 +707,10 @@
                       <div class="w-3 h-3 bg-green-500 rounded-full"></div>
                       <div>
                         <p class="font-medium text-gray-900 dark:text-white">
-                          {{ getVariantKey(details.campaignType) === 'Lock' ? 'Tokens Unlock' : 'Linear Vesting Complete' }}
+                          {{ getVariantKey(details.campaignType) === 'Lock' ? 'Unlock' : 'Linear Vesting Complete' }}
                         </p>
                         <p class="text-sm text-gray-500 dark:text-gray-400">
-                          {{ vestingEndDate ? formatDate(vestingEndDate) : 'Not available' }}
+                          {{ vestingEndDate ? formatDate(vestingEndDate, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Not available' }}
                         </p>
                       </div>
                     </div>
@@ -663,11 +723,13 @@
 
               <!-- Distribution Progress -->
               <div>
-                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Distribution Progress</h4>
+                <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+                  {{ getVariantKey(details.campaignType) === 'Lock' ? 'Lock Progress' : 'Distribution Progress' }}
+                </h4>
                 <div class="space-y-3">
                   <ProgressBar
                     :percentage="100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0))"
-                    :label="`Current Period - ${(100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0))).toFixed(1)}% unlocked`"
+                    :label="`Current Period - ${(100 - (100 - initialUnlockPercentage - (stats?.completionPercentage ?? 0))).toFixed(1)}% ${getVariantKey(details.campaignType) === 'Lock' ? 'toward unlock' : 'unlocked'}`"
                     variant="brand"
                     size="lg"
                     :animated="true"
@@ -725,9 +787,14 @@ import MetricCard from '@/components/token/MetricCard.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
 import ContractBalanceStatus from '@/components/distribution/ContractBalanceStatus.vue'
+import VueApexCharts from 'vue3-apexcharts'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
+import CampaignTimeline from '@/components/campaign/CampaignTimeline.vue'
 import type { DistributionDetails, DistributionStats } from '@/types/distribution'
+import type { CampaignTimeline as CampaignTimelineType } from '@/types/campaignPhase'
+import { detectCampaignPhase, getPhaseConfig } from '@/utils/campaignPhase'
+import { CampaignPhase } from '@/types/campaignPhase'
 import { BackendUtils } from '@/utils/backend'
 import { getVariantKey, shortPrincipal, getFirstLetter } from '@/utils/common'
 import { 
@@ -737,9 +804,13 @@ import {
 } from '@/utils/distribution'
 import { cyclesToT } from '@/utils/common'
 import { parseTokenAmount } from '@/utils/token'
+import { formatDate } from '@/utils/dateFormat'
 import { toast } from 'vue-sonner'
+import { useTheme } from '@/components/layout/ThemeProvider.vue'
+
 const route = useRoute()
 const router = useRouter()
+const { isDarkMode } = useTheme() as { isDarkMode: any, toggleTheme: () => void }
 const loading = ref(true)
 const error = ref<string | null>(null)
 const details = ref<DistributionDetails | null>(null)
@@ -818,13 +889,37 @@ const vestingEndDate = computed(() => {
   if ('Single' in details.value.vestingSchedule) {
     const durationNanos = Number(details.value.vestingSchedule.Single.duration)
     const durationMs = durationNanos / 1_000_000
+    
+    // If duration is 0, it means permanently locked (no unlock date)
+    if (durationMs === 0) return null
+    
     return new Date(startTimestamp + durationMs)
   }
   
   if ('Linear' in details.value.vestingSchedule) {
     const durationNanos = Number(details.value.vestingSchedule.Linear.duration)
     const durationMs = durationNanos / 1_000_000
+    
+    // If duration is 0, it means permanently locked (no unlock date)
+    if (durationMs === 0) return null
+    
     return new Date(startTimestamp + durationMs)
+  }
+  
+  if ('Cliff' in details.value.vestingSchedule) {
+    const cliffConfig = details.value.vestingSchedule.Cliff
+    const cliffDurationNanos = Number(cliffConfig.cliffDuration)
+    const cliffDurationMs = cliffDurationNanos / 1_000_000
+    const vestingDurationNanos = Number(cliffConfig.vestingDuration)
+    const vestingDurationMs = vestingDurationNanos / 1_000_000
+    
+    // Total duration is cliff period + vesting period
+    const totalDurationMs = cliffDurationMs + vestingDurationMs
+    
+    // If total duration is 0, it means permanently locked (no unlock date)
+    if (totalDurationMs === 0) return null
+    
+    return new Date(startTimestamp + totalDurationMs)
   }
   
   return null
@@ -897,7 +992,7 @@ const vestingScheduleData = computed(() => {
       amount: 0,
       cumulative: 0,
       percentage: 0,
-      type: 'buffer'
+      type: 'buffer' as const
     })
     
     // Initial unlock - Handle Instant case
@@ -908,7 +1003,7 @@ const vestingScheduleData = computed(() => {
         amount: initialAmount,
         cumulative: cumulativeAmount,
         percentage: initialUnlock,
-        type: initialUnlock === 100 ? 'instant' : 'initial'
+        type: initialUnlock === 100 ? ('instant' as const) : ('initial' as const)
       })
     }
     
@@ -933,7 +1028,7 @@ const vestingScheduleData = computed(() => {
       amount: 0,
       cumulative: Math.min(cumulativeAmount, totalAmount),
       percentage: Math.min((cumulativeAmount / totalAmount) * 100, 100),
-      type: 'buffer'
+      type: 'buffer' as const
     })
     
     return schedule
@@ -941,9 +1036,9 @@ const vestingScheduleData = computed(() => {
   
   if ('Cliff' in details.value.vestingSchedule) {
     const cliffConfig = details.value.vestingSchedule.Cliff
-    const cliffDurationNanos = Number(cliffConfig.cliffPeriod)
+    const cliffDurationNanos = Number(cliffConfig.cliffDuration)
     const cliffDurationMs = cliffDurationNanos / 1_000_000
-    const vestingDurationNanos = Number(cliffConfig.vestingPeriod)
+    const vestingDurationNanos = Number(cliffConfig.vestingDuration)
     const vestingDurationMs = vestingDurationNanos / 1_000_000
     const frequency = cliffConfig.frequency
     
@@ -976,7 +1071,7 @@ const vestingScheduleData = computed(() => {
       amount: 0,
       cumulative: 0,
       percentage: 0,
-      type: 'buffer'
+      type: 'buffer' as const
     })
     
     // Initial unlock - Handle Instant case  
@@ -987,7 +1082,7 @@ const vestingScheduleData = computed(() => {
         amount: initialAmount,
         cumulative: cumulativeAmount,
         percentage: initialUnlock,
-        type: initialUnlock === 100 ? 'instant' : 'initial'
+        type: initialUnlock === 100 ? ('instant' as const) : ('initial' as const)
       })
     }
     
@@ -997,7 +1092,7 @@ const vestingScheduleData = computed(() => {
       amount: cliffAmount,
       cumulative: cumulativeAmount + cliffAmount,
       percentage: ((cumulativeAmount + cliffAmount) / totalAmount) * 100,
-      type: 'cliff'
+      type: 'cliff' as const
     })
     
     cumulativeAmount += cliffAmount
@@ -1023,7 +1118,7 @@ const vestingScheduleData = computed(() => {
       amount: 0,
       cumulative: Math.min(cumulativeAmount, totalAmount),
       percentage: Math.min((cumulativeAmount / totalAmount) * 100, 100),
-      type: 'buffer'
+      type: 'buffer' as const
     })
     
     return schedule
@@ -1035,14 +1130,6 @@ const vestingScheduleData = computed(() => {
 // Utility functions
 const formatNumber = (value: number) => {
   return new Intl.NumberFormat().format(value)
-}
-
-const formatDate = (date: Date) => {
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric'
-  }).format(date)
 }
 
 
@@ -1117,7 +1204,7 @@ const claimTokens = async () => {
     claimHistory.value.unshift({
       id: Date.now().toString(),
       amount: availableToClaim.value,
-      date: formatDate(new Date()),
+      date: formatDate(new Date(), { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }),
       txHash: Math.random().toString(36).substring(2, 18)
     })
 
@@ -1254,14 +1341,20 @@ const circleChartData = computed(() => {
 // Additional metrics for cards
 const startDate = computed(() => {
   if (!details.value?.distributionStart) return 'Not set'
-  return formatDate(new Date(Number(details.value.distributionStart) / 1_000_000))
+  return formatDate(new Date(Number(details.value.distributionStart) / 1_000_000), { 
+    year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric'
+  })
 })
 
 const endDate = computed(() => {
   if (!details.value?.distributionEnd || details.value.distributionEnd.length === 0) {
-    return vestingEndDate.value ? formatDate(vestingEndDate.value) : 'Not set'
+    return vestingEndDate.value ? formatDate(vestingEndDate.value, { 
+      year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric'
+    }) : 'Not set'
   }
-  return formatDate(new Date(Number(details.value.distributionEnd) / 1_000_000))
+  return formatDate(new Date(Number(details.value.distributionEnd) / 1_000_000), { 
+    year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric'
+  })
 })
 
 const maxRecipients = computed(() => {
@@ -1282,12 +1375,13 @@ const maxRecipients = computed(() => {
 const registrationPeriod = computed(() => {
   if (!details.value?.registrationPeriod || details.value.registrationPeriod.length === 0) return null
   
-  const start = new Date(Number(details.value.registrationPeriod[0]) / 1_000_000)
-  const end = new Date(Number(details.value.registrationPeriod[1]) / 1_000_000)
+  const regPeriod = details.value.registrationPeriod[0]
+  const start = new Date(Number(regPeriod.startTime) / 1_000_000)
+  const end = new Date(Number(regPeriod.endTime) / 1_000_000)
   
   return {
-    start: formatDate(start),
-    end: formatDate(end),
+    start: formatDate(start, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }),
+    end: formatDate(end, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }),
     isActive: Date.now() >= start.getTime() && Date.now() <= end.getTime()
   }
 })
@@ -1314,33 +1408,118 @@ const daysUntilEnd = computed(() => {
   return days
 })
 
-// Check if user can register for this campaign (legacy - prefer canRegisterFromContext)
-const canRegister = computed(() => {
-  // Use context-based registration check if available, otherwise fall back to old logic
-  if (userContext.value) {
-    return canRegisterFromContext.value
+// Campaign Timeline Logic
+const campaignTimeline = computed((): CampaignTimelineType => {
+  if (!details.value) {
+    return {
+      hasRegistration: false,
+      distributionStart: undefined,
+      distributionEnd: undefined
+    }
   }
   
-  // Fallback logic for when context is not available
-  if (!details.value || !stats.value) return false
+  const hasRegistration = details.value.recipientMode && 'SelfService' in details.value.recipientMode
+  const regPeriod = details.value.registrationPeriod
   
-  // Check recipient mode is SelfService
-  const isSelfService = details.value.recipientMode && 'SelfService' in details.value.recipientMode
+  // Handle distributionEnd properly
+  let distributionEnd: Date | undefined
+  const campaignType = getVariantKey(details.value.campaignType)
   
-  // Check eligibility type is Open  
-  const isOpen = details.value.eligibilityType && 'Open' in details.value.eligibilityType
-  
-  // Check campaign is active
-  const isActive = stats.value.isActive
-  
-  // Check if registration period is active (if exists)
-  let isRegistrationOpen = true
-  if (registrationPeriod.value) {
-    isRegistrationOpen = registrationPeriod.value.isActive
+  if (campaignType === 'Lock') {
+    // For Lock campaigns, ALWAYS use vesting schedule duration (durationLock + cliff)
+    distributionEnd = vestingEndDate.value || undefined
+  } else {
+    // For other campaigns, use explicit distributionEnd or fall back to vesting schedule
+    if (details.value.distributionEnd && details.value.distributionEnd.length > 0) {
+      // Explicit end time provided
+      distributionEnd = new Date(Number(details.value.distributionEnd[0]) / 1_000_000)
+    } else if (vestingEndDate.value) {
+      // Calculate from vesting schedule if available
+      distributionEnd = vestingEndDate.value
+    }
+    // If both are null/undefined, it's permanently active (distributionEnd = undefined)
   }
   
-  return isSelfService && isOpen && isActive && isRegistrationOpen
+  return {
+    hasRegistration,
+    registrationStart: hasRegistration && regPeriod && regPeriod.length > 0 && regPeriod[0] ? 
+      new Date(Number(regPeriod[0].startTime) / 1_000_000) : undefined,
+    registrationEnd: hasRegistration && regPeriod && regPeriod.length > 0 && regPeriod[0] ? 
+      new Date(Number(regPeriod[0].endTime) / 1_000_000) : undefined,
+    distributionStart: distributionStartDate.value || undefined,
+    distributionEnd
+  }
 })
+
+const phaseInfo = computed(() => detectCampaignPhase(campaignTimeline.value))
+const currentPhaseConfig = computed(() => getPhaseConfig(phaseInfo.value.currentPhase))
+
+// Phase-based countdown logic
+const showPhaseCountdown = computed(() => {
+  return phaseInfo.value.timeToNextPhase > 0 && phaseInfo.value.nextPhase !== undefined
+})
+
+const phaseCountdownTime = computed(() => phaseInfo.value.timeToNextPhase)
+
+const phaseCountdownLabel = computed(() => {
+  const nextPhase = phaseInfo.value.nextPhase
+  if (!nextPhase) return ''
+  
+  switch (nextPhase) {
+    case CampaignPhase.REGISTRATION_OPEN:
+      return 'Registration starts in:'
+    case CampaignPhase.REGISTRATION_CLOSED:
+      return 'Registration ends in:'
+    case CampaignPhase.DISTRIBUTION_LIVE:
+      return 'Distribution starts in:'
+    case CampaignPhase.DISTRIBUTION_ENDED:
+      return 'Distribution ends in:'
+    default:
+      return 'Next phase in:'
+  }
+})
+
+// Convert phase info to status string for DistributionCountdown component
+const countdownStatus = computed(() => {
+  const currentPhase = phaseInfo.value.currentPhase
+  const campaignType = details.value?.campaignType
+  
+  // Handle Lock campaign special status labels
+  if (campaignType && getVariantKey(campaignType) === 'Lock') {
+    switch (currentPhase) {
+      case CampaignPhase.CREATED:
+        return 'Created'
+      case CampaignPhase.REGISTRATION_OPEN:
+        return 'Registration Open'
+      case CampaignPhase.REGISTRATION_CLOSED:
+        return 'Registration Closed'
+      case CampaignPhase.DISTRIBUTION_LIVE:
+        return 'Locked'
+      case CampaignPhase.DISTRIBUTION_ENDED:
+        return 'Unlocked'
+      default:
+        return 'Unknown'
+    }
+  }
+  
+  // Handle regular campaign status labels
+  switch (currentPhase) {
+    case CampaignPhase.CREATED:
+      return 'Created'
+    case CampaignPhase.REGISTRATION_OPEN:
+      return 'Active'
+    case CampaignPhase.REGISTRATION_CLOSED:
+      return 'Registration Closed'
+    case CampaignPhase.DISTRIBUTION_LIVE:
+      return 'Active'
+    case CampaignPhase.DISTRIBUTION_ENDED:
+      return 'Completed'
+    default:
+      return 'Unknown'
+  }
+})
+
+
 
 // Get user context function
 const fetchUserContext = async () => {
@@ -1415,6 +1594,270 @@ const canRegisterFromContext = computed(() => {
 const canClaimFromContext = computed(() => {
   return userContext.value?.canClaim ?? false
 })
+
+// Enhanced status logic for three states: Eligible/Registered/Withdrawn
+const userStatus = computed(() => {
+  if (!userContext.value) return { type: 'unknown', label: 'Unknown', description: 'Status unavailable' }
+  
+  const isRegistered = userContext.value.isRegistered
+  const isEligible = userContext.value.isEligible
+  const allocation = Number(userAllocation.value)
+  const claimed = Number(alreadyClaimed.value)
+  const campaignType = details.value?.campaignType ? getVariantKey(details.value.campaignType) : null
+  
+  // Calculate withdrawal/claim completion percentage
+  const completionPercentage = allocation > 0 ? (claimed / allocation) * 100 : 0
+  
+  // Check if fully withdrawn/claimed (>=95% to account for rounding)
+  const isFullyWithdrawn = completionPercentage >= 95
+  
+  if (isFullyWithdrawn && (isRegistered || isEligible)) {
+    return {
+      type: 'withdrawn',
+      label: campaignType === 'Lock' ? 'Withdrawn' : 'Completed',
+      description: campaignType === 'Lock' 
+        ? 'You have withdrawn all available tokens' 
+        : 'You have claimed all available tokens'
+    }
+  }
+  
+  if (isRegistered) {
+    return {
+      type: 'registered',
+      label: 'Registered',
+      description: campaignType === 'Lock' 
+        ? 'You are registered and can withdraw tokens when unlocked' 
+        : 'You are registered and can claim tokens when available'
+    }
+  }
+  
+  if (isEligible) {
+    return {
+      type: 'eligible', 
+      label: 'Eligible',
+      description: 'You are eligible to participate in this distribution'
+    }
+  }
+  
+  return {
+    type: 'ineligible',
+    label: 'Not Eligible', 
+    description: 'You are not eligible for this distribution'
+  }
+})
+
+// Status styling configuration
+const statusStyles = computed(() => {
+  const status = userStatus.value.type
+  
+  switch (status) {
+    case 'eligible':
+      return {
+        container: 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700',
+        icon: 'text-blue-600 dark:text-blue-400',
+        title: 'text-blue-800 dark:text-blue-200',
+        description: 'text-blue-600 dark:text-blue-300',
+        iconBg: 'bg-blue-100 dark:bg-blue-900'
+      }
+    case 'registered':
+      return {
+        container: 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-700',
+        icon: 'text-green-600 dark:text-green-400',
+        title: 'text-green-800 dark:text-green-200', 
+        description: 'text-green-600 dark:text-green-300',
+        iconBg: 'bg-green-100 dark:bg-green-900'
+      }
+    case 'withdrawn':
+      return {
+        container: 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-700',
+        icon: 'text-amber-600 dark:text-amber-400',
+        title: 'text-amber-800 dark:text-amber-200',
+        description: 'text-amber-600 dark:text-amber-300',
+        iconBg: 'bg-amber-100 dark:bg-amber-900'
+      }
+    default: // ineligible/unknown
+      return {
+        container: 'bg-gray-50 dark:bg-gray-700/50 border-gray-200 dark:border-gray-600',
+        icon: 'text-gray-500 dark:text-gray-400',
+        title: 'text-gray-800 dark:text-gray-200',
+        description: 'text-gray-600 dark:text-gray-300',
+        iconBg: 'bg-gray-100 dark:bg-gray-700'
+      }
+  }
+})
+
+// Status icon component
+const statusIcon = computed(() => {
+  const status = userStatus.value.type
+  
+  switch (status) {
+    case 'eligible':
+      return ShieldCheckIcon
+    case 'registered': 
+      return CheckCircleIcon
+    case 'withdrawn':
+      return CoinsIcon
+    default:
+      return XCircleIcon
+  }
+})
+
+// Claims Timeline Data - Enhanced with vesting schedule integration
+const claimTimelineData = computed(() => {
+  const series = []
+  
+  // Actual Claims Series (if we have claim history)
+  if (claimHistory.value.length > 0) {
+    // Group claims by day
+    const claimsByDay = new Map()
+    claimHistory.value.forEach(claim => {
+      const day = new Date(Number(claim.timestamp) / 1_000_000).toDateString()
+      if (!claimsByDay.has(day)) {
+        claimsByDay.set(day, { total: 0, count: 0 })
+      }
+      claimsByDay.get(day).total += parseTokenAmount(claim.amount, details.value?.tokenInfo.decimals || 8).toNumber()
+      claimsByDay.get(day).count += 1
+    })
+    
+    const actualClaimsData = Array.from(claimsByDay.entries())
+      .sort((a, b) => new Date(a[0]).getTime() - new Date(b[0]).getTime())
+      .map(([day, stats]) => ({
+        x: new Date(day).getTime(),
+        y: stats.total
+      }))
+    
+    series.push({
+      name: 'Actual Claims',
+      type: 'column',
+      data: actualClaimsData
+    })
+  }
+  
+  // Expected Claims Series (based on vesting schedule)
+  if (vestingScheduleData.value.length > 0 && details.value) {
+    const totalAmount = Number(details.value.totalAmount)
+    const expectedClaimsData = vestingScheduleData.value
+      .filter(point => point.type !== 'buffer')
+      .map(point => ({
+        x: point.date.getTime(),
+        y: (point.amount / totalAmount) * totalAmount // Normalize to actual amounts
+      }))
+    
+    series.push({
+      name: 'Expected Unlocks',
+      type: 'line',
+      data: expectedClaimsData
+    })
+  }
+  
+  // If no data available, return empty array
+  return series.length > 0 ? series : []
+})
+
+const claimTimelineOptions = computed(() => ({
+  chart: {
+    height: 350,
+    type: 'line' as const,
+    stacked: false,
+    background: 'transparent',
+    toolbar: {
+      show: true,
+      tools: {
+        download: true,
+        selection: false,
+        zoom: true,
+        zoomin: true,
+        zoomout: true,
+        pan: true,
+        reset: true
+      }
+    },
+    zoom: {
+      enabled: true,
+      type: 'x' as const,
+      autoScaleYaxis: true
+    },
+    animations: {
+      enabled: true,
+      easing: 'easeinout',
+      speed: 800
+    }
+  },
+  stroke: {
+    width: [0, 2], // Column width 0, line width 2
+    curve: 'smooth' as const
+  },
+  colors: ['#3B82F6', '#10B981'], // Blue for actual claims, green for expected
+  fill: {
+    opacity: [0.85, 0.25],
+    gradient: {
+      shade: isDarkMode.value ? 'dark' : 'light',
+      type: 'vertical',
+      shadeIntensity: 0.4,
+      gradientToColors: ['#93C5FD', '#6EE7B7'],
+      inverseColors: false,
+      opacityFrom: [0.85, 0.25],
+      opacityTo: [0.6, 0.05]
+    }
+  },
+  plotOptions: {
+    bar: {
+      columnWidth: '50%'
+    }
+  },
+  xaxis: {
+    type: 'datetime' as const,
+    labels: {
+      format: 'MMM dd',
+      style: {
+        colors: isDarkMode.value ? '#9CA3AF' : '#6B7280'
+      }
+    },
+    axisBorder: {
+      color: isDarkMode.value ? '#374151' : '#E5E7EB'
+    },
+    axisTicks: {
+      color: isDarkMode.value ? '#374151' : '#E5E7EB'
+    }
+  },
+  yaxis: {
+    labels: {
+      formatter: (value: number) => `${formatNumber(value)} ${details.value?.tokenInfo.symbol || 'TOKENS'}`,
+      style: {
+        colors: isDarkMode.value ? '#9CA3AF' : '#6B7280'
+      }
+    },
+    axisBorder: {
+      color: isDarkMode.value ? '#374151' : '#E5E7EB'
+    }
+  },
+  grid: {
+    borderColor: isDarkMode.value ? '#374151' : '#E5E7EB',
+    strokeDashArray: 3
+  },
+  tooltip: {
+    theme: isDarkMode.value ? 'dark' : 'light',
+    shared: true,
+    intersect: false,
+    x: {
+      format: 'MMM dd, yyyy'
+    },
+    y: {
+      formatter: (value: number) => `${formatNumber(value)} ${details.value?.tokenInfo.symbol || 'TOKENS'}`
+    }
+  },
+  legend: {
+    show: true,
+    position: 'top' as const,
+    horizontalAlign: 'left' as const,
+    labels: {
+      colors: isDarkMode.value ? '#F3F4F6' : '#1F2937'
+    }
+  },
+  dataLabels: {
+    enabled: false
+  }
+}))
 
 const distributionId = computed(() => route.params.id as string)
 

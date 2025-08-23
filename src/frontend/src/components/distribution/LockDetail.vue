@@ -86,6 +86,28 @@ const timeUntilUnlock = computed(() => {
   }
 })
 
+// Progress calculation toward unlock (0% → 100% when unlocked)
+const unlockProgress = computed(() => {
+  if (!unlockTime.value || !props.campaign.config.distributionStart) return 0
+  
+  const now = new Date().getTime()
+  const startTime = new Date(Number(props.campaign.config.distributionStart) / 1_000_000).getTime()
+  const endTime = unlockTime.value.getTime()
+  
+  // If not started yet, 0% progress toward unlock
+  if (now <= startTime) return 0
+  
+  // If already ended, 100% progress (unlocked)
+  if (now >= endTime) return 100
+  
+  // Calculate percentage progress toward unlock
+  const totalDuration = endTime - startTime
+  const elapsed = now - startTime
+  const progressPercentage = (elapsed / totalDuration) * 100
+  
+  return Math.max(0, Math.min(100, progressPercentage))
+})
+
 // Format dates
 const formatDate = (date: Date) => {
   return new Intl.DateTimeFormat('en-US', {
@@ -120,83 +142,92 @@ const lockStatusClass = computed(() => {
 
 <template>
   <div class="space-y-6">
-    <!-- Lock Status Header -->
-    <div class="bg-gradient-to-r from-purple-50/50 to-indigo-50/50 dark:from-purple-900/10 dark:to-indigo-900/10 rounded-xl p-6 border border-purple-200/50 dark:border-purple-700/50">
+
+    <!-- Lock Progress with Countdown -->
+    <div v-if="isLocked" class="bg-gradient-to-br from-brand-50 to-brand-100 dark:from-brand-900/20 dark:to-brand-800/20 rounded-2xl p-8 border border-brand-200/50 dark:border-brand-700/50">
       <div class="flex items-start gap-4">
-        <div class="p-3 bg-purple-100 dark:bg-purple-900/30 rounded-xl">
-          <LockIcon class="w-8 h-8 text-purple-600 dark:text-purple-400" />
+        <div class="p-3 bg-gradient-to-br from-brand-500 to-brand-600 rounded-xl shadow-lg">
+          <LockIcon class="w-8 h-8 text-white" />
         </div>
         
         <div class="flex-1">
-          <div class="flex items-center gap-3 mb-2">
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">Token Lock Campaign</h3>
-            <div class="px-3 py-1 rounded-full text-sm font-medium border" :class="lockStatusClass">
-              {{ isLocked ? 'Locked' : 'Unlocked' }}
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-2xl font-bold text-gray-900 dark:text-white">Lock Progress</h3>
+            <div class="px-4 py-2 bg-brand-100 dark:bg-brand-900/30 border border-brand-200 dark:border-brand-700 text-brand-700 dark:text-brand-300 rounded-full text-sm font-semibold">
+              🔒 Locked
             </div>
           </div>
-          
-          <p class="text-gray-600 dark:text-gray-400 mb-4">
-            {{ campaign.config.description }}
-          </p>
 
-          <!-- Lock Overview -->
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
-              <div class="flex items-center gap-2 mb-2">
-                <ClockIcon class="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Lock Duration</span>
+          <!-- Countdown Timer -->
+          <div v-if="timeUntilUnlock" class="mb-6">
+            <vue-countdown 
+              :time="unlockTime ? (unlockTime.getTime() - new Date().getTime()) : 0"
+              v-slot="{ days, hours, minutes, seconds }"
+              class="grid grid-cols-4 gap-4"
+            >
+              <div class="text-center bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">{{ days }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Days</div>
               </div>
-              <div class="text-lg font-bold text-gray-900 dark:text-white">
-                {{ lockDurationFormatted }}
+              <div class="text-center bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">{{ hours }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Hours</div>
               </div>
-            </div>
+              <div class="text-center bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">{{ minutes }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Minutes</div>
+              </div>
+              <div class="text-center bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+                <div class="text-2xl font-bold text-brand-600 dark:text-brand-400">{{ seconds }}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">Seconds</div>
+              </div>
+            </vue-countdown>
+          </div>
 
-            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+          <!-- Timeline Information -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div class="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
               <div class="flex items-center gap-2 mb-2">
-                <CalendarIcon class="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Start Date</span>
+                <CalendarIcon class="w-5 h-5 text-green-600 dark:text-green-400" />
+                <span class="font-semibold text-gray-900 dark:text-white">Lock Start</span>
               </div>
-              <div class="text-lg font-bold text-gray-900 dark:text-white">
+              <div class="text-lg font-bold text-green-600 dark:text-green-400">
                 {{ campaign.config.distributionStart ? formatDate(new Date(Number(campaign.config.distributionStart) / 1_000_000)) : 'Not set' }}
               </div>
             </div>
 
-            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+            <div class="bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
               <div class="flex items-center gap-2 mb-2">
-                <CalendarIcon class="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Unlock Date</span>
+                <CalendarIcon class="w-5 h-5 text-red-600 dark:text-red-400" />
+                <span class="font-semibold text-gray-900 dark:text-white">Unlock Date</span>
               </div>
-              <div class="text-lg font-bold text-gray-900 dark:text-white">
+              <div class="text-lg font-bold text-red-600 dark:text-red-400">
                 {{ unlockTime ? formatDate(unlockTime) : 'Not set' }}
               </div>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Lock Progress -->
-    <div v-if="isLocked && timeUntilUnlock" class="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-6 border border-amber-200 dark:border-amber-700">
-      <div class="flex items-start gap-3">
-        <AlertTriangleIcon class="w-5 h-5 text-amber-600 dark:text-amber-400 mt-1" />
-        <div class="flex-1">
-          <h4 class="font-semibold text-amber-800 dark:text-amber-200 mb-2">Tokens Currently Locked</h4>
-          <p class="text-amber-700 dark:text-amber-300 mb-4">
-            Your tokens are locked and will be available for claiming in <strong>{{ timeUntilUnlock }}</strong>
-          </p>
           
-          <!-- Progress Bar -->
-          <div class="bg-amber-200 dark:bg-amber-800/50 rounded-full h-3 overflow-hidden">
-            <div 
-              class="bg-amber-500 dark:bg-amber-400 h-full transition-all duration-300 rounded-full"
-              :style="{ width: unlockTime ? `${Math.max(0, Math.min(100, ((new Date().getTime() - new Date(Number(campaign.config.distributionStart!)).getTime()) / (unlockTime.getTime() - new Date(Number(campaign.config.distributionStart!)).getTime())) * 100))}%` : '0%' }"
-            ></div>
+          <!-- Enhanced Progress Bar -->
+          <div class="mb-4">
+            <div class="flex justify-between text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <span>Progress to Unlock</span>
+              <span>{{ Math.round(unlockProgress) }}% Complete</span>
+            </div>
+            <div class="relative bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
+              <div 
+                class="bg-gradient-to-r from-brand-500 to-brand-600 h-full transition-all duration-500 ease-out rounded-full shadow-sm"
+                :style="{ width: unlockProgress + '%' }"
+              >
+                <div class="h-full bg-gradient-to-r from-white/20 to-transparent rounded-full"></div>
+              </div>
+            </div>
           </div>
-          
-          <div class="flex justify-between text-xs text-amber-600 dark:text-amber-400 mt-2">
-            <span>Lock Start</span>
-            <span>{{ Math.round(unlockTime ? ((new Date().getTime() - new Date(Number(campaign.config.distributionStart!)).getTime()) / (unlockTime.getTime() - new Date(Number(campaign.config.distributionStart!)).getTime())) * 100 : 0) }}% Complete</span>
-            <span>Unlock</span>
+
+          <!-- Lock Duration Info -->
+          <div class="flex items-center justify-center bg-white dark:bg-gray-800 rounded-xl p-4 border border-gray-200 dark:border-gray-700">
+            <ClockIcon class="w-5 h-5 text-brand-600 dark:text-brand-400 mr-3" />
+            <span class="text-gray-700 dark:text-gray-300">Total Lock Duration: </span>
+            <span class="font-bold text-brand-600 dark:text-brand-400 ml-2">{{ lockDurationFormatted }}</span>
           </div>
         </div>
       </div>

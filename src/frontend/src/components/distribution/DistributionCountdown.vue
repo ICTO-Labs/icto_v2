@@ -114,15 +114,34 @@ const countdownState = computed(() => {
     }
   }
   
+  // Handle Lock campaign specific statuses
+  if (props.status === 'Created') {
+    return {
+      type: 'upcoming',
+      message: 'Created'
+    }
+  }
+  
+  if (props.status === 'Locked') {
+    return {
+      type: 'live',
+      message: 'Locked'
+    }
+  }
+  
+  if (props.status === 'Unlocked') {
+    return {
+      type: 'ended', 
+      message: 'Unlocked'
+    }
+  }
+  
   return {
     type: 'unknown',
     message: props.status || 'Unknown'
   }
 })
 
-const formatTimeUnit = (value: number, unit: string): string => {
-  return `${value}${unit.charAt(0)}`
-}
 
 const formatCountdown = (timeRemaining: TimeRemaining): string => {
   if (timeRemaining.days > 0) {

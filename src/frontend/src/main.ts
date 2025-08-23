@@ -18,6 +18,7 @@ import { setupDirectives } from './plugins/directives'
 import TooltipPlugin from '@/plugins/tooltip'
 import SelectPlugin from '@/plugins/select'
 import { SwitchPlugin } from '@/plugins/switch'
+import VueCountdown from '@chenfengyuan/vue-countdown';
 
 const app = createApp(App)
 
@@ -28,6 +29,7 @@ app.use(VueSweetalert2)
 app.use(TooltipPlugin)
 app.use(SelectPlugin)
 app.use(SwitchPlugin)
+app.component(VueCountdown.name as string, VueCountdown);
 setupDirectives(app)
 
 app.mount('#app')
