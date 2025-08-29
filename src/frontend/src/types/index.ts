@@ -12,6 +12,7 @@ export * from './token';
 export * from './launchpad';
 export * from './lock';
 export * from './distribution';
+export * from './dao';
 
 export interface TokenMetrics {
     price: number

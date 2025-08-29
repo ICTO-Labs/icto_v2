@@ -447,7 +447,9 @@ module FactoryRegistryService {
                 let factoryPrincipal = switch (relationshipType) {
                     case (#DistributionRecipient) { canisterIds.distributionFactory };
                     case (#LaunchpadParticipant) { canisterIds.launchpadFactory };
-                    case (#DAOMember) { canisterIds.templateFactory }; // DAOs use template factory
+                    case (#DAOMember) { canisterIds.daoFactory }; // DAOs use DAO factory
+                    case (#DAOOwner) { canisterIds.daoFactory }; // DAO owners use DAO factory
+                    case (#DAOEmergencyContact) { canisterIds.daoFactory }; // DAO emergency contacts use DAO factory
                     case (#MultisigSigner) { canisterIds.templateFactory }; // Multisigs use template factory
                 };
                 

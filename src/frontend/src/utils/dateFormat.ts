@@ -1,4 +1,9 @@
 export const formatTimeAgo = (timestamp: number): string => {
+    // Handle invalid timestamps
+    if (timestamp == null || !isFinite(timestamp) || timestamp <= 0) {
+        return 'N/A'
+    }
+    
     const now = Date.now()
     const secondsAgo = Math.floor((now - timestamp) / 1000)
 
@@ -36,7 +41,18 @@ export const formatTimeAgo = (timestamp: number): string => {
 }
 
 export const formatDate = (date: Date | number | string, options: Intl.DateTimeFormatOptions = {}): string => {
+    // Handle null, undefined, or invalid values
+    if (date == null || date === '' || (typeof date === 'number' && !isFinite(date))) {
+        return 'N/A'
+    }
+    
     const dateObj = typeof date === 'string' ? new Date(date) : new Date(date)
+    
+    // Check if date is valid
+    if (isNaN(dateObj.getTime())) {
+        return 'Invalid Date'
+    }
+    
     return new Intl.DateTimeFormat('en-US', {
         year: 'numeric',
         month: 'short',
@@ -54,8 +70,18 @@ export const formatDateTime = (date: Date | number | string): string => {
 }
 
 export const formatDateRange = (start: Date | number | string, end: Date | number | string): string => {
+    // Handle invalid inputs
+    if (start == null || end == null) {
+        return 'N/A'
+    }
+    
     const startDate = new Date(start)
     const endDate = new Date(end)
+    
+    // Check if dates are valid
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        return 'Invalid Date Range'
+    }
 
     if (startDate.getFullYear() === endDate.getFullYear()) {
         if (startDate.getMonth() === endDate.getMonth()) {
@@ -64,4 +90,24 @@ export const formatDateRange = (start: Date | number | string, end: Date | numbe
         return `${formatDate(startDate, { month: 'short', day: 'numeric' })} - ${formatDate(endDate)}`
     }
     return `${formatDate(startDate)} - ${formatDate(endDate)}`
-} 
+}
+
+// Safe timestamp formatter specifically for admin UI
+export const formatTimestampSafe = (timestamp: number | null | undefined): string => {
+    if (timestamp == null || !isFinite(timestamp) || timestamp <= 0) {
+        return 'N/A'
+    }
+    
+    // Convert from nanoseconds to milliseconds if needed (IC timestamps are often in nanoseconds)
+    let ts = timestamp
+    if (timestamp > 1e16) { // If timestamp looks like nanoseconds
+        ts = Math.floor(timestamp / 1000000) // Convert to milliseconds
+    }
+    
+    return formatDate(ts, { 
+        month: 'short', 
+        day: 'numeric', 
+        hour: 'numeric', 
+        minute: '2-digit' 
+    })
+}

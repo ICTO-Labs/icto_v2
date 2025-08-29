@@ -74,6 +74,12 @@ module ConfigService {
         ignore set(state, "distribution_factory.enabled", "false", backendId);
         ignore set(state, "distribution_factory.fee", "100000000", backendId);
         ignore set(state, "distribution_factory.initial_cycles", "200000000", backendId);
+
+        // DAO Factory
+        ignore set(state, "dao_factory.enabled", "true", backendId);
+        ignore set(state, "dao_factory.fee", "500000000", backendId); // 5 ICP for DAO deployment
+        ignore set(state, "dao_factory.initial_cycles", "300000000", backendId);
+
     };
 
     public func fromStableState(stableState: ConfigTypes.StableState) : ConfigTypes.State {

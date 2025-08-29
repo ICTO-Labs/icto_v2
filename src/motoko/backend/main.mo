@@ -37,6 +37,9 @@ import TemplateFactoryTypes "./modules/template_factory/TemplateFactoryTypes";
 import DistributionFactoryService "./modules/distribution_factory/DistributionFactoryService";
 import DistributionFactoryTypes "./modules/distribution_factory/DistributionFactoryTypes";
 import DistributionFactoryInterface "./modules/distribution_factory/DistributionFactoryInterface";
+import DAOFactoryService "./modules/dao_factory/DAOFactoryService";
+import DAOFactoryTypes "./modules/dao_factory/DAOFactoryTypes";
+import DAOFactoryInterface "./modules/dao_factory/DAOFactoryInterface";
 // Launchpad, Lock modules are used via the Microservice module
 
 // Shared Types
@@ -146,11 +149,11 @@ persistent actor Backend {
     // ==================================================================================================
 
     private func _isAdmin(caller : Principal) : Bool {
-        Principal.isController(caller) or ConfigService.isAdmin(configState, caller);
+        ConfigService.isAdmin(configState, caller);
     };
 
     private func _isSuperAdmin(caller : Principal) : Bool {
-        ConfigService.isSuperAdmin(configState, caller);
+        Principal.isController(caller) or ConfigService.isSuperAdmin(configState, caller);
     };
 
     private func _isAuthenticated(caller : Principal) : Bool {
@@ -281,6 +284,22 @@ persistent actor Backend {
                         allowModification = ?config.allowModification;
                         feeStructure = ?debug_show (config.feeStructure);
                     });
+                    case (#DAO(config)) #DAO({
+                        daoName = config.name;
+                        tokenSymbol = ""; // Will be fetched from token canister
+                        tokenCanisterId = config.tokenCanisterId;
+                        governanceType = config.governanceType;
+                        stakingEnabled = config.stakingEnabled;
+                        votingPowerModel = config.votingPowerModel;
+                        initialSupply = config.initialSupply;
+                        emergencyContacts = Array.map<Principal, Text>(config.emergencyContacts, Principal.toText);
+                        description = ?config.description;
+                        minimumStake = ?config.minimumStake;
+                        proposalThreshold = ?config.proposalThreshold;
+                        quorumPercentage = ?config.quorumPercentage;
+                        timelockDuration = ?config.timelockDuration;
+                        maxVotingPeriod = ?config.maxVotingPeriod;
+                    });
                 };
                 status = #Initiated;
                 payload = debug_show (payload);
@@ -368,6 +387,32 @@ persistent actor Backend {
                         };
                     };
                 };
+                case (#DAO(config)) {
+                    Debug.print("Preparing DAO deployment");
+                    Debug.print("🚥 DAO Config: " # debug_show (config));
+                    let preparedCallResult = await DAOFactoryService.prepareDeployment(
+                        (), // DAO factory doesn't need internal state
+                        caller,
+                        config,
+                        configState,
+                        microserviceState,
+                    );
+
+                    Debug.print("⚠️ Prepared Call Result: " # debug_show (preparedCallResult));
+
+                    switch (preparedCallResult) {
+                        case (#err(msg)) { #err(msg) };
+                        case (#ok(call)) {
+                            Debug.print("⚠️ DAO Call: " # debug_show (call));
+                            let deployerActor = actor (Principal.toText(call.canisterId)) : DAOFactoryInterface.DAOFactoryActor;
+                            let result = await deployerActor.createDAO(call.args);
+                            switch (result) {
+                                case (#Ok(res)) { #ok(res.canisterId) };
+                                case (#Err(msg)) { #err(msg) };
+                            };
+                        };
+                    };
+                };
             };
         };
 
@@ -401,6 +446,7 @@ persistent actor Backend {
                     case (#CreateDistribution) { ?#Distribution };
                     case (#CreateToken) { ?#Token };
                     case (#CreateTemplate) { ?#Template };
+                    case (#CreateDAO) { ?#DAO };
                     case _ { null };
                 };
                 
@@ -418,6 +464,13 @@ persistent actor Backend {
                                 ?{
                                     name = ?(config.tokenConfig.name # " (" # config.tokenConfig.symbol # ")");
                                     description = config.tokenConfig.description;
+                                    version = null;
+                                }
+                            };
+                            case (#DAO(config)) {
+                                ?{
+                                    name = ?config.name;
+                                    description = ?config.description;
                                     version = null;
                                 }
                             };
@@ -480,6 +533,34 @@ persistent actor Backend {
                                 );
                             };
                             case null { }; // No automatic recipients to register
+                        };
+                    };
+                    case (#CreateDAO, #DAO(config)) {
+                        // Register DAO creator as owner
+                        ignore FactoryRegistryService.addUserRelationship(
+                            factoryRegistryState,
+                            microserviceState,
+                            caller,
+                            #DAOOwner,
+                            canisterId,
+                            {
+                                name = config.name;
+                                description = ?config.description;
+                                additionalData = null;
+                            }
+                        );
+                        
+                        // Register emergency contacts if any
+                        if (config.emergencyContacts.size() > 0) {
+                            ignore FactoryRegistryService.batchAddUserRelationshipsFromFlow(
+                                factoryRegistryState,
+                                microserviceState,
+                                #DAOEmergencyContact,
+                                canisterId,
+                                config.emergencyContacts,
+                                config.name,
+                                ?("Emergency contacts for DAO: " # config.description)
+                            );
                         };
                     };
                     case _ { }; // Other deployment types don't create automatic relationships
@@ -693,6 +774,69 @@ persistent actor Backend {
         };
     };
 
+    public shared ({ caller }) func deployDAO(
+        config : DAOFactoryTypes.DAOConfig,
+        projectId : ?ProjectTypes.ProjectId
+    ) : async Result.Result<DAOFactoryTypes.DeploymentResult, Text> {
+
+        // Basic validation
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated to deploy a DAO.");
+        };
+
+        // All complex logic is now delegated to the standard flow
+        let flowResult = await _handleStandardDeploymentFlow(
+            caller,
+            #CreateDAO, // The specific ActionType for auditing and fees
+            projectId,
+            #DAO(config),
+        );
+
+        switch (flowResult) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok(result)) {
+
+                // Post-deployment state updates specific to DAO deployment
+                ignore UserService.recordDeployment(
+                    userState,
+                    caller,
+                    projectId,
+                    result.canisterId,
+                    #DAOFactory,
+                    #DAO({
+                        daoName = config.name;
+                        governanceToken = config.tokenCanisterId;
+                        votingThreshold = config.proposalThreshold;
+                        proposalDuration = config.maxVotingPeriod;
+                        executionDelay = config.timelockDuration;
+                        memberCount = 0; // Will be populated after deployment
+                    }),
+                    {
+                        cyclesCost = 0; // TODO
+                        deploymentFee = result.paidAmount;
+                        paymentToken = paymentState.config.acceptedTokens[0]; // Assuming first token
+                        totalCost = result.paidAmount;
+                        transactionId = result.transactionId;
+                    },
+                    {
+                        name = config.name;
+                        description = ?config.description;
+                        tags = config.tags;
+                        version = "1.0.0";
+                        isPublic = config.isPublic;
+                        parentProject = projectId;
+                        dependsOn = [config.tokenCanisterId];
+                    },
+                );
+
+                // Return the specific result type expected by the frontend
+                return #ok({
+                    daoCanisterId = result.canisterId;
+                });
+            };
+        };
+    };
+
 
     // ==================================================================================================
     // ADMIN & HEALTH-CHECK
@@ -867,6 +1011,7 @@ persistent actor Backend {
         microserviceState.setupCompleted := false;
         ignore await AuditService.logAction(auditState, caller, #UpdateSystemConfig, #RawData("Forced microservice setup reset"), null, null, null, null);
     };
+
 
     // ==================================================================================================
     // ADMIN QUERY ENDPOINTS
@@ -1080,6 +1225,99 @@ persistent actor Backend {
     };
 
     // ==================================================================================================
+    // ADMIN MANAGEMENT ENDPOINTS
+    // ==================================================================================================
+
+    // Add new admin (super admin only)
+    public shared ({ caller }) func adminAddAdmin(newAdmin : Principal) : async Result.Result<(), Text> {
+        // 1. Authorization - Only super admins can add new admins
+        switch (_onlySuperAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminAddAdmin: Super-admin access required"), null, null, ?#Backend, null);
+                return #err(msg);
+            };
+            case (#ok()) {};
+        };
+
+        // 2. Add the admin
+        ConfigService.addAdmin(configState, newAdmin);
+
+        // 3. Log the action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UserManagement,
+            #AdminData({
+                adminAction = "Add New Admin";
+                targetUser = ?newAdmin;
+                configChanges = "Added admin: " # Principal.toText(newAdmin);
+                justification = "Super admin request to add new admin.";
+            }),
+            null,
+            null,
+            ?#Backend,
+            null
+        );
+
+        return #ok(());
+    };
+
+    // Remove admin (super admin only)
+    public shared ({ caller }) func adminRemoveAdmin(adminToRemove : Principal) : async Result.Result<(), Text> {
+        // 1. Authorization - Only super admins can remove admins
+        switch (_onlySuperAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("adminRemoveAdmin: Super-admin access required"), null, null, ?#Backend, null);
+                return #err(msg);
+            };
+            case (#ok()) {};
+        };
+
+        // 2. Prevent removing yourself or super admins
+        if (Principal.equal(caller, adminToRemove)) {
+            return #err("Cannot remove yourself as admin");
+        };
+
+        if (ConfigService.isSuperAdmin(configState, adminToRemove)) {
+            return #err("Cannot remove super admin");
+        };
+
+        // 3. Remove the admin
+        ConfigService.removeAdmin(configState, adminToRemove);
+
+        // 4. Log the action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UserManagement,
+            #AdminData({
+                adminAction = "Remove Admin";
+                targetUser = ?adminToRemove;
+                configChanges = "Removed admin: " # Principal.toText(adminToRemove);
+                justification = "Super admin request to remove admin.";
+            }),
+            null,
+            null,
+            ?#Backend,
+            null
+        );
+
+        return #ok(());
+    };
+
+    // Get all admins (admin only)
+    public shared ({ caller }) func adminGetAdmins() : async [Principal] {
+        if (not _isAdmin(caller)) { return [] };
+        return ConfigService.getAdmins(configState);
+    };
+
+    // Get all super admins (admin only)  
+    public shared ({ caller }) func adminGetSuperAdmins() : async [Principal] {
+        if (not _isAdmin(caller)) { return [] };
+        return ConfigService.getSuperAdmins(configState);
+    };
+
+    // ==================================================================================================
     // PAYMENT & FEES - PUBLIC ENDPOINTS
     // ==================================================================================================
 
@@ -1272,14 +1510,14 @@ persistent actor Backend {
     // SYSTEM HEALTH APIs
     // ==================================================================================================
 
-    public shared query func getSystemStatus() : async {
+    public shared func getSystemStatus() : async {
         isMaintenanceMode : Bool;
         servicesHealth : [MicroserviceTypes.ServiceHealth];
         lastUpgrade : Int;
     } {
         {
             isMaintenanceMode = ConfigService.getBool(configState, "system.maintenance_mode", false);
-            servicesHealth = MicroserviceService.getServicesHealth(microserviceState);
+            servicesHealth = await getMicroserviceHealth(); // Use real-time health check
             lastUpgrade = ConfigService.getNumber(configState, "system.last_upgrade", 0);
         };
     };

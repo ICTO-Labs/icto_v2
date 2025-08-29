@@ -5,12 +5,13 @@
         <div class="relative">
             <!-- Select Button -->
             <ListboxButton :class="[
-                'relative cursor-default rounded-md bg-white py-2 pl-3 pr-10 text-left border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm',
+                'relative cursor-default rounded-md bg-white pl-3 pr-10 text-left border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm',
                 disabled ? 'opacity-50 cursor-not-allowed bg-gray-50' : 'hover:border-gray-400 transition-colors duration-200',
                 error ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : '',
                 width === 'auto' ? 'w-auto min-w-fit' : width === 'full' ? 'w-full' : `w-${width}`,
                 !noShadow && 'shadow-sm',
-                customButtonClass
+                customButtonClass,
+                size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-2'
             ]" :style="customWidth ? { width: customWidth } : {}">
                 <span class="block" :class="!selectedLabel && 'text-gray-400'">
                     {{ selectedLabel || placeholder }}
@@ -100,12 +101,13 @@ interface Props {
     error?: string
     customButtonClass?: string
     dropdownClass?: string
+    size?: 'sm' | 'md' | 'lg'
     // Width control
     width?: 'auto' | 'full' | string
     customWidth?: string
     // Style control
     noShadow?: boolean
-    // Props để support object options
+    // Props support object options
     labelKey?: string
     valueKey?: string
 }
@@ -117,7 +119,8 @@ const props = withDefaults(defineProps<Props>(), {
     width: 'full',
     noShadow: false,
     labelKey: 'label',
-    valueKey: 'value'
+    valueKey: 'value',
+    size: 'md'
 })
 
 // Emits
@@ -155,11 +158,11 @@ const selectedLabel = computed(() => {
         if (props.modelValue.length === 0) return ''
         if (props.modelValue.length === 1) {
             const option = normalizedOptions.value.find(opt =>
-                opt.value === props.modelValue[0]
+                opt.value === (props.modelValue as any[])[0]
             )
             return option?.label || ''
         }
-        return `${props.modelValue.length} selected`
+        return `${(props.modelValue as any[]).length} selected`
     }
 
     const option = normalizedOptions.value.find(opt =>

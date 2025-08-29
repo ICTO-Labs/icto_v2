@@ -84,6 +84,7 @@ module AuditTypes {
         switch (serviceType) {
             case (#TokenFactory) "token_factory";
             case (#LockFactory) "lock_factory";
+            case (#DAOFactory) "dao_factory";
             case (#DistributionFactory) "distribution_factory";
             case (#LaunchpadFactory) "launchpad_factory";
             case (#InvoiceService) "invoice_service";

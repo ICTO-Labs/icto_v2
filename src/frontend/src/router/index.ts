@@ -7,6 +7,90 @@ const router = createRouter({
   },
   routes: [
     {
+      path: '/admin',
+      name: 'AdminDashboard',
+      component: () => import('../views/Admin/AdminDashboard.vue'),
+      meta: {
+        title: 'Admin Dashboard',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/dashboard',
+      redirect: '/admin'
+    },
+    {
+      path: '/admin/management',
+      name: 'AdminManagement',
+      component: () => import('../views/Admin/AdminManagement.vue'),
+      meta: {
+        title: 'Admin Management',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/users',
+      name: 'AdminUsers',
+      component: () => import('../views/Admin/AdminUsers.vue'),
+      meta: {
+        title: 'User Management',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/payments',
+      name: 'AdminPayments',
+      component: () => import('../views/Admin/AdminPayments.vue'),
+      meta: {
+        title: 'Payment Management',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/deployments',
+      name: 'AdminDeployments',
+      component: () => import('../views/Admin/AdminDeployments.vue'),
+      meta: {
+        title: 'Deployment Management',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/config',
+      name: 'AdminConfig',
+      component: () => import('../views/Admin/AdminConfig.vue'),
+      meta: {
+        title: 'System Configuration',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/audit',
+      name: 'AdminAudit',
+      component: () => import('../views/Admin/AdminAudit.vue'),
+      meta: {
+        title: 'Audit Logs',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
+      path: '/admin/refunds',
+      name: 'AdminRefunds',
+      component: () => import('../views/Admin/AdminRefunds.vue'),
+      meta: {
+        title: 'Refund Management',
+        requiresAuth: true,
+        adminOnly: true,
+      },
+    },
+    {
       path: '/',
       name: 'Ecommerce',
       component: () => import('../views/Ecommerce.vue'),
@@ -221,6 +305,62 @@ const router = createRouter({
         title: 'Manage Distribution',
         requiresAuth: true,
         adminOnly: true
+      },
+    },
+    {
+      path: '/dao',
+      name: 'DAOIndex',
+      component: () => import('../views/DAO/DAOIndex.vue'),
+      meta: {
+        title: 'miniDAO Center',
+      },
+    },
+    {
+      path: '/dao/create',
+      name: 'DAOCreate',
+      component: () => import('../views/DAO/DAOCreate.vue'),
+      meta: {
+        title: 'Create DAO',
+      },
+    },
+    {
+      path: '/dao/:id',
+      name: 'DAODetail',
+      component: () => import('../views/DAO/DAODetail.vue'),
+      meta: {
+        title: 'DAO Detail',
+      },
+    },
+    {
+      path: '/dao/:id/proposals',
+      name: 'DAOProposals',
+      component: () => import('../views/DAO/DAOProposals.vue'),
+      meta: {
+        title: 'DAO Proposals',
+      },
+    },
+    {
+      path: '/dao/:id/proposal/:proposalId',
+      name: 'ProposalDetail',
+      component: () => import('../views/DAO/ProposalDetail.vue'),
+      meta: {
+        title: 'Proposal Detail',
+      },
+    },
+    {
+      path: '/dao/:id/members',
+      name: 'DAOMembers',
+      component: () => import('../views/DAO/DAOMembers.vue'),
+      meta: {
+        title: 'DAO Members',
+      },
+    },
+    {
+      path: '/dao/:id/governance',
+      name: 'DAOGovernance',
+      component: () => import('../views/DAO/DAOGovernance.vue'),
+      meta: {
+        title: 'DAO Governance',
       },
     },
     {

@@ -61,6 +61,7 @@ module Types {
         #CreateToken;
         #CreateTemplate;
         #CreateDistribution;
+        #CreateDAO;
         
         // Pipeline Actions
         #StartPipeline;
@@ -154,6 +155,23 @@ module Types {
         votingConfig: Text;
     };
     
+    public type DAOActionData = {
+        daoName: Text;
+        tokenSymbol: Text;
+        tokenCanisterId: Principal;
+        governanceType: Text;
+        stakingEnabled: Bool;
+        votingPowerModel: Text;
+        initialSupply: ?Nat;
+        emergencyContacts: [Text];
+        description: ?Text;
+        minimumStake: ?Nat;
+        proposalThreshold: ?Nat;
+        quorumPercentage: ?Nat;
+        timelockDuration: ?Nat;
+        maxVotingPeriod: ?Nat;
+    };
+    
     public type PaymentActionData = {
         amount: Nat;
         tokenId: Principal;
@@ -187,6 +205,7 @@ module Types {
             #Token: TokenActionData;
             #Template: Text;
             #Distribution: DistributionActionData;
+            #DAO: DAOActionData;
             #Other: Text;
         };
         status: ActionStatus;
@@ -201,6 +220,7 @@ module Types {
         #LockData : LockActionData;
         #DistributionData : DistributionActionData;
         #LaunchpadData : LaunchpadActionData;
+        #DAOData : DAOActionData;
         #PaymentData : PaymentActionData;
         #PipelineData : PipelineActionData;
         #AdminData : AdminActionData;
@@ -266,6 +286,7 @@ module Types {
         #TokenFactory;
         #LockFactory;
         #DistributionFactory;
+        #DAOFactory;
         #LaunchpadFactory;
         #InvoiceService;
         #Backend;

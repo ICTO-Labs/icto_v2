@@ -1,7 +1,28 @@
-import type { DeploymentRequest, DeploymentRecord } from '../../../declarations/backend/backend.did'
+import type { 
+  DeploymentRequest, 
+  DeploymentRecord,
+  AuditEntry,
+  ActionType,
+  ActionStatus,
+  ActionData,
+  PaymentRecord,
+  UserProfile,
+  ServiceHealth,
+  RefundRequest
+} from '../../../declarations/backend/backend.did'
 
-export type { DeploymentRequest };
-export type { DeploymentRecord };
+export type { 
+  DeploymentRequest,
+  DeploymentRecord,
+  AuditEntry,
+  ActionType,
+  ActionStatus,
+  ActionData,
+  PaymentRecord,
+  UserProfile,
+  ServiceHealth,
+  RefundRequest
+};
 export interface DeployTokenResponse {
     canisterId: import('@dfinity/principal').Principal
     success: boolean

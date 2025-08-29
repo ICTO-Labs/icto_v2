@@ -12,7 +12,12 @@ import { canisterId as icpCanisterId } from "../api/actor/icp_ledger";
 import { idlFactory as icpIDL } from "../api/actor/icp_ledger/icp_ledger.did.js";
 import type { _SERVICE as _ICP_SERVICE } from "../api/actor/icp_ledger/icp_ledger.did.d.ts";
 import { IDL } from "@dfinity/candid";
-
+// DAO Contract
+import {
+    canisterId as daoContractCanisterId,
+    idlFactory as daoContractIDL,
+} from "../../../declarations/dao_contract";
+import type { _SERVICE as _DAO_CONTRACT_SERVICE } from "../../../declarations/dao_contract/dao_contract.did.d.ts";
 // Distribution Contract (Template)
 import {
     canisterId as distributionContractCanisterId,
@@ -20,12 +25,14 @@ import {
 } from "../../../declarations/distribution_contract";
 import type { _SERVICE as _DISTRIBUTION_CONTRACT_SERVICE } from "../../../declarations/distribution_contract/distribution_contract.did.d.ts";
 
+
 // Consolidated canister types
 export type CanisterType = {
     BACKEND: _BACKEND;
     ICP_LEDGER: _ICP_SERVICE;
     ICRC2_LEDGER: _ICRC2_SERVICE;
     DISTRIBUTION_CONTRACT: _DISTRIBUTION_CONTRACT_SERVICE;
+    DAO_CONTRACT: _DAO_CONTRACT_SERVICE;
 };
 
 export type CanisterConfigs = {
@@ -59,5 +66,10 @@ export const canisters: CanisterConfigs = {
         canisterId: import.meta.env.VITE_DISTRIBUTION_CONTRACT_CANISTER_ID,
         idl: distributionContractIDL,
         type: {} as CanisterType["DISTRIBUTION_CONTRACT"],
+    },
+    dao_contract: {
+        canisterId: import.meta.env.VITE_DAO_CONTRACT_CANISTER_ID,
+        idl: daoContractIDL,
+        type: {} as CanisterType["DAO_CONTRACT"],
     },
 };

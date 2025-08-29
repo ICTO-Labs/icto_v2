@@ -189,3 +189,7 @@ export const backendActor = ({ anon = false, requiresSigning = true }: { anon?: 
 export const distributionContractActor = ({ canisterId, anon = false, requiresSigning = true }: { canisterId: string, anon?: boolean, requiresSigning?: boolean }) => {
     return pnp.getActor<CanisterType["DISTRIBUTION_CONTRACT"]>({ canisterId, idl: canisters.distribution_contract.idl, anon, requiresSigning });
 }
+
+export const daoContractActor = ({ canisterId, anon = false, requiresSigning = true }: { canisterId: string, anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["DAO_CONTRACT"]>({ canisterId, idl: canisters.dao_contract.idl, anon, requiresSigning });
+}

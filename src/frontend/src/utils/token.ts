@@ -20,3 +20,18 @@ export function formatTokenAmount(amount: number | bigint, decimals = 8) {
     if (Number.isNaN(Number(amount))) return new BigNumber(_amount);
     return new BigNumber(_amount).multipliedBy(10 ** Number(_decimals));
 }
+
+//Format token amount with label (e.g. 100000000 -> 1B)
+export const formatTokenAmountLabel = (amount: string | number, symbol: string): string => {
+    const num = typeof amount === 'string' ? parseFloat(amount) : Number(amount)
+    if (isNaN(num)) return '0 ' + symbol
+    
+    if (num >= 1000000000) {
+        return (num / 1000000000).toFixed(1) + 'B ' + symbol
+    } else if (num >= 1000000) {
+        return (num / 1000000).toFixed(1) + 'M ' + symbol
+    } else if (num >= 1000) {
+        return (num / 1000).toFixed(1) + 'K ' + symbol
+    }
+    return Math.floor(num).toString() + ' ' + symbol
+}

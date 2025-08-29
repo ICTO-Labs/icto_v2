@@ -70,6 +70,20 @@
             "declarations": {
                 "output": "src/declarations/distribution_contract"
             }
+        },
+        "dao_contract": {
+            "type": "motoko",
+            "main": "src/motoko/dao_factory/DAOContract.mo",
+            "declarations": {
+                "output": "src/declarations/dao_contract"
+            }
+        },
+        "dao_factory": {
+            "type": "motoko",
+            "main": "src/motoko/dao_factory/main.mo",
+            "declarations": {
+                "output": "src/declarations/dao_factory"
+            }
         }
     },
     "defaults": {

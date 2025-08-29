@@ -29,6 +29,8 @@ module FactoryRegistryTypes {
         #DistributionRecipient; // User is recipient in distribution
         #LaunchpadParticipant; // User participated in launchpad
         #DAOMember; // User is DAO member
+        #DAOOwner; // User is DAO owner/creator
+        #DAOEmergencyContact; // User is DAO emergency contact
         #MultisigSigner; // User is multisig signer
         // Add more relationship types as needed
     };
@@ -168,6 +170,8 @@ module FactoryRegistryTypes {
             case (#DistributionRecipient) { "DistributionRecipient" };
             case (#LaunchpadParticipant) { "LaunchpadParticipant" };
             case (#DAOMember) { "DAOMember" };
+            case (#DAOOwner) { "DAOOwner" };
+            case (#DAOEmergencyContact) { "DAOEmergencyContact" };
             case (#MultisigSigner) { "MultisigSigner" };
         }
     };
@@ -177,6 +181,8 @@ module FactoryRegistryTypes {
             case ("DistributionRecipient") { ?#DistributionRecipient };
             case ("LaunchpadParticipant") { ?#LaunchpadParticipant };
             case ("DAOMember") { ?#DAOMember };
+            case ("DAOOwner") { ?#DAOOwner };
+            case ("DAOEmergencyContact") { ?#DAOEmergencyContact };
             case ("MultisigSigner") { ?#MultisigSigner };
             case (_) { null };
         }
