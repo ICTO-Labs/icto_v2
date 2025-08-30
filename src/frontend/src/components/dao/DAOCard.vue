@@ -58,7 +58,7 @@
             <UsersIcon class="h-4 w-4 text-gray-400" />
           </div>
           <p class="text-lg font-semibold text-gray-900 dark:text-white mt-1">
-            {{ formatNumber(bigintToNumber(dao.stats.totalMembers)) }}
+            {{ formatNumber(Number(dao.stats.totalMembers)) }}
           </p>
         </div>
 
@@ -68,7 +68,7 @@
             <VoteIcon class="h-4 w-4 text-gray-400" />
           </div>
           <p class="text-lg font-semibold text-gray-900 dark:text-white mt-1">
-            {{ formatNumber(bigintToNumber(dao.stats.totalProposals)) }}
+            {{ formatNumber(Number(dao.stats.totalProposals)) }}
           </p>
         </div>
 
@@ -78,7 +78,7 @@
             <ActivityIcon class="h-4 w-4 text-gray-400" />
           </div>
           <p class="text-lg font-semibold text-gray-900 dark:text-white mt-1">
-            {{ formatNumber(bigintToNumber(dao.stats.activeProposals)) }}
+            {{ formatNumber(Number(dao.stats.activeProposals)) }}
           </p>
         </div>
 
@@ -88,7 +88,7 @@
             <TrendingUpIcon class="h-4 w-4 text-gray-400" />
           </div>
           <p class="text-lg font-semibold text-gray-900 dark:text-white mt-1">
-            {{ formatTokenAmount(bigintToString(dao.stats.totalStaked), dao.tokenConfig.symbol) }}
+            {{ formatTokenAmount(parseTokenAmount(Number(dao.stats.totalStaked), dao.tokenConfig.decimals).toNumber(), dao.tokenConfig.symbol) }}
           </p>
         </div>
       </div>
@@ -114,7 +114,7 @@
       <div class="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
         <div class="flex items-center text-sm text-gray-500 dark:text-gray-400">
           <CalendarIcon class="h-4 w-4 mr-1" />
-          {{ formatDate(bigintToNumber(dao.createdAt)) }}
+          {{ formatDate(Number(dao.createdAt)) }}
         </div>
         
         <!-- Emergency status -->
@@ -153,7 +153,7 @@ import {
 } from 'lucide-vue-next'
 import GovernanceTypeBadge from './GovernanceTypeBadge.vue'
 import type { DAO } from '@/types/dao'
-import { bigintToNumber, bigintToString } from '@/types/dao'
+import { parseTokenAmount } from '@/utils/token'
 
 interface Props {
   dao: DAO

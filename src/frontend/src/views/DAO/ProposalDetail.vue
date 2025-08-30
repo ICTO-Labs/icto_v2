@@ -3,7 +3,7 @@
     <!-- Breadcrumb -->
     <Breadcrumb :items="breadcrumbItems" />
     
-  <div v-if="proposalInfo" class="max-w-4xl mx-auto space-y-6">
+  <div v-if="proposalInfo" class="mx-auto space-y-6">
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div class="flex items-center space-x-4">
@@ -15,7 +15,7 @@
             <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
               Proposal #{{ proposalInfo.proposal.id }}
             </h1>
-            <ProposalStatusBadge :status="proposalInfo.proposal.state" />
+            <ProposalStatusBadge :status="(proposalInfo.proposal.state as string)" />
             <ProposalTypeBadge :type="getProposalType(proposalInfo.proposal.payload)" />
           </div>
           <p class="text-gray-600 dark:text-gray-400">
@@ -41,7 +41,7 @@
           <!-- Discussion Link -->
           <div v-if="getDiscussionUrl(proposalInfo.proposal.payload)" class="border-t border-gray-200 dark:border-gray-700 pt-4">
             <a 
-              :href="getDiscussionUrl(proposalInfo.proposal.payload)" 
+              :href="getDiscussionUrl(proposalInfo.proposal.payload) || ''" 
               target="_blank"
               class="inline-flex items-center text-yellow-600 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-300 font-medium"
             >
@@ -62,7 +62,7 @@
                 <UserIcon class="h-4 w-4 text-gray-400" />
               </div>
               <p class="text-sm font-mono text-gray-900 dark:text-white break-all">
-                {{ formatPrincipal(proposalInfo.proposal.proposer) }}
+                {{ (proposalInfo.proposal.proposer) }}
               </p>
             </div>
 
@@ -82,7 +82,7 @@
                 <TargetIcon class="h-4 w-4 text-gray-400" />
               </div>
               <p class="text-sm text-gray-900 dark:text-white">
-                {{ formatTokenAmount(Number(proposalInfo.proposal.quorumRequired), 'VP') }}
+                {{ formatTokenAmount(parseTokenAmount(Number(proposalInfo.proposal.quorumRequired), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
               </p>
             </div>
 
@@ -135,11 +135,22 @@
               <div class="flex justify-between items-center">
                 <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Your Voting Power</span>
                 <span class="text-lg font-bold text-gray-900 dark:text-white">
-                  {{ formatTokenAmount(Number(memberInfo.votingPower), 'VP') }}
+                  {{ formatTokenAmount(parseTokenAmount(Number(memberInfo.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
                 </span>
               </div>
             </div>
-
+            <!-- Voting Reason -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Reason (Optional)
+              </label>
+              <textarea
+                v-model="voteReason"
+                rows="3"
+                placeholder="Explain your vote..."
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
+              ></textarea>
+            </div>
             <!-- Vote Options -->
             <div class="grid grid-cols-3 gap-3">
               <button 
@@ -168,23 +179,90 @@
               </button>
             </div>
 
-            <!-- Voting Reason -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Reason (Optional)
-              </label>
-              <textarea
-                v-model="voteReason"
-                rows="3"
-                placeholder="Explain your vote..."
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-              ></textarea>
-            </div>
+            
 
-            <div v-if="hasVoted" class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <p class="text-sm text-blue-600 dark:text-blue-400">
-                ✓ You have already voted on this proposal.
-              </p>
+            <div v-if="hasVoted && userVote" class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <div class="flex items-start space-x-3">
+                <div class="flex-shrink-0">
+                  <CheckCircleIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <div class="flex-1">
+                  <p class="text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">
+                    Your Vote: {{ userVote.vote === 'yes' ? 'Yes' : userVote.vote === 'no' ? 'No' : 'Abstain' }}
+                  </p>
+                  <p class="text-xs text-blue-600 dark:text-blue-400 mb-2">
+                    Voting Power: {{ formatTokenAmount(parseTokenAmount(Number(userVote.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
+                  </p>
+                  <p class="text-xs text-blue-600 dark:text-blue-400">
+                    Cast on: {{ formatDate(Number(userVote.timestamp)) }}
+                  </p>
+                  <div v-if="userVote.reason" class="mt-2">
+                    <p class="text-xs font-medium text-blue-700 dark:text-blue-300">Reason:</p>
+                    <p class="text-xs text-blue-600 dark:text-blue-400 mt-1 italic">{{ userVote.reason }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Vote Records -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Vote Records</h3>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ voteRecords.length }} vote{{ voteRecords.length !== 1 ? 's' : '' }}
+            </span>
+          </div>
+
+          <div v-if="isLoadingVotes" class="flex items-center justify-center py-8">
+            <RefreshCcwIcon class="h-6 w-6 text-gray-400 animate-spin" />
+            <span class="ml-2 text-gray-500 dark:text-gray-400">Loading votes...</span>
+          </div>
+
+          <div v-else-if="voteRecords.length === 0" class="text-center py-8">
+            <MessageCircleIcon class="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+            <p class="text-gray-500 dark:text-gray-400">No votes cast yet</p>
+          </div>
+
+          <div v-else class="space-y-3">
+            <div 
+              v-for="vote in voteRecords" 
+              :key="`${vote.voter}-${vote.timestamp}`"
+              class="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
+            >
+              <div class="flex items-start justify-between">
+                <div class="flex-1">
+                  <div class="flex items-center space-x-2 mb-2">
+                    <span class="font-mono text-sm text-gray-600 dark:text-gray-400">
+                      {{ shortPrincipal(vote.voter) }}
+                    </span>
+                    <div 
+                      :class="[
+                        'px-2 py-1 rounded text-xs font-medium',
+                        vote.vote === 'yes' ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' :
+                        vote.vote === 'no' ? 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400' :
+                        'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                      ]"
+                    >
+                      {{ vote.vote === 'yes' ? 'Yes' : vote.vote === 'no' ? 'No' : 'Abstain' }}
+                    </div>
+                  </div>
+                  
+                  <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 space-x-4 mb-2">
+                    <span>
+                      {{ formatTokenAmount(parseTokenAmount(Number(vote.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
+                    </span>
+                    <span>
+                      {{ formatDate(Number(vote.timestamp)) }}
+                    </span>
+                  </div>
+
+                  <div v-if="vote.reason" class="text-sm text-gray-700 dark:text-gray-300 italic">
+                    "{{ vote.reason }}"
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -205,7 +283,7 @@
                   Yes
                 </span>
                 <span class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ formatTokenAmount(Number(proposalInfo.votesDetails.yesVotes), 'VP') }}
+                  {{ formatTokenAmount(parseTokenAmount(Number(proposalInfo.votesDetails.yesVotes), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
                 </span>
               </div>
               <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
@@ -225,7 +303,7 @@
                   No
                 </span>
                 <span class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ formatTokenAmount(Number(proposalInfo.votesDetails.noVotes), 'VP') }}
+                  {{ formatTokenAmount(parseTokenAmount(Number(proposalInfo.votesDetails.noVotes), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
                 </span>
               </div>
               <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
@@ -245,7 +323,7 @@
                   Abstain
                 </span>
                 <span class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ formatTokenAmount(Number(proposalInfo.votesDetails.abstainVotes), 'VP') }}
+                  {{ formatTokenAmount(parseTokenAmount(Number(proposalInfo.votesDetails.abstainVotes), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
                 </span>
               </div>
               <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
@@ -263,7 +341,7 @@
             <div class="flex justify-between">
               <span class="text-sm text-gray-600 dark:text-gray-400">Total Votes</span>
               <span class="text-sm font-medium text-gray-900 dark:text-white">
-                {{ formatTokenAmount(Number(proposalInfo.votesDetails.totalVotes), 'VP') }}
+                {{ formatTokenAmount(parseTokenAmount(Number(proposalInfo.votesDetails.totalVotes), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
               </span>
             </div>
             <div class="flex justify-between">
@@ -350,13 +428,13 @@
                 <div class="flex items-center space-x-3">
                   <div class="w-8 h-8 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-full flex items-center justify-center">
                     <span class="text-white text-sm font-medium">
-                      {{ formatPrincipal(comment.author).substring(0, 2).toUpperCase() }}
+                      {{ (comment.author).substring(0, 2).toUpperCase() }}
                     </span>
                   </div>
                   <div>
                     <div class="flex items-center space-x-2">
                       <span class="text-sm font-medium text-gray-900 dark:text-white font-mono">
-                        {{ formatPrincipal(comment.author) }}
+                        {{ shortPrincipal(comment.author as string) }}
                       </span>
                       <div v-if="comment.isStaker" class="flex items-center space-x-1">
                         <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
@@ -364,7 +442,7 @@
                           Staker
                         </span>
                         <span v-if="comment.votingPower" class="text-xs text-gray-500 dark:text-gray-400">
-                          {{ formatTokenAmount(Number(comment.votingPower), 'VP') }}
+                          {{ formatTokenAmount(parseTokenAmount(Number(comment.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
                         </span>
                       </div>
                     </div>
@@ -521,10 +599,12 @@ import ProposalTypeBadge from '@/components/dao/ProposalTypeBadge.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import ConfirmationDialog from '@/components/common/ConfirmationDialog.vue'
-import type { DAO, ProposalInfo, MemberInfo, ProposalComment } from '@/types/dao'
+import type { DAO, ProposalInfo, MemberInfo, ProposalComment, VoteRecord } from '@/types/dao'
 import { getProposalStateKey } from '@/types/dao'
 import { useAuthStore } from '@/stores/auth'
-
+import { parseTokenAmount } from '@/utils/token'
+import { shortPrincipal } from '@/utils/common'
+import { toast } from 'vue-sonner'
 const route = useRoute()
 const router = useRouter()
 const daoService = DAOService.getInstance()
@@ -532,12 +612,17 @@ const authStore = useAuthStore()
 
 // State
 const dao = ref<DAO | null>(null)
-const proposalInfo = ref<ProposalInfo | null>(null)
-const memberInfo = ref<MemberInfo | null>(null)
+const proposalInfo = ref<any | null>(null)
+const memberInfo = ref<any | null>(null)
 const isLoading = ref(true)
 const error = ref<string | null>(null)
 const isVoting = ref(false)
 const voteReason = ref('')
+
+// Vote state
+const userVote = ref<any | null>(null)
+const voteRecords = ref<any[]>([])
+const isLoadingVotes = ref(false)
 
 // Comment system state
 const comments = ref<ProposalComment[]>([])
@@ -566,9 +651,7 @@ const breadcrumbItems = computed(() => [
 ])
 
 const hasVoted = computed(() => {
-  if (!proposalInfo.value) return false
-  // TODO: Check if current user has voted based on voters list
-  return false
+  return userVote.value !== null
 })
 
 const totalVotes = computed(() => {
@@ -640,9 +723,15 @@ const fetchData = async () => {
     }
     proposalInfo.value = proposalData
 
+    // Fetch vote data
+    await Promise.all([
+      fetchUserVote(),
+      fetchVoteRecords()
+    ])
+
     // Fetch member info (if user is connected)
     try {
-      const memberData = await daoService.getMemberInfo(daoId)
+      const memberData = await daoService.getMyMemberInfo(daoId)
       memberInfo.value = memberData
     } catch (err) {
       memberInfo.value = null
@@ -653,6 +742,56 @@ const fetchData = async () => {
     error.value = 'Failed to load proposal details'
   } finally {
     isLoading.value = false
+  }
+}
+
+const fetchUserVote = async () => {
+  if (!authStore.principal || !dao.value || !proposalInfo.value) {
+    userVote.value = null
+    return
+  }
+
+  try {
+    const result = await daoService.getUserVote(
+      dao.value.canisterId, 
+      proposalInfo.value.proposal.id, 
+      authStore.principal
+    )
+    
+    if (result.success) {
+      userVote.value = result.data
+    } else {
+      userVote.value = null
+    }
+  } catch (err) {
+    console.error('Error fetching user vote:', err)
+    userVote.value = null
+  }
+}
+
+const fetchVoteRecords = async () => {
+  if (!dao.value || !proposalInfo.value) {
+    voteRecords.value = []
+    return
+  }
+
+  isLoadingVotes.value = true
+  try {
+    const result = await daoService.getProposalVotes(
+      dao.value.canisterId, 
+      proposalInfo.value.proposal.id
+    )
+    
+    if (result.success && result.data) {
+      voteRecords.value = result.data
+    } else {
+      voteRecords.value = []
+    }
+  } catch (err) {
+    console.error('Error fetching vote records:', err)
+    voteRecords.value = []
+  } finally {
+    isLoadingVotes.value = false
   }
 }
 
@@ -669,15 +808,21 @@ const castVote = async (vote: 'Yes' | 'No' | 'Abstain') => {
     })
 
     if (result.success) {
-      // Refresh proposal data
-      await fetchData()
+      // Refresh vote data
+      toast.success('Vote cast successfully')
+      await Promise.all([
+        fetchUserVote(),
+        fetchVoteRecords()
+      ])
       voteReason.value = ''
     } else {
       error.value = result.error || 'Failed to cast vote'
+      toast.error(error.value)  
     }
   } catch (err) {
     console.error('Error casting vote:', err)
     error.value = 'An unexpected error occurred while voting'
+    toast.error(error.value)
   } finally {
     isVoting.value = false
   }

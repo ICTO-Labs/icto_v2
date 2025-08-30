@@ -23,7 +23,7 @@
         <div class="flex-1 h-1 mx-4 bg-gray-300 rounded">
           <div 
             class="h-1 bg-purple-600 rounded transition-all duration-300" 
-            :style="`width: ${(currentStep - 1) * 100}%`"
+            :style="`width: ${Math.min((currentStep - 1) * 100, 100)}%`"
           />
         </div>
         
@@ -209,8 +209,19 @@
         {{ success ? 'Close' : 'Cancel' }}
       </button>
       
+      <!-- Success state: Continue Staking button -->
       <button
-        v-if="showConfirmation"
+        v-if="success"
+        @click="continueStaking"
+        class="flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg text-sm font-medium hover:from-green-700 hover:to-green-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 "
+      >
+        <CoinsIcon class="h-4 w-4 mr-2" />
+        Stake More
+      </button>
+      
+      <!-- Confirmation state -->
+      <button
+        v-else-if="showConfirmation"
         @click="proceedWithStaking"
         :disabled="isProcessing"
         class="px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg text-sm font-medium hover:from-purple-700 hover:to-purple-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -222,6 +233,7 @@
         <span v-else>Confirm & Stake</span>
       </button>
       
+      <!-- Initial form state -->
       <button
         v-else-if="!showSteps && !success"
         @click="showStakeConfirmation"
@@ -241,6 +253,7 @@ import BaseModal from '@/components/common/BaseModal.vue'
 import { DAOService } from '@/api/services/dao'
 import type { DAO } from '@/types/dao'
 import { formatTokenAmount } from '@/utils/token'
+import { toast } from 'vue-sonner'
 
 interface Props {
   dao: DAO
@@ -335,6 +348,7 @@ const proceedWithStaking = async () => {
 
     if (!approvalResult.success) {
       error.value = approvalResult.error || 'Failed to approve token spending'
+      toast.error(error.value || 'Failed to approve token spending')
       resetState()
       return
     }
@@ -343,7 +357,7 @@ const proceedWithStaking = async () => {
     currentStep.value = 2
     
     const result = await daoService.stake(props.dao.canisterId, {
-      amount: tokenAmount,
+      amount: tokenAmount.toString(),
       lockDuration: selectedLockPeriod.value ? selectedLockPeriod.value as number : undefined,
       requiresApproval: false // We already approved
     })
@@ -356,11 +370,13 @@ const proceedWithStaking = async () => {
       }, 2000) // Give user time to see success message
     } else {
       error.value = result.error || 'Failed to stake tokens'
+      toast.error(error.value || 'Failed to stake tokens')
       resetState()
     }
   } catch (err) {
     console.error('Error staking tokens:', err)
     error.value = 'An unexpected error occurred while staking tokens'
+    toast.error(error.value || 'An unexpected error occurred while staking tokens')
     resetState()
   } finally {
     isProcessing.value = false
@@ -378,5 +394,13 @@ const handleCancel = () => {
     emit('success') // If successful, emit success to refresh parent
   }
   emit('close')
+}
+
+const continueStaking = () => {
+  showSteps.value = false
+  showConfirmation.value = false
+  success.value = false
+  stakeAmount.value = ''
+  selectedLockPeriod.value = ''
 }
 </script>

@@ -12,7 +12,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex items-center space-x-2 mb-1">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white font-mono truncate group-hover:text-yellow-700 dark:group-hover:text-yellow-400 transition-colors">
-              {{ formatPrincipal(member.address) }}
+              {{ (member.address) }}
             </h3>
             <button
               @click.stop="copyAddress"
@@ -97,7 +97,7 @@
         <span>Delegated voting power to:</span>
       </div>
       <span class="font-mono text-sm text-blue-800 dark:text-blue-200">
-        {{ formatPrincipal(member.delegatedTo[0].toText()) }}
+        {{ (member.delegatedTo[0].toText()) }}
       </span>
     </div>
 

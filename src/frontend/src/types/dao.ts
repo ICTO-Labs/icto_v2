@@ -1,7 +1,7 @@
 // Import generated Candid types from declarations
 export type {
-  DAOStats,
   MemberInfo,
+  DAOStats,
   Proposal,
   ProposalInfo,
   ProposalPayload,
@@ -16,6 +16,7 @@ export type {
   EmergencyAction,
   MotionPayload,
   GovernanceLevel,
+  GovernanceType,
   VotingPowerModel,
   CallExternalPayload,
   TokenManagePayload,
@@ -34,6 +35,7 @@ export type {
   Result,
   Result_1,
   Result_2,
+  ProposalStateKey,
   DAO as DAOCanister
 } from '@/declarations/dao_contract/dao_contract.did'
 
@@ -50,7 +52,8 @@ export interface DAO {
   createdBy: string
   isPublic: boolean
   tags: string[]
-  governanceType: GovernanceLevel
+  governanceType: GovernanceType
+  governanceLevel: GovernanceLevel
   stakingEnabled: boolean
   votingPowerModel: VotingPowerModel
   emergencyState: EmergencyState

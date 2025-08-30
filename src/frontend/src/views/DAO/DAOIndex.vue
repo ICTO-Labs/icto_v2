@@ -150,7 +150,7 @@
         <div class="flex items-center justify-between">
           <div>
             <p class="text-sm font-medium text-gray-600 dark:text-gray-400">Total TVL</p>
-            <p class="text-2xl font-bold text-gray-900 dark:text-white">${{ formatNumber(stats.totalTVL) }}</p>
+            <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ formatTokenAmountLabel(parseTokenAmount(Number(stats.totalTVL), 8).toNumber(), 'USDT') }}</p>
           </div>
           <div class="p-3 bg-gradient-to-r from-yellow-500 to-amber-500 rounded-lg">
             <CoinsIcon class="h-6 w-6 text-white" />
@@ -260,6 +260,7 @@ import {
   CoinsIcon
 } from 'lucide-vue-next'
 import type { DAO, DAOFilters } from '@/types/dao'
+import { formatTokenAmountLabel, parseTokenAmount } from '@/utils/token'
 
 const router = useRouter()
 const daoService = DAOService.getInstance()
@@ -299,8 +300,8 @@ const breadcrumbItems = computed(() => [
 // Stats
 const stats = computed(() => {
   const totalDAOs = daos.value.length
-  const totalMembers = daos.value.reduce((sum, dao) => sum + dao.stats.totalMembers, 0)
-  const activeProposals = daos.value.reduce((sum, dao) => sum + dao.stats.activeProposals, 0)
+  const totalMembers = daos.value.reduce((sum, dao) => sum + Number(dao.stats.totalMembers), 0)
+  const activeProposals = daos.value.reduce((sum, dao) => sum + Number(dao.stats.activeProposals), 0)
   const totalTVL = daos.value.reduce((sum, dao) => sum + parseFloat(dao.stats.totalStaked || '0'), 0)
   
   return {
@@ -338,7 +339,7 @@ const filteredDAOs = computed(() => {
         case 'staking':
           return dao.stakingEnabled
         case 'governance':
-          return dao.stats.totalProposals > 0
+          return Number(dao.stats.totalProposals) > 0
         default:
           return true
       }
@@ -358,9 +359,9 @@ const filteredDAOs = computed(() => {
       case 'name':
         return a.name.localeCompare(b.name)
       case 'members':
-        return b.stats.totalMembers - a.stats.totalMembers
+        return Number(b.stats.totalMembers) - Number(a.stats.totalMembers)
       case 'proposals':
-        return b.stats.totalProposals - a.stats.totalProposals
+        return Number(b.stats.totalProposals) - Number(a.stats.totalProposals)
       case 'tvl':
         return parseFloat(b.stats.totalStaked) - parseFloat(a.stats.totalStaked)
       default:

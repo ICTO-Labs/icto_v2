@@ -1,4 +1,4 @@
-import { backendActor, daoContractActor } from "@/stores/auth";
+import { useAuthStore, backendActor, daoContractActor } from "@/stores/auth";
 import { Principal } from "@dfinity/principal";
 import type { 
   DAO,
@@ -7,23 +7,36 @@ import type {
   CreateDAOResponse,
   DAOFilters,
   DAODeploymentSummary,
+  CustomSecurityParams,
+  ApprovalArgs,
+  GovernanceLevel
+} from '@/types/dao'
+import { 
+  getProposalStateKey,
+  getVoteKey,
+  bigintToNumber,
+  bigintToString,
+  stringToBigint
+} from '@/types/dao'
+import type {
   StakeArgs,
   UnstakeArgs,
   DelegateArgs,
   VoteType,
   ProposalStateKey,
-  getProposalStateKey,
-  getVoteKey,
-  createVote,
-  bigintToNumber,
-  bigintToString,
-  stringToBigint,
-  CustomSecurityParams,
-  ApprovalArgs
-} from '@/types/dao'
+  MemberInfo,
+  VoteArgs,
+  Proposal,
+  ProposalInfo,
+  ProposalPayload,
+  ProposalComment,
+  CreateCommentArgs,
+  UpdateCommentArgs,
+  DAOStats
+} from '@/declarations/dao_contract/dao_contract.did'
 import { IcrcService } from './icrc'
 import { formatTokenAmount } from "@/utils/token";
-import { convertGovernanceLevelToBackend } from "@/utils/dao";
+import { convertGovernanceLevelFromBackend, convertGovernanceLevelToBackend } from "@/utils/dao";
 
 export class DAOService {
   private static instance: DAOService
@@ -119,6 +132,12 @@ export class DAOService {
     }
   }
 
+  async getDAOLevel(canisterId: string): Promise<GovernanceLevel> {
+    const daoActor = await this.getDAOActor(canisterId, false)
+    const result = await daoActor.getGovernanceLevel()
+    return convertGovernanceLevelFromBackend(result)  as GovernanceLevel
+  }
+
   async getDAOs(filters?: DAOFilters): Promise<DAO[]> {
     try {
       const actor = this.getBackendActor(false) // Allow anonymous access for public DAOs
@@ -130,32 +149,37 @@ export class DAOService {
       const daoPromises = daoCanisters.map(async (canisterId: Principal) => {
         try {
           const daoActor = await this.getDAOActor(canisterId.toText(), false)
-          const [stats, systemParams, tokenConfig] = await Promise.all([
-            daoActor.getDAOStats(),
-            daoActor.getSystemParams(),
-            daoActor.getTokenConfig()
+          
+          // Use the new single query method to get all DAO info at once
+          const [daoInfo, canisterInfo, stats] = await Promise.all([
+            daoActor.getDAOsInfo(),
+            actor.getDeployedCanisterInfo(canisterId),
+            daoActor.getDAOStats()
           ])
-
-          // Get DAO metadata from deployed canister registry
-          const canisterInfo = await actor.getDeployedCanisterInfo(canisterId)
           
           const dao: DAO = {
             id: canisterId.toText(),
             canisterId: canisterId.toText(),
-            name: canisterInfo?.metadata?.name || tokenConfig.name + ' DAO',
-            description: canisterInfo?.metadata?.description || `DAO for ${tokenConfig.symbol} governance`,
-            tokenConfig,
-            systemParams,
-            stats,
+            name: canisterInfo?.metadata?.name || daoInfo.tokenConfig.name + ' DAO',
+            description: canisterInfo?.metadata?.description || `DAO for ${daoInfo.tokenConfig.symbol} governance`,
+            tokenConfig: daoInfo.tokenConfig,
+            systemParams: daoInfo.systemParams,
+            stats: {
+              ...stats,
+              totalMembers: Number(daoInfo.totalMembers),
+              totalStaked: Number(daoInfo.totalStaked),
+              totalVotingPower: Number(daoInfo.totalVotingPower)
+            },
             createdAt: canisterInfo?.deployedAt || BigInt(Date.now() * 1000000),
             createdBy: canisterInfo?.deployer?.toText() || '',
             isPublic: canisterInfo?.metadata?.isPublic || true,
             tags: canisterInfo?.metadata?.tags || [],
-            governanceType: this.inferGovernanceType(systemParams),
-            stakingEnabled: systemParams.stake_lock_periods.some(period => Number(period) > 0),
+            governanceType: this.inferGovernanceType(daoInfo.systemParams),
+            governanceLevel: daoInfo.governanceLevel,
+            stakingEnabled: daoInfo.stakingEnabled,
             votingPowerModel: 'proportional', // Default assumption
             emergencyState: {
-              paused: systemParams.emergency_pause,
+              paused: false,//daoInfo.systemParams.emergency_pause,
               pausedBy: [],
               pausedAt: [],
               reason: []
@@ -184,32 +208,36 @@ export class DAOService {
       const daoActor = await this.getDAOActor(canisterId, false)
       const backendActor = this.getBackendActor(false)
       
-      const [stats, systemParams, tokenConfig] = await Promise.all([
-        daoActor.getDAOStats(),
-        daoActor.getSystemParams(),
-        daoActor.getTokenConfig()
+      // Use the new single query method to get all DAO info at once
+      const [daoInfo, canisterInfo, stats] = await Promise.all([
+        daoActor.getDAOsInfo(),
+        backendActor.getDeployedCanisterInfo(Principal.fromText(canisterId)),
+        daoActor.getDAOStats()
       ])
-
-      // Get DAO metadata from deployed canister registry
-      const canisterInfo = await backendActor.getDeployedCanisterInfo(Principal.fromText(canisterId))
       
       const dao: DAO = {
         id: canisterId,
         canisterId: canisterId,
-        name: canisterInfo?.metadata?.name || tokenConfig.name + ' DAO',
-        description: canisterInfo?.metadata?.description?.[0] || `DAO for ${tokenConfig.symbol} governance`,
-        tokenConfig,
-        systemParams,
-        stats,
-        createdAt: canisterInfo?.deployedAt || BigInt(Date.now() * 1000000),
-        createdBy: canisterInfo?.deployer?.toText() || '',
-        isPublic: canisterInfo?.metadata?.isPublic || true,
-        tags: canisterInfo?.metadata?.tags || [],
-        governanceType: this.inferGovernanceType(systemParams),
-        stakingEnabled: systemParams.stake_lock_periods.some(period => Number(period) > 0),
+        name: (canisterInfo && canisterInfo[0]?.metadata?.name) || daoInfo.tokenConfig.name + ' DAO',
+        description: (canisterInfo && canisterInfo[0]?.metadata?.description) || `DAO for ${daoInfo.tokenConfig.symbol} governance`,
+        tokenConfig: daoInfo.tokenConfig,
+        systemParams: daoInfo.systemParams,
+        stats: {
+          ...stats,
+          totalMembers: Number(daoInfo.totalMembers),
+          totalStaked: Number(daoInfo.totalStaked),
+          totalVotingPower: Number(daoInfo.totalVotingPower)
+        },
+        createdAt: (canisterInfo && canisterInfo[0]?.deployedAt) || BigInt(Date.now() * 1000000),
+        createdBy: (canisterInfo && canisterInfo[0]?.deployer?.toText()) || '',
+        isPublic: (canisterInfo && canisterInfo[0]?.metadata?.isPublic) || true,
+        tags: (canisterInfo && canisterInfo[0]?.metadata?.tags) || [],
+        governanceType: this.inferGovernanceType(daoInfo.systemParams),
+        governanceLevel: this.convertGovernanceLevel(daoInfo.governanceLevel),
+        stakingEnabled: daoInfo.stakingEnabled,
         votingPowerModel: 'proportional',
         emergencyState: {
-          paused: systemParams.emergency_pause,
+          paused: false,//daoInfo.systemParams.emergency_pause,
           pausedBy: [],
           pausedAt: [],
           reason: []
@@ -300,14 +328,13 @@ export class DAOService {
     try {
       const daoActor = await this.getDAOActor(canisterId, true)
       
-      const candidVoteArgs: VoteArgs = {
+      const candidVoteArgs = {
         proposal_id: BigInt(voteArgs.proposalId),
-        vote: createVote(voteArgs.vote),
+        vote: { [voteArgs.vote.toLowerCase()]: null },
         reason: voteArgs.reason ? [voteArgs.reason] : []
       }
-      
       const result = await daoActor.vote(candidVoteArgs)
-      
+      console.log('result', result)
       if ('ok' in result) {
         return { success: true }
       } else {
@@ -322,6 +349,53 @@ export class DAOService {
         success: false,
         error: 'Failed to cast vote'
       }
+    }
+  }
+
+  async getUserVote(daoCanisterId: string, proposalId: number, userId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const actor = await this.getDAOActor(daoCanisterId, false)
+      const userPrincipal = Principal.fromText(userId)
+      const result = await actor.getUserVote(BigInt(proposalId), userPrincipal)
+
+      if (result && result.length > 0) {
+        const vote = result[0]
+        return {
+          success: true,
+          data: {
+            voter: vote.voter.toText(),
+            vote: 'yes' in vote.vote ? 'yes' : 'no' in vote.vote ? 'no' : 'abstain',
+            votingPower: bigintToString(vote.votingPower),
+            timestamp: bigintToString(vote.timestamp),
+            reason: vote.reason && vote.reason.length > 0 ? vote.reason[0] : null
+          }
+        }
+      }
+
+      return { success: true, data: null }
+    } catch (error) {
+      console.error('Error fetching user vote:', error)
+      return { success: false, error: 'Failed to fetch user vote' }
+    }
+  }
+
+  async getProposalVotes(daoCanisterId: string, proposalId: number): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    try {
+      const actor = await this.getDAOActor(daoCanisterId, false)
+      // Use getProposalInfo to get vote information instead of getProposalVotes 
+      const result = await actor.getProposalInfo(BigInt(proposalId))
+
+      if (result && result.length > 0) {
+        const proposalInfo = result[0]
+        // For now, return empty votes array since we need to implement the proper vote fetching
+        // This would need to be updated when the backend provides a getProposalVotes method
+        return { success: true, data: [] }
+      }
+
+      return { success: true, data: [] }
+    } catch (error) {
+      console.error('Error fetching proposal votes:', error)
+      return { success: false, error: 'Failed to fetch proposal votes' }
     }
   }
 
@@ -414,7 +488,7 @@ export class DAOService {
   // STAKING & DELEGATION
   // ==================================================================================================
 
-  async stake(canisterId: string, stakeArgs: StakeArgs): Promise<{ success: boolean; error?: string; requiresApproval?: boolean }> {
+  async stake(canisterId: string, stakeArgs: { amount: string; lockDuration?: number; requiresApproval?: boolean }): Promise<{ success: boolean; error?: string; requiresApproval?: boolean }> {
     try {
       const daoActor = await this.getDAOActor(canisterId, true)
       
@@ -442,7 +516,7 @@ export class DAOService {
       
       // Proceed with staking
       const result = await daoActor.stake(
-        Number(stakeArgs.amount), 
+        BigInt(stakeArgs.amount), 
         stakeArgs.lockDuration ? [BigInt(stakeArgs.lockDuration)] : []
       )
       
@@ -463,10 +537,10 @@ export class DAOService {
     }
   }
 
-  async unstake(canisterId: string, unstakeArgs: UnstakeArgs): Promise<{ success: boolean; error?: string }> {
+  async unstake(canisterId: string, unstakeArgs: { amount: string }): Promise<{ success: boolean; error?: string }> {
     try {
       const daoActor = await this.getDAOActor(canisterId, true)
-      const result = await daoActor.unstake(Number(unstakeArgs.amount))
+      const result = await daoActor.unstake(BigInt(unstakeArgs.amount))
       
       if ('ok' in result) {
         return { success: true }
@@ -485,7 +559,7 @@ export class DAOService {
     }
   }
 
-  async delegate(canisterId: string, delegateArgs: DelegateArgs): Promise<{ success: boolean; error?: string }> {
+  async delegate(canisterId: string, delegateArgs: { to: string }): Promise<{ success: boolean; error?: string }> {
     try {
       const daoActor = await this.getDAOActor(canisterId, true)
       const result = await daoActor.delegate(Principal.fromText(delegateArgs.to))
@@ -529,29 +603,75 @@ export class DAOService {
     }
   }
 
+  async getDelegationInfo(canisterId: string, principal?: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      const targetPrincipal = principal || authStore.principal
+      
+      if (!targetPrincipal) {
+        return { success: false, error: 'No principal available' }
+      }
+      
+      const result = await daoActor.getDelegationInfo(Principal.fromText(targetPrincipal))
+      
+      if (result && result.length > 0) {
+        const delegation = result[0]
+        return {
+          success: true,
+          data: {
+            delegate: delegation.delegate.toText(),
+            delegator: delegation.delegator.toText(),
+            delegatedAt: bigintToString(delegation.delegatedAt),
+            effectiveAt: bigintToString(delegation.effectiveAt),
+            revokable: delegation.revokable,
+            votingPower: bigintToString(delegation.votingPower)
+          }
+        }
+      }
+      
+      return { success: true, data: null }
+    } catch (error) {
+      console.error('Error getting delegation info:', error)
+      return { success: false, error: 'Failed to get delegation info' }
+    }
+  }
+
   // ==================================================================================================
   // MEMBER INFO
   // ==================================================================================================
 
-  async getMemberInfo(canisterId: string, memberPrincipal?: string): Promise<MemberInfo | null> {
+  async getMemberInfo(canisterId: string, memberPrincipal?: string): Promise<any | null> {
     try {
       const daoActor = await this.getDAOActor(canisterId, false)
-      
-      // If no memberPrincipal provided, we would need the current user's principal
-      // This should be handled by the auth store
       if (!memberPrincipal) {
         // TODO: Get current user principal from auth store
         return null
       }
       
-      const result = await daoActor.get_member_info(Principal.fromText(memberPrincipal))
-      
+      const result = await daoActor.getMemberInfo(Principal.fromText(memberPrincipal))
       if (result && result[0]) {
         return result[0]
       }
       return null
     } catch (error) {
       console.error('Error fetching member info:', error)
+      return null
+    }
+  }
+
+  // Get my member info
+  async getMyMemberInfo(canisterId: string): Promise<any | null> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      if(!authStore?.principal) {
+        return null
+      }
+      const result = await daoActor.getMemberInfo(Principal.fromText(authStore?.principal))
+      return result ? result[0] : null
+    } catch (error) {
+      console.error('Error fetching my member info:', error)
       return null
     }
   }
@@ -577,7 +697,7 @@ export class DAOService {
       const result = await IcrcService.icrc2Approve(
         tokenMetadata,
         Principal.fromText(spenderPrincipal),
-        Number(amount),
+        BigInt(formatTokenAmount(Number(amount), tokenMetadata.decimals).toNumber()),
         {
           memo: memo ? new TextEncoder().encode(memo) : undefined
         }
@@ -626,6 +746,13 @@ export class DAOService {
     if (systemParams.stake_lock_periods.length === 0) return 'liquid'
     if (systemParams.stake_lock_periods.length === 1) return 'locked'
     return 'hybrid'
+  }
+
+  private convertGovernanceLevel(level: any): 'motion-only' | 'semi-managed' | 'fully-managed' {
+    if ('MotionOnly' in level) return 'motion-only'
+    if ('SemiManaged' in level) return 'semi-managed'
+    if ('FullyManaged' in level) return 'fully-managed'
+    return 'motion-only' // default
   }
 
   private applyFilters(daos: DAO[], filters?: DAOFilters): DAO[] {

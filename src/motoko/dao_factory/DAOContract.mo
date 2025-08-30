@@ -233,7 +233,7 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     var vote_records_stable : [Types.VoteRecord] = [];
     
     // Transient variables (reconstructed from stable data)
-    private transient var vote_records_trie : Trie.Trie<Nat, Types.VoteRecord> = Trie.empty();
+    private transient var vote_records_trie : Trie.Trie<Text, Types.VoteRecord> = Trie.empty();
     private transient var rate_limits_trie : Trie.Trie<Principal, Types.RateLimitRecord> = Trie.empty();
     private transient var execution_contexts_trie : Trie.Trie<Nat, Types.ProposalExecutionContext> = Trie.empty();
     private transient var proposal_timers_trie : Trie.Trie<Nat, Types.ProposalTimer> = Trie.empty();
@@ -259,12 +259,10 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         // Initialize token ledger after upgrade
         token_ledger := ?actor(Principal.toText(token_config.canisterId));
         
-        // Reconstruct vote records trie from stable storage
+        // Reconstruct vote records trie from stable storage  
+        // Note: Skip vote records restoration since we changed the key structure (Nat -> Text)
+        // In production, a migration function would be needed
         vote_records_trie := Trie.empty();
-        for (i in vote_records_stable.keys()) {
-            let key = { key = i; hash = Int.hash(i) };
-            vote_records_trie := Trie.put(vote_records_trie, key, Nat.equal, vote_records_stable[i]).0;
-        };
         
         // Reconstruct transaction trie from stable storage
         transactions_trie := Trie.empty();
@@ -1472,6 +1470,12 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         };
     };
 
+    /// Create composite key for vote records
+    private func _makeVoteKey(proposalId: Nat, voter: Principal) : Trie.Key<Text> {
+        let compositeKey = Nat.toText(proposalId) # ":" # Principal.toText(voter);
+        { key = compositeKey; hash = Text.hash(compositeKey) }
+    };
+
     /// Vote on a proposal
     public shared({caller}) func vote(args: Types.VoteArgs) : async Types.Result<(), Text> {
         // ================ CHECKS ================
@@ -1508,12 +1512,11 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             return #err("No voting power - you need to stake tokens first");
         };
 
-        // Check if already voted
-        switch (Trie.get(vote_records_trie, { key = args.proposal_id; hash = Int.hash(args.proposal_id) }, Nat.equal)) {
+        // Check if already voted  
+        let voteKey = _makeVoteKey(args.proposal_id, caller);
+        switch (Trie.get(vote_records_trie, voteKey, Text.equal)) {
             case (?existingRecord) {
-                if (existingRecord.voter == caller) {
-                    return #err("You have already voted on this proposal");
-                };
+                return #err("You have already voted on this proposal");
             };
             case null {};
         };
@@ -1530,8 +1533,7 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         };
 
         // Store vote record
-        let voteKey = { key = args.proposal_id; hash = Int.hash(args.proposal_id) };
-        vote_records_trie := Trie.put(vote_records_trie, voteKey, Nat.equal, voteRecord).0;
+        vote_records_trie := Trie.put(vote_records_trie, voteKey, Text.equal, voteRecord).0;
 
         // Update proposal vote counts
         let updatedProposal = switch (args.vote) {
@@ -1595,12 +1597,33 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
 
     /// Get user's vote on a proposal
     public query func getUserVote(proposalId: Nat, user: Principal) : async ?Types.VoteRecord {
-        switch (Trie.get(vote_records_trie, { key = proposalId; hash = Int.hash(proposalId) }, Nat.equal)) {
-            case null { null };
-            case (?record) {
-                if (record.voter == user) { ?record } else { null }
+        let voteKey = _makeVoteKey(proposalId, user);
+        Trie.get(vote_records_trie, voteKey, Text.equal)
+    };
+
+    /// Get all vote records for a proposal
+    public query func getProposalVotes(proposalId: Nat) : async [Types.VoteRecord] {
+        let votesBuffer = Buffer.Buffer<Types.VoteRecord>(0);
+        
+        for ((key, voteRecord) in Trie.iter(vote_records_trie)) {
+            // Parse composite key to extract proposalId
+            let parts = Text.split(key, #char(':'));
+            switch (parts.next()) {
+                case (?proposalIdText) {
+                    switch (Nat.fromText(proposalIdText)) {
+                        case (?pid) {
+                            if (pid == proposalId) {
+                                votesBuffer.add(voteRecord);
+                            };
+                        };
+                        case null { /* Skip invalid key */ };
+                    };
+                };
+                case null { /* Skip invalid key */ };
             };
-        }
+        };
+        
+        Buffer.toArray(votesBuffer)
     };
 
     /// Get DAO statistics
@@ -1635,6 +1658,32 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         token_config
     };
 
+    // Get governance level
+    public query func getGovernanceLevel() : async Types.GovernanceLevel {
+        governance_level
+    };
+
+    // Get all DAOs info
+    public query func getDAOsInfo() : async {
+        systemParams: Types.SystemParams;
+        tokenConfig: Types.TokenConfig;
+        governanceLevel: Types.GovernanceLevel;
+        stakingEnabled: Bool;
+        totalMembers: Nat;
+        totalStaked: Nat;
+        totalVotingPower: Nat;
+    } {
+        {
+            systemParams = system_params;
+            tokenConfig = token_config;
+            governanceLevel = governance_level;
+            stakingEnabled = system_params.stake_lock_periods.size() > 0;
+            totalMembers = Trie.size(stakes);
+            totalStaked = total_staked;
+            totalVotingPower = total_voting_power;
+        }
+    };
+
     /// Get detailed proposal information
     public query func getProposalInfo(proposalId: Nat) : async ?Types.ProposalInfo {
         switch (Trie.find(proposals, Types.proposal_key(proposalId), Nat.equal)) {
@@ -1646,14 +1695,26 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                 var totalVotes : Nat = 0;
                 
                 for ((key, voteRecord) in Trie.iter(vote_records_trie)) {
-                    if (key == proposalId) {
-                        let votingPower = voteRecord.votingPower;
-                        totalVotes += votingPower;
-                        switch (voteRecord.vote) {
-                            case (#yes) { yesVotes += votingPower };
-                            case (#no) { noVotes += votingPower };
-                            case (#abstain) { abstainVotes += votingPower };
+                    // Parse composite key to extract proposalId
+                    let parts = Text.split(key, #char(':'));
+                    switch (parts.next()) {
+                        case (?proposalIdText) {
+                            switch (Nat.fromText(proposalIdText)) {
+                                case (?pid) {
+                                    if (pid == proposalId) {
+                                        let votingPower = voteRecord.votingPower;
+                                        totalVotes += votingPower;
+                                        switch (voteRecord.vote) {
+                                            case (#yes) { yesVotes += votingPower };
+                                            case (#no) { noVotes += votingPower };
+                                            case (#abstain) { abstainVotes += votingPower };
+                                        };
+                                    };
+                                };
+                                case null { /* Skip invalid key */ };
+                            };
                         };
+                        case null { /* Skip invalid key */ };
                     };
                 };
                 

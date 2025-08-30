@@ -6,7 +6,7 @@
     ]"
   >
     <component :is="statusIcon" class="h-3 w-3 mr-1" />
-    {{ displayText }}
+    {{ keyToText(status) }}
   </span>
 </template>
 
@@ -21,30 +21,32 @@ import {
   ShieldIcon,
   BanIcon
 } from 'lucide-vue-next'
+import { getProposalStateKey, type ProposalStateKey } from '@/types/dao'
+import { keyToText } from '@/utils/common'
 
 interface Props {
-  status: 'failed' | 'open' | 'executing' | 'rejected' | 'succeeded' | 'accepted' | 'timelock' | 'cancelled'
+  status: ProposalStateKey
 }
 
 const props = defineProps<Props>()
 
 const statusClasses = computed(() => {
-  switch (props.status) {
-    case 'open':
+  switch (getProposalStateKey(props.status)) {
+    case 'Open':
       return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-    case 'accepted':
+    case 'Accepted':
       return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-    case 'succeeded':
+    case 'Succeeded':
       return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
-    case 'executing':
+    case 'Executing':
       return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-    case 'timelock':
+    case 'Timelock':
       return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
-    case 'rejected':
+    case 'Rejected':
       return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-    case 'failed':
+    case 'Failed':
       return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-    case 'cancelled':
+    case 'Cancelled':
       return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
     default:
       return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
@@ -52,48 +54,26 @@ const statusClasses = computed(() => {
 })
 
 const statusIcon = computed(() => {
-  switch (props.status) {
-    case 'open':
+  console.log('props.status', props.status)
+  switch (keyToText(props.status)) {
+    case 'Open':
       return ClockIcon
-    case 'accepted':
+    case 'Accepted':
       return CheckCircleIcon
-    case 'succeeded':
+    case 'Succeeded':
       return CheckCircleIcon
-    case 'executing':
+    case 'Executing':
       return PlayIcon
-    case 'timelock':
+    case 'Timelock':
       return ShieldIcon
-    case 'rejected':
+    case 'Rejected':
       return XCircleIcon
-    case 'failed':
+    case 'Failed':
       return XCircleIcon
-    case 'cancelled':
+    case 'Cancelled':
       return BanIcon
     default:
       return ClockIcon
-  }
-})
-
-const displayText = computed(() => {
-  switch (props.status) {
-    case 'open':
-      return 'Open'
-    case 'accepted':
-      return 'Accepted'
-    case 'succeeded':
-      return 'Succeeded'
-    case 'executing':
-      return 'Executing'
-    case 'timelock':
-      return 'Timelock'
-    case 'rejected':
-      return 'Rejected'
-    case 'failed':
-      return 'Failed'
-    case 'cancelled':
-      return 'Cancelled'
-    default:
-      return props.status
   }
 })
 </script>

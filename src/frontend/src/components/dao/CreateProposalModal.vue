@@ -196,7 +196,7 @@
             <input
               v-model="proposalData.discussionUrl"
               type="url"
-              placeholder="https://forum.example.com/proposal-discussion"
+              placeholder="https://x.com/icto_app/status/180854599283917"
               class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
             />
           </div>
@@ -288,7 +288,10 @@
                   Proposal Submission Cost
                 </p>
                 <p class="text-sm text-yellow-600 dark:text-yellow-300">
-                  {{ formatTokenAmount(dao.systemParams.proposal_submission_deposit, dao.tokenConfig.symbol) }} will be required to submit this proposal.
+                  <span class="animate-pulse">●</span> {{ formatTokenAmount(dao.systemParams.proposal_submission_deposit, dao.tokenConfig.symbol) }} will be required to submit this proposal.
+                </p>
+                <p class="text-sm text-yellow-600 dark:text-yellow-300">
+                  <span class="animate-pulse">●</span> You need to have at least {{ formatTokenAmount(dao.systemParams.proposal_vote_threshold, 'VP (Voting Power)') }} to create this proposal.
                 </p>
               </div>
             </div>
@@ -366,6 +369,7 @@ import Select from '@/components/common/Select.vue'
 import { DAOService } from '@/api/services/dao'
 import type { DAO } from '@/types/dao'
 import { formatTokenAmount as utilFormatTokenAmount } from '@/utils/token'
+import { toast } from 'vue-sonner'
 
 interface Props {
   dao: DAO
@@ -407,13 +411,10 @@ const showSteps = ref(false)
 const currentStep = ref(1)
 
 // Governance Level Computed Properties
-const governanceLevel = computed(() => {
-  // Infer governance level from DAO capabilities  
-  if (!props.dao?.tokenConfig?.managedByDAO) return 'motion-only'
-  
-  // Check if external calls are available - this suggests fully managed
-  // For now, assume semi-managed if managedByDAO is true
-  return 'semi-managed' // Could be 'fully-managed' based on more detailed analysis
+const governanceLevel = computed(async () => {
+  const governanceLevel = await daoService.getDAOLevel(props.dao.canisterId)
+  if (!props.dao?.tokenConfig?.managedByDAO) return governanceLevel
+  return governanceLevel // Could be 'fully-managed' based on more detailed analysis
 })
 
 const availableProposalTypes = computed(() => {
@@ -653,11 +654,13 @@ const proceedWithProposal = async () => {
       }, 2000)
     } else {
       error.value = result.error || 'Failed to create proposal'
+      toast.error(error.value || 'Failed to create proposal')
       resetState()
     }
   } catch (err) {
     console.error('Error creating proposal:', err)
     error.value = 'An unexpected error occurred while creating the proposal'
+    toast.error(error.value || 'Failed to create proposal')
     resetState()
   } finally {
     isProcessing.value = false

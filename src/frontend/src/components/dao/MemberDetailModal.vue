@@ -98,7 +98,7 @@
             </p>
             <div class="flex items-center justify-between bg-white dark:bg-gray-700 rounded-lg p-3">
               <span class="font-mono text-sm text-gray-900 dark:text-white">
-                {{ formatPrincipal(member.delegatedTo[0].toText()) }}
+                {{ (member.delegatedTo[0].toText()) }}
               </span>
               <button
                 @click="copyDelegateAddress(member.delegatedTo[0].toText())"

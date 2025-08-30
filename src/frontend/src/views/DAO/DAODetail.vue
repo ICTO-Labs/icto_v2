@@ -28,6 +28,12 @@
               <span class="text-sm text-gray-500 dark:text-gray-400">
                 Created: {{ formatDate(Number(dao.createdAt)) }}
               </span>
+              <div class="flex items-center space-x-2">
+                <span class="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                  {{ formatPrincipal(dao.tokenConfig.canisterId) }}
+                </span>
+                <CopyIcon :data="dao.tokenConfig.canisterId" msg="canister ID" :size="14" />
+              </div>
             </div>
           </div>
         </div>
@@ -35,7 +41,7 @@
         <!-- Action Buttons -->
         <div class="flex items-center space-x-3">
           <button 
-            v-if="dao.stakingEnabled && !memberInfo?.stakedAmount"
+            v-if="dao.stakingEnabled"
             @click="showStakeModal = true"
             class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-all duration-200"
           >
@@ -96,7 +102,7 @@
       />
       <StatCard 
         title="Total Staked"
-        :value="formatTokenAmountLabel(formatTokenAmount(Number(dao.stats.totalStaked), Number(dao.tokenConfig.decimals)).toNumber(), dao.tokenConfig.symbol)"
+        :value="formatTokenAmountLabel(parseTokenAmount(Number(dao.stats.totalStaked), dao.tokenConfig.decimals).toNumber(), dao.tokenConfig.symbol)"
         :icon="CoinsIcon"
         color="purple"
       />
@@ -140,63 +146,204 @@
       <div class="p-6">
         <!-- Overview Tab -->
         <div v-if="activeTab === 'overview'" class="space-y-6">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Governance Parameters -->
-            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+          <!-- Main Information Grid - 3 Columns -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Governance Configuration -->
+            <div class="bg-gradient-to-br from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-lg p-5 border border-purple-200 dark:border-purple-800">
               <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                <SettingsIcon class="h-5 w-5 mr-2 text-gray-500" />
-                Governance Parameters
+                <SettingsIcon class="h-5 w-5 mr-2 text-purple-500" />
+                Governance Config
               </h3>
               <div class="space-y-3">
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Quorum Required</span>
-                  <span class="text-sm font-medium">{{ dao.systemParams.quorum_percentage }}%</span>
+                <!-- Governance Level -->
+                <div class="flex justify-between items-center">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Governance Level</span>
+                  <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                    {{ formatGovernanceLevel(dao.governanceLevel) }}
+                  </span>
                 </div>
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Approval Threshold</span>
-                  <span class="text-sm font-medium">{{ dao.systemParams.approval_threshold }}%</span>
+                <!-- Governance Type -->
+                <div class="flex justify-between items-center">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Governance Type</span>
+                  <span class="text-sm font-medium">{{ dao.governanceType || 'Liquid' }}</span>
                 </div>
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Voting Period</span>
-                  <span class="text-sm font-medium">{{ formatDuration(Number(dao.systemParams.max_voting_period)) }}</span>
+                <!-- Staking Status -->
+                <div class="flex justify-between items-center">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Staking Enabled</span>
+                  <span :class="[
+                    'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
+                    dao.stakingEnabled 
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                      : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                  ]">
+                    {{ dao.stakingEnabled ? 'Yes' : 'No' }}
+                  </span>
                 </div>
+                <!-- Total Members -->
                 <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Timelock Duration</span>
-                  <span class="text-sm font-medium">{{ formatDuration(Number(dao.systemParams.timelock_duration)) }}</span>
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Total Members</span>
+                  <span class="text-sm font-medium">{{ dao.stats?.totalMembers || 0 }}</span>
                 </div>
+                <!-- Total Staked -->
                 <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Proposal Threshold</span>
-                  <span class="text-sm font-medium">{{ parseTokenAmount(Number(dao.systemParams.proposal_vote_threshold), Number(dao.tokenConfig.decimals)).toNumber() }} {{ dao.tokenConfig.symbol }} </span>
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Total Staked</span>
+                  <span class="text-sm font-medium text-purple-600 dark:text-purple-400">
+                    {{ formatTokenAmountLabel(parseTokenAmount(Number(dao.stats?.totalStaked || 0), dao.tokenConfig.decimals).toNumber(), dao.tokenConfig.symbol) }}
+                  </span>
+                </div>
+                <!-- Total Voting Power -->
+                <div class="flex justify-between">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Total Voting Power</span>
+                  <span class="text-sm font-medium text-blue-600 dark:text-blue-400">
+                    {{ formatTokenAmountLabel(parseTokenAmount(Number(dao.stats?.totalVotingPower || 0), dao.tokenConfig.decimals).toNumber(), 'VP') }}
+                  </span>
                 </div>
               </div>
             </div>
 
-            <!-- Token Information -->
-            <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+            <!-- Voting Parameters -->
+            <div class="bg-gradient-to-br from-yellow-50 to-orange-50 dark:from-yellow-900/20 dark:to-orange-900/20 rounded-lg p-5 border border-yellow-200 dark:border-yellow-800">
               <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                <CoinsIcon class="h-5 w-5 mr-2 text-gray-500" />
-                Token Information
+                <VoteIcon class="h-5 w-5 mr-2 text-yellow-500" />
+                Voting Parameters
               </h3>
               <div class="space-y-3">
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Symbol</span>
-                  <span class="text-sm font-medium">{{ dao.tokenConfig.symbol }}</span>
+                <!-- Quorum Required -->
+                <div class="flex justify-between items-center">
+                  <div class="flex items-center">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">Quorum Required</span>
+                    <div class="ml-1 group relative">
+                      <InfoIcon class="h-3 w-3 text-gray-400 cursor-help" />
+                      <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        Minimum participation needed
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                    {{ formatBasisPoints(dao.systemParams.quorum_percentage) }}%
+                  </span>
                 </div>
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Name</span>
-                  <span class="text-sm font-medium">{{ dao.tokenConfig.name }}</span>
+                <!-- Approval Threshold -->
+                <div class="flex justify-between items-center">
+                  <div class="flex items-center">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">Approval Threshold</span>
+                    <div class="ml-1 group relative">
+                      <InfoIcon class="h-3 w-3 text-gray-400 cursor-help" />
+                      <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        Minimum approval to pass
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-sm font-medium text-orange-600 dark:text-orange-400">
+                    {{ formatBasisPoints(dao.systemParams.approval_threshold) }}%
+                  </span>
                 </div>
+                <!-- Voting Period -->
                 <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">Decimals</span>
-                  <span class="text-sm font-medium">{{ dao.tokenConfig.decimals }}</span>
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Voting Period</span>
+                  <span class="text-sm font-medium">{{ formatDuration(Number(dao.systemParams.max_voting_period)) }}</span>
                 </div>
+                <!-- Min Voting Period -->
+                <div class="flex justify-between">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Min Voting Period</span>
+                  <span class="text-sm font-medium">{{ formatDuration(Number(dao.systemParams.min_voting_period)) }}</span>
+                </div>
+                <!-- Timelock Duration -->
+                <div class="flex justify-between items-center">
+                  <div class="flex items-center">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">Timelock Duration</span>
+                    <div class="ml-1 group relative">
+                      <InfoIcon class="h-3 w-3 text-gray-400 cursor-help" />
+                      <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        Delay before execution
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-sm font-medium">{{ formatDuration(Number(dao.systemParams.timelock_duration)) }}</span>
+                </div>
+                <!-- Proposal Threshold -->
+                <div class="flex justify-between items-center">
+                  <div class="flex items-center">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">Proposal Threshold</span>
+                    <div class="ml-1 group relative">
+                      <InfoIcon class="h-3 w-3 text-gray-400 cursor-help" />
+                      <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        Voting power needed to create proposal
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-sm font-medium">{{ formatTokenAmountLabel(Number(dao.systemParams.proposal_vote_threshold), 'VP') }}</span>
+                </div>
+                <!-- Proposal Deposit -->
+                <div class="flex justify-between items-center">
+                  <div class="flex items-center">
+                    <span class="text-sm text-gray-600 dark:text-gray-400">Proposal Deposit</span>
+                    <div class="ml-1 group relative">
+                      <InfoIcon class="h-3 w-3 text-gray-400 cursor-help" />
+                      <div class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                        Deposit required when creating proposal
+                      </div>
+                    </div>
+                  </div>
+                  <span class="text-sm font-medium text-yellow-600 dark:text-yellow-400">
+                    {{ formatTokenAmountLabel(Number(dao.systemParams.proposal_submission_deposit), dao.tokenConfig.symbol) }}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <!-- DAO Statistics -->
+            <div class="bg-gradient-to-br from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-lg p-5 border border-indigo-200 dark:border-indigo-800">
+              <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
+                <BarChartIcon class="h-5 w-5 mr-2 text-indigo-500" />
+                DAO Statistics
+              </h3>
+              <div class="space-y-3">
+                <!-- Creation Date -->
+                <div class="flex justify-between">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Created</span>
+                  <span class="text-sm font-medium">{{ formatDate(dao.createdAt) }}</span>
+                </div>
+                <!-- Total Proposals -->
+                <div class="flex justify-between">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Total Proposals</span>
+                  <span class="text-sm font-medium text-indigo-600 dark:text-indigo-400">{{ dao.stats?.totalProposals || 0 }}</span>
+                </div>
+                <!-- Active Proposals -->
+                <div class="flex justify-between">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Active Proposals</span>
+                  <span class="text-sm font-medium text-orange-600 dark:text-orange-400">{{ dao.stats?.activeProposals || 0 }}</span>
+                </div>
+                <!-- Executed Proposals -->
+                <div class="flex justify-between">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Executed Proposals</span>
+                  <span class="text-sm font-medium text-green-600 dark:text-green-400">{{ dao.stats?.executedProposals || 0 }}</span>
+                </div>
+                <!-- Treasury Balance -->
+                <div class="flex justify-between">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Treasury Balance</span>
+                  <span class="text-sm font-medium text-purple-600 dark:text-purple-400">
+                    {{ formatTokenAmountLabel(Number(dao.stats?.treasuryBalance || 0), dao.tokenConfig.symbol) }}
+                  </span>
+                </div>
+                <!-- Transfer Fee -->
                 <div class="flex justify-between">
                   <span class="text-sm text-gray-600 dark:text-gray-400">Transfer Fee</span>
-                  <span class="text-sm font-medium">{{ parseTokenAmount(dao.systemParams.transfer_fee, dao.tokenConfig.decimals) }} {{ dao.tokenConfig.symbol }}</span>
+                  <span class="text-sm font-medium text-green-600 dark:text-green-400">
+                    {{ parseTokenAmount(dao.systemParams.transfer_fee, dao.tokenConfig.decimals) }} {{ dao.tokenConfig.symbol }}
+                  </span>
                 </div>
-                <div class="flex justify-between">
-                  <span class="text-sm text-gray-600 dark:text-gray-400">DAO Managed</span>
-                  <span class="text-sm font-medium">{{ dao.tokenConfig.managedByDAO ? 'Yes' : 'No' }}</span>
+                <!-- Emergency Status -->
+                <div class="flex justify-between items-center">
+                  <span class="text-sm text-gray-600 dark:text-gray-400">Emergency Mode</span>
+                  <span :class="[
+                    'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
+                    dao.emergencyState 
+                      ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' 
+                      : 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                  ]">
+                    {{ dao.emergencyState ? 'Active' : 'Normal' }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -247,14 +394,14 @@
               <div class="flex items-center space-x-3">
                 <button
                   @click="showCreateProposalModal = true"
-                  class="inline-flex items-center px-3 py-2 bg-gradient-to-r from-yellow-500 to-amber-600 text-white rounded-lg hover:from-yellow-600 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-all duration-200 text-sm"
+                  class="inline-flex items-center px-3 py-2 bg-gradient-to-r from-yellow-500 to-amber-600 text-white rounded-lg hover:from-yellow-600 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 text-sm"
                 >
                   <PlusIcon class="h-4 w-4 mr-1" />
                   New Proposal
                 </button>
                 <button
                   @click="$router.push(`/dao/${dao.id}/proposals`)"
-                  class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-all duration-200 text-sm"
+                  class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 text-sm"
                 >
                   View All
                   <ChevronRightIcon class="h-4 w-4 ml-1" />
@@ -306,26 +453,176 @@
 
         <!-- Member Info Tab -->
         <div v-else-if="activeTab === 'member'" class="space-y-6">
-          <div v-if="memberInfo" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <StatCard 
-              title="Your Staked Amount"
-              :value="formatTokenAmount(memberInfo.stakedAmount, dao.tokenConfig.symbol)"
-              :icon="CoinsIcon"
-              color="purple"
-            />
-            <StatCard 
-              title="Your Voting Power"
-              :value="formatTokenAmount(memberInfo.votingPower, 'VP')"
-              :icon="ZapIcon"
-              color="yellow"
-            />
-            <StatCard 
-              title="Proposals Created"
-              :value="memberInfo.proposalsCreated"
-              :icon="PlusIcon"
-              color="green"
-            />
+          <div v-if="memberInfo" class="space-y-6">
+            <!-- Two Column Layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <!-- Left Column - Membership Info -->
+              <div class="space-y-4">
+                <div class="bg-white dark:bg-gray-800 rounded-lg px-6 py-4 border border-gray-200 dark:border-gray-700">
+                  <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Membership Information</h3>
+                  <div class="space-y-4">
+                    <!-- Staked Amount -->
+                    <div class="flex items-center justify-between p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-lg">
+                          <CoinsIcon class="h-5 w-5 text-purple-600" />
+                        </div>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Staked Amount</span>
+                      </div>
+                      <span class="text-lg font-bold text-purple-600 dark:text-purple-400">
+                        {{ formatTokenAmountLabel(parseTokenAmount(Number(memberInfo.stakedAmount), dao?.tokenConfig.decimals).toNumber(), dao?.tokenConfig.symbol) }}
+                      </span>
+                    </div>
+
+                    <!-- Voting Power -->
+                    <div class="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-orange-100 dark:bg-orange-900/40 rounded-lg">
+                          <ZapIcon class="h-5 w-5 text-orange-600" />
+                        </div>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Voting Power</span>
+                      </div>
+                      <span class="text-lg font-bold text-orange-600 dark:text-orange-400">
+                        {{ formatTokenAmountLabel(parseTokenAmount(Number(memberInfo.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
+                      </span>
+                    </div>
+
+                    <!-- Proposals Created -->
+                    <div class="flex items-center justify-between p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-green-100 dark:bg-green-900/40 rounded-lg">
+                          <FileTextIcon class="h-5 w-5 text-green-600" />
+                        </div>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Proposals Created</span>
+                      </div>
+                      <span class="text-lg font-bold text-green-600 dark:text-green-400">
+                        {{ Number(memberInfo.proposalsCreated) }}
+                      </span>
+                    </div>
+
+                    <!-- Votes Cast -->
+                    <div class="flex items-center justify-between p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg">
+                          <VoteIcon class="h-5 w-5 text-blue-600" />
+                        </div>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Votes Cast</span>
+                      </div>
+                      <span class="text-lg font-bold text-blue-600 dark:text-blue-400">
+                        {{ Number(memberInfo.votesCast || 0) }}
+                      </span>
+                    </div>
+
+                    <!-- Member Status -->
+                    <div class="flex items-center justify-between p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-green-100 dark:bg-green-900/40 rounded-lg">
+                          <CheckCircleIcon class="h-5 w-5 text-green-600" />
+                        </div>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Member Status</span>
+                      </div>
+                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300">
+                        Active
+                      </span>
+                    </div>
+
+                    <!-- Joined Date -->
+                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-gray-100 dark:bg-gray-600 rounded-lg">
+                          <CalendarIcon class="h-5 w-5 text-gray-600 dark:text-gray-400" />
+                        </div>
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Joined</span>
+                      </div>
+                      <span class="text-sm font-medium text-gray-900 dark:text-white">
+                        {{ formatDate(memberInfo.joinedAt) }}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Right Column - Action Buttons -->
+              <div class="space-y-4">
+                <div class="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+                  <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
+                  <div class="space-y-3">
+                    <!-- Stake -->
+                    <button
+                      @click="showStakeModal = true"
+                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-green-100 dark:bg-green-900/40 rounded-lg">
+                          <PlusIcon class="h-5 w-5 text-green-600" />
+                        </div>
+                        <div class="text-left">
+                          <span class="font-medium text-gray-900 dark:text-white">Stake Tokens</span>
+                          <p class="text-sm text-gray-500 dark:text-gray-400">Add more tokens to your stake</p>
+                        </div>
+                      </div>
+                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
+                    </button>
+
+                    <!-- Unstake -->
+                    <button
+                      @click="showUnstakeModal = true"
+                      :disabled="Number(memberInfo.stakedAmount) === 0"
+                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-lg">
+                          <MinusIcon class="h-5 w-5 text-purple-600" />
+                        </div>
+                        <div class="text-left">
+                          <span class="font-medium text-gray-900 dark:text-white">Unstake Tokens</span>
+                          <p class="text-sm text-gray-500 dark:text-gray-400">Withdraw your staked tokens</p>
+                        </div>
+                      </div>
+                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
+                    </button>
+
+                    <!-- Delegate -->
+                    <button
+                      @click="showDelegationModal = true"
+                      :disabled="Number(memberInfo.stakedAmount) === 0"
+                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg">
+                          <UsersIcon class="h-5 w-5 text-blue-600" />
+                        </div>
+                        <div class="text-left">
+                          <span class="font-medium text-gray-900 dark:text-white">Delegate Voting Power</span>
+                          <p class="text-sm text-gray-500 dark:text-gray-400">Delegate to another member</p>
+                        </div>
+                      </div>
+                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
+                    </button>
+
+                    <!-- Create Proposal -->
+                    <button
+                      @click="showCreateProposalModal = true"
+                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <div class="flex items-center space-x-3">
+                        <div class="p-2 bg-yellow-100 dark:bg-yellow-900/40 rounded-lg">
+                          <PlusIcon class="h-5 w-5 text-yellow-600" />
+                        </div>
+                        <div class="text-left">
+                          <span class="font-medium text-gray-900 dark:text-white">Create Proposal</span>
+                          <p class="text-sm text-gray-500 dark:text-gray-400">Create a new proposal</p>
+                        </div>
+                      </div>
+                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
+
+          <!-- Not a Member State -->
           <div v-else class="text-center py-8">
             <UsersIcon class="h-16 w-16 mx-auto text-gray-400 mb-4" />
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">Not a Member</h3>
@@ -351,6 +648,22 @@
       :dao="dao"
       @close="showStakeModal = false"
       @success="handleStakeSuccess"
+    />
+
+    <UnstakeModal
+      v-if="showUnstakeModal"
+      :dao="dao"
+      :member-info="memberInfo"
+      @close="showUnstakeModal = false"
+      @success="handleUnstakeSuccess"
+    />
+
+    <DelegationModal
+      v-if="showDelegationModal"
+      :dao="dao"
+      :member-info="memberInfo"
+      @close="showDelegationModal = false"
+      @success="handleDelegationSuccess"
     />
 
     <CreateProposalModal
@@ -397,6 +710,7 @@ import {
   VoteIcon,
   FileTextIcon,
   PlusIcon,
+  MinusIcon,
   SettingsIcon,
   ActivityIcon,
   GlobeIcon,
@@ -404,33 +718,46 @@ import {
   AlertTriangleIcon,
   AlertCircleIcon,
   RefreshCcwIcon,
-  ZapIcon
+  ZapIcon,
+  InfoIcon,
+  BarChartIcon,
+  EyeIcon,
+  CheckCircleIcon,
+  CalendarIcon,
+  UserIcon
 } from 'lucide-vue-next'
 import GovernanceTypeBadge from '@/components/dao/GovernanceTypeBadge.vue'
 import StatCard from '@/components/dao/StatCard.vue'
 import ProposalStatusBadge from '@/components/dao/ProposalStatusBadge.vue'
 import ProposalCard from '@/components/dao/ProposalCard.vue'
 import StakeModal from '@/components/dao/StakeModal.vue'
+import UnstakeModal from '@/components/dao/UnstakeModal.vue'
+import DelegationModal from '@/components/dao/DelegationModal.vue'
 import CreateProposalModal from '@/components/dao/CreateProposalModal.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
-import type { DAO, MemberInfo, Proposal } from '@/types/dao'
+import CopyIcon from '@/icons/CopyIcon.vue'
+import type { DAO } from '@/types/dao'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import { formatTokenAmountLabel, formatTokenAmount, parseTokenAmount } from '@/utils/token'
-
+import { shortPrincipal } from '@/utils/common'
 const route = useRoute()
 const router = useRouter()
 const daoService = DAOService.getInstance()
 
 // State
 const dao = ref<DAO | null>(null)
-const memberInfo = ref<MemberInfo | null>(null)
-const recentProposals = ref<Proposal[]>([])
+const memberInfo = ref<any | null>(null)
+const recentProposals = ref<any[]>([])
 const isLoading = ref(true)
 const isLoadingProposals = ref(false)
 const error = ref<string | null>(null)
 const activeTab = ref('overview')
 const showStakeModal = ref(false)
+const showUnstakeModal = ref(false)
+const showDelegationModal = ref(false)
 const showCreateProposalModal = ref(false)
+const showViewProposalsModal = ref(false)
+const showMemberInfoModal = ref(false)
 
 // Tabs configuration
 const tabs = [
@@ -463,7 +790,7 @@ const fetchData = async () => {
 
     // Fetch member info (if user is connected)
     try {
-      const memberData = await daoService.getMemberInfo(daoId)
+      const memberData = await daoService.getMyMemberInfo(daoId)
       memberInfo.value = memberData
     } catch (err) {
       // User might not be a member, that's okay
@@ -487,8 +814,8 @@ const fetchData = async () => {
   }
 }
 
-const formatDate = (timestamp: number): string => {
-  const date = new Date(timestamp/1000000)
+const formatDate = (timestamp: number | string): string => {
+  const date = new Date(Number(timestamp)/1000000)
   return date.toLocaleDateString('en-US', { 
     year: 'numeric',
     month: 'short', 
@@ -509,9 +836,43 @@ const formatDuration = (seconds: number): string => {
   }
 }
 
+// Convert basis points to percentage (e.g., 2000 -> 20)
+const formatBasisPoints = (basisPoints: number): string => {
+  return (Number(basisPoints) / 100).toFixed(1)
+}
+
+// Format governance level for display
+const formatGovernanceLevel = (level: string): string => {
+  const levelMap = {
+    'motion-only': 'Motion Only',
+    'semi-managed': 'Semi-Managed', 
+    'fully-managed': 'Fully Managed'
+  }
+  return levelMap[level as keyof typeof levelMap] || level
+}
+
+// Format principal for display
+const formatPrincipal = (principal: string): string => {
+  if (principal.length <= 20) return principal
+  return shortPrincipal(principal)
+}
+
+
 
 const handleStakeSuccess = () => {
   showStakeModal.value = false
+  // Refresh member info
+  fetchData()
+}
+
+const handleUnstakeSuccess = () => {
+  showUnstakeModal.value = false
+  // Refresh member info
+  fetchData()
+}
+
+const handleDelegationSuccess = () => {
+  showDelegationModal.value = false
   // Refresh member info
   fetchData()
 }

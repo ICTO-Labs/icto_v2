@@ -18,7 +18,7 @@
         <div class="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
           <span class="flex items-center">
             <UserIcon class="h-4 w-4 mr-1" />
-            Proposed by {{ formatPrincipal(proposal.proposer) }}
+            Proposed by {{ (proposal.proposer) }}
           </span>
           <span class="flex items-center">
             <CalendarIcon class="h-4 w-4 mr-1" />

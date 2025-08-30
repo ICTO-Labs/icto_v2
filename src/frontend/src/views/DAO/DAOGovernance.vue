@@ -210,7 +210,7 @@
                     class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                   >
                     <span class="font-mono text-sm text-gray-600 dark:text-gray-300">
-                      {{ formatPrincipal(contact.toText()) }}
+                      {{ (contact.toText()) }}
                     </span>
                     <button
                       @click="copyToClipboard(contact.toText())"
