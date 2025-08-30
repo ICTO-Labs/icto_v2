@@ -328,13 +328,12 @@
             </div>
             <div class="flex justify-end">
               <button
-                @click="submitComment"
-                :disabled="!newComment.trim() || isSubmittingComment || newComment.length > 500"
+                @click="showCommentConfirmation"
+                :disabled="!newComment.trim() || newComment.length > 500"
                 class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-700 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <div v-if="isSubmittingComment" class="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                <MessageCircleIcon v-else class="h-4 w-4 mr-2" />
-                {{ isSubmittingComment ? 'Posting...' : 'Post Comment' }}
+                <MessageCircleIcon class="h-4 w-4 mr-2" />
+                Post Comment
               </button>
             </div>
           </div>
@@ -380,9 +379,17 @@
                 <div v-if="comment.author === currentUserPrincipal" class="flex items-center space-x-2">
                   <button
                     @click="startEditComment(comment)"
-                    class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                    class="text-gray-400 hover:text-yellow-600 dark:hover:text-yellow-400 transition-colors"
+                    title="Edit comment"
                   >
                     <EditIcon class="h-4 w-4" />
+                  </button>
+                  <button
+                    @click="showDeleteConfirmation(comment)"
+                    class="text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                    title="Delete comment"
+                  >
+                    <Trash2Icon class="h-4 w-4" />
                   </button>
                 </div>
               </div>
@@ -398,22 +405,25 @@
                   v-model="editingCommentContent"
                   rows="3"
                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white resize-none"
+                  maxlength="500"
                 ></textarea>
-                <div class="flex justify-end space-x-2">
-                  <button
-                    @click="cancelEditComment"
-                    class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    @click="updateComment(comment.id)"
-                    :disabled="!editingCommentContent.trim() || isUpdatingComment"
-                    class="inline-flex items-center px-3 py-1 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg disabled:opacity-50"
-                  >
-                    <div v-if="isUpdatingComment" class="animate-spin rounded-full h-3 w-3 border-t-2 border-b-2 border-white mr-1"></div>
-                    {{ isUpdatingComment ? 'Updating...' : 'Update' }}
-                  </button>
+                <div class="flex items-center justify-between">
+                  <span class="text-xs text-gray-400">{{ editingCommentContent.length }}/500</span>
+                  <div class="flex space-x-2">
+                    <button
+                      @click="cancelEditComment"
+                      class="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      @click="showUpdateConfirmation(comment.id)"
+                      :disabled="!editingCommentContent.trim() || editingCommentContent.length > 500"
+                      class="inline-flex items-center px-3 py-1 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg disabled:opacity-50 transition-colors"
+                    >
+                      Update Comment
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -445,6 +455,43 @@
       Try Again
     </button>
   </div>
+
+  <!-- Confirmation Dialogs -->
+  <ConfirmationDialog
+    :show="showCommentConfirm"
+    title="Post Comment"
+    message="Are you sure you want to post this comment?"
+    type="info"
+    :isProcessing="isSubmittingComment"
+    processingText="Posting comment..."
+    confirmText="Post Comment"
+    @confirm="submitComment"
+    @cancel="showCommentConfirm = false"
+  />
+
+  <ConfirmationDialog
+    :show="showDeleteConfirm"
+    title="Delete Comment"
+    message="Are you sure you want to delete this comment? This action cannot be undone."
+    type="danger"
+    confirmVariant="danger"
+    confirmText="Delete Comment"
+    @confirm="deleteComment"
+    @cancel="showDeleteConfirm = false"
+  />
+
+  <ConfirmationDialog
+    :show="showUpdateConfirm"
+    title="Update Comment"
+    message="Are you sure you want to update this comment?"
+    type="info"
+    :isProcessing="isUpdatingComment"
+    processingText="Updating comment..."
+    confirmText="Update Comment"
+    @confirm="updateComment(editingCommentId!)"
+    @cancel="showUpdateConfirm = false"
+  />
+
   </AdminLayout>
 </template>
 
@@ -466,12 +513,14 @@ import {
   AlertCircleIcon,
   RefreshCcwIcon,
   MessageCircleIcon,
-  EditIcon
+  EditIcon,
+  Trash2Icon
 } from 'lucide-vue-next'
 import ProposalStatusBadge from '@/components/dao/ProposalStatusBadge.vue'
 import ProposalTypeBadge from '@/components/dao/ProposalTypeBadge.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
+import ConfirmationDialog from '@/components/common/ConfirmationDialog.vue'
 import type { DAO, ProposalInfo, MemberInfo, ProposalComment } from '@/types/dao'
 import { getProposalStateKey } from '@/types/dao'
 import { useAuthStore } from '@/stores/auth'
@@ -497,6 +546,12 @@ const isSubmittingComment = ref(false)
 const editingCommentId = ref<string | null>(null)
 const editingCommentContent = ref('')
 const isUpdatingComment = ref(false)
+
+// Confirmation dialog state
+const showCommentConfirm = ref(false)
+const showDeleteConfirm = ref(false)
+const showUpdateConfirm = ref(false)
+const commentToDelete = ref<ProposalComment | null>(null)
 
 // Computed
 const currentUserPrincipal = computed(() => {
@@ -780,6 +835,45 @@ const updateComment = async (commentId: string) => {
   } finally {
     isUpdatingComment.value = false
   }
+}
+
+const deleteComment = async () => {
+  if (!commentToDelete.value) return
+
+  try {
+    const daoId = route.params.id as string
+    
+    const result = await daoService.deleteComment(daoId, commentToDelete.value.id)
+    
+    if (result.success) {
+      showDeleteConfirm.value = false
+      commentToDelete.value = null
+      // Refresh comments to remove the deleted one
+      await fetchComments()
+    } else {
+      error.value = result.error || 'Failed to delete comment'
+    }
+    
+  } catch (err) {
+    console.error('Error deleting comment:', err)
+    error.value = 'Failed to delete comment'
+  }
+}
+
+// Confirmation dialog methods
+const showCommentConfirmation = () => {
+  if (!newComment.value.trim() || newComment.value.length > 500) return
+  showCommentConfirm.value = true
+}
+
+const showDeleteConfirmation = (comment: ProposalComment) => {
+  commentToDelete.value = comment
+  showDeleteConfirm.value = true
+}
+
+const showUpdateConfirmation = (commentId: string) => {
+  if (!editingCommentContent.value.trim() || editingCommentContent.value.length > 500) return
+  showUpdateConfirm.value = true
 }
 
 onMounted(() => {

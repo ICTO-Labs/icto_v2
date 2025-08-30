@@ -1826,13 +1826,7 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     
     /// Get voting power for a principal (including delegated power)
     func _getVotingPower(principal: Principal) : Nat {
-        let directPower = switch (Trie.get(stakes, Types.stake_key(principal), Principal.equal)) {
-            case null { 0 };
-            case (?stake) { stake.votingPower };
-        };
-        
-        // TODO: Add delegated voting power calculation
-        directPower
+        _getEffectiveVotingPower(principal)
     };
 
     /// Validate if proposal type is allowed by governance level
@@ -2434,5 +2428,229 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                 #ok()
             };
         }
+    };
+
+    // ================ DELEGATION SYSTEM ================
+    
+    /// Delegate voting power to another principal
+    public shared({caller}) func delegate(delegate: Principal) : async Types.Result<(), Text> {
+        // ================ CHECKS ================
+        if (emergency_state.paused) {
+            return #err("DAO is paused for emergency");
+        };
+
+        // Rate limiting check
+        switch (_checkRateLimit(caller, #Delegate)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok()) {};
+        };
+
+        // Can't delegate to self
+        if (caller == delegate) {
+            return #err("Cannot delegate to yourself");
+        };
+
+        // Check if caller has stake
+        let stakeRecord = switch (Trie.get(stakes, Types.stake_key(caller), Principal.equal)) {
+            case null { return #err("You must stake tokens before delegating") };
+            case (?stake) { stake };
+        };
+
+        // Check if delegate exists (has stake)
+        switch (Trie.get(stakes, Types.stake_key(delegate), Principal.equal)) {
+            case null { return #err("Delegate must be a DAO member (have staked tokens)") };
+            case (?_) { /* Valid delegate */ };
+        };
+
+        // Check for delegation chain length to prevent infinite loops
+        let chainLength = _calculateDelegationChainLength(delegate, 0);
+        if (chainLength >= MAX_DELEGATION_CHAIN_LENGTH) {
+            return #err("Delegation chain too long. Maximum length: " # Nat.toText(MAX_DELEGATION_CHAIN_LENGTH));
+        };
+
+        let now = Time.now();
+        let effectiveTime = now + DELEGATION_TIMELOCK; // 24 hour timelock
+
+        // Create delegation record
+        let delegationRecord: Types.DelegationRecord = {
+            delegator = caller;
+            delegate = delegate;
+            votingPower = stakeRecord.votingPower;
+            delegatedAt = now;
+            effectiveAt = effectiveTime;
+            revokable = true;
+        };
+
+        // Remove existing delegation if any
+        delegations := Trie.remove(delegations, Types.stake_key(caller), Principal.equal).0;
+        
+        // Store new delegation
+        delegations := Trie.put(delegations, Types.stake_key(caller), Principal.equal, delegationRecord).0;
+
+        // Schedule timer for delegation to become effective
+        let timerId = Timer.setTimer<system>(#nanoseconds(Int.abs(effectiveTime - now)), func() : async () {
+            await _handleDelegationTimer(caller);
+        });
+
+        let delegationTimer: Types.DelegationTimer = {
+            delegator = caller;
+            scheduledTime = effectiveTime;
+            createdAt = now;
+            remainingTime = effectiveTime - now;
+        };
+
+        delegation_timers_trie := Trie.put(delegation_timers_trie, Types.stake_key(caller), Principal.equal, delegationTimer).0;
+        delegation_timer_ids := Trie.put(delegation_timer_ids, Types.stake_key(caller), Principal.equal, timerId).0;
+
+        _logSecurityEvent(caller, #SuspiciousActivity,
+            "Delegated " # Nat.toText(stakeRecord.votingPower) # " voting power to " # Principal.toText(delegate), #Low);
+
+        #ok()
+    };
+
+    /// Revoke delegation and return voting power to self
+    public shared({caller}) func undelegate() : async Types.Result<(), Text> {
+        // ================ CHECKS ================
+        if (emergency_state.paused) {
+            return #err("DAO is paused for emergency");
+        };
+
+        // Get existing delegation
+        let delegationRecord = switch (Trie.get(delegations, Types.stake_key(caller), Principal.equal)) {
+            case null { return #err("No delegation found") };
+            case (?delegation) { delegation };
+        };
+
+        if (not delegationRecord.revokable) {
+            return #err("Delegation cannot be revoked");
+        };
+
+        // Update delegation record to mark as not revokable
+        let revokedDelegation = {
+            delegationRecord with 
+            revokable = false;
+        };
+
+        delegations := Trie.put(delegations, Types.stake_key(caller), Principal.equal, revokedDelegation).0;
+
+        // Cancel delegation timer if it hasn't been executed yet
+        let key = Types.stake_key(caller);
+        switch (Trie.get(delegation_timer_ids, key, Principal.equal)) {
+            case null { /* No timer to cancel */ };
+            case (?timerId) {
+                Timer.cancelTimer(timerId);
+                delegation_timer_ids := Trie.remove(delegation_timer_ids, key, Principal.equal).0;
+                delegation_timers_trie := Trie.remove(delegation_timers_trie, key, Principal.equal).0;
+            };
+        };
+
+        _logSecurityEvent(caller, #SuspiciousActivity,
+            "Revoked delegation of " # Nat.toText(delegationRecord.votingPower) # " voting power from " # Principal.toText(delegationRecord.delegate), #Low);
+
+        #ok()
+    };
+
+    /// Get delegation information for a principal
+    public query func getDelegationInfo(principal: Principal) : async ?Types.DelegationRecord {
+        Trie.get(delegations, Types.stake_key(principal), Principal.equal)
+    };
+
+    /// Calculate delegation chain length to prevent infinite loops
+    private func _calculateDelegationChainLength(principal: Principal, currentLength: Nat) : Nat {
+        if (currentLength >= MAX_DELEGATION_CHAIN_LENGTH) {
+            return currentLength;
+        };
+
+        switch (Trie.get(delegations, Types.stake_key(principal), Principal.equal)) {
+            case null { currentLength };
+            case (?delegation) {
+                if (not delegation.revokable or delegation.effectiveAt > Time.now()) {
+                    currentLength
+                } else {
+                    _calculateDelegationChainLength(delegation.delegate, currentLength + 1)
+                }
+            };
+        }
+    };
+
+    /// Get effective voting power including delegated power
+    private func _getEffectiveVotingPower(principal: Principal) : Nat {
+        let directPower = switch (Trie.get(stakes, Types.stake_key(principal), Principal.equal)) {
+            case null { 0 };
+            case (?stake) { stake.votingPower };
+        };
+
+        // Add delegated power from others
+        var delegatedFromOthers : Nat = 0;
+        for ((delegator, delegation) in Trie.iter(delegations)) {
+            if (delegation.delegate == principal and 
+                delegation.revokable and 
+                delegation.effectiveAt <= Time.now()) {
+                delegatedFromOthers += delegation.votingPower;
+            };
+        };
+
+        // If this principal has delegated their power, subtract it
+        let delegatedToOthers = switch (Trie.get(delegations, Types.stake_key(principal), Principal.equal)) {
+            case null { 0 };
+            case (?delegation) {
+                if (not delegation.revokable or delegation.effectiveAt > Time.now()) {
+                    0
+                } else {
+                    delegation.votingPower
+                }
+            };
+        };
+
+        directPower + delegatedFromOthers - delegatedToOthers
+    };
+
+    /// Update the existing _getVotingPower function to use effective voting power
+    private func _getVotingPowerUpdated(principal: Principal) : Nat {
+        _getEffectiveVotingPower(principal)
+    };
+
+    // ================ HEARTBEAT SYSTEM (DISABLED) ================
+    // Note: Heartbeat is disabled in favor of timer-based approach for better predictability
+    
+    /* 
+    system func heartbeat() : async () {
+        // Heartbeat disabled - using Timer-based approach instead
+        // This is more predictable and doesn't depend on IC's heartbeat timing
+    };
+    */
+
+    /// Manual trigger for time-sensitive operations (for testing/debugging)
+    public shared({caller}) func triggerTimeBasedOperations() : async Types.Result<(), Text> {
+        // Only allow emergency contacts to trigger manual operations
+        if (Array.find<Principal>(system_params.emergency_contacts, func(contact) = contact == caller) == null) {
+            return #err("Only emergency contacts can trigger manual operations");
+        };
+
+        let now = Time.now();
+        var operationsCount : Nat = 0;
+
+        // Check for expired proposals that need state updates
+        label proposalLoop for ((proposalId, proposal) in Trie.iter(proposals)) {
+            if (operationsCount >= MAX_HEARTBEAT_OPERATIONS) {
+                break proposalLoop;
+            };
+            
+            switch (proposal.state) {
+                case (#Open) {
+                    let votingEndTime = proposal.timestamp + Int.abs(system_params.max_voting_period * 1_000_000_000);
+                    if (now >= votingEndTime) {
+                        await _processVotingEndTimer(proposalId, proposal);
+                        operationsCount += 1;
+                    };
+                };
+                case (_) { /* Skip non-open proposals */ };
+            };
+        };
+
+        _logSecurityEvent(caller, #SuspiciousActivity,
+            "Manual trigger of time-based operations completed. Processed: " # Nat.toText(operationsCount), #Medium);
+
+        #ok()
     };
 };

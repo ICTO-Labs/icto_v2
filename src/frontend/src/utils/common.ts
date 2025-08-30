@@ -47,7 +47,7 @@ export const getFirstLetter = (principal: string | Principal) => {
 
 //Extract the key from an object, e.g. { Open: null } -> 'Open'
 export const keyToText = (obj: Record<string, any>): string => {
-    let keys = Object.keys(obj);
+    const keys = Object.keys(obj);
     if (keys.length === 1) {
         return keys[0];
     }

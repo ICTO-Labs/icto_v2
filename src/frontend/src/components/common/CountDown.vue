@@ -107,8 +107,8 @@ const getMaxValueForUnit = (unit) => {
 }
 
 const getTimeArray = (value, unit) => {
-  let stringValue = format(value).toString()
-  let percentage = (value / getMaxValueForUnit(unit)) * 100
+  const stringValue = format(value).toString()
+  const percentage = (value / getMaxValueForUnit(unit)) * 100
   return stringValue.split('').map((digit) => ({
     value: digit,
     visible: true,
@@ -118,7 +118,7 @@ const getTimeArray = (value, unit) => {
 
 const calcOverlayHeight = () => {
   if (daysArray.value.length > 0) {
-    let remainingDaysPercentage = daysArray.value[0].remainingPercentage
+    const remainingDaysPercentage = daysArray.value[0].remainingPercentage
     return `${remainingDaysPercentage}%`
   }
   return '0%'

@@ -281,7 +281,7 @@ const maskedValue = (value: string) => {
 
 // Update handlers
 const handleTransfer = (token: any) => {
-    let _formattedToken: Token = {
+    const _formattedToken: Token = {
         name: token.name,
         symbol: token.symbol,
         decimals: token.decimals,
@@ -295,7 +295,7 @@ const handleTransfer = (token: any) => {
 }
 
 const handleReceive = (token: any) => {
-    let _formattedToken: Token = {
+    const _formattedToken: Token = {
         name: token.name,
         symbol: token.symbol,
         decimals: token.decimals,

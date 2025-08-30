@@ -1337,7 +1337,7 @@ const calculateWhitelistTotal = () => {
 	const lines = whitelistText.value.trim().split('\n')
 	let total = 0
 	let recipientCount = 0
-	let processedAddresses: any[] = []
+	const processedAddresses: any[] = []
 
 	for (const line of lines) {
 		const trimmedLine = line.trim()
@@ -1722,7 +1722,7 @@ const canProceed = computed(() => {
 				return formData.nftHolderConfig?.canisterId && formData.nftHolderConfig?.minCount && formData.nftHolderConfig?.minCount > 0;
 			}
 
-			let eligibilityValid = formData.eligibilityType && (keyToText(formData.eligibilityType) === 'Open' || formData.recipientMode)
+			const eligibilityValid = formData.eligibilityType && (keyToText(formData.eligibilityType) === 'Open' || formData.recipientMode)
 			
 			// Always require totalAmount in this step (moved from Step 1)
 			const amountValid = formData.totalAmount > 0
@@ -2300,7 +2300,7 @@ const loadDeploymentCost = async () => {
 const handlePayment = async () => {
 	if (!canProceed.value) return
 
-	let isConfirmed = await useSwal.fire({
+	const isConfirmed = await useSwal.fire({
 		title: 'Are you sure?',
 		text: 'You are about to deploy a distribution. This action is irreversible.',
 		icon: 'warning',
@@ -2810,7 +2810,7 @@ watch([() => lockConfig.value.lockDuration, () => lockConfig.value.lockDurationU
 		const startDate = new Date(distributionTimingConfig.value.startTime)
 		const durationNum = parseInt(lockConfig.value.lockDuration)
 		
-		let endDate = new Date(startDate)
+		const endDate = new Date(startDate)
 		switch (lockConfig.value.lockDurationUnit) {
 			case 'days':
 				endDate.setDate(endDate.getDate() + durationNum)

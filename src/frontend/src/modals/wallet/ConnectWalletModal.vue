@@ -59,7 +59,7 @@ const authStore = useAuthStore()
 const walletStore = useWalletStore()
 const loading = ref([])
 const connect = async (walletId: string) => {
-	let isConnected = authStore.isConnected
+	const isConnected = authStore.isConnected
 	if (isConnected) {
 		toast.success('Wallet already connected')
 		modalStore.close('wallet')
@@ -68,7 +68,7 @@ const connect = async (walletId: string) => {
 
 	try {
 		loading.value.push(walletId)
-		let result = await authStore.connectWallet(walletId)
+		const result = await authStore.connectWallet(walletId)
 		if (result.success) {
 			toast.success('Wallet connected successfully')
 			modalStore.close('wallet')

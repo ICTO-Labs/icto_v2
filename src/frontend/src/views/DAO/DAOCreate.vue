@@ -1275,7 +1275,7 @@ const deployDAO = async () => {
     return
   }
 
-  let isConfirmed = await useSwal.fire({
+  const isConfirmed = await useSwal.fire({
     title: 'Are you sure?',
     text: 'You are about to deploy a DAO. This action is irreversible.',
     icon: 'warning',
