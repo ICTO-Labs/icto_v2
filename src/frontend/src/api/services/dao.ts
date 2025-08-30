@@ -56,8 +56,16 @@ export class DAOService {
     return backendActor({ requiresSigning, anon: false })
   }
 
+  private getBackendActorAnonymous() {
+    return backendActor({ requiresSigning: false, anon: true })
+  }
+
   private getDAOActor(canisterId: string, requiresSigning: boolean = true) {
     return daoContractActor({ canisterId, requiresSigning, anon: false })
+  }
+
+  private getDAOActorAnonymous(canisterId: string) {
+    return daoContractActor({ canisterId, requiresSigning: false, anon: true })
   }
 
 
@@ -140,7 +148,7 @@ export class DAOService {
 
   async getDAOs(filters?: DAOFilters): Promise<DAO[]> {
     try {
-      const actor = this.getBackendActor(false) // Allow anonymous access for public DAOs
+      const actor = this.getBackendActorAnonymous() // Allow anonymous access for public DAOs
       
       // Get all DAO canisters from the registry using the correct DeploymentType variant
       const daoCanisters = await actor.getCanistersByType({ DAO: null })
@@ -148,7 +156,7 @@ export class DAOService {
       // Fetch details for each DAO
       const daoPromises = daoCanisters.map(async (canisterId: Principal) => {
         try {
-          const daoActor = await this.getDAOActor(canisterId.toText(), false)
+          const daoActor = await this.getDAOActorAnonymous(canisterId.toText())
           
           // Use the new single query method to get all DAO info at once
           const [daoInfo, canisterInfo, stats] = await Promise.all([
@@ -185,6 +193,8 @@ export class DAOService {
               reason: []
             }
           }
+
+          console.log('🔍 dao:', dao)
           
           return dao
         } catch (error) {
@@ -205,8 +215,8 @@ export class DAOService {
 
   async getDAO(canisterId: string): Promise<DAO | null> {
     try {
-      const daoActor = await this.getDAOActor(canisterId, false)
-      const backendActor = this.getBackendActor(false)
+      const daoActor = await this.getDAOActorAnonymous(canisterId)
+      const backendActor = this.getBackendActorAnonymous()
       
       // Use the new single query method to get all DAO info at once
       const [daoInfo, canisterInfo, stats] = await Promise.all([
@@ -253,7 +263,7 @@ export class DAOService {
 
   async getDAOStats(canisterId: string): Promise<DAOStats> {
     try {
-      const daoActor = await this.getDAOActor(canisterId, false)
+      const daoActor = await this.getDAOActorAnonymous(canisterId)
       return await daoActor.getDAOStats()
     } catch (error) {
       console.error('Error fetching DAO stats:', error)
@@ -267,7 +277,7 @@ export class DAOService {
 
   async getProposals(canisterId: string, status?: string): Promise<Proposal[]> {
     try {
-      const daoActor = await this.getDAOActor(canisterId, false)
+      const daoActor = await this.getDAOActorAnonymous(canisterId)
       const proposals = await daoActor.listProposals(BigInt(0), BigInt(100)) // Get first 100 proposals
       
       if (status) {
@@ -286,7 +296,7 @@ export class DAOService {
 
   async getProposal(canisterId: string, proposalId: number): Promise<ProposalInfo | null> {
     try {
-      const daoActor = await this.getDAOActor(canisterId, false)
+      const daoActor = await this.getDAOActorAnonymous(canisterId)
       const result = await daoActor.getProposalInfo(BigInt(proposalId))
       
       if (result && result[0]) {
@@ -365,8 +375,8 @@ export class DAOService {
           data: {
             voter: vote.voter.toText(),
             vote: 'yes' in vote.vote ? 'yes' : 'no' in vote.vote ? 'no' : 'abstain',
-            votingPower: bigintToString(vote.votingPower),
-            timestamp: bigintToString(vote.timestamp),
+            votingPower: Number(vote.votingPower),
+            timestamp: Number(vote.timestamp),
             reason: vote.reason && vote.reason.length > 0 ? vote.reason[0] : null
           }
         }
@@ -381,15 +391,11 @@ export class DAOService {
 
   async getProposalVotes(daoCanisterId: string, proposalId: number): Promise<{ success: boolean; data?: any[]; error?: string }> {
     try {
-      const actor = await this.getDAOActor(daoCanisterId, false)
-      // Use getProposalInfo to get vote information instead of getProposalVotes 
-      const result = await actor.getProposalInfo(BigInt(proposalId))
-
+      const actor = await this.getDAOActorAnonymous(daoCanisterId)
+      const result = await actor.getProposalVotes(BigInt(proposalId))
       if (result && result.length > 0) {
-        const proposalInfo = result[0]
-        // For now, return empty votes array since we need to implement the proper vote fetching
-        // This would need to be updated when the backend provides a getProposalVotes method
-        return { success: true, data: [] }
+        const proposalInfo = result
+        return { success: true, data: proposalInfo }
       }
 
       return { success: true, data: [] }
@@ -405,7 +411,7 @@ export class DAOService {
 
   async getProposalComments(canisterId: string, proposalId: number): Promise<ProposalComment[]> {
     try {
-      const daoActor = await this.getDAOActor(canisterId, false)
+      const daoActor = await this.getDAOActorAnonymous(canisterId)
       const result = await daoActor.getProposalComments(BigInt(proposalId))
       
       if (result) {
@@ -643,7 +649,7 @@ export class DAOService {
 
   async getMemberInfo(canisterId: string, memberPrincipal?: string): Promise<any | null> {
     try {
-      const daoActor = await this.getDAOActor(canisterId, false)
+      const daoActor = await this.getDAOActorAnonymous(canisterId)
       if (!memberPrincipal) {
         // TODO: Get current user principal from auth store
         return null

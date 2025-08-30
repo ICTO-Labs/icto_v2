@@ -180,8 +180,31 @@ const validationError = computed(() => {
 })
 
 const lockWarning = computed(() => {
-  // TODO: Check if tokens are locked based on unlock time
-  // This would require getting lock information from the backend
+  if (!props.memberInfo || !props.memberInfo.unlockTime) return null
+  
+  const now = Date.now() * 1000000 // Convert to nanoseconds to match backend
+  const unlockTime = Number(props.memberInfo.unlockTime)
+  
+  if (unlockTime <= now) return null // Tokens are unlocked
+  
+  const remainingLockTime = unlockTime - now
+  const remainingSeconds = Math.floor(remainingLockTime / 1000000000)
+  
+  if (remainingSeconds > 86400) {
+    const days = Math.floor(remainingSeconds / 86400)
+    const hours = Math.floor((remainingSeconds % 86400) / 3600)
+    return `Your tokens are locked for ${days} more day${days > 1 ? 's' : ''}${hours > 0 ? ` and ${hours} hour${hours > 1 ? 's' : ''}` : ''}.`
+  } else if (remainingSeconds > 3600) {
+    const hours = Math.floor(remainingSeconds / 3600)
+    const minutes = Math.floor((remainingSeconds % 3600) / 60)
+    return `Your tokens are locked for ${hours} more hour${hours > 1 ? 's' : ''}${minutes > 0 ? ` and ${minutes} minute${minutes > 1 ? 's' : ''}` : ''}.`
+  } else if (remainingSeconds > 60) {
+    const minutes = Math.floor(remainingSeconds / 60)
+    return `Your tokens are locked for ${minutes} more minute${minutes > 1 ? 's' : ''}.`
+  } else if (remainingSeconds > 0) {
+    return `Your tokens are locked for ${remainingSeconds} more second${remainingSeconds > 1 ? 's' : ''}.`
+  }
+  
   return null
 })
 
@@ -189,7 +212,8 @@ const canUnstake = computed(() => {
   return unstakeAmount.value && 
          !validationError.value && 
          !isLoading.value && 
-         parseFloat(unstakeAmount.value) > 0
+         parseFloat(unstakeAmount.value) > 0 &&
+         !lockWarning.value // Cannot unstake if tokens are locked
 })
 
 // Methods

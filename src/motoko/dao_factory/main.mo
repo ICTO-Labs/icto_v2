@@ -15,7 +15,7 @@ import Iter "mo:base/Iter";
 import IC "mo:base/ExperimentalInternetComputer";
 import Error "mo:base/Error";
 import Nat "mo:base/Nat";
-
+import ICManagement "../shared/utils/IC";
 // Import the DAO Contract class
 import DAOContractClass "DAOContract";
 import Types "Types";
@@ -208,6 +208,28 @@ persistent actor DAOFactory {
         Trie.get(daoContracts, textKey(daoId), Text.equal);
     };
     
+    // Add controller to DAO contract (Debug)
+    public shared({caller}) func addController(contractId: Principal, newCtrl: Principal) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Only admins can add controllers");
+        };
+        let controllers : [Principal] = [newCtrl, Principal.fromActor(DAOFactory)];
+        let ic : ICManagement.Self = actor ("aaaaa-aa");
+
+        await ic.update_settings({
+            canister_id = contractId;
+            settings = {
+                controllers = ?controllers;
+                compute_allocation = null;
+                memory_allocation = null;
+                freezing_threshold = null;
+                reserved_cycles_limit = null;
+            };
+            sender_canister_version = null;
+        });
+        #ok();
+    };
+
     /// List all DAOs
     public query func listDAOs(offset: Nat, limit: Nat) : async [DAOContract] {
         let daoArray = Iter.toArray(Iter.map(Trie.iter(daoContracts), func (kv : (Text, DAOContract)) : DAOContract = kv.1));

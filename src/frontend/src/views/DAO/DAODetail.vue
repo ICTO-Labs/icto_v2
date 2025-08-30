@@ -22,18 +22,19 @@
             </div>
             <p class="text-gray-600 dark:text-gray-400">{{ dao.description }}</p>
             <div class="flex items-center space-x-4 mt-2">
-              <span class="text-sm text-gray-500 dark:text-gray-400">
-                Token: {{ dao.tokenConfig.symbol }} ({{ dao.tokenConfig.name }})
-              </span>
+              <div class="text-sm text-gray-500 dark:text-gray-400 flex items-center space-x-2">
+                <div>Token: {{ dao.tokenConfig.symbol }} ({{ dao.tokenConfig.name }}) </div>
+                <!-- <div class="flex items-center space-x-2">
+                  <span class="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                    {{ (dao.tokenConfig.canisterId) }}
+                  </span>
+                  <CopyIcon :data="dao.tokenConfig.canisterId" msg="canister ID" :size="14" />
+                </div> -->
+              </div>
               <span class="text-sm text-gray-500 dark:text-gray-400">
                 Created: {{ formatDate(Number(dao.createdAt)) }}
               </span>
-              <div class="flex items-center space-x-2">
-                <span class="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
-                  {{ formatPrincipal(dao.tokenConfig.canisterId) }}
-                </span>
-                <CopyIcon :data="dao.tokenConfig.canisterId" msg="canister ID" :size="14" />
-              </div>
+              
             </div>
           </div>
         </div>
@@ -43,10 +44,11 @@
           <button 
             v-if="dao.stakingEnabled"
             @click="showStakeModal = true"
+            v-auth-required="{ message: 'Please connect your wallet to continue' }"
             class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-lg hover:from-purple-700 hover:to-purple-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 transition-all duration-200"
           >
             <CoinsIcon class="h-4 w-4 mr-2" />
-            Stake Tokens
+            Stake {{ dao?.tokenConfig.symbol }}
           </button>
           
           <button 
@@ -59,6 +61,7 @@
           
           <button 
             @click="showCreateProposalModal = true"
+            v-auth-required="{ message: 'Please connect your wallet to continue' }"
             class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200"
           >
             <PlusIcon class="h-4 w-4 mr-2" />
@@ -350,7 +353,7 @@
           </div>
 
           <!-- Recent Activity -->
-          <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+          <!-- <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
             <h3 class="font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
               <ActivityIcon class="h-5 w-5 mr-2 text-gray-500" />
               Recent Activity
@@ -382,7 +385,7 @@
                 </div>
               </div>
             </div>
-          </div>
+          </div> -->
 
           <!-- Proposals Section -->
           <div class="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6 mt-6">
@@ -394,6 +397,7 @@
               <div class="flex items-center space-x-3">
                 <button
                   @click="showCreateProposalModal = true"
+                  v-auth-required="{ message: 'Please connect your wallet to continue' }"
                   class="inline-flex items-center px-3 py-2 bg-gradient-to-r from-yellow-500 to-amber-600 text-white rounded-lg hover:from-yellow-600 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 text-sm"
                 >
                   <PlusIcon class="h-4 w-4 mr-1" />
@@ -550,6 +554,7 @@
                     <!-- Stake -->
                     <button
                       @click="showStakeModal = true"
+                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
                       class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     >
                       <div class="flex items-center space-x-3">
@@ -557,7 +562,7 @@
                           <PlusIcon class="h-5 w-5 text-green-600" />
                         </div>
                         <div class="text-left">
-                          <span class="font-medium text-gray-900 dark:text-white">Stake Tokens</span>
+                          <span class="font-medium text-gray-900 dark:text-white">Stake {{ dao?.tokenConfig.symbol }}</span>
                           <p class="text-sm text-gray-500 dark:text-gray-400">Add more tokens to your stake</p>
                         </div>
                       </div>
@@ -568,6 +573,7 @@
                     <button
                       @click="showUnstakeModal = true"
                       :disabled="Number(memberInfo.stakedAmount) === 0"
+                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
                       class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <div class="flex items-center space-x-3">
@@ -586,6 +592,7 @@
                     <button
                       @click="showDelegationModal = true"
                       :disabled="Number(memberInfo.stakedAmount) === 0"
+                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
                       class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       <div class="flex items-center space-x-3">
@@ -603,6 +610,7 @@
                     <!-- Create Proposal -->
                     <button
                       @click="showCreateProposalModal = true"
+                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
                       class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                     >
                       <div class="flex items-center space-x-3">
@@ -632,10 +640,11 @@
             <button 
               v-if="dao.stakingEnabled"
               @click="showStakeModal = true"
+              v-auth-required="{ message: 'Please connect your wallet to continue' }"
               class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-yellow-600 to-amber-600 text-white rounded-lg hover:from-yellow-700 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-all duration-200"
             >
               <CoinsIcon class="h-5 w-5 mr-2" />
-              Stake Tokens
+              Stake {{ dao?.tokenConfig.symbol }}
             </button>
           </div>
         </div>

@@ -17,6 +17,7 @@
       
       <button 
         @click="showCreateProposalModal = true"
+        v-auth-required
         class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200"
       >
         <PlusIcon class="h-4 w-4 mr-2" />
@@ -78,6 +79,7 @@
         <button 
           v-if="!searchQuery && activeFilter === 'all'"
           @click="showCreateProposalModal = true"
+          v-auth-required="{ message: 'Please connect your wallet to continue' }"
           class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-lg hover:from-green-700 hover:to-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-all duration-200"
         >
           <PlusIcon class="h-5 w-5 mr-2" />
@@ -166,7 +168,7 @@ const filteredProposals = computed(() => {
     filtered = filtered.filter(proposal => proposal.state === activeFilter.value)
   }
   
-  return filtered.sort((a, b) => b.timestamp - a.timestamp)
+  return filtered.sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
 })
 
 // Methods

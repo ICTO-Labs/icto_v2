@@ -24,10 +24,10 @@
               </span>
             </div>
             
-            <div class="flex-1 h-1 mx-4 bg-gray-300 rounded">
+            <div class="flex-1 h-1 mx-4 bg-gray-300 rounded overflow-hidden">
               <div 
                 class="h-1 bg-green-600 rounded transition-all duration-300" 
-                :style="`width: ${(currentStep - 1) * 100}%`"
+                :style="`width: ${Math.min((currentStep - 1) * 100, 100)}%`"
               />
             </div>
             
@@ -313,11 +313,20 @@
         <div v-if="success" class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 mt-4">
           <div class="flex items-start">
             <CheckCircleIcon class="h-5 w-5 text-green-600 mt-0.5 mr-3 flex-shrink-0" />
-            <div>
+            <div class="flex-1">
               <h3 class="text-sm font-medium text-green-800 dark:text-green-200">Success!</h3>
               <p class="text-sm text-green-600 dark:text-green-400 mt-1">
                 Your proposal has been successfully submitted and is now open for voting.
               </p>
+              <div class="mt-3">
+                <button
+                  @click="viewProposal"
+                  class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+                >
+                  <ExternalLinkIcon class="h-4 w-4 mr-2" />
+                  View Proposal
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -362,8 +371,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { VoteIcon, InfoIcon, CheckCircleIcon, XCircleIcon } from 'lucide-vue-next'
+import { ref, computed, onMounted } from 'vue'
+import { VoteIcon, InfoIcon, CheckCircleIcon, XCircleIcon, ExternalLinkIcon } from 'lucide-vue-next'
 import BaseModal from '@/components/common/BaseModal.vue'
 import Select from '@/components/common/Select.vue'
 import { DAOService } from '@/api/services/dao'
@@ -410,12 +419,19 @@ const showConfirmation = ref(false)
 const showSteps = ref(false)
 const currentStep = ref(1)
 
-// Governance Level Computed Properties
-const governanceLevel = computed(async () => {
-  const governanceLevel = await daoService.getDAOLevel(props.dao.canisterId)
-  if (!props.dao?.tokenConfig?.managedByDAO) return governanceLevel
-  return governanceLevel // Could be 'fully-managed' based on more detailed analysis
-})
+// Governance Level State
+const governanceLevel = ref<string>('motion-only')
+
+// Fetch governance level on mount
+const fetchGovernanceLevel = async () => {
+  try {
+    const level = await daoService.getDAOLevel(props.dao.canisterId)
+    governanceLevel.value = level || 'motion-only'
+  } catch (error) {
+    console.error('Error fetching governance level:', error)
+    governanceLevel.value = 'motion-only'
+  }
+}
 
 const availableProposalTypes = computed(() => {
   const allTypes = [
@@ -636,6 +652,7 @@ const proceedWithProposal = async () => {
 
     if (!approvalResult.success) {
       error.value = approvalResult.error || 'Failed to approve proposal deposit'
+      toast.error(error.value)
       resetState()
       return
     }
@@ -673,12 +690,23 @@ const resetState = () => {
   currentStep.value = 1
 }
 
+const viewProposal = () => {
+  // Close modal and emit success to refresh parent
+  emit('success')
+  emit('close')
+}
+
 const handleCancel = () => {
   if (success.value) {
     emit('success') // Refresh parent if successful
   }
   emit('close')
 }
+
+onMounted(() => {
+  // Fetch governance level on mount
+  fetchGovernanceLevel()
+})
 
 // Legacy method for backward compatibility
 const handleCreateProposal = async () => {

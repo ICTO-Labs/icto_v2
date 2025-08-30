@@ -231,38 +231,71 @@
               :key="`${vote.voter}-${vote.timestamp}`"
               class="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
             >
-              <div class="flex items-start justify-between">
-                <div class="flex-1">
-                  <div class="flex items-center space-x-2 mb-2">
-                    <span class="font-mono text-sm text-gray-600 dark:text-gray-400">
-                      {{ shortPrincipal(vote.voter) }}
+              <div class="flex-1 flex items-start space-x-3">
+                  <!-- Avatar -->
+                  <div class="w-8 h-8 bg-gradient-to-br from-yellow-400 to-amber-500 rounded-full flex items-center justify-center flex-shrink-0">
+                    <span class="text-white text-sm font-medium">
+                      {{ (shortPrincipal(vote.voter as string)).substring(0, 2).toUpperCase() }}
                     </span>
-                    <div 
-                      :class="[
-                        'px-2 py-1 rounded text-xs font-medium',
-                        vote.vote === 'yes' ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' :
-                        vote.vote === 'no' ? 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400' :
-                        'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                      ]"
-                    >
-                      {{ vote.vote === 'yes' ? 'Yes' : vote.vote === 'no' ? 'No' : 'Abstain' }}
-                    </div>
                   </div>
                   
-                  <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 space-x-4 mb-2">
-                    <span>
-                      {{ formatTokenAmount(parseTokenAmount(Number(vote.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
-                    </span>
-                    <span>
-                      {{ formatDate(Number(vote.timestamp)) }}
-                    </span>
-                  </div>
+                  <!-- Main content -->
+                  <div class="flex-1 min-w-0">
+                    <!-- Principal and date row -->
+                    <div class="flex items-center justify-between mb-1">
+                      <div class="flex items-center space-x-2">
+                        <div>
+                          <div class="text-sm font-medium text-gray-900 dark:text-white font-mono">
+                            <span>{{ shortPrincipal(vote.voter as string) }}</span>
 
-                  <div v-if="vote.reason" class="text-sm text-gray-700 dark:text-gray-300 italic">
-                    "{{ vote.reason }}"
+                            <span class="text-xs text-orange-500 dark:text-orange-400 bg-orange-100 dark:bg-orange-700 rounded-md px-2 ml-2 inline-flex items-center">
+                              <ZapIcon class="h-3 w-3 mr-1" />
+                              {{ formatTokenAmount(parseTokenAmount(Number(vote.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
+                            </span>
+                          </div>
+                          <div class="text-xs text-gray-500 dark:text-gray-400">
+                            {{ formatDate(Number(vote.timestamp)) }}
+                          </div>
+                        </div>
+                      
+                      </div>  
+                      <div>
+                      <!-- Vote label with icon -->
+                      <div 
+                        :class="[
+                          'px-2 py-1 rounded text-xs font-medium flex items-center space-x-1',
+                          keyToText(vote.vote) === 'yes' ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400' :
+                          keyToText(vote.vote) === 'no' ? 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400' :
+                          'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                        ]"
+                      >
+                        <ThumbsUpIcon v-if="keyToText(vote.vote) === 'yes'" class="h-3 w-3" />
+                        <ThumbsDownIcon v-else-if="keyToText(vote.vote) === 'no'" class="h-3 w-3" />
+                        <MinusIcon v-else class="h-3 w-3" />
+                        <span>{{ keyToText(vote.vote) === 'yes' ? 'Yes' : keyToText(vote.vote) === 'no' ? 'No' : 'Abstain' }}</span>
+                      </div>
+                     
+                      
+                        </div>
+                    </div>
+                    
+                    <!-- Staker badge and voting power -->
+                    <div v-if="vote.isStaker" class="flex items-center space-x-2 mb-2">
+                      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">
+                        <CheckCircleIcon class="h-3 w-3 mr-1" />
+                        Staker
+                      </span>
+                      <span v-if="vote.votingPower" class="text-xs text-gray-500 dark:text-gray-400">
+                        {{ formatTokenAmount(parseTokenAmount(Number(vote.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
+                      </span>
+                    </div>
+                    
+                    <!-- Reason -->
+                    <div v-if="vote.reason && vote.reason.length > 0" class="text-sm text-gray-700 dark:text-gray-300 italic">
+                      "{{ vote.reason[0] }}"
+                    </div>
                   </div>
                 </div>
-              </div>
             </div>
           </div>
         </div>
@@ -407,6 +440,7 @@
             <div class="flex justify-end">
               <button
                 @click="showCommentConfirmation"
+                v-auth-required="{ message: 'Please connect your wallet to continue' }"
                 :disabled="!newComment.trim() || newComment.length > 500"
                 class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-700 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
@@ -574,7 +608,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DAOService } from '@/api/services/dao'
 import {
@@ -592,7 +626,8 @@ import {
   RefreshCcwIcon,
   MessageCircleIcon,
   EditIcon,
-  Trash2Icon
+  Trash2Icon,
+  ZapIcon
 } from 'lucide-vue-next'
 import ProposalStatusBadge from '@/components/dao/ProposalStatusBadge.vue'
 import ProposalTypeBadge from '@/components/dao/ProposalTypeBadge.vue'
@@ -602,13 +637,15 @@ import ConfirmationDialog from '@/components/common/ConfirmationDialog.vue'
 import type { DAO, ProposalInfo, MemberInfo, ProposalComment, VoteRecord } from '@/types/dao'
 import { getProposalStateKey } from '@/types/dao'
 import { useAuthStore } from '@/stores/auth'
+import { storeToRefs } from 'pinia'
 import { parseTokenAmount } from '@/utils/token'
-import { shortPrincipal } from '@/utils/common'
+import { shortPrincipal, keyToText } from '@/utils/common'
 import { toast } from 'vue-sonner'
 const route = useRoute()
 const router = useRouter()
 const daoService = DAOService.getInstance()
 const authStore = useAuthStore()
+const { principal, isConnected } = storeToRefs(authStore)
 
 // State
 const dao = ref<DAO | null>(null)
@@ -808,9 +845,10 @@ const castVote = async (vote: 'Yes' | 'No' | 'Abstain') => {
     })
 
     if (result.success) {
-      // Refresh vote data
+      // Refresh all data including proposal info for updated voting results
       toast.success('Vote cast successfully')
       await Promise.all([
+        fetchData(), // This will reload proposal info with updated voting results
         fetchUserVote(),
         fetchVoteRecords()
       ])
@@ -929,15 +967,19 @@ const submitComment = async () => {
     
     if (result.success) {
       newComment.value = ''
+      showCommentConfirm.value = false // Close dialog
+      toast.success('Comment submitted successfully!')
       // Refresh comments to get the new one with accurate staker info
       await fetchComments()
     } else {
       error.value = result.error || 'Failed to submit comment'
+      toast.error(error.value)
     }
     
   } catch (err) {
     console.error('Error submitting comment:', err)
     error.value = 'Failed to submit comment'
+    toast.error('Failed to submit comment')
   } finally {
     isSubmittingComment.value = false
   }
@@ -968,15 +1010,18 @@ const updateComment = async (commentId: string) => {
     
     if (result.success) {
       cancelEditComment()
+      toast.success('Comment updated successfully!')
       // Refresh comments to get the updated one
       await fetchComments()
     } else {
       error.value = result.error || 'Failed to update comment'
+      toast.error(error.value)
     }
     
   } catch (err) {
     console.error('Error updating comment:', err)
     error.value = 'Failed to update comment'
+    toast.error('Failed to update comment')
   } finally {
     isUpdatingComment.value = false
   }
@@ -993,15 +1038,18 @@ const deleteComment = async () => {
     if (result.success) {
       showDeleteConfirm.value = false
       commentToDelete.value = null
+      toast.success('Comment deleted successfully!')
       // Refresh comments to remove the deleted one
       await fetchComments()
     } else {
       error.value = result.error || 'Failed to delete comment'
+      toast.error(error.value)
     }
     
   } catch (err) {
     console.error('Error deleting comment:', err)
     error.value = 'Failed to delete comment'
+    toast.error('Failed to delete comment')
   }
 }
 
@@ -1024,5 +1072,18 @@ const showUpdateConfirmation = (commentId: string) => {
 onMounted(() => {
   fetchData()
   fetchComments()
+})
+
+// Watch for user changes to reload data
+watch([principal, isConnected], async ([newPrincipal, newIsConnected], [oldPrincipal, oldIsConnected]) => {
+  if (newPrincipal !== oldPrincipal || newIsConnected !== oldIsConnected) {
+    console.log('User changed, reloading proposal data...')
+    await Promise.all([
+      fetchData(),
+      fetchUserVote(),
+      fetchVoteRecords(),
+      fetchComments()
+    ])
+  }
 })
 </script>

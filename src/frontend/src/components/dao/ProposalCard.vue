@@ -18,7 +18,7 @@
         <div class="flex items-center space-x-4 text-sm text-gray-500 dark:text-gray-400">
           <span class="flex items-center">
             <UserIcon class="h-4 w-4 mr-1" />
-            Proposed by {{ (proposal.proposer) }}
+            Proposed by {{ shortPrincipal(proposal.proposer) }}
           </span>
           <span class="flex items-center">
             <CalendarIcon class="h-4 w-4 mr-1" />
@@ -137,6 +137,7 @@ import ProposalTypeBadge from './ProposalTypeBadge.vue'
 import { DAOService } from '@/api/services/dao'
 import type { Proposal, DAO } from '@/types/dao'
 import { bigintToNumber, bigintToString, getProposalPayloadType } from '@/types/dao'
+import { shortPrincipal } from '@/utils/common'
 
 interface Props {
   proposal: Proposal
