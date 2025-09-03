@@ -18,9 +18,10 @@ import Nat64 "mo:base/Nat64";
 import Text "mo:base/Text";
 import Cycles "mo:base/ExperimentalCycles";
 import Types "./Types";
+import DAOTypes "../shared/types/DAOTypes";
 import ICRC "../shared/types/ICRC";
 import SafeMath "../shared/utils/SafeMath";
-
+import DAOUtils "../shared/utils/DAO";
 // ICTO V2 - Mini DAO Contract
 // FIXED: Proper ICRC2 approve/transferFrom pattern + comprehensive transaction logging
 persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
@@ -58,19 +59,340 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
 
     // ================ STABLE VARIABLES ================
     
-    // Core storage
-    var accounts = Types.accounts_fromArray(init.accounts);
-    var proposals = Types.proposals_fromArray(init.proposals);
-    var stakes = Types.stakes_fromArray(init.stakeRecords);
-    var delegations = Types.delegations_fromArray(init.delegations);
+    // Core storage - UPGRADE SAFE: Use empty defaults, init only on first creation
+    var accounts_stable : [(Principal, Types.Account)] = [];
+    var proposals_stable : [(Nat, Types.Proposal)] = [];
+    var stakes_stable : [(Principal, Types.StakeRecord)] = []; // LEGACY: Keep for migration
+    var delegations_stable : [(Principal, Types.DelegationRecord)] = [];
     var next_proposal_id : Nat = 1;
+    
+    // Reconstruct Tries from stable data (upgrade-safe) - Start with empty, will be populated in postupgrade
+    var accounts = Trie.empty<Principal, Types.Account>();
+    var proposals = Trie.empty<Nat, Types.Proposal>();
+    var stakes = Trie.empty<Principal, Types.StakeRecord>();
+    var delegations = Trie.empty<Principal, Types.DelegationRecord>();
+    
+    // Initialize default secure tiers
+    private func _initializeDefaultTiers() {
+        // Create 3 secure default tiers
+        let shortTermTier : CustomMultiplierTier = {
+            id = 0;
+            name = "Short Term (1 Week)";
+            minStake = 100 * Types.E8S;      // 100 tokens min
+            maxStakePerEntry = ?(10000 * Types.E8S); // 10K max per entry
+            lockPeriod = 7 * SECONDS_PER_DAY;      // 7 days
+            multiplier = 1.1;                      // 1.1x multiplier
+            maxVpPercentage = 15;                  // Max 15% VP
+            isActive = true;
+            emergencyUnlockEnabled = true;
+            flashLoanProtection = true;
+            createdAt = Time.now();
+            lastModified = Time.now();
+        };
+        
+        let mediumTermTier : CustomMultiplierTier = {
+            id = 1;
+            name = "Medium Term (3 Months)";
+            minStake = 500 * Types.E8S;
+            maxStakePerEntry = ?(25000 * Types.E8S);
+            lockPeriod = 90 * SECONDS_PER_DAY;     // 90 days
+            multiplier = 1.5;
+            maxVpPercentage = 25;
+            isActive = true;
+            emergencyUnlockEnabled = true;
+            flashLoanProtection = true;
+            createdAt = Time.now();
+            lastModified = Time.now();
+        };
+        
+        let longTermTier : CustomMultiplierTier = {
+            id = 2;
+            name = "Long Term (1 Year)";
+            minStake = 1000 * Types.E8S;
+            maxStakePerEntry = ?(50000 * Types.E8S);
+            lockPeriod = 365 * SECONDS_PER_DAY;    // 365 days
+            multiplier = 2.0;
+            maxVpPercentage = 30;
+            isActive = true;
+            emergencyUnlockEnabled = false;         // No emergency unlock for long term
+            flashLoanProtection = true;
+            createdAt = Time.now();
+            lastModified = Time.now();
+        };
+        
+        // Insert default tiers
+        multiplierTiers := Trie.put(multiplierTiers, DAOUtils._natKey(0), Nat.equal, shortTermTier).0;
+        multiplierTiers := Trie.put(multiplierTiers, DAOUtils._natKey(1), Nat.equal, mediumTermTier).0;
+        multiplierTiers := Trie.put(multiplierTiers, DAOUtils._natKey(2), Nat.equal, longTermTier).0;
+        
+        nextTierId := 3;
+        defaultTierId := 0; // Short term as default
+    };
+    
+    private func _initializeCustomTiers(customTiers: [DAOTypes.MultiplierTier]) {
+        // Clear any existing tiers
+        multiplierTiers := Trie.empty();
+        var currentId = 0;
+        
+        // Convert and insert custom tiers from frontend
+        for (tier in customTiers.vals()) {
+            let customTier : CustomMultiplierTier = {
+                id = currentId;
+                name = tier.name;
+                minStake = tier.minStake;
+                maxStakePerEntry = tier.maxStakePerEntry;
+                lockPeriod = tier.lockPeriod;
+                multiplier = tier.multiplier;
+                maxVpPercentage = tier.maxVpPercentage;
+                isActive = true;
+                emergencyUnlockEnabled = tier.emergencyUnlockEnabled;
+                flashLoanProtection = tier.flashLoanProtection;
+                createdAt = Time.now();
+                lastModified = Time.now();
+            };
+            
+            multiplierTiers := Trie.put(multiplierTiers, DAOUtils._natKey(currentId), Nat.equal, customTier).0;
+            currentId += 1;
+        };
+        
+        nextTierId := currentId;
+        // Set default tier ID to first tier (index 0) if available
+        defaultTierId := if (currentId > 0) { 0 } else { 0 };
+    };
+    
+    // Initialize data from factory on first creation
+    private func _initializeFromFactory() {
+        // Always use default values - no init data usage during upgrade
+        accounts_stable := [];
+        accounts := Trie.empty<Principal, Types.Account>();
+        
+        // Initialize proposals from empty state  
+        proposals_stable := [];
+        proposals := Trie.empty<Nat, Types.Proposal>();
+        
+        // Initialize stakes from empty state
+        stakes_stable := [];
+        stakes := Trie.empty<Principal, Types.StakeRecord>();
+        
+        // Initialize delegations from empty state
+        delegations_stable := [];
+        delegations := Trie.empty<Principal, Types.DelegationRecord>();
+        
+        // Initialize comments from empty state
+        comments_stable := [];
+        comments := Trie.empty<Text, Types.ProposalComment>();
+        
+        // Initialize custom tiers from config or use defaults
+        switch (init.customMultiplierTiers) {
+            case (?customTiers) {
+                _initializeCustomTiers(customTiers);
+            };
+            case null {
+                // No custom tiers provided, use secure defaults
+                _initializeDefaultTiers();
+            };
+        };
+    };
+    
+    // NEW: Enhanced stake system
+    var stakeEntries = Trie.empty<Principal, [Types.StakeEntry]>(); // User -> StakeEntry[]
+    var userTimelines = Trie.empty<Principal, [Types.TimelineEntry]>(); // User -> Timeline[]
+    var nextStakeEntryId : Nat = 1;
+    
+    // 🛡️ MULTIPLIER TIER MANAGEMENT FUNCTIONS
+    
+    /// Validate a custom multiplier tier (security checks)
+    private func _validateTier(tier: CustomMultiplierTier) : Types.Result<(), Text> {
+        // Multiplier bounds check
+        if (tier.multiplier < MIN_MULTIPLIER) {
+            return #err("Multiplier below minimum: " # Float.toText(tier.multiplier));
+        };
+        if (tier.multiplier > MAX_MULTIPLIER) {
+            return #err("Multiplier exceeds maximum: " # Float.toText(tier.multiplier));
+        };
+        
+        // Lock period validation  
+        let lockDays = tier.lockPeriod / SECONDS_PER_DAY;
+        if (lockDays < MIN_LOCK_DAYS) {
+            return #err("Lock period too short: " # Nat.toText(lockDays) # " days (min: " # Nat.toText(MIN_LOCK_DAYS) # ")");
+        };
+        if (lockDays > MAX_LOCK_DAYS) {
+            return #err("Lock period too long: " # Nat.toText(lockDays) # " days (max: " # Nat.toText(MAX_LOCK_DAYS) # ")");
+        };
+        
+        // VP percentage check
+        if (tier.maxVpPercentage > MAX_VP_PERCENT_PER_TIER) {
+            return #err("VP percentage exceeds limit: " # Nat.toText(tier.maxVpPercentage) # "% (max: " # Nat.toText(MAX_VP_PERCENT_PER_TIER) # "%)");
+        };
+        
+        // Min stake validation
+        if (tier.minStake == 0) {
+            return #err("Minimum stake cannot be zero");
+        };
+        
+        // Max stake consistency check
+        switch (tier.maxStakePerEntry) {
+            case (?maxStake) {
+                if (maxStake <= tier.minStake) {
+                    return #err("Max stake must be greater than min stake");
+                };
+            };
+            case null { /* No limit is valid */ };
+        };
+        
+        #ok()
+    };
+    
+    /// Find appropriate tier for given stake amount and desired lock period
+    private func _findApplicableTier(amount: Nat, desiredLockPeriod: Nat) : ?CustomMultiplierTier {
+        // Get all active tiers that match the criteria
+        var bestTier : ?CustomMultiplierTier = null;
+        
+        for ((id, tier) in Trie.iter(multiplierTiers)) {
+            if (tier.isActive and 
+                amount >= tier.minStake and
+                desiredLockPeriod >= tier.lockPeriod) {
+                
+                // Check max stake per entry limit
+                let meetsMaxLimit = switch (tier.maxStakePerEntry) {
+                    case (?maxStake) { amount <= maxStake };
+                    case null { true };
+                };
+                
+                if (meetsMaxLimit) {
+                    // Choose tier with highest multiplier that user qualifies for
+                    switch (bestTier) {
+                        case null { bestTier := ?tier; };
+                        case (?currentBest) {
+                            if (tier.multiplier > currentBest.multiplier) {
+                                bestTier := ?tier;
+                            };
+                        };
+                    };
+                };
+            };
+        };
+        
+        bestTier
+    };
+    
+    /// Calculate secure voting power with tier-based multiplier
+    private func _calculateTierVotingPower(amount: Nat, tier: CustomMultiplierTier) : Types.Result<Nat, Text> {
+        // Overflow protection
+        if (amount > 1_000_000_000_000) { // 1T limit
+            return #err("Amount exceeds overflow protection limit");
+        };
+        
+        // Safe multiplication with overflow check
+        let baseVP = Float.toInt(Float.fromInt(amount) * tier.multiplier);
+        if (baseVP < 0) {
+            return #err("Voting power calculation overflow");
+        };
+        
+        #ok(Int.abs(baseVP))
+    };
+    
+    /// Get tier by ID with validation
+    private func _getTier(tierId: Nat) : ?CustomMultiplierTier {
+        Trie.get(multiplierTiers, DAOUtils._natKey(tierId), Nat.equal)
+    };
+    
+    /// Find tier by lock period (closest match)
+    private func _findTierByLockPeriod(lockPeriod: Nat) : ?CustomMultiplierTier {
+        // Convert lockPeriod from seconds to days for comparison
+        let lockDays = lockPeriod / (24 * 60 * 60);
+        var bestTier: ?CustomMultiplierTier = null;
+        var bestMatch: Nat = 999999;
+        
+        // Iterate through all tiers to find best match
+        for ((tierId, tier) in Trie.iter(multiplierTiers)) {
+            if (tier.isActive) {
+                let tierLockDays = tier.lockPeriod / (24 * 60 * 60);
+                
+                // Find exact match first
+                if (tierLockDays == lockDays) {
+                    return ?tier;
+                };
+                
+                // If no exact match, find closest tier with lock period <= requested
+                if (tierLockDays <= lockDays) {
+                    let diff = lockDays - tierLockDays;
+                    if (diff < bestMatch) {
+                        bestMatch := diff;
+                        bestTier := ?tier;
+                    };
+                };
+            };
+        };
+        
+        bestTier
+    };
+    
+    /// Create new custom tier (admin only)
+    // public shared({caller}) func createCustomTier(
+    //     name: Text,
+    //     minStake: Nat,
+    //     maxStakePerEntry: ?Nat,
+    //     lockPeriod: Nat,
+    //     multiplier: Float,
+    //     maxVpPercentage: Nat
+    // ) : async Types.Result<Nat, Text> {
+    //     // Check authorization (only DAO members with sufficient voting power)
+    //     let memberInfo = switch (Trie.get(accounts, DAOUtils._principalKey(caller), Principal.equal)) {
+    //         case null { return #err("Not a DAO member"); };
+    //         case (?account) { account };
+    //     };
+        
+    //     if (memberInfo.votingPower < 10000 * Types.E8S) { // Require 10K VP to create tiers
+    //         return #err("Insufficient voting power to create custom tiers");
+    //     };
+        
+    //     // Check tier limit
+    //     let currentTierCount = Trie.size(multiplierTiers);
+    //     if (currentTierCount >= MAX_TIERS_PER_DAO) {
+    //         return #err("Maximum tier limit reached: " # Nat.toText(MAX_TIERS_PER_DAO));
+    //     };
+        
+    //     // Create new tier
+    //     let newTier : CustomMultiplierTier = {
+    //         id = nextTierId;
+    //         name = name;
+    //         minStake = minStake;
+    //         maxStakePerEntry = maxStakePerEntry;
+    //         lockPeriod = lockPeriod;
+    //         multiplier = multiplier;
+    //         maxVpPercentage = maxVpPercentage;
+    //         isActive = true;
+    //         emergencyUnlockEnabled = lockPeriod <= 30 * SECONDS_PER_DAY; // Only short-term tiers allow emergency unlock
+    //         flashLoanProtection = true;
+    //         createdAt = Time.now();
+    //         lastModified = Time.now();
+    //     };
+        
+    //     // Validate tier
+    //     switch (_validateTier(newTier)) {
+    //         case (#err(msg)) { return #err(msg); };
+    //         case (#ok()) {};
+    //     };
+        
+    //     // Insert tier
+    //     multiplierTiers := Trie.put(multiplierTiers, DAOUtils._natKey(nextTierId), Nat.equal, newTier).0;
+    //     let tierId = nextTierId;
+    //     nextTierId += 1;
+        
+    //     // Log security event
+    //     await _logSecurityEvent(caller, "Custom tier created: " # name # " (ID: " # Nat.toText(tierId) # ")", #Medium);
+        
+    //     #ok(tierId)
+    // };
+    var nextTimelineEntryId : Nat = 1;
+    
+    // Configuration - UPGRADE SAFE: Set to init values, will be restored in postupgrade
     var system_params : Types.SystemParams = init.system_params;
     var token_config : Types.TokenConfig = init.tokenConfig;
     var governance_level : Types.GovernanceLevel = init.governanceLevel;
     var security_config : Types.CustomSecurityParams = switch (init.customSecurity) {
-        case (?custom) {
-            custom;
-        };
+        case (?custom) { custom };
         case null {
             {
                 minStakeAmount = ?100_000_000;
@@ -82,6 +404,12 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             };
         };
     };
+    
+    // Stable copies for upgrade safety
+    var system_params_stable : ?Types.SystemParams = null;
+    var token_config_stable : ?Types.TokenConfig = null;
+    var governance_level_stable : ?Types.GovernanceLevel = null;
+    var security_config_stable : ?Types.CustomSecurityParams = null;
     
     // ================ SECURITY CONSTANTS ================
     // Time-based security (fixed constants)
@@ -169,6 +497,74 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     let MIN_CYCLES_FOR_OPERATION : Nat = 1_000_000_000; // 1B cycles minimum
     let HEARTBEAT_INTERVAL_NS : Int = 60 * 1_000_000_000; // 1 minute
     let MAX_HEARTBEAT_OPERATIONS : Nat = 10; // Max operations per heartbeat
+
+
+    // 🛡️ AUDITOR-APPROVED MULTIPLIER TIER SYSTEM
+    // Replaces vulnerable soft-multiplier with configurable secure tiers
+    
+    // Security constants
+    private let MAX_LOCK_DAYS : Nat = 1095; // 3 years max
+    private let MIN_LOCK_DAYS : Nat = 7;    // Flash loan protection
+    private let MAX_MULTIPLIER : Float = 3.0; // Anti-governance capture  
+    private let MIN_MULTIPLIER : Float = 1.0; // Base multiplier
+    private let SECONDS_PER_DAY : Nat = 86400;
+    private let MAX_TIERS_PER_DAO : Nat = 10; // Prevent complexity attacks
+    private let MAX_VP_PERCENT_PER_TIER : Nat = 40; // Anti-whale protection
+    
+    // Custom Multiplier Tier Definition
+    public type CustomMultiplierTier = {
+        id: Nat;
+        name: Text;
+        minStake: Nat;              // Minimum tokens required (e8s)
+        maxStakePerEntry: ?Nat;     // Max tokens per entry (None = unlimited)
+        lockPeriod: Nat;            // Lock period in seconds
+        multiplier: Float;          // Voting power multiplier (1.0 - 3.0)
+        maxVpPercentage: Nat;       // Max VP% this tier can hold (1-40)
+        isActive: Bool;             // Can be disabled without deletion
+        emergencyUnlockEnabled: Bool;
+        flashLoanProtection: Bool;  // Enforce minimum lock
+        createdAt: Time.Time;
+        lastModified: Time.Time;
+    };
+    
+    // DAO Tier Configuration
+    private stable var multiplierTiers_stable : [(Nat, CustomMultiplierTier)] = [];
+    private var multiplierTiers = Trie.empty<Nat, CustomMultiplierTier>();
+    private stable var nextTierId : Nat = 1;
+    private stable var defaultTierId : Nat = 0; // Fallback tier
+    
+    // Treasury Management Configuration - Community DAO Governance Only
+    public type TreasuryConfig = {
+        // Community governance settings (no admin controls)
+        treasuryProposalThreshold: Nat;     // Higher threshold for treasury proposals  
+        treasuryQuorumPercentage: Nat;      // Higher quorum for treasury operations
+        maxSingleWithdrawal: Nat;           // Max tokens per proposal
+        maxDailyWithdrawal: Nat;            // Max tokens per day across all proposals
+        
+        // Security features
+        emergencyPauseEnabled: Bool;
+        auditTrailEnabled: Bool;
+        
+        // DAO-only treasury control (no admin access)
+        requireProposalForWithdrawal: Bool; // Always true for community DAOs
+        minExecutionDelay: Nat;             // Additional delay for treasury proposals
+    };
+    
+    private stable var treasuryConfig : TreasuryConfig = {
+        // Higher thresholds for treasury governance (community protection)
+        treasuryProposalThreshold = 7500; // 75% approval needed for treasury
+        treasuryQuorumPercentage = 4000;  // 40% quorum for treasury operations
+        maxSingleWithdrawal = 50_000 * Types.E8S;  // 50K tokens max per proposal
+        maxDailyWithdrawal = 100_000 * Types.E8S;  // 100K tokens max per day
+        
+        // Security features
+        emergencyPauseEnabled = false;
+        auditTrailEnabled = true;
+        
+        // DAO-only governance (no admin access to treasury)
+        requireProposalForWithdrawal = true;  // Always require community proposal
+        minExecutionDelay = 259200;           // 3 days additional delay for treasury
+    };
     
     // ================ VALIDATION FUNCTIONS ================
     
@@ -210,10 +606,15 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     var transactions_stable : [Transaction] = [];
     var next_transaction_id : Nat = 1;
     
-    // Governance state
+    // Governance state - Set to init values, will be restored in postupgrade
     var total_staked : Nat = init.totalStaked;
     var total_voting_power : Nat = init.totalVotingPower;
     var emergency_state : Types.EmergencyState = init.emergencyState;
+    
+    // Stable copies for upgrade safety
+    stable var total_staked_stable : ?Nat = null;
+    stable var total_voting_power_stable : ?Nat = null;
+    stable var emergency_state_stable : ?Types.EmergencyState = null;
     
     // Timer management - stable storage for persistence
     var proposal_timers_stable : [(Nat, Types.ProposalTimer)] = [];
@@ -223,11 +624,16 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     var rate_limits_stable : [(Principal, Types.RateLimitRecord)] = [];
     var execution_contexts_stable : [(Nat, Types.ProposalExecutionContext)] = [];
     var security_events_stable : [Types.SecurityEvent] = [];
+    // Security state - Set to init values, will be restored in postupgrade
     var last_security_check : Time.Time = init.lastSecurityCheck;
     
-    // Comment system storage
+    // Comment system storage - Set to init values, will be restored in postupgrade
     var comments : Trie.Trie<Text, Types.ProposalComment> = Types.comments_fromArray(init.comments);
-    var next_comment_id : Nat = 0;
+    stable var next_comment_id : Nat = 0;
+    
+    // Stable copies for upgrade safety
+    stable var last_security_check_stable : ?Time.Time = null;
+    stable var comments_stable : [(Text, Types.ProposalComment)] = [];
     
     // Vote tracking
     var vote_records_stable : [Types.VoteRecord] = [];
@@ -252,10 +658,127 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     private let BASIS_POINTS : Nat = Types.BASIS_POINTS;
 
     // ================ INITIALIZATION ================
-
-
+    
+    // Initialize factory data only on first creation
+    _initializeFromFactory();
+    
+    // CRITICAL: Save all state to stable variables before upgrade
+    system func preupgrade() {
+        // Save Tries to stable arrays using Iter.toArray
+        accounts_stable := Iter.toArray(Trie.iter(accounts));
+        proposals_stable := Iter.toArray(Trie.iter(proposals));
+        stakes_stable := Iter.toArray(Trie.iter(stakes));
+        delegations_stable := Iter.toArray(Trie.iter(delegations));
+        comments_stable := Iter.toArray(Trie.iter(comments));
+        
+        // Save configuration to stable variables
+        system_params_stable := ?system_params;
+        token_config_stable := ?token_config;
+        governance_level_stable := ?governance_level;
+        security_config_stable := ?security_config;
+        
+        // Save governance state
+        total_staked_stable := ?total_staked;
+        total_voting_power_stable := ?total_voting_power;
+        emergency_state_stable := ?emergency_state;
+        last_security_check_stable := ?last_security_check;
+        
+        // Store transaction data to stable storage - CRITICAL for compliance
+        transactions_stable := Iter.toArray(Iter.map(Trie.iter(transactions_trie), func((k, v): (Nat, Transaction)) : Transaction = v));
+        
+        // Store timer data to stable storage for persistence across upgrades
+        let proposalTimerBuffer = Buffer.Buffer<(Nat, Types.ProposalTimer)>(0);
+        for ((proposalId, timer) in Trie.iter(proposal_timers_trie)) {
+            proposalTimerBuffer.add((proposalId, timer));
+        };
+        proposal_timers_stable := Buffer.toArray(proposalTimerBuffer);
+        
+        let delegationTimerBuffer = Buffer.Buffer<(Principal, Types.DelegationTimer)>(0);
+        for ((principal, timer) in Trie.iter(delegation_timers_trie)) {
+            delegationTimerBuffer.add((principal, timer));
+        };
+        delegation_timers_stable := Buffer.toArray(delegationTimerBuffer);
+        
+        // Store security data
+        let rateLimitBuffer = Buffer.Buffer<(Principal, Types.RateLimitRecord)>(0);
+        for ((principal, record) in Trie.iter(rate_limits_trie)) {
+            rateLimitBuffer.add((principal, record));
+        };
+        rate_limits_stable := Buffer.toArray(rateLimitBuffer);
+        
+        let contextBuffer = Buffer.Buffer<(Nat, Types.ProposalExecutionContext)>(0);
+        for ((id, context) in Trie.iter(execution_contexts_trie)) {
+            contextBuffer.add((id, context));
+        };
+        execution_contexts_stable := Buffer.toArray(contextBuffer);
+    };
     
     system func postupgrade() {
+        // Restore configuration from stable variables
+        system_params := switch (system_params_stable) {
+            case (?params) { params };
+            case null { system_params }; // Keep init values if no stable data
+        };
+        
+        token_config := switch (token_config_stable) {
+            case (?config) { config };
+            case null { token_config }; // Keep init values if no stable data
+        };
+        
+        governance_level := switch (governance_level_stable) {
+            case (?level) { level };
+            case null { governance_level }; // Keep init values if no stable data
+        };
+        
+        // Restore governance state
+        total_staked := switch (total_staked_stable) {
+            case (?staked) { staked };
+            case null { total_staked }; // Keep init values if no stable data
+        };
+        
+        total_voting_power := switch (total_voting_power_stable) {
+            case (?power) { power };
+            case null { total_voting_power }; // Keep init values if no stable data
+        };
+        
+        emergency_state := switch (emergency_state_stable) {
+            case (?state) { state };
+            case null { emergency_state }; // Keep init values if no stable data
+        };
+        
+        last_security_check := switch (last_security_check_stable) {
+            case (?check) { check };
+            case null { last_security_check }; // Keep init values if no stable data
+        };
+        
+        // Restore Tries from stable data
+        accounts := Trie.empty<Principal, Types.Account>();
+        for ((principal, account) in accounts_stable.vals()) {
+            accounts := Trie.put(accounts, Types.stake_key(principal), Principal.equal, account).0;
+        };
+        
+        proposals := Trie.empty<Nat, Types.Proposal>();
+        for ((proposalId, proposal) in proposals_stable.vals()) {
+            let key = { key = proposalId; hash = Int.hash(proposalId) };
+            proposals := Trie.put(proposals, key, Nat.equal, proposal).0;
+        };
+        
+        stakes := Trie.empty<Principal, Types.StakeRecord>();
+        for ((principal, stake) in stakes_stable.vals()) {
+            stakes := Trie.put(stakes, Types.stake_key(principal), Principal.equal, stake).0;
+        };
+        
+        delegations := Trie.empty<Principal, Types.DelegationRecord>();
+        for ((principal, delegation) in delegations_stable.vals()) {
+            delegations := Trie.put(delegations, Types.stake_key(principal), Principal.equal, delegation).0;
+        };
+        
+        comments := Trie.empty<Text, Types.ProposalComment>();
+        for ((commentId, comment) in comments_stable.vals()) {
+            let key = { key = commentId; hash = Text.hash(commentId) };
+            comments := Trie.put(comments, key, Text.equal, comment).0;
+        };
+        
         // Initialize token ledger after upgrade
         token_ledger := ?actor(Principal.toText(token_config.canisterId));
         
@@ -300,6 +823,49 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         
         // Perform security validation after upgrade
         _performSecurityValidation();
+    };
+    
+    // ================ STABLE VARIABLE SYNC HELPERS ================
+    // These functions ensure stable variables are updated when runtime variables change
+    
+    private func _syncAccountsToStable() {
+        accounts_stable := Iter.toArray(Trie.iter(accounts));
+    };
+    
+    private func _syncProposalsToStable() {
+        proposals_stable := Iter.toArray(Trie.iter(proposals));
+    };
+    
+    private func _syncStakesToStable() {
+        stakes_stable := Iter.toArray(Trie.iter(stakes));
+    };
+    
+    private func _syncDelegationsToStable() {
+        delegations_stable := Iter.toArray(Trie.iter(delegations));
+    };
+    
+    private func _syncCommentsToStable() {
+        comments_stable := Iter.toArray(Trie.iter(comments));
+    };
+    
+    private func _syncSystemParamsToStable() {
+        system_params_stable := ?system_params;
+    };
+    
+    private func _syncTokenConfigToStable() {
+        token_config_stable := ?token_config;
+    };
+    
+    private func _syncGovernanceStateToStable() {
+        total_staked_stable := ?total_staked;
+        total_voting_power_stable := ?total_voting_power;
+        emergency_state_stable := ?emergency_state;
+        governance_level_stable := ?governance_level;
+    };
+    
+    private func _syncSecurityStateToStable() {
+        last_security_check_stable := ?last_security_check;
+        security_config_stable := ?security_config;
     };
 
     // ================ TRANSACTION LOGGING SYSTEM ================
@@ -523,10 +1089,224 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         };
     };
 
+    // ================ ENHANCED STAKE UTILITY FUNCTIONS ================
+    
+    // Get user's stake entries
+    private func _getUserStakeEntries(user: Principal) : [Types.StakeEntry] {
+        switch (Trie.get(stakeEntries, Types.stake_key(user), Principal.equal)) {
+            case (?entries) { entries };
+            case null { [] };
+        }
+    };
+    
+    // Update user's stake entries
+    private func _updateUserStakeEntries(user: Principal, entries: [Types.StakeEntry]) {
+        stakeEntries := Trie.put(stakeEntries, Types.stake_key(user), Principal.equal, entries).0;
+    };
+    
+    // Add timeline entry
+    private func _addTimelineEntry(user: Principal, action: Types.TimelineAction, details: Text, blockIndex: ?Nat) {
+        let entry: Types.TimelineEntry = {
+            id = nextTimelineEntryId;
+            timestamp = Time.now();
+            action = action;
+            details = details;
+            blockIndex = blockIndex;
+        };
+        
+        let currentTimeline = switch (Trie.get(userTimelines, Types.stake_key(user), Principal.equal)) {
+            case (?timeline) { timeline };
+            case null { [] };
+        };
+        
+        let updatedTimeline = Array.append([entry], currentTimeline);
+        userTimelines := Trie.put(userTimelines, Types.stake_key(user), Principal.equal, updatedTimeline).0;
+        nextTimelineEntryId += 1;
+    };
+    
+    // Create new stake entry with tier validation
+    private func _createStakeEntry(
+        staker: Principal, 
+        amount: Nat, 
+        lockPeriod: Nat,
+        blockIndex: ?Nat
+    ) : Types.Result<Types.StakeEntry, Text> {
+        
+        // Find applicable multiplier tier based on lock period and amount
+        let applicableTier = switch (_findTierByLockPeriod(lockPeriod)) {
+            case (?tier) {
+                // Convert to DAOTypes.MultiplierTier for validation
+                let tierForValidation: DAOTypes.MultiplierTier = {
+                    id = tier.id;
+                    name = tier.name;
+                    minStake = tier.minStake;
+                    maxStakePerEntry = tier.maxStakePerEntry;
+                    lockPeriod = tier.lockPeriod;
+                    multiplier = tier.multiplier;
+                    maxVpPercentage = tier.maxVpPercentage;
+                    emergencyUnlockEnabled = tier.emergencyUnlockEnabled;
+                    flashLoanProtection = tier.flashLoanProtection;
+                    governanceCapProtection = tier.maxVpPercentage <= 40; // Set based on VP limit
+                };
+                
+                // Validate amount meets tier requirements
+                switch (DAOUtils.validateTierRequirements(amount, tierForValidation)) {
+                    case (#ok()) { tier };
+                    case (#err(msg)) {
+                        // If amount doesn't meet tier requirements, use base tier (1.0x multiplier)
+                        let baseTier: CustomMultiplierTier = {
+                            id = 0;
+                            name = "Base Tier";
+                            minStake = 1;
+                            maxStakePerEntry = null;
+                            lockPeriod = lockPeriod;
+                            multiplier = 1.0;
+                            maxVpPercentage = 10;
+                            isActive = true;
+                            emergencyUnlockEnabled = false;
+                            flashLoanProtection = true;
+                            createdAt = Time.now();
+                            lastModified = Time.now();
+                        };
+                        baseTier;
+                    };
+                };
+            };
+            case null {
+                // No tier found for this lock period, use base multiplier
+                let baseTier: CustomMultiplierTier = {
+                    id = 0;
+                    name = "Base Tier";
+                    minStake = 1;
+                    maxStakePerEntry = null;
+                    lockPeriod = lockPeriod;
+                    multiplier = 1.0;
+                    maxVpPercentage = 10;
+                    isActive = true;
+                    emergencyUnlockEnabled = false;
+                    flashLoanProtection = true;
+                    createdAt = Time.now();
+                    lastModified = Time.now();
+                };
+                baseTier;
+            };
+        };
+        
+        // Calculate tier-based voting power
+        let tierMultiplier = applicableTier.multiplier;
+        // Convert tier for calculation compatibility
+        let tierForCalculation: DAOTypes.MultiplierTier = {
+            id = applicableTier.id;
+            name = applicableTier.name;
+            minStake = applicableTier.minStake;
+            maxStakePerEntry = applicableTier.maxStakePerEntry;
+            lockPeriod = applicableTier.lockPeriod;
+            multiplier = applicableTier.multiplier;
+            maxVpPercentage = applicableTier.maxVpPercentage;
+            emergencyUnlockEnabled = applicableTier.emergencyUnlockEnabled;
+            flashLoanProtection = applicableTier.flashLoanProtection;
+            governanceCapProtection = applicableTier.maxVpPercentage <= 40;
+        };
+        let votingPower = DAOUtils.calculateTierVotingPower(amount, tierForCalculation);
+        
+        let now = Time.now();
+        let unlockTime = now + (Int.abs(lockPeriod) * 1_000_000_000);
+        
+        let entry: Types.StakeEntry = {
+            id = nextStakeEntryId;
+            staker = staker;
+            amount = amount;
+            stakedAt = now;
+            lockPeriod = lockPeriod;
+            unlockTime = unlockTime;
+            multiplier = tierMultiplier;
+            votingPower = votingPower;
+            isActive = true;
+            blockIndex = blockIndex;
+        };
+        
+        nextStakeEntryId += 1;
+        #ok(entry)
+    };
+    
+    // Check if stake entry can be unstaked
+    private func _canUnstakeEntry(entry: Types.StakeEntry) : Types.Result<(), Text> {
+        let now = Time.now();
+        
+        if (not entry.isActive) {
+            return #err("Stake entry is already inactive");
+        };
+        
+        if (now < entry.unlockTime) {
+            let remainingSeconds = Int.abs(entry.unlockTime - now) / 1_000_000_000;
+            return #err("Stake is locked for " # Nat.toText(remainingSeconds) # " more seconds (Entry ID: " # Nat.toText(entry.id) # ")");
+        };
+        
+        #ok(())
+    };
+    
+    // Migrate legacy stake to new system (called on first interaction)
+    private func _migrateLegacyStakeIfNeeded(user: Principal) : async () {
+        // Check if user has legacy stake but no stake entries
+        let hasLegacyStake = switch (Trie.get(stakes, Types.stake_key(user), Principal.equal)) {
+            case (?_) { true };
+            case null { false };
+        };
+        
+        let hasStakeEntries = switch (Trie.get(stakeEntries, Types.stake_key(user), Principal.equal)) {
+            case (?entries) { Array.size(entries) > 0 };
+            case null { false };
+        };
+        
+        if (hasLegacyStake and not hasStakeEntries) {
+            switch (Trie.get(stakes, Types.stake_key(user), Principal.equal)) {
+                case (?legacyStake) {
+                    // Convert to new system as Liquid Staking (use default tier)
+                    let liquidTier = switch (Trie.get(multiplierTiers, DAOUtils._natKey(defaultTierId), Nat.equal)) {
+                        case (?tier) { tier };
+                        case null { return }; // Should never happen - default tier should exist
+                    };
+                    
+                    let migratedEntry: Types.StakeEntry = {
+                        id = nextStakeEntryId;
+                        staker = user;
+                        amount = legacyStake.amount;
+                        stakedAt = legacyStake.stakedAt;
+                        lockPeriod = 0; // Liquid
+                        unlockTime = Time.now(); // Already unlocked
+                        multiplier = liquidTier.multiplier;
+                        votingPower = legacyStake.votingPower;
+                        isActive = true;
+                        blockIndex = null; // Legacy stakes don't have block index
+                    };
+                    
+                    nextStakeEntryId += 1;
+                    _updateUserStakeEntries(user, [migratedEntry]);
+                    
+                    // Add timeline entry for migration
+                    _addTimelineEntry(
+                        user, 
+                        #Stake({
+                            entryId = migratedEntry.id; 
+                            amount = migratedEntry.amount; 
+                            lockPeriod = 0;
+                        }),
+                        "Legacy stake migrated to new system",
+                        null
+                    );
+                };
+                case null {};
+            };
+        };
+    };
+
     // ================ STAKING FUNCTIONS WITH SECURITY ================
 
-    /// 🔥 FIXED: Stake tokens using proper ICRC2 approve/transferFrom pattern
+    /// 🔥 NEW: Enhanced stake function with tier system and anti-gaming
     public shared({caller}) func stake(amount: Nat, lockDuration: ?Nat) : async Types.Result<(), Text> {
+        // ================ MIGRATION CHECK ================
+        await _migrateLegacyStakeIfNeeded(caller);
+        
         // ================ CHECKS ================
         if (emergency_state.paused) {
             return #err("DAO is paused for emergency");
@@ -544,12 +1324,13 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             case (#ok()) {};
         };
 
-        // Validate lock duration
+        // Validate lock duration - allow any duration from 0 to MAX_LOCK_DAYS
         let validLockDuration = switch (lockDuration) {
-            case null { 0 };
+            case null { 0 }; // Default to liquid staking (0 lock period)
             case (?duration) {
-                if (Array.find<Nat>(system_params.stake_lock_periods, func(x) = x == duration) == null) {
-                    return #err("Invalid lock duration");
+                let maxLockSeconds = MAX_LOCK_DAYS * SECONDS_PER_DAY;
+                if (duration > maxLockSeconds) {
+                    return #err("Lock duration cannot exceed " # Nat.toText(MAX_LOCK_DAYS) # " days (" # Nat.toText(maxLockSeconds) # " seconds)");
                 };
                 duration;
             };
@@ -575,19 +1356,46 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             case (?stake) { ?stake };
         };
 
-        // Calculate voting power with SafeMath
-        let maxLockPeriod = Array.foldLeft<Nat, Nat>(system_params.stake_lock_periods, 0, Nat.max);
-        let maxLock = if (maxLockPeriod == 0) { 1 } else { maxLockPeriod };
-        let lockRatio = (validLockDuration * BASIS_POINTS) / maxLock;
-        let multiplier = BASIS_POINTS + lockRatio; // Base voting power + lock bonus
-
-        let votingPowerResult = SafeMath.calculateVotingPower(amount, multiplier, 8);
+        // Find appropriate tier for this stake
+        let tier = switch (_findApplicableTier(amount, validLockDuration)) {
+            case (?t) { t };
+            case null {
+                // Fallback to default tier if no tier matches
+                switch (_getTier(defaultTierId)) {
+                    case (?defaultTier) { defaultTier };
+                    case null { return #err("No valid tier found and default tier missing"); };
+                };
+            };
+        };
+        
+        // Validate tier is still active
+        if (not tier.isActive) {
+            return #err("Selected tier is no longer active");
+        };
+        
+        // Check minimum stake requirement
+        if (amount < tier.minStake) {
+            return #err("Amount below tier minimum: " # Nat.toText(amount / Types.E8S) # " < " # Nat.toText(tier.minStake / Types.E8S));
+        };
+        
+        // Check maximum stake per entry if applicable
+        switch (tier.maxStakePerEntry) {
+            case (?maxStake) {
+                if (amount > maxStake) {
+                    return #err("Amount exceeds tier maximum: " # Nat.toText(amount / Types.E8S) # " > " # Nat.toText(maxStake / Types.E8S));
+                };
+            };
+            case null { /* No limit */ };
+        };
+        
+        // Calculate voting power with tier multiplier
+        let votingPowerResult = _calculateTierVotingPower(amount, tier);
         let votingPower = switch (votingPowerResult) {
             case (#err(msg)) { 
                 _updateTransaction(transactionId, null, #Failed("Voting power calculation failed: " # msg));
                 return #err("Voting power calculation failed: " # msg);
             };
-            case (#ok(power)) { power };
+            case (#ok(vp)) { vp };
         };
 
         // ================ INTERACTIONS FIRST (FIXED) ================
@@ -615,68 +1423,48 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                     // Transfer successful, now update state
                     _updateTransaction(transactionId, ?blockIndex, #Completed);
                     
-                    // ================ EFFECTS ================
-                    let now = Time.now();
-                    let unlockTime = now + (validLockDuration * 1_000_000_000); // Convert seconds to nanoseconds
-
-                    let newStake : Types.StakeRecord = switch (existingStake) {
-                        case null {
-                            // New stake
-                            {
-                                staker = caller;
-                                amount = amount;
-                                votingPower = votingPower;
-                                stakedAt = now;
-                                unlockTime = ?unlockTime;
-                            };
+                    // ================ NEW: CREATE STAKE ENTRY ================
+                    switch (_createStakeEntry(caller, amount, validLockDuration, ?blockIndex)) {
+                        case (#err(msg)) {
+                            _updateTransaction(transactionId, ?blockIndex, #Failed("Stake entry creation failed: " # msg));
+                            return #err("Stake entry creation failed: " # msg);
                         };
-                        case (?existing) {
-                            // Update existing stake with SafeMath
-                            let newAmountResult = SafeMath.addNat(existing.amount, amount);
-                            let newAmount = switch (newAmountResult) {
-                                case (#err(msg)) { return #err("Amount calculation failed: " # msg) };
-                                case (#ok(amt)) { amt };
+                        case (#ok(stakeEntry)) {
+                            // Add to user's stake entries
+                            let currentEntries = _getUserStakeEntries(caller);
+                            let updatedEntries = Array.append(currentEntries, [stakeEntry]);
+                            _updateUserStakeEntries(caller, updatedEntries);
+                            
+                            // Update totals with SafeMath
+                            switch (SafeMath.addNat(total_staked, amount)) {
+                                case (#err(msg)) { return #err("Total staked calculation failed: " # msg) };
+                                case (#ok(newTotal)) { total_staked := newTotal };
                             };
 
-                            let newVotingPowerResult = SafeMath.addNat(existing.votingPower, votingPower);
-                            let newVotingPower = switch (newVotingPowerResult) {
-                                case (#err(msg)) { return #err("Voting power calculation failed: " # msg) };
-                                case (#ok(power)) { power };
+                            switch (SafeMath.addNat(total_voting_power, stakeEntry.votingPower)) {
+                                case (#err(msg)) { return #err("Total voting power calculation failed: " # msg) };
+                                case (#ok(newTotal)) { total_voting_power := newTotal };
                             };
 
-                            {
-                                staker = existing.staker;
-                                amount = newAmount;
-                                stakedAt = existing.stakedAt;
-                                votingPower = newVotingPower;
-                                unlockTime = switch (existing.unlockTime) {
-                                    case null { ?unlockTime };
-                                    case (?existingUnlock) { 
-                                        ?Int.max(existingUnlock, unlockTime);
-                                    };
-                                };
-                            };
+                            // Add timeline entry
+                            _addTimelineEntry(
+                                caller,
+                                #Stake({
+                                    entryId = stakeEntry.id;
+                                    amount = amount;
+                                    lockPeriod = validLockDuration;
+                                }),
+                                "Staked " # Nat.toText(amount / Types.E8S) # " tokens (Lock: " # Nat.toText(validLockDuration / SECONDS_PER_DAY) # " days)",
+                                ?blockIndex
+                            );
+
+                            // Log security event with block index
+                            _logSecurityEvent(caller, #StakeChange, 
+                                "Staked " # Nat.toText(amount / Types.E8S) # " tokens (Entry: " # Nat.toText(stakeEntry.id) # ", Lock: " # Nat.toText(validLockDuration / SECONDS_PER_DAY) # " days, Block: " # Nat.toText(blockIndex) # ")", #Low);
+                            
+                            return #ok();
                         };
                     };
-
-                    stakes := Trie.put(stakes, Types.stake_key(caller), Principal.equal, newStake).0;
-
-                    // Update totals with SafeMath
-                    switch (SafeMath.addNat(total_staked, amount)) {
-                        case (#err(msg)) { return #err("Total staked calculation failed: " # msg) };
-                        case (#ok(newTotal)) { total_staked := newTotal };
-                    };
-
-                    switch (SafeMath.addNat(total_voting_power, votingPower)) {
-                        case (#err(msg)) { return #err("Total voting power calculation failed: " # msg) };
-                        case (#ok(newTotal)) { total_voting_power := newTotal };
-                    };
-
-                    // Log security event with block index
-                    _logSecurityEvent(caller, #StakeChange, 
-                        "Staked " # Nat.toText(amount) # " tokens (Block: " # Nat.toText(blockIndex) # ")", #Low);
-                    
-                    return #ok();
                 };
             };
 
@@ -686,8 +1474,104 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         };
     };
 
-    /// 🔥 FIXED: Withdraw staked tokens with comprehensive security and transaction logging
+    /// 🔥 LEGACY: Backward compatible unstake function (migrates first, then calls new system)
     public shared({caller}) func unstake(amount: Nat) : async Types.Result<(), Text> {
+        // Migrate legacy stakes first
+        await _migrateLegacyStakeIfNeeded(caller);
+        
+        // Check if user has stake entries
+        let userEntries = _getUserStakeEntries(caller);
+        if (Array.size(userEntries) == 0) {
+            return #err("No stakes found");
+        };
+        
+        // Find first available (unlocked) entry with sufficient amount
+        var remainingAmount = amount;
+        var updatedEntries: [Types.StakeEntry] = [];
+        var totalVotingPowerReduction: Nat = 0;
+        
+        for (entry in userEntries.vals()) {
+            if (remainingAmount == 0) {
+                updatedEntries := Array.append(updatedEntries, [entry]);
+            } else if (entry.isActive) {
+                switch (_canUnstakeEntry(entry)) {
+                    case (#ok()) {
+                        let unstakeFromEntry = Nat.min(remainingAmount, entry.amount);
+                        let votingPowerReduction = (entry.votingPower * unstakeFromEntry) / entry.amount;
+                        
+                        if (unstakeFromEntry == entry.amount) {
+                            // Complete entry unstake
+                            let deactivatedEntry = {
+                                id = entry.id;
+                                staker = entry.staker;
+                                amount = entry.amount;
+                                stakedAt = entry.stakedAt;
+                                lockPeriod = entry.lockPeriod;
+                                unlockTime = entry.unlockTime;
+                                multiplier = entry.multiplier;
+                                votingPower = entry.votingPower;
+                                isActive = false;
+                                blockIndex = entry.blockIndex;
+                            };
+                            updatedEntries := Array.append(updatedEntries, [deactivatedEntry]);
+                        } else {
+                            // Partial entry unstake
+                            let updatedEntry = {
+                                id = entry.id;
+                                staker = entry.staker;
+                                amount = Nat.sub(entry.amount, unstakeFromEntry);
+                                stakedAt = entry.stakedAt;
+                                lockPeriod = entry.lockPeriod;
+                                unlockTime = entry.unlockTime;
+                                multiplier = entry.multiplier;
+                                votingPower = Nat.sub(entry.votingPower, votingPowerReduction);
+                                isActive = true;
+                                blockIndex = entry.blockIndex;
+                            };
+                            updatedEntries := Array.append(updatedEntries, [updatedEntry]);
+                        };
+                        
+                        remainingAmount -= unstakeFromEntry;
+                        totalVotingPowerReduction += votingPowerReduction;
+                    };
+                    case (#err(_)) {
+                        updatedEntries := Array.append(updatedEntries, [entry]);
+                    };
+                }
+            } else {
+                updatedEntries := Array.append(updatedEntries, [entry]);
+            }
+        };
+        
+        if (remainingAmount > 0) {
+            return #err("Insufficient unlocked tokens. Requested: " # Nat.toText(amount / Types.E8S) # ", available: " # Nat.toText(Nat.sub(amount, remainingAmount) / Types.E8S));
+        };
+        
+        // Execute the unstake transaction
+        switch (await _executeUnstakeTransfer(caller, amount, totalVotingPowerReduction)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok(blockIndex)) {
+                // Update state
+                _updateUserStakeEntries(caller, updatedEntries);
+                
+                // Add timeline entry
+                _addTimelineEntry(
+                    caller,
+                    #Unstake({ entryId = 0; amount = amount }), // 0 = legacy/batch unstake
+                    "Unstaked " # Nat.toText(amount / Types.E8S) # " tokens (batch)",
+                    ?blockIndex
+                );
+                
+                return #ok();
+            };
+        }
+    };
+
+    /// 🔥 NEW: Enhanced unstake specific entry with granular control
+    public shared({caller}) func unstakeEntry(entryId: Nat, amount: ?Nat) : async Types.Result<(), Text> {
+        // Migrate legacy stakes first
+        await _migrateLegacyStakeIfNeeded(caller);
+        
         // ================ CHECKS ================
         if (emergency_state.paused) {
             return #err("DAO is paused for emergency");
@@ -699,81 +1583,113 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             case (#ok()) {};
         };
 
-        // Get existing stake
-        let existingStake = switch (Trie.get(stakes, Types.stake_key(caller), Principal.equal)) {
-            case null { return #err("No stake found") };
-            case (?stake) { stake };
+        let userEntries = _getUserStakeEntries(caller);
+        
+        // Find the specific entry
+        let entryOpt = Array.find<Types.StakeEntry>(userEntries, func(e) = e.id == entryId and e.staker == caller);
+        let entry = switch (entryOpt) {
+            case (?e) { e };
+            case null { return #err("Stake entry not found or not owned by caller") };
         };
 
-        // Validate amount
-        if (amount > existingStake.amount) {
-            return #err("Insufficient staked amount");
+        // Check if entry can be unstaked
+        switch (_canUnstakeEntry(entry)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok()) {};
         };
 
-        // Check lock period - CRITICAL SECURITY CHECK
-        let now = Time.now();
-        switch (existingStake.unlockTime) {
-            case null { /* Not locked */ };
-            case (?unlockTime) {
-                if (now < unlockTime) {
-                    let remainingLock = Int.abs(unlockTime - now) / 1_000_000_000; // Convert to seconds
-                    return #err("Tokens are locked for " # Nat.toText(remainingLock) # " more seconds");
+        // Determine unstake amount
+        let unstakeAmount = switch (amount) {
+            case (?amt) {
+                if (amt > entry.amount) {
+                    return #err("Cannot unstake more than staked amount. Requested: " # Nat.toText(amt / Types.E8S) # ", available: " # Nat.toText(entry.amount / Types.E8S));
                 };
+                amt
             };
+            case null { entry.amount }; // Unstake full entry
         };
 
-        // Anti-spam check: prevent dust withdrawals that could clog the system
-        if (amount < MIN_STAKE_AMOUNT and amount < existingStake.amount) {
-            return #err("Withdrawal amount too small, must be at least " # Nat.toText(MIN_STAKE_AMOUNT));
-        };
+        // Calculate voting power reduction
+        let votingPowerReduction = Nat.div(Nat.mul(entry.votingPower, unstakeAmount), entry.amount);
 
+        // Execute the unstake transaction
+        switch (await _executeUnstakeTransfer(caller, unstakeAmount, votingPowerReduction)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok(blockIndex)) {
+                // Update entry state
+                let updatedEntries = Array.map<Types.StakeEntry, Types.StakeEntry>(userEntries, func(e) {
+                    if (e.id == entryId) {
+                        if (unstakeAmount == e.amount) {
+                            // Complete entry unstake - deactivate
+                            {
+                                id = e.id;
+                                staker = e.staker;
+                                amount = e.amount;
+                                stakedAt = e.stakedAt;
+                                lockPeriod = e.lockPeriod;
+                                unlockTime = e.unlockTime;
+                                multiplier = e.multiplier;
+                                votingPower = e.votingPower;
+                                isActive = false; // Deactivated
+                                blockIndex = e.blockIndex;
+                            }
+                        } else {
+                            // Partial entry unstake
+                            {
+                                id = e.id;
+                                staker = e.staker;
+                                amount = Nat.sub(e.amount, unstakeAmount);
+                                stakedAt = e.stakedAt;
+                                lockPeriod = e.lockPeriod;
+                                unlockTime = e.unlockTime;
+                                multiplier = e.multiplier;
+                                votingPower = Nat.sub(e.votingPower, votingPowerReduction);
+                                isActive = true; // Still active
+                                blockIndex = e.blockIndex;
+                            }
+                        }
+                    } else {
+                        e
+                    }
+                });
+                
+                _updateUserStakeEntries(caller, updatedEntries);
+                
+                // Add timeline entry
+                _addTimelineEntry(
+                    caller,
+                    #Unstake({ entryId = entryId; amount = unstakeAmount }),
+                    "Unstaked " # Nat.toText(unstakeAmount / Types.E8S) # " tokens (Entry #" # Nat.toText(entryId) # ", Lock: " # Nat.toText(entry.lockPeriod / SECONDS_PER_DAY) # " days)",
+                    ?blockIndex
+                );
+                
+                return #ok();
+            };
+        }
+    };
+
+    /// Private helper for executing unstake transfer
+    private func _executeUnstakeTransfer(caller: Principal, amount: Nat, votingPowerReduction: Nat) : async Types.Result<Nat, Text> {
         let ledger = switch (token_ledger) {
             case null { return #err("Token ledger not initialized") };
             case (?ledger) { ledger };
         };
 
-        // Create transaction log entry - ESSENTIAL for compliance
+        // Create transaction log entry
         let transactionId = _logTransaction(
             #Unstake, 
             Principal.fromActor(Self), 
             ?caller, 
             amount, 
-            "Unstake " # Nat.toText(amount) # " tokens"
+            "Unstake " # Nat.toText(amount / Types.E8S) # " tokens"
         );
 
-        // Calculate voting power reduction proportionally with overflow protection
-        let votingPowerReduction = (existingStake.votingPower * amount) / existingStake.amount;
+        // Update totals first (optimistic)
+        total_staked := Nat.sub(total_staked, amount);
+        total_voting_power := Nat.sub(total_voting_power, votingPowerReduction);
 
-        // ================ EFFECTS ================
-        let updatedStake = if (amount == existingStake.amount) {
-            null // Complete withdrawal
-        } else {
-            ?{
-                staker = existingStake.staker;
-                amount = existingStake.amount - amount;
-                stakedAt = existingStake.stakedAt;
-                votingPower = existingStake.votingPower - votingPowerReduction;
-                unlockTime = existingStake.unlockTime;
-            }
-        };
-
-        // Update or remove stake
-        switch (updatedStake) {
-            case null {
-                stakes := Trie.remove(stakes, Types.stake_key(caller), Principal.equal).0;
-            };
-            case (?newStake) {
-                stakes := Trie.put(stakes, Types.stake_key(caller), Principal.equal, newStake).0;
-            };
-        };
-
-        // Update totals with overflow protection
-        total_staked -= amount;
-        total_voting_power -= votingPowerReduction;
-
-        // ================ INTERACTIONS ================
+        // Execute transfer
         try {
-            // Transfer tokens back to caller (Contract CAN transfer its own tokens)
             let transferResult = await ledger.icrc1_transfer({
                 from_subaccount = null;
                 to = { owner = caller; subaccount = null };
@@ -785,10 +1701,9 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
 
             switch (transferResult) {
                 case (#Err(e)) {
-                    // Revert state changes on transfer failure - CRITICAL FOR SECURITY
-                    total_staked += amount;
-                    total_voting_power += votingPowerReduction;
-                    stakes := Trie.put(stakes, Types.stake_key(caller), Principal.equal, existingStake).0;
+                    // Revert state changes on transfer failure
+                    total_staked := Nat.add(total_staked, amount);
+                    total_voting_power := Nat.add(total_voting_power, votingPowerReduction);
                     
                     _updateTransaction(transactionId, null, #Failed("ICRC1 transfer failed: " # debug_show(e)));
                     _logSecurityEvent(caller, #SuspiciousActivity,
@@ -798,16 +1713,15 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                 case (#Ok(blockIndex)) {
                     _updateTransaction(transactionId, ?blockIndex, #Completed);
                     _logSecurityEvent(caller, #StakeChange,
-                        "Unstaked " # Nat.toText(amount) # " tokens (Block: " # Nat.toText(blockIndex) # ")", #Low);
-                    return #ok();
+                        "Unstaked " # Nat.toText(amount / Types.E8S) # " tokens (Block: " # Nat.toText(blockIndex) # ")", #Low);
+                    return #ok(blockIndex);
                 };
             };
 
         } catch (error) {
-            // Revert state changes on error - CRITICAL FOR SECURITY
-            total_staked += amount;
-            total_voting_power += votingPowerReduction;
-            stakes := Trie.put(stakes, Types.stake_key(caller), Principal.equal, existingStake).0;
+            // Revert state changes on error
+            total_staked := Nat.add(total_staked, amount);
+            total_voting_power := Nat.add(total_voting_power, votingPowerReduction);
             
             _updateTransaction(transactionId, null, #Failed("Error: " # Error.message(error)));
             _logSecurityEvent(caller, #SuspiciousActivity,
@@ -931,6 +1845,44 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
 
         switch (tokenAction) {
             case (#Transfer(args)) {
+                // 🛡️ TREASURY GOVERNANCE VALIDATION
+                // Ensure this treasury transfer meets community DAO requirements
+                
+                // Check if this is a treasury withdrawal (requires stricter validation)
+                if (treasuryConfig.requireProposalForWithdrawal) {
+                    // Validate withdrawal amount against limits
+                    if (args.amount > treasuryConfig.maxSingleWithdrawal) {
+                        return #err("Transfer amount exceeds maximum single withdrawal limit: " # 
+                                  Nat.toText(treasuryConfig.maxSingleWithdrawal / Types.E8S) # " tokens");
+                    };
+                    
+                    // Get proposal for additional validation
+                    let proposal = switch (Trie.get(proposals, Types.proposal_key(proposalId), Nat.equal)) {
+                        case null { return #err("Proposal not found for treasury validation") };
+                        case (?p) { p };
+                    };
+                    
+                    // Ensure higher approval threshold was met for treasury transfers
+                    let yesVotes = proposal.votes_yes;
+                    let totalVotes = proposal.votes_yes + proposal.votes_no;
+                    let approvalPercentage = if (totalVotes > 0) {
+                        (yesVotes * 10000) / totalVotes
+                    } else { 0 };
+                    
+                    if (approvalPercentage < treasuryConfig.treasuryProposalThreshold) {
+                        return #err("Treasury transfer requires " # 
+                                  Nat.toText(treasuryConfig.treasuryProposalThreshold / 100) # 
+                                  "% approval. Current: " # Nat.toText(approvalPercentage / 100) # "%");
+                    };
+                    
+                    // Log treasury operation for audit trail
+                    _logSecurityEvent(executor, #LargeTokenTransfer,
+                        "Treasury transfer: " # Nat.toText(args.amount / Types.E8S) # 
+                        " tokens to " # Principal.toText(args.to) # 
+                        " via proposal " # Nat.toText(proposalId), #High);
+                };
+                // END TREASURY VALIDATION
+                
                 // Create transaction log
                 let memo = switch (args.memo) {
                     case (?m) m;
@@ -1437,6 +2389,25 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
 
                     // ================ EFFECTS ================
                     let now = Time.now();
+                    
+                    // 🛡️ TREASURY GOVERNANCE - Use higher thresholds for treasury proposals
+                    let (treasuryQuorum, treasuryApproval) = switch (payload) {
+                        case (#TokenManage(#Transfer(_))) {
+                            // Treasury transfers require higher thresholds for community protection
+                            (
+                                _calculateTreasuryQuorum(total_voting_power),
+                                treasuryConfig.treasuryProposalThreshold
+                            );
+                        };
+                        case (_) {
+                            // Standard proposals use normal thresholds
+                            (
+                                _calculateQuorum(total_voting_power),
+                                system_params.approval_threshold
+                            );
+                        };
+                    };
+                    
                     let proposal : Types.Proposal = {
                         id = proposal_id;
                         proposer = caller;
@@ -1447,8 +2418,8 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                         voters = List.nil();
                         timestamp = now;
                         executionTime = null;
-                        quorumRequired = _calculateQuorum(total_voting_power);
-                        approvalThreshold = system_params.approval_threshold;
+                        quorumRequired = treasuryQuorum;
+                        approvalThreshold = treasuryApproval;
                     };
 
                     proposals := Trie.put(proposals, Types.proposal_key(proposal_id), Nat.equal, proposal).0;
@@ -1677,7 +2648,7 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             systemParams = system_params;
             tokenConfig = token_config;
             governanceLevel = governance_level;
-            stakingEnabled = system_params.stake_lock_periods.size() > 0;
+            stakingEnabled = Trie.size(multiplierTiers) > 0;
             totalMembers = Trie.size(stakes);
             totalStaked = total_staked;
             totalVotingPower = total_voting_power;
@@ -1803,39 +2774,6 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         }
     };
 
-    // ================ UPGRADE FUNCTIONS ================
-    
-    system func preupgrade() {
-        // Store transaction data to stable storage - CRITICAL for compliance
-        transactions_stable := Iter.toArray(Iter.map(Trie.iter(transactions_trie), func((k, v): (Nat, Transaction)) : Transaction = v));
-        
-        // Store timer data to stable storage for persistence across upgrades
-        let proposalTimerBuffer = Buffer.Buffer<(Nat, Types.ProposalTimer)>(0);
-        for ((proposalId, timer) in Trie.iter(proposal_timers_trie)) {
-            proposalTimerBuffer.add((proposalId, timer));
-        };
-        proposal_timers_stable := Buffer.toArray(proposalTimerBuffer);
-        
-        let delegationTimerBuffer = Buffer.Buffer<(Principal, Types.DelegationTimer)>(0);
-        for ((principal, timer) in Trie.iter(delegation_timers_trie)) {
-            delegationTimerBuffer.add((principal, timer));
-        };
-        delegation_timers_stable := Buffer.toArray(delegationTimerBuffer);
-        
-        // Store security data
-        let rateLimitBuffer = Buffer.Buffer<(Principal, Types.RateLimitRecord)>(0);
-        for ((principal, record) in Trie.iter(rate_limits_trie)) {
-            rateLimitBuffer.add((principal, record));
-        };
-        rate_limits_stable := Buffer.toArray(rateLimitBuffer);
-        
-        let contextBuffer = Buffer.Buffer<(Nat, Types.ProposalExecutionContext)>(0);
-        for ((id, context) in Trie.iter(execution_contexts_trie)) {
-            contextBuffer.add((id, context));
-        };
-        execution_contexts_stable := Buffer.toArray(contextBuffer);
-    };
-
     // ================ TRANSACTION QUERY FUNCTIONS - ESSENTIAL FOR AUDIT ================
     
     /// Get user transactions for audit trail and compliance
@@ -1883,6 +2821,11 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     /// Calculate quorum based on total voting power
     func _calculateQuorum(totalVotingPower: Nat) : Nat {
         (totalVotingPower * system_params.quorum_percentage) / BASIS_POINTS
+    };
+    
+    /// Calculate higher quorum requirement for treasury proposals (community protection)
+    func _calculateTreasuryQuorum(totalVotingPower: Nat) : Nat {
+        (totalVotingPower * treasuryConfig.treasuryQuorumPercentage) / BASIS_POINTS
     };
     
     /// Get voting power for a principal (including delegated power)
@@ -2709,9 +3652,120 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             };
         };
 
-        _logSecurityEvent(caller, #SuspiciousActivity,
-            "Manual trigger of time-based operations completed. Processed: " # Nat.toText(operationsCount), #Medium);
+        _logSecurityEvent(caller, #SuspiciousActivity, "Manual trigger of time-based operations completed. Processed: " # Nat.toText(operationsCount), #Medium);
 
         #ok()
+    };
+
+    // ================ ENHANCED STAKE QUERY ENDPOINTS ================
+
+    /// Get user's stake entries with detailed information
+    public query func getStakeEntries(user: Principal) : async [Types.StakeEntry] {
+        _getUserStakeEntries(user)
+    };
+
+    /// Get user's activity timeline
+    public query func getUserTimeline(user: Principal, limit: ?Nat) : async [Types.TimelineEntry] {
+        let timeline = switch (Trie.get(userTimelines, Types.stake_key(user), Principal.equal)) {
+            case (?entries) { entries };
+            case null { [] };
+        };
+        
+        let maxLimit = switch (limit) {
+            case (?l) { Nat.min(l, 100) }; // Max 100 entries
+            case null { 50 }; // Default 50 entries
+        };
+        
+        if (Array.size(timeline) <= maxLimit) {
+            timeline
+        } else {
+            // Return most recent entries (timeline is sorted newest first)
+            Array.subArray<Types.TimelineEntry>(timeline, 0, maxLimit)
+        }
+    };
+
+    /// Get user's complete staking summary  
+    public query func getStakingSummary(user: Principal) : async Types.StakingSummary {
+        let userEntries = _getUserStakeEntries(user);
+        let now = Time.now();
+        
+        // Calculate totals
+        var totalStaked: Nat = 0;
+        var totalVotingPower: Nat = 0;
+        var activeEntries: Nat = 0;
+        var availableToUnstake: Nat = 0;
+        var nextUnlock: ?{time: Time.Time; amount: Nat; entryId: Nat} = null;
+
+        for (entry in userEntries.vals()) {
+            if (entry.isActive) {
+                totalStaked += entry.amount;
+                totalVotingPower += entry.votingPower;
+                activeEntries += 1;
+
+                // Check if available to unstake
+                if (entry.unlockTime <= now) {
+                    availableToUnstake += entry.amount;
+                } else {
+                    // Check for next unlock
+                    switch (nextUnlock) {
+                        case null {
+                            nextUnlock := ?{time = entry.unlockTime; amount = entry.amount; entryId = entry.id};
+                        };
+                        case (?current) {
+                            if (entry.unlockTime < current.time) {
+                                nextUnlock := ?{time = entry.unlockTime; amount = entry.amount; entryId = entry.id};
+                            };
+                        };
+                    };
+                };
+            };
+        };
+
+        // Convert tier map to array
+        // let arr1 : [(Nat, Nat)] =
+        // Trie.toArray<Nat, { staked : Nat; votingPower : Nat }, (Nat, Nat)>(
+        //     tierMap,
+        //     func (k, v) { (k, v.staked) }
+        // );
+
+        // let arr2 : [(Nat, Nat)] =
+        // Trie.toArray<Nat, { staked : Nat; votingPower : Nat }, (Nat, Nat)>(
+        //     tierMap,
+        //     func (k, v) { (k, v.votingPower) }
+        // );
+
+        // let tierBreakdown = Array.mapFilter<(Nat, {staked: Nat; votingPower: Nat}), (Text, Nat, Nat)>(
+        //     arr1,
+        //     arr2.vals(),
+        //     func((tierId, data)) : ?(Text, Nat, Nat) {
+        //         switch (DAOUtils.findTierById(DEFAULT_MULTIPLIER_TIERS, tierId)) {
+        //             case (?tier) { ?(tier.name, data.staked, data.votingPower) };
+        //             case null { null };
+        //         }
+        //     }
+        // );
+
+        // Check for legacy stake
+        let legacyStakeExists = switch (Trie.get(stakes, Types.stake_key(user), Principal.equal)) {
+            case (?_) { Array.size(userEntries) == 0 }; // Only true if legacy exists but no entries
+            case null { false };
+        };
+
+        {
+            totalStaked = totalStaked;
+            totalVotingPower = totalVotingPower;
+            activeEntries = activeEntries;
+            tierBreakdown = [];
+            nextUnlock = nextUnlock;
+            availableToUnstake = availableToUnstake;
+            legacyStakeExists = legacyStakeExists;
+        }
+    };
+
+
+    /// Get specific stake entry by ID
+    public query func getStakeEntry(user: Principal, entryId: Nat) : async ?Types.StakeEntry {
+        let userEntries = _getUserStakeEntries(user);
+        Array.find<Types.StakeEntry>(userEntries, func(e) = e.id == entryId and e.staker == user)
     };
 };

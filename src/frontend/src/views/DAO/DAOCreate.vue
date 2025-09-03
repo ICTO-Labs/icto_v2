@@ -365,80 +365,23 @@
             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">How voting power is calculated from token holdings</p>
           </div>
 
-          <!-- Staking Options -->
+          <!-- Custom Tier Manager Integration -->
           <div class="md:col-span-2">
-            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
-              <h3 class="font-medium text-blue-800 dark:text-blue-200 mb-2">Token Staking & Voting Power</h3>
-              <p class="text-sm text-blue-600 dark:text-blue-300 mb-3">
-                <strong>Staking is required to obtain voting power.</strong> Choose staking model for your DAO.
-              </p>
-              
-              <!-- Staking Model Selection -->
-              <div class="space-y-3">
-                <!-- Basic Staking (Always On) -->
-                <div class="flex items-center space-x-3">
-                  <div class="w-4 h-4 bg-green-500 rounded flex items-center justify-center">
-                    <CheckIcon class="h-3 w-3 text-white" />
-                  </div>
-                  <label class="text-sm font-medium text-blue-800 dark:text-blue-200">Basic Staking (Always Enabled)</label>
-                </div>
-                <p class="text-xs text-blue-500 dark:text-blue-400 ml-7">
-                  Users can stake tokens with instant withdrawal (no lock period). 1:1 voting power ratio.
-                </p>
-                
-                <!-- Enhanced Staking Toggle -->
-                <div class="flex items-center space-x-3 mt-3">
-                  <input
-                    v-model="formData.stakingEnabled"
-                    type="checkbox"
-                    class="w-4 h-4 text-yellow-600 bg-white border-gray-300 rounded focus:ring-yellow-500 dark:focus:ring-yellow-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                  />
-                  <label class="text-sm font-medium text-blue-800 dark:text-blue-200">Enhanced Staking (Lock Multipliers)</label>
-                </div>
-                <p class="text-xs text-blue-500 dark:text-blue-400 ml-7">
-                  Enable lock periods with voting power multipliers (1x → 2x+ based on lock duration)
-                </p>
-              </div>
-            </div>
+            <CustomTierManager 
+              v-model="customTiers"
+              @tier-config-changed="onTierConfigChanged"
+              @validation-changed="onTierValidationChanged"
+            />
           </div>
-
-          <div v-if="formData.stakingEnabled" class="md:col-span-2">
-            <div class="flex items-center justify-between mb-3">
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Stake Lock Periods (days)</label>
-              <button 
-                @click="addLockPeriod" 
-                :disabled="stakeLockPeriodsArray.length >= 6"
-                class="text-sm text-yellow-600 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-300 disabled:opacity-50"
-              >
-                + Add Period
-              </button>
+          
+          <!-- DAO Treasury Governance Notice -->
+          <div class="md:col-span-2 mt-6">
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+              <h4 class="font-medium text-blue-800 dark:text-blue-200 mb-2">🏛️ Community Treasury Governance</h4>
+              <p class="text-sm text-blue-700 dark:text-blue-300">
+                Treasury funds are controlled exclusively by DAO community through governance proposals. Higher approval thresholds (75%) and quorum requirements (40%) automatically apply to treasury operations for community protection.
+              </p>
             </div>
-            <div class="space-y-2">
-              <div 
-                v-for="(period, index) in stakeLockPeriodsArray" 
-                :key="index" 
-                class="flex items-center space-x-2"
-              >
-                <input
-                  v-model="stakeLockPeriodsArray[index]"
-                  type="number"
-                  min="1"
-                  :placeholder="index === 0 ? '30' : index === 1 ? '90' : '365'"
-                  class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-                />
-                <span class="text-sm text-gray-500 dark:text-gray-400 w-12">days</span>
-                <button 
-                  v-if="stakeLockPeriodsArray.length > 1"
-                  @click="removeLockPeriod(index)"
-                  class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                >
-                  <XIcon class="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
-              Available lock periods for enhanced voting power. Longer periods = higher multipliers.
-            </p>
           </div>
 
           <div>
@@ -639,16 +582,17 @@
                   </span>
                 </p>
                 <p><span class="text-gray-500">Public:</span> {{ formData.isPublic ? 'Yes' : 'No' }}</p>
-                <p><span class="text-gray-500">Basic Staking:</span> 
-                  <span class="text-green-600">Always Enabled</span>
-                  <span class="text-xs text-gray-400 ml-1">(instant withdrawal)</span>
+                <p><span class="text-gray-500">Staking System:</span> 
+                  <span class="text-green-600">Custom Multiplier Tiers</span>
+                  <span class="text-xs text-gray-400 ml-1">({{ customTiers.length }} tiers configured)</span>
                 </p>
-                <p><span class="text-gray-500">Enhanced Staking:</span> 
-                  <span :class="formData.stakingEnabled ? 'text-green-600' : 'text-gray-500'">
-                    {{ formData.stakingEnabled ? 'Enabled' : 'Disabled' }}
-                  </span>
-                  <span v-if="formData.stakingEnabled" class="text-xs text-gray-400 ml-1">
-                    ({{ stakeLockPeriodsArray.filter(p => p > 0).length }} lock periods)
+                <p><span class="text-gray-500">Security Level:</span> 
+                  <span :class="{
+                    'text-green-600': tierSecurityScore >= 80,
+                    'text-yellow-600': tierSecurityScore >= 60,
+                    'text-red-600': tierSecurityScore < 60
+                  }">
+                    {{ tierSecurityScore }}/100 - {{ getSecurityLevel(tierSecurityScore) }}
                   </span>
                 </p>
               </div>
@@ -851,8 +795,15 @@ import TokenSelector from '@/components/common/TokenSelector.vue'
 import Select from '@/components/common/Select.vue'
 import type { DAOConfig, CreateDAOResponse, CustomSecurityParams, GovernanceLevel } from '@/types/dao'
 import { getGovernanceLevelOptions, getGovernanceLevelCapabilities, isTokenOwnershipRequired } from '@/types/dao'
+import {
+  MAX_LOCK_DAYS,
+  SECONDS_PER_DAY,
+  calculateSoftMultiplier,
+  secondsToDays,
+  daysToSeconds
+} from '@/types/staking'
 import { useSwal } from '@/composables/useSwal2'
-
+import CustomTierManager from '@/components/dao/CustomTierManager.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 const daoService = DAOService.getInstance()
@@ -874,11 +825,13 @@ const formData = ref<DAOConfig>({
   timelockDuration: 172800, // 2 days in seconds
   maxVotingPeriod: 604800, // 7 days in seconds
   minVotingPeriod: 86400, // 1 day in seconds
-  stakeLockPeriods: [0], // Start with basic staking only
+  stakeLockPeriods: [604800, 2592000, 7776000, 15552000, 31536000], // Legacy - 7, 30, 90, 180, 365 days
+  customMultiplierTiers: undefined, // Will be set by CustomTierManager
   emergencyContacts: [''],
   emergencyPauseEnabled: false,
   managedByDAO: false, // This will be computed based on governanceLevel
   transferFee: '0.0001',
+  initialSupply: undefined, // For new tokens (if creating new token with DAO)
   enableDelegation: true,
   votingPowerModel: 'proportional',
   tags: [],
@@ -899,13 +852,11 @@ const customSecurity = ref<CustomSecurityParams>({
 // UI state
 const showAdvancedSecurity = ref(false)
 const currentStep = ref(0)
-const isSubmitting = ref(false)
 const error = ref<string | null>(null)
 const deploymentResult = ref<CreateDAOResponse | null>(null)
 
 // Payment state
 const isPaying = ref(false)
-const paymentStep = ref('')
 const deployResult = ref<{ daoCanisterId?: string; success: boolean; error?: string } | null>(null)
 
 // Deployment cost
@@ -923,10 +874,12 @@ const tokenError = ref<string | null>(null)
 const tagsInput = ref('')
 const votingPeriodDays = ref(7)
 const timelockDays = ref(2)
-// Dynamic stake lock periods
-const stakeLockPeriodsArray = ref<number[]>([30, 90, 365])
+// Custom Tier System Configuration
+const customTiers = ref<any[]>([])
+const tierSecurityScore = ref(85)
+const tierValidationStatus = ref<{ valid: boolean; errors: string[]; score?: number }>({ valid: true, errors: [] })
 
-const deploymentCost = 2.5 // ICP
+// Security is now handled through formData.emergencyPauseEnabled and emergencyContacts
 
 const steps = [
   { id: 'basic', title: 'Basic Info', description: 'Name, description, token' },
@@ -996,23 +949,25 @@ const validateGovernanceSettings = (): { valid: boolean; errors: string[] } => {
 const validateSecuritySettings = (): { valid: boolean; errors: string[] } => {
   const errors: string[] = []
   
-  // Validate stake lock periods for enhanced staking
+  // Validate custom tier staking configuration
   if (formData.value.stakingEnabled) {
-    const validPeriods = stakeLockPeriodsArray.value.filter(period => period > 0)
-    if (validPeriods.length === 0) {
-      errors.push('At least one lock period must be defined when enhanced staking is enabled')
+    if (customTiers.value.length === 0) {
+      errors.push('At least one custom staking tier must be configured')
     }
-    // Check for duplicate periods
-    const uniquePeriods = new Set(validPeriods)
-    if (uniquePeriods.size !== validPeriods.length) {
-      errors.push('Lock periods must be unique')
+    
+    if (!tierValidationStatus.value.valid) {
+      errors.push(...tierValidationStatus.value.errors)
     }
-    // Check periods are positive
-    if (validPeriods.some(period => period <= 0)) {
-      errors.push('All lock periods must be greater than 0 days')
+    
+    // Validate minimum stake from tiers
+    if (customTiers.value.length > 0) {
+      const minStakeFromTiers = Math.min(...customTiers.value.map((t: any) => t.minStake))
+      if (minStakeFromTiers <= 0) {
+        errors.push('Minimum stake amount must be greater than 0')
+      }
     }
   }
-  // Note: stakeLockPeriods will always have [0] at minimum for basic staking
+  
   
   // Validate emergency contacts
   if (formData.value.emergencyPauseEnabled && 
@@ -1088,12 +1043,12 @@ const canProceed = computed(() => {
              formData.value.proposalSubmissionDeposit &&
              formData.value.quorumPercentage > 0 && formData.value.approvalThreshold > 0
     case 2:
-      // Enhanced staking validation: if enabled, must have at least one lock period > 0
-      const stakingValid = !formData.value.stakingEnabled || 
-                          stakeLockPeriodsArray.value.filter(period => period > 0).length > 0
+      // Custom tier staking validation: must have valid tiers configured
+      const stakingValid = !formData.value.stakingEnabled || (customTiers.value.length > 0 && tierValidationStatus.value.valid)
       const emergencyValid = !formData.value.emergencyPauseEnabled || 
                             formData.value.emergencyContacts.some(contact => contact.trim())
-      return formData.value.transferFee && stakingValid && emergencyValid
+      const securityValid = tierSecurityScore.value >= 60 // Minimum security score
+      return formData.value.transferFee && stakingValid && emergencyValid && securityValid
     case 3:
       return true
     default:
@@ -1136,13 +1091,6 @@ const requiresTokenOwnership = computed(() => {
   return isTokenOwnershipRequired(formData.value.governanceLevel)
 })
 
-const governanceLevelOptions = computed(() => {
-  return getGovernanceLevelOptions().map(option => ({
-    label: option.label,
-    value: option.value
-  }))
-})
-
 // Watchers
 watch(tagsInput, (newValue) => {
   if (newValue.includes(',')) {
@@ -1168,31 +1116,15 @@ watch(timelockDays, (days) => {
   formData.value.timelockDuration = days * 24 * 60 * 60
 })
 
-// Watch dynamic lock periods array
-watch(stakeLockPeriodsArray, (periods) => {
-  let lockPeriods: number[]
-  
-  if (formData.value.stakingEnabled) {
-    // Enhanced staking: use custom lock periods + basic period (0)
-    const validPeriods = periods.filter(period => period > 0)
-    lockPeriods = [0, ...validPeriods.map(period => period * 24 * 60 * 60)]
-  } else {
-    // Basic staking only: just period 0 (instant withdrawal)
-    lockPeriods = [0]
-  }
-  
-  formData.value.stakeLockPeriods = lockPeriods
-}, { deep: true })
-
-// Watch stakingEnabled to update periods
+// Watch staking configuration to update stake lock periods
 watch(() => formData.value.stakingEnabled, (enabled) => {
-  if (enabled) {
-    // Enhanced staking: include 0 + custom periods
-    const validPeriods = stakeLockPeriodsArray.value.filter(period => period > 0)
-    formData.value.stakeLockPeriods = [0, ...validPeriods.map(period => period * 24 * 60 * 60)]
+  if (enabled && customTiers.value.length > 0) {
+    // Custom tier system: use configured tiers' lock periods
+    const lockPeriods = customTiers.value.map((tier: any) => tier.lockDays * 86400) // Convert days to seconds
+    formData.value.stakeLockPeriods = [...new Set(lockPeriods)].sort((a, b) => a - b)
   } else {
-    // Basic staking only: just 0
-    formData.value.stakeLockPeriods = [0]
+    // No staking: empty lock periods
+    formData.value.stakeLockPeriods = []
   }
 }, { immediate: true })
 
@@ -1209,6 +1141,53 @@ const nextStep = () => {
   }
 }
 
+// Custom Tier Management Functions
+const onTierConfigChanged = (tiers: any[]) => {
+  customTiers.value = tiers
+  
+  // Set custom multiplier tiers in formData for backend
+  formData.value.customMultiplierTiers = tiers.map(tier => ({
+    id: tier.id,
+    name: tier.name,
+    minStake: tier.minStake * 100000000, // Convert to e8s
+    maxStakePerEntry: tier.maxStakePerEntry > 0 ? tier.maxStakePerEntry * 100000000 : null,
+    lockPeriod: tier.lockDays * 86400, // Convert days to seconds
+    multiplier: tier.multiplier,
+    maxVpPercentage: tier.maxVpPercent,
+    emergencyUnlockEnabled: false,
+    flashLoanProtection: tier.lockDays >= 7,
+    governanceCapProtection: tier.maxVpPercent <= 40
+  }))
+  
+  // Update legacy stakeLockPeriods for backward compatibility
+  const lockPeriods = tiers.map(tier => tier.lockDays * 86400) // Convert days to seconds
+  formData.value.stakeLockPeriods = [...new Set(lockPeriods)].sort((a, b) => a - b)
+  
+  // Update minimum stake based on lowest tier
+  if (tiers.length > 0) {
+    const minStakeFromTiers = Math.min(...tiers.map(t => t.minStake))
+    formData.value.minimumStake = minStakeFromTiers.toString()
+  }
+  
+  console.log('🔧 Custom tiers updated:', {
+    tiersCount: tiers.length,
+    customMultiplierTiers: formData.value.customMultiplierTiers,
+    lockPeriods: formData.value.stakeLockPeriods
+  })
+}
+
+const onTierValidationChanged = (validation: { valid: boolean; score: number; errors: string[] }) => {
+  tierValidationStatus.value = validation
+  tierSecurityScore.value = validation.score
+}
+
+const getSecurityLevel = (score: number): string => {
+  if (score >= 90) return 'Excellent'
+  if (score >= 80) return 'Good' 
+  if (score >= 60) return 'Fair'
+  return 'Needs Improvement'
+}
+
 const previousStep = () => {
   if (currentStep.value > 0) {
     currentStep.value--
@@ -1223,16 +1202,38 @@ const addEmergencyContact = () => {
   formData.value.emergencyContacts.push('')
 }
 
-// Dynamic lock periods methods
-const addLockPeriod = () => {
-  if (stakeLockPeriodsArray.value.length < 6) {
-    stakeLockPeriodsArray.value.push(0)
+// Lock period validation helper
+const validateLockPeriod = (days: number): { valid: boolean; error?: string } => {
+  if (days < 1) return { valid: false, error: 'Lock period must be at least 1 day' }
+  if (days > 365) return { valid: false, error: 'Lock period cannot exceed 365 days' }
+  return { valid: true }
+}
+
+const daysToSeconds = (days: number) => days * 24 * 60 * 60
+const secondsToDays = (seconds: number) => Math.round(seconds / (24 * 60 * 60))
+
+// Lock period selection helpers
+const addLockPeriod = (days: number) => {
+  const validation = validateLockPeriod(days)
+  if (!validation.valid) {
+    toast.error(validation.error || 'Invalid lock period')
+    return
+  }
+  
+  const seconds = daysToSeconds(days)
+  if (!formData.value.stakeLockPeriods.includes(seconds)) {
+    formData.value.stakeLockPeriods.push(seconds)
+    formData.value.stakeLockPeriods.sort((a, b) => a - b)
+    toast.success(`Added ${days}-day lock period`)
   }
 }
 
-const removeLockPeriod = (index: number) => {
-  if (stakeLockPeriodsArray.value.length > 1) {
-    stakeLockPeriodsArray.value.splice(index, 1)
+const removeLockPeriod = (seconds: number) => {
+  const index = formData.value.stakeLockPeriods.indexOf(seconds)
+  if (index > -1) {
+    formData.value.stakeLockPeriods.splice(index, 1)
+    const days = secondsToDays(seconds)
+    toast.success(`Removed ${days}-day lock period`)
   }
 }
 

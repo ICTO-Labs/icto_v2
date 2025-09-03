@@ -88,7 +88,8 @@ export interface DAOConfig {
   timelockDuration: number
   maxVotingPeriod: number
   minVotingPeriod: number
-  stakeLockPeriods: number[]
+  stakeLockPeriods: number[] // Legacy - for backward compatibility
+  customMultiplierTiers?: any[] // Custom tier configuration from CustomTierManager
   emergencyContacts: string[]
   emergencyPauseEnabled: boolean
   managedByDAO: boolean // This now depends on governanceLevel

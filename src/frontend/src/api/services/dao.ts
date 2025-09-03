@@ -494,7 +494,7 @@ export class DAOService {
   // STAKING & DELEGATION
   // ==================================================================================================
 
-  async stake(canisterId: string, stakeArgs: { amount: string; lockDuration?: number; requiresApproval?: boolean }): Promise<{ success: boolean; error?: string; requiresApproval?: boolean }> {
+  async stake(canisterId: string, stakeArgs: { amount: string; lockDays?: number; requiresApproval?: boolean }): Promise<{ success: boolean; error?: string; requiresApproval?: boolean }> {
     try {
       const daoActor = await this.getDAOActor(canisterId, true)
       
@@ -520,10 +520,13 @@ export class DAOService {
         }
       }
       
+      // Convert lock days to seconds for backend
+      const lockDurationSeconds = stakeArgs.lockDays ? stakeArgs.lockDays * 86400 : 0
+      
       // Proceed with staking
       const result = await daoActor.stake(
         BigInt(stakeArgs.amount), 
-        stakeArgs.lockDuration ? [BigInt(stakeArgs.lockDuration)] : []
+        lockDurationSeconds > 0 ? [BigInt(lockDurationSeconds)] : []
       )
       
       if ('ok' in result) {
@@ -623,15 +626,17 @@ export class DAOService {
       
       if (result && result.length > 0) {
         const delegation = result[0]
-        return {
-          success: true,
-          data: {
-            delegate: delegation.delegate.toText(),
-            delegator: delegation.delegator.toText(),
-            delegatedAt: bigintToString(delegation.delegatedAt),
-            effectiveAt: bigintToString(delegation.effectiveAt),
-            revokable: delegation.revokable,
-            votingPower: bigintToString(delegation.votingPower)
+        if (delegation) {
+          return {
+            success: true,
+            data: {
+              delegate: delegation.delegate.toText(),
+              delegator: delegation.delegator.toText(),
+              delegatedAt: bigintToString(delegation.delegatedAt),
+              effectiveAt: bigintToString(delegation.effectiveAt),
+              revokable: delegation.revokable,
+              votingPower: bigintToString(delegation.votingPower)
+            }
           }
         }
       }
@@ -842,5 +847,185 @@ export class DAOService {
     })
     
     return filtered
+  }
+
+  // ================ ENHANCED STAKING METHODS ================
+
+  // Get user's stake entries
+  async getStakeEntries(canisterId: string, userPrincipal?: string): Promise<any[]> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      const principal = userPrincipal || authStore?.principal
+      
+      if (!principal) {
+        return []
+      }
+      
+      const result = await daoActor.getStakeEntries(Principal.fromText(principal))
+      return result || []
+    } catch (error) {
+      console.error('Error fetching stake entries:', error)
+      return []
+    }
+  }
+
+  // Get user's activity timeline
+  async getUserTimeline(canisterId: string, limit?: number, userPrincipal?: string): Promise<any[]> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      const principal = userPrincipal || authStore?.principal
+      
+      if (!principal) {
+        return []
+      }
+      
+      const result = await daoActor.getUserTimeline(Principal.fromText(principal), limit ? [BigInt(limit)] : [])
+      return result || []
+    } catch (error) {
+      console.error('Error fetching user timeline:', error)
+      return []
+    }
+  }
+
+  // Get user's complete staking summary
+  async getStakingSummary(canisterId: string, userPrincipal?: string): Promise<any | null> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      const principal = userPrincipal || authStore?.principal
+      
+      if (!principal) {
+        return null
+      }
+      
+      const result = await daoActor.getStakingSummary(Principal.fromText(principal))
+      return result || null
+    } catch (error) {
+      console.error('Error fetching staking summary:', error)
+      return null
+    }
+  }
+
+
+  // Get specific stake entry by ID
+  async getStakeEntry(canisterId: string, entryId: number, userPrincipal?: string): Promise<any | null> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      const principal = userPrincipal || authStore?.principal
+      
+      if (!principal) {
+        return null
+      }
+      
+      const result = await daoActor.getStakeEntry(Principal.fromText(principal), BigInt(entryId))
+      return result && result[0] ? result[0] : null
+    } catch (error) {
+      console.error('Error fetching stake entry:', error)
+      return null
+    }
+  }
+
+  // Enhanced unstake specific entry
+  async unstakeEntry(
+    canisterId: string, 
+    entryId: number, 
+    amount?: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const amountBigInt = amount ? BigInt(amount) : undefined
+      const amountArray = amountBigInt ? [amountBigInt] : []
+      
+      const result = await daoActor.unstakeEntry(BigInt(entryId), amountBigInt ? [amountBigInt] : [])
+      
+      if ('ok' in result && result.ok !== undefined) {
+        return { success: true }
+      } else if ('err' in result) {
+        return {
+          success: false,
+          error: result.err || 'Unknown error occurred'
+        }
+      } else {
+        return {
+          success: false,
+          error: 'Unexpected response format'
+        }
+      }
+    } catch (error) {
+      console.error('Error unstaking entry:', error)
+      return {
+        success: false,
+        error: 'Failed to unstake entry'
+      }
+    }
+  }
+
+  // Check if specific stake entry can be unstaked
+  async canUnstakeEntry(canisterId: string, entryId: number, userPrincipal?: string): Promise<{ canUnstake: boolean; error?: string }> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      const principal = userPrincipal || authStore?.principal
+      
+      if (!principal) {
+        return { canUnstake: false, error: 'No principal provided' }
+      }
+      
+      // Note: This method may not exist in the current backend
+      // For now, return a basic check based on unlock time
+      try {
+        const entry = await this.getStakeEntry(canisterId, entryId, principal)
+        if (entry) {
+          const currentTime = BigInt(Date.now() * 1_000_000) // Convert to nanoseconds
+          const canUnstake = entry.unlockTime <= currentTime
+          return { canUnstake }
+        }
+        return { canUnstake: false, error: 'Stake entry not found' }
+      } catch (error) {
+        return { canUnstake: false, error: 'Failed to check stake entry' }
+      }
+    } catch (error) {
+      console.error('Error checking unstake eligibility:', error)
+      return {
+        canUnstake: false,
+        error: 'Failed to check unstake eligibility'
+      }
+    }
+  }
+
+  // Get enhanced voting power information
+  async getEnhancedVotingPower(canisterId: string, userPrincipal?: string): Promise<any | null> {
+    try {
+      const daoActor = await this.getDAOActor(canisterId, false)
+      const authStore = useAuthStore()
+      const principal = userPrincipal || authStore?.principal
+      
+      if (!principal) {
+        return null
+      }
+      
+      // Note: This method may not exist in current backend
+      // For now, return null until backend is updated
+      return null
+    } catch (error) {
+      console.error('Error fetching enhanced voting power:', error)
+      return null
+    }
+  }
+
+  // Get global stake statistics
+  async getGlobalStakeStats(canisterId: string): Promise<any | null> {
+    try {
+      const daoActor = await this.getDAOActorAnonymous(canisterId)
+      // Note: This method may not exist in current backend
+      // For now, return null until backend is updated
+      return null
+    } catch (error) {
+      console.error('Error fetching global stake stats:', error)
+      return null
+    }
   }
 }

@@ -178,7 +178,7 @@ import {
   ArrowRightLeftIcon
 } from 'lucide-vue-next'
 import type { DAO } from '@/types/dao'
-import type { StakeHistoryEntry } from '@/types/staking'
+import type { StakeHistoryEntry, TimelineEntry, TimelineAction } from '@/types/staking'
 import { DAOService } from '@/api/services/dao'
 import { shortPrincipal } from '@/utils/common'
 

@@ -81,13 +81,13 @@
               <div class="flex justify-between items-center pb-2 border-b border-gray-200 dark:border-gray-600">
                 <span class="text-gray-600 dark:text-gray-400">Lock Period:</span>
                 <span class="font-medium">
-                  {{ selectedLockPeriod ? formatDuration(Number(selectedLockPeriod)) : 'None (liquid)' }}
+                  {{ selectedLockDays ? `${selectedLockDays} day${selectedLockDays > 1 ? 's' : ''}` : 'Liquid (No lock)' }}
                 </span>
               </div>
               <div class="flex justify-between items-center pb-2 border-b border-gray-200 dark:border-gray-600">
                 <span class="text-gray-600 dark:text-gray-400">Voting Power Multiplier:</span>
                 <span class="font-medium text-purple-600">
-                  {{ selectedLockPeriod ? calculateMultiplier(Number(selectedLockPeriod)) + 'x' : '1.0x' }}
+                  {{ formatMultiplier(calculateSoftMultiplier(selectedLockDays || 0)) }}
                 </span>
               </div>
               <div class="flex justify-between items-center pt-1">
@@ -131,19 +131,41 @@
             </p>
           </div>
 
-          <div v-if="dao?.stakingEnabled && dao?.systemParams?.stake_lock_periods?.length > 0">
+          <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Lock Period (Optional)
+              Lock Period (Days)
             </label>
-            <Select
-              v-model="selectedLockPeriod"
-              :options="dao?.systemParams?.stake_lock_periods.map((period: number) => ({label: formatDuration(Number(period)), value: Number(period)}))"
-              placeholder="Choose a lock period"
-              size="lg"
-            />
+            <div class="space-y-3">
+              <input
+                v-model.number="selectedLockDays"
+                type="number"
+                min="0"
+                max="365"
+                step="1"
+                placeholder="Enter lock days (0-365)"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-white dark:bg-gray-700"
+              />
+              
+              <!-- Quick Selection Buttons -->
+              <div class="flex flex-wrap gap-2">
+                <button
+                  v-for="period in commonLockPeriods"
+                  :key="period.days"
+                  @click="selectedLockDays = period.days"
+                  :class="[
+                    'px-3 py-1 text-xs rounded-full border transition-colors',
+                    selectedLockDays === period.days
+                      ? 'bg-purple-100 border-purple-300 text-purple-700 dark:bg-purple-900 dark:border-purple-700 dark:text-purple-300'
+                      : 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-600'
+                  ]"
+                >
+                  {{ period.label }} ({{ formatMultiplier(period.multiplier) }})
+                </button>
+              </div>
+            </div>
             
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Longer lock periods provide higher voting power multipliers
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">
+              Lock days range from 0 (liquid) to 365 days. Multiplier ranges from 1.0x to 1.5x.
             </p>
           </div>
 
@@ -158,7 +180,13 @@
               <div class="flex justify-between">
                 <span class="text-gray-600 dark:text-gray-400">Lock Period:</span>
                 <span class="font-medium">
-                  {{ selectedLockPeriod ? formatDuration(Number(selectedLockPeriod)) : 'Instant (No lock)' }}
+                  {{ selectedLockDays ? `${selectedLockDays} day${selectedLockDays > 1 ? 's' : ''}` : 'Liquid (No lock)' }}
+                </span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-gray-600 dark:text-gray-400">Multiplier:</span>
+                <span class="font-medium text-purple-600 dark:text-purple-400">
+                  {{ formatMultiplier(calculateSoftMultiplier(selectedLockDays || 0)) }}
                 </span>
               </div>
               <div class="flex justify-between">
@@ -255,6 +283,11 @@ import { DAOService } from '@/api/services/dao'
 import type { DAO } from '@/types/dao'
 import { formatTokenAmount } from '@/utils/token'
 import { toast } from 'vue-sonner'
+import { 
+  calculateSoftMultiplier, 
+  formatMultiplier, 
+  getCommonLockPeriods 
+} from '@/utils/staking'
 
 interface Props {
   dao: DAO
@@ -270,7 +303,7 @@ const daoService = DAOService.getInstance()
 
 // State
 const stakeAmount = ref('')
-const selectedLockPeriod = ref<number | ''>('')
+const selectedLockDays = ref<number>(0)
 const isProcessing = ref(false)
 const error = ref<string | null>(null)
 const success = ref(false)
@@ -287,35 +320,13 @@ const canStake = computed(() => {
   return amount > 0 && amount >= minStake && stakeAmount.value !== ''
 })
 
+const commonLockPeriods = computed(() => getCommonLockPeriods())
+
 // Methods
-const formatDuration = (seconds: number): string => {
-  const days = Math.floor(Number(seconds) / 86400)
-  const hours = Math.floor((Number(seconds) % 86400) / 3600)
-  
-  if(days == 0 && hours == 0) {
-    return `Instant (No lock)`
-  } else if (days > 0) {
-    return `${days} day${days > 1 ? 's' : ''}`
-  } else if (hours > 0) {
-    return `${hours} hour${hours > 1 ? 's' : ''}`
-  } else {
-    return `${Math.floor(Number(seconds) / 60)} minute${Math.floor(Number(seconds) / 60) > 1 ? 's' : ''}`
-  }
-}
-
-const calculateMultiplier = (lockPeriod: number): string => {
-  if (!lockPeriod) return '1.0'
-  // Simple multiplier calculation - longer locks get higher multipliers
-  let _lockPeriod = props.dao?.systemParams?.stake_lock_periods.map((period: number) => Number(period))
-  const maxLock = Math.max(...(_lockPeriod || [Number(lockPeriod)]))
-  const multiplier = 1 + (Number(lockPeriod) / Number(maxLock)) * 3 // Max 4x multiplier
-  return multiplier.toFixed(1)
-}
-
 const calculateVotingPower = (): string => {
   const amount = parseFloat(stakeAmount.value) || 0
-  const multiplier = selectedLockPeriod.value ? parseFloat(calculateMultiplier(Number(selectedLockPeriod.value))) : 1
-  return (Number(amount) * Number(multiplier)).toFixed(2)
+  const multiplier = calculateSoftMultiplier(selectedLockDays.value)
+  return (amount * multiplier).toFixed(2)
 }
 
 const formatAmount = (amount: string): string => {
@@ -362,7 +373,7 @@ const proceedWithStaking = async () => {
     
     const result = await daoService.stake(props.dao.canisterId, {
       amount: tokenAmount.toString(),
-      lockDuration: selectedLockPeriod.value ? selectedLockPeriod.value as number : undefined,
+      lockDays: selectedLockDays.value > 0 ? selectedLockDays.value : undefined,
       requiresApproval: false // We already approved
     })
 
@@ -405,6 +416,6 @@ const continueStaking = () => {
   showConfirmation.value = false
   success.value = false
   stakeAmount.value = ''
-  selectedLockPeriod.value = ''
+  selectedLockDays.value = 0
 }
 </script>

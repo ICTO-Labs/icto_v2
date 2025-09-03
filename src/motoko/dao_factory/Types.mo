@@ -47,6 +47,11 @@ module Types {
     public type ProposalComment = DAOTypes.ProposalComment;
     public type CommentAction = DAOTypes.CommentAction;
     public type DelegationRecord = DAOTypes.DelegationRecord;
+    public type UserStakeProfile = DAOTypes.UserStakeProfile;
+    public type StakeEntry = DAOTypes.StakeEntry;
+    public type TimelineEntry = DAOTypes.TimelineEntry;
+    public type TimelineAction = DAOTypes.TimelineAction;
+    public type StakingSummary = DAOTypes.StakingSummary;
     // Re-export utility functions
     public let proposal_key = DAOTypes.proposal_key;
     public let account_key = DAOTypes.account_key;

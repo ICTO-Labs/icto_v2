@@ -8,6 +8,7 @@ import Time "mo:base/Time";
 import Float "mo:base/Float";
 import Nat8 "mo:base/Nat8";
 import Hash "mo:base/Hash";
+import SecureDAOTypes "./SecureDAOTypes";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
 module DAOTypes {
@@ -20,6 +21,10 @@ module DAOTypes {
     
     // ================ STAKING TYPES ================
     
+    // Multiplier Tier for custom staking system (imported from SecureDAOTypes)
+    public type MultiplierTier = SecureDAOTypes.MultiplierTier;
+    
+    // LEGACY: Keep for backward compatibility during migration
     public type StakeRecord = {
         staker: Principal;
         amount: Nat;
@@ -28,9 +33,54 @@ module DAOTypes {
         votingPower: Nat; // Calculated based on amount and lock duration
     };
     
+    // Simplified stake entry system with soft-multiplier curve
+    public type StakeEntry = {
+        id: Nat;                    // Unique ID for this stake entry
+        staker: Principal;
+        amount: Nat;
+        stakedAt: Time.Time;
+        lockPeriod: Nat;            // Lock period in seconds (0 = liquid staking)
+        unlockTime: Time.Time;      // Calculated unlock time
+        multiplier: Float;          // Applied soft multiplier (1.0 - 1.5x)
+        votingPower: Nat;           // Calculated voting power
+        isActive: Bool;             // Can be set to false when unstaked
+        blockIndex: ?Nat;           // ICRC transfer block index for audit
+    };
+    
+    // User's complete staking profile - simplified without tiers
+    public type UserStakeProfile = {
+        principal: Principal;
+        stakeEntries: [StakeEntry];
+        totalStaked: Nat;
+        totalVotingPower: Nat;
+        activeEntries: Nat;
+        lastStakeTime: ?Time.Time;
+        // Legacy compatibility
+        legacyStake: ?StakeRecord;  // For migration period
+    };
+    
+    // Timeline tracking for user activities
+    public type TimelineEntry = {
+        id: Nat;
+        timestamp: Time.Time;
+        action: TimelineAction;
+        details: Text;
+        blockIndex: ?Nat;           // For audit trail
+    };
+    
+    public type TimelineAction = {
+        #Stake: { entryId: Nat; amount: Nat; lockPeriod: Nat };
+        #Unstake: { entryId: Nat; amount: Nat };
+        #Vote: { proposalId: Nat; vote: Text; votingPower: Nat };
+        #CreateProposal: { proposalId: Nat; title: Text };
+        #Delegate: { to: Principal; votingPower: Nat };
+        #Undelegate: { votingPower: Nat };
+    };
+    
     public type StakeAction = {
         #Stake: { amount: Nat; lockDuration: ?Nat }; // lockDuration in seconds
         #Unstake: { amount: Nat };
+        #UnstakeEntry: { entryId: Nat; amount: ?Nat }; // NEW: Unstake specific entry
         #Delegate: { to: Principal };
         #Undelegate;
     };
@@ -40,6 +90,17 @@ module DAOTypes {
         lockMultiplier: Float; // 1.0 for liquid, up to 4.0 for max lock
         delegatedFrom: Nat;
         totalVotingPower: Nat;
+    };
+    
+    // Enhanced stake summary for UI
+    public type StakingSummary = {
+        totalStaked: Nat;
+        totalVotingPower: Nat;
+        activeEntries: Nat;
+        tierBreakdown: [(Text, Nat, Nat)]; // (tier name, staked amount, voting power)
+        nextUnlock: ?{time: Time.Time; amount: Nat; entryId: Nat};
+        availableToUnstake: Nat;
+        legacyStakeExists: Bool;   // For migration UI
     };
     
     // ================ ENHANCED PROPOSAL TYPES ================
@@ -224,6 +285,7 @@ module DAOTypes {
         lastSecurityCheck: Time.Time; // Last time security validation was performed
         customSecurity: ?CustomSecurityParams; // Optional custom security parameters from DAO creator
         governanceLevel: GovernanceLevel; // Governance control level
+        customMultiplierTiers: ?[MultiplierTier]; // Custom multiplier tiers from DAO config
     };
     
     public type EmergencyState = {
@@ -426,8 +488,9 @@ module DAOTypes {
         maxVotingPeriod: Nat; // Maximum voting period in seconds
         minVotingPeriod: Nat; // Minimum voting period in seconds
         
-        // Staking lock periods (in seconds)
-        stakeLockPeriods: [Nat]; // Available lock periods for enhanced voting power
+        // Staking configuration
+        stakeLockPeriods: [Nat]; // Available lock periods for enhanced voting power (legacy)
+        customMultiplierTiers: ?[MultiplierTier]; // Custom multiplier tier configuration
         
         // Security settings
         emergencyContacts: [Principal]; // Addresses that can pause DAO
@@ -605,6 +668,7 @@ module DAOTypes {
             rateLimits = [];
             customSecurity = customSecurity;
             governanceLevel = config.governanceLevel;
+            customMultiplierTiers = config.customMultiplierTiers;
         }
     };
     
@@ -627,5 +691,6 @@ module DAOTypes {
     public let DEFAULT_MIN_VOTING_PERIOD : Nat = 86400; // 1 day
     
     // Basis points for percentage calculations
-    public let BASIS_POINTS : Nat = 10000; // 100% = 10000 basis points  
+    public let BASIS_POINTS : Nat = 10000; // 100% = 10000 basis points
+
 }

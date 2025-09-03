@@ -22,7 +22,7 @@ import { computed } from 'vue'
 
 interface Props {
   title: string
-  value: string | number
+  value: string | number | bigint
   icon: any
   color: 'blue' | 'green' | 'purple' | 'orange' | 'yellow' | 'red'
 }
@@ -41,12 +41,12 @@ const colorClasses = computed(() => {
   return colors[props.color] || colors.blue
 })
 
-const formatNumber = (num: number): string => {
-  if (num >= 1000000) {
-    return (num / 1000000).toFixed(1) + 'M'
-  } else if (num >= 1000) {
-    return (num / 1000).toFixed(1) + 'K'
+const formatNumber = (num: number | bigint): string => {
+  if (Number(num) >= 1000000) {
+    return (Number(num) / 1000000).toFixed(1) + 'M'
+  } else if (Number(num) >= 1000) {
+    return (Number(num) / 1000).toFixed(1) + 'K'
   }
-  return num.toString()
+  return num.toString() as string
 }
 </script>

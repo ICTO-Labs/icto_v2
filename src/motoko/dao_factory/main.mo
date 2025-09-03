@@ -19,6 +19,7 @@ import ICManagement "../shared/utils/IC";
 // Import the DAO Contract class
 import DAOContractClass "DAOContract";
 import Types "Types";
+import DAOTypes "../shared/types/DAOTypes";
 
 persistent actor DAOFactory {
     
@@ -64,6 +65,7 @@ persistent actor DAOFactory {
         emergencyContacts: [Principal];
         customSecurity: ?Types.CustomSecurityParams; // Optional custom security parameters
         governanceLevel: Types.GovernanceLevel; // Governance control level
+        customMultiplierTiers: ?[DAOTypes.MultiplierTier]; // Custom multiplier tiers
     };
     
     public type CreateDAOResult = {
@@ -166,6 +168,7 @@ persistent actor DAOFactory {
                 proposalTimers = []; // Empty proposal timers
                 delegationTimers = []; // Empty delegation timers
                 comments = []; // Empty comments
+                customMultiplierTiers = args.customMultiplierTiers; // Custom multiplier tiers from config
             };
             
             // Add cycles for the new canister

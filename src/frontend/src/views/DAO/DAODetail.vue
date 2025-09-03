@@ -455,183 +455,27 @@
           </div>
         </div>
 
-        <!-- Member Info Tab -->
-        <div v-else-if="activeTab === 'member'" class="space-y-6">
-          <div v-if="memberInfo" class="space-y-6">
-            <!-- Two Column Layout -->
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <!-- Left Column - Membership Info -->
-              <div class="space-y-4">
-                <div class="bg-white dark:bg-gray-800 rounded-lg px-6 py-4 border border-gray-200 dark:border-gray-700">
-                  <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Membership Information</h3>
-                  <div class="space-y-4">
-                    <!-- Staked Amount -->
-                    <div class="flex items-center justify-between p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-lg">
-                          <CoinsIcon class="h-5 w-5 text-purple-600" />
-                        </div>
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Staked Amount</span>
-                      </div>
-                      <span class="text-lg font-bold text-purple-600 dark:text-purple-400">
-                        {{ formatTokenAmountLabel(parseTokenAmount(Number(memberInfo.stakedAmount), dao?.tokenConfig.decimals).toNumber(), dao?.tokenConfig.symbol) }}
-                      </span>
-                    </div>
+        <!-- Enhanced Staking Tab -->
+        <div v-else-if="activeTab === 'member'" class="mt-6 space-y-6">
+          <!-- Use the improved StakingDashboard component -->
+          <StakingDashboard
+            v-if="dao"
+            :dao-id="dao.id"
+            :token-symbol="dao.tokenConfig.symbol"
+            :user-balance="memberInfo?.stakedAmount || BigInt(0)"
+            @stake-success="handleStakeSuccess"
+            @unstake-success="handleUnstakeSuccess"
+          />
 
-                    <!-- Voting Power -->
-                    <div class="flex items-center justify-between p-2 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-orange-100 dark:bg-orange-900/40 rounded-lg">
-                          <ZapIcon class="h-5 w-5 text-orange-600" />
-                        </div>
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Voting Power</span>
-                      </div>
-                      <span class="text-lg font-bold text-orange-600 dark:text-orange-400">
-                        {{ formatTokenAmountLabel(parseTokenAmount(Number(memberInfo.votingPower), dao?.tokenConfig.decimals).toNumber(), 'VP') }}
-                      </span>
-                    </div>
 
-                    <!-- Proposals Created -->
-                    <div class="flex items-center justify-between p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-green-100 dark:bg-green-900/40 rounded-lg">
-                          <FileTextIcon class="h-5 w-5 text-green-600" />
-                        </div>
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Proposals Created</span>
-                      </div>
-                      <span class="text-lg font-bold text-green-600 dark:text-green-400">
-                        {{ Number(memberInfo.proposalsCreated) }}
-                      </span>
-                    </div>
-
-                    <!-- Votes Cast -->
-                    <div class="flex items-center justify-between p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg">
-                          <VoteIcon class="h-5 w-5 text-blue-600" />
-                        </div>
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Votes Cast</span>
-                      </div>
-                      <span class="text-lg font-bold text-blue-600 dark:text-blue-400">
-                        {{ Number(memberInfo.votesCast || 0) }}
-                      </span>
-                    </div>
-
-                    <!-- Member Status -->
-                    <div class="flex items-center justify-between p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-green-100 dark:bg-green-900/40 rounded-lg">
-                          <CheckCircleIcon class="h-5 w-5 text-green-600" />
-                        </div>
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Member Status</span>
-                      </div>
-                      <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300">
-                        Active
-                      </span>
-                    </div>
-
-                    <!-- Joined Date -->
-                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-gray-100 dark:bg-gray-600 rounded-lg">
-                          <CalendarIcon class="h-5 w-5 text-gray-600 dark:text-gray-400" />
-                        </div>
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Joined</span>
-                      </div>
-                      <span class="text-sm font-medium text-gray-900 dark:text-white">
-                        {{ formatDate(memberInfo.joinedAt) }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Right Column - Action Buttons -->
-              <div class="space-y-4">
-                <div class="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-                  <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
-                  <div class="space-y-3">
-                    <!-- Stake -->
-                    <button
-                      @click="showStakeModal = true"
-                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
-                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-green-100 dark:bg-green-900/40 rounded-lg">
-                          <PlusIcon class="h-5 w-5 text-green-600" />
-                        </div>
-                        <div class="text-left">
-                          <span class="font-medium text-gray-900 dark:text-white">Stake {{ dao?.tokenConfig.symbol }}</span>
-                          <p class="text-sm text-gray-500 dark:text-gray-400">Add more tokens to your stake</p>
-                        </div>
-                      </div>
-                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
-                    </button>
-
-                    <!-- Unstake -->
-                    <button
-                      @click="showUnstakeModal = true"
-                      :disabled="Number(memberInfo.stakedAmount) === 0"
-                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
-                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-lg">
-                          <MinusIcon class="h-5 w-5 text-purple-600" />
-                        </div>
-                        <div class="text-left">
-                          <span class="font-medium text-gray-900 dark:text-white">Unstake Tokens</span>
-                          <p class="text-sm text-gray-500 dark:text-gray-400">Withdraw your staked tokens</p>
-                        </div>
-                      </div>
-                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
-                    </button>
-
-                    <!-- Delegate -->
-                    <button
-                      @click="showDelegationModal = true"
-                      :disabled="Number(memberInfo.stakedAmount) === 0"
-                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
-                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-lg">
-                          <UsersIcon class="h-5 w-5 text-blue-600" />
-                        </div>
-                        <div class="text-left">
-                          <span class="font-medium text-gray-900 dark:text-white">Delegate Voting Power</span>
-                          <p class="text-sm text-gray-500 dark:text-gray-400">Delegate to another member</p>
-                        </div>
-                      </div>
-                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
-                    </button>
-
-                    <!-- Create Proposal -->
-                    <button
-                      @click="showCreateProposalModal = true"
-                      v-auth-required="{ message: 'Please connect your wallet to continue' }"
-                      class="w-full flex items-center justify-between p-4 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <div class="flex items-center space-x-3">
-                        <div class="p-2 bg-yellow-100 dark:bg-yellow-900/40 rounded-lg">
-                          <PlusIcon class="h-5 w-5 text-yellow-600" />
-                        </div>
-                        <div class="text-left">
-                          <span class="font-medium text-gray-900 dark:text-white">Create Proposal</span>
-                          <p class="text-sm text-gray-500 dark:text-gray-400">Create a new proposal</p>
-                        </div>
-                      </div>
-                      <ChevronRightIcon class="h-5 w-5 text-gray-400" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <!-- User Activity Timeline Integration -->
+          <UserActivityTimeline 
+            v-if="dao"
+            :dao="dao"
+          />
 
           <!-- Not a Member State -->
-          <div v-else class="text-center py-8">
+          <div v-if="!memberInfo || Number(memberInfo.stakedAmount) === 0" class="text-center py-8">
             <UsersIcon class="h-16 w-16 mx-auto text-gray-400 mb-4" />
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">Not a Member</h3>
             <p class="text-gray-500 dark:text-gray-400 mb-6">
@@ -650,7 +494,30 @@
         </div>
       </div>
     </div>
+    </div>
 
+  <!-- Loading State -->
+  <div v-else-if="isLoading" class="text-center py-12">
+    <div class="inline-flex items-center px-6 py-3 border border-transparent rounded-full shadow-sm text-sm font-medium text-white bg-gradient-to-r from-yellow-600 to-amber-600">
+      <div class="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-3"></div>
+      Loading DAO...
+    </div>
+  </div>
+
+  <!-- Error State -->
+  <div v-else class="text-center py-12">
+    <div class="text-red-500 mb-4">
+      <AlertCircleIcon class="h-12 w-12 mx-auto" />
+    </div>
+    <p class="text-red-600 dark:text-red-400 text-lg font-medium mb-4">{{ error }}</p>
+    <button 
+      @click="fetchData"
+      class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+    >
+      <RefreshCcwIcon class="h-4 w-4 mr-2" />
+      Try Again
+    </button>
+  </div>
     <!-- Modals -->
     <StakeModal 
       v-if="showStakeModal"
@@ -681,30 +548,20 @@
       @close="showCreateProposalModal = false"
       @success="handleProposalSuccess"
     />
-  </div>
 
-  <!-- Loading State -->
-  <div v-else-if="isLoading" class="text-center py-12">
-    <div class="inline-flex items-center px-6 py-3 border border-transparent rounded-full shadow-sm text-sm font-medium text-white bg-gradient-to-r from-yellow-600 to-amber-600">
-      <div class="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-white mr-3"></div>
-      Loading DAO...
-    </div>
-  </div>
+    <!-- Enhanced Staking Modals -->
+    <StakeModal
+      v-if="showStakeModal && dao"
+      :dao="dao"
+      @close="showStakeModal = false"
+      @success="handleStakeSuccess"
+      @confirm="handleStakeConfirm"
+      :token-symbol="dao?.tokenConfig.symbol"
+      :user-balance="memberInfo?.stakedAmount"
+      :loading="false"
+    />
+  
 
-  <!-- Error State -->
-  <div v-else class="text-center py-12">
-    <div class="text-red-500 mb-4">
-      <AlertCircleIcon class="h-12 w-12 mx-auto" />
-    </div>
-    <p class="text-red-600 dark:text-red-400 text-lg font-medium mb-4">{{ error }}</p>
-    <button 
-      @click="fetchData"
-      class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-    >
-      <RefreshCcwIcon class="h-4 w-4 mr-2" />
-      Try Again
-    </button>
-  </div>
   </AdminLayout>
 </template>
 
@@ -719,7 +576,6 @@ import {
   VoteIcon,
   FileTextIcon,
   PlusIcon,
-  MinusIcon,
   SettingsIcon,
   ActivityIcon,
   GlobeIcon,
@@ -727,34 +583,26 @@ import {
   AlertTriangleIcon,
   AlertCircleIcon,
   RefreshCcwIcon,
-  ZapIcon,
   InfoIcon,
-  BarChartIcon,
-  EyeIcon,
-  CheckCircleIcon,
-  CalendarIcon,
-  UserIcon
+  BarChartIcon
 } from 'lucide-vue-next'
 import GovernanceTypeBadge from '@/components/dao/GovernanceTypeBadge.vue'
 import StatCard from '@/components/dao/StatCard.vue'
-import ProposalStatusBadge from '@/components/dao/ProposalStatusBadge.vue'
 import ProposalCard from '@/components/dao/ProposalCard.vue'
 import StakeModal from '@/components/dao/StakeModal.vue'
 import UnstakeModal from '@/components/dao/UnstakeModal.vue'
 import DelegationModal from '@/components/dao/DelegationModal.vue'
 import CreateProposalModal from '@/components/dao/CreateProposalModal.vue'
+import StakingDashboard from '@/components/dao/StakingDashboard.vue'
+import UserActivityTimeline from '@/components/dao/UserActivityTimeline.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
-import CopyIcon from '@/icons/CopyIcon.vue'
-import type { DAO } from '@/types/dao'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
-import { formatTokenAmountLabel, formatTokenAmount, parseTokenAmount } from '@/utils/token'
-import { shortPrincipal } from '@/utils/common'
+import { formatTokenAmountLabel, parseTokenAmount } from '@/utils/token'
 const route = useRoute()
-const router = useRouter()
 const daoService = DAOService.getInstance()
 
 // State
-const dao = ref<DAO | null>(null)
+const dao = ref<any>(null)
 const memberInfo = ref<any | null>(null)
 const recentProposals = ref<any[]>([])
 const isLoading = ref(true)
@@ -765,8 +613,19 @@ const showStakeModal = ref(false)
 const showUnstakeModal = ref(false)
 const showDelegationModal = ref(false)
 const showCreateProposalModal = ref(false)
-const showViewProposalsModal = ref(false)
-const showMemberInfoModal = ref(false)
+
+// Enhanced Staking State - add missing variables
+const stakingSummary = ref(null)
+const stakeEntries = ref([])
+const isLoadingStaking = ref(false)
+const entriesFilter = ref('all')
+
+// Activity tracking
+const userActivities = ref([])
+const isLoadingActivity = ref(false)
+const hasMoreActivities = ref(false)
+const currentActivityOffset = ref(0)
+const selectedActivityFilter = ref('all')
 
 // Tabs configuration
 const tabs = [
@@ -892,7 +751,362 @@ const handleProposalSuccess = () => {
   fetchData()
 }
 
+// Enhanced Staking Methods
+const refreshStakingData = async () => {
+  if (!dao.value) return
+  
+  isLoadingStaking.value = true
+  try {
+    // Mock data for now - replace with actual API calls
+    const mockSummary = {
+      totalStaked: BigInt(1000 * 100_000_000),
+      totalVotingPower: BigInt(2000 * 100_000_000),
+      activeEntries: 2,
+      tierBreakdown: [
+        ['Medium Term', BigInt(1000 * 100_000_000), BigInt(2000 * 100_000_000)],
+        ['Liquid Staking', BigInt(500 * 100_000_000), BigInt(500 * 100_000_000)]
+      ],
+      nextUnlock: {
+        time: BigInt(Date.now() + 86400000 * 30) * BigInt(1_000_000),
+        amount: BigInt(1000 * 100_000_000),
+        entryId: 1
+      },
+      availableToUnstake: BigInt(500 * 100_000_000),
+      legacyStakeExists: false
+    }
+    
+    const mockEntries = [
+      {
+        id: 1,
+        staker: 'user-principal',
+        amount: BigInt(1000 * 100_000_000),
+        stakedAt: BigInt(Date.now() - 86400000) * BigInt(1_000_000),
+        lockPeriod: 90 * 86400,
+        unlockTime: BigInt(Date.now() + 86400000 * 89) * BigInt(1_000_000),
+        multiplier: 2.0,
+        votingPower: BigInt(2000 * 100_000_000),
+        tier: {
+          id: 2,
+          name: 'Medium Term',
+          minStake: BigInt(5000 * 100_000_000),
+          lockPeriod: 90 * 86400,
+          multiplier: 2.0,
+          maxCapPerEntry: null,
+          globalCap: null,
+          description: '90-day lock, 2x multiplier'
+        },
+        isActive: true,
+        blockIndex: 12345
+      },
+      {
+        id: 2,
+        staker: 'user-principal',
+        amount: BigInt(500 * 100_000_000),
+        stakedAt: BigInt(Date.now() - 86400000 * 7) * BigInt(1_000_000),
+        lockPeriod: 0,
+        unlockTime: BigInt(Date.now() - 86400000 * 7) * BigInt(1_000_000),
+        multiplier: 1.0,
+        votingPower: BigInt(500 * 100_000_000),
+        tier: {
+          id: 0,
+          name: 'Liquid Staking',
+          minStake: BigInt(100 * 100_000_000),
+          lockPeriod: 0,
+          multiplier: 1.0,
+          maxCapPerEntry: null,
+          globalCap: null,
+          description: 'Instant liquidity, base voting power'
+        },
+        isActive: true,
+        blockIndex: 12340
+      }
+    ]
+    
+    stakingSummary.value = mockSummary
+    stakeEntries.value = mockEntries
+  } catch (err) {
+    console.error('Error fetching staking data:', err)
+  } finally {
+    isLoadingStaking.value = false
+  }
+}
+
+// Computed properties for enhanced staking
+const tierBreakdown = computed(() => {
+  if (!stakingSummary.value?.tierBreakdown) return []
+  
+  return stakingSummary.value.tierBreakdown.map(([name, stakedAmount, votingPower]: [string, bigint, bigint]) => {
+    const percentage = stakingSummary.value.totalStaked > 0 
+      ? (Number(stakedAmount) / Number(stakingSummary.value.totalStaked)) * 100 
+      : 0
+    
+    return {
+      name,
+      stakedAmount,
+      votingPower,
+      percentage
+    }
+  }).sort((a: any, b: any) => b.percentage - a.percentage)
+})
+
+const upcomingUnlocks = computed(() => {
+  if (!stakingSummary.value?.nextUnlock) return []
+  return stakingSummary.value.nextUnlock ? [stakingSummary.value.nextUnlock] : []
+})
+
+const filteredStakeEntries = computed(() => {
+  switch (entriesFilter.value) {
+    case 'active':
+      return stakeEntries.value.filter(entry => entry.isActive)
+    case 'unlocked':
+      const now = BigInt(Date.now() * 1_000_000)
+      return stakeEntries.value.filter(entry => 
+        entry.isActive && entry.unlockTime <= now
+      )
+    default:
+      return stakeEntries.value
+  }
+})
+
+// Utility functions for enhanced staking
+const getTierColor = (tierName: string): string => {
+  const colors: Record<string, string> = {
+    'Liquid Staking': 'bg-gray-500',
+    'Short Term': 'bg-blue-500',
+    'Medium Term': 'bg-green-500',
+    'Long Term': 'bg-orange-500',
+    'Diamond Hands': 'bg-purple-500'
+  }
+  return colors[tierName] || 'bg-gray-400'
+}
+
+const formatLockPeriod = (seconds: number): string => {
+  if (seconds === 0) return 'Instant (No lock)'
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  
+  if (days > 0) {
+    return `${days} day${days > 1 ? 's' : ''}`
+  } else if (hours > 0) {
+    return `${hours} hour${hours > 1 ? 's' : ''}`
+  } else {
+    return `${Math.floor(seconds / 60)} minute${Math.floor(seconds / 60) > 1 ? 's' : ''}`
+  }
+}
+
+const getUnlockProgress = (entry: any): number => {
+  if (entry.lockPeriod === 0) return 100
+  
+  const now = BigInt(Date.now() * 1_000_000)
+  const stakedAt = entry.stakedAt
+  const unlockTime = entry.unlockTime
+  
+  const totalDuration = unlockTime - stakedAt
+  const elapsed = now - stakedAt
+  
+  if (elapsed >= totalDuration) return 100
+  if (elapsed <= 0) return 0
+  
+  return Math.min(100, Math.floor(Number(elapsed) / Number(totalDuration) * 100))
+}
+
+const canUnstakeEntry = (entry: any): boolean => {
+  if (!entry.isActive) return false
+  if (entry.lockPeriod === 0) return true // Liquid staking
+  
+  const now = BigInt(Date.now() * 1_000_000)
+  return entry.unlockTime <= now
+}
+
+const handleUnstakeEntry = (entry: any) => {
+  // TODO: Implement unstaking logic
+  console.log('Unstaking entry:', entry)
+}
+
+const viewEntryDetails = (entry: any) => {
+  // TODO: Implement entry details view
+  console.log('Viewing entry details:', entry)
+}
+
+const migrateLegacyStakes = () => {
+  // TODO: Implement legacy stake migration
+  console.log('Migrating legacy stakes')
+}
+
+const handleStakeConfirm = (stakeData: any) => {
+  // TODO: Implement staking logic
+  console.log('Staking confirmed:', stakeData)
+  showStakeModal.value = false
+  refreshStakingData()
+}
+
+const formatTimeRemaining = (unlockTime: bigint): string => {
+  const now = BigInt(Date.now() * 1_000_000)
+  const remaining = Number(unlockTime - now) / 1_000_000_000
+  
+  if (remaining <= 0) return 'Available now'
+  
+  const days = Math.floor(remaining / 86400)
+  const hours = Math.floor((remaining % 86400) / 3600)
+  const minutes = Math.floor((remaining % 3600) / 60)
+  
+  if (days > 0) {
+    return `${days}d ${hours}h`
+  } else if (hours > 0) {
+    return `${hours}h ${minutes}m`
+  } else if (minutes > 0) {
+    return `${minutes}m`
+  } else {
+    return 'Less than 1m'
+  }
+}
+
+// User Activity Timeline Methods
+const fetchUserActivity = async () => {
+  if (!dao.value) return
+  
+  isLoadingActivity.value = true
+  currentActivityOffset.value = 0
+  
+  try {
+    // Mock data for now - replace with actual API calls
+    const mockActivities = [
+      {
+        id: '1',
+        type: 'stake',
+        amount: BigInt(1000 * 100_000_000),
+        timestamp: BigInt(Date.now() - 86400000) * BigInt(1_000_000),
+        blockIndex: 12345,
+        description: 'Staked tokens with 90-day lock period',
+        metadata: {
+          lockDuration: 90 * 24 * 60 * 60
+        }
+      },
+      {
+        id: '2',
+        type: 'vote',
+        timestamp: BigInt(Date.now() - 172800000) * BigInt(1_000_000),
+        blockIndex: 12340,
+        description: 'Voted on community proposal',
+        metadata: {
+          proposalId: 5,
+          voteChoice: 'yes'
+        }
+      },
+      {
+        id: '3',
+        type: 'proposal_created',
+        timestamp: BigInt(Date.now() - 259200000) * BigInt(1_000_000),
+        blockIndex: 12335,
+        description: 'Created motion proposal for treasury allocation',
+        metadata: {
+          proposalId: 5
+        }
+      },
+      {
+        id: '4',
+        type: 'delegation',
+        timestamp: BigInt(Date.now() - 345600000) * BigInt(1_000_000),
+        blockIndex: 12330,
+        description: 'Delegated voting power to trusted member',
+        metadata: {
+          delegateTo: 'rdmx6-jaaaa-aaaah-qcaiq-cai'
+        }
+      },
+      {
+        id: '5',
+        type: 'unstake',
+        amount: BigInt(500 * 100_000_000),
+        timestamp: BigInt(Date.now() - 432000000) * BigInt(1_000_000),
+        blockIndex: 12325,
+        description: 'Unstaked tokens after lock period expired'
+      }
+    ]
+    
+    userActivities.value = mockActivities
+    hasMoreActivities.value = false
+  } catch (error) {
+    console.error('Error fetching user activity:', error)
+  } finally {
+    isLoadingActivity.value = false
+  }
+}
+
+const loadMoreActivities = async () => {
+  // Implementation for loading more activities
+  hasMoreActivities.value = false
+}
+
+const filteredUserActivities = computed(() => {
+  if (selectedActivityFilter.value === 'all') {
+    return userActivities.value
+  }
+  return userActivities.value.filter(activity => activity.type === selectedActivityFilter.value)
+})
+
+const getActivityIcon = (type: string) => {
+  switch (type) {
+    case 'stake': return CoinsIcon
+    case 'unstake': return ArrowRightLeftIcon
+    case 'vote': return VoteIcon
+    case 'proposal_created': return PlusIcon
+    case 'delegation': return UsersIcon
+    default: return ActivityIcon
+  }
+}
+
+const getActivityColor = (type: string) => {
+  switch (type) {
+    case 'stake': return 'bg-green-500 text-white'
+    case 'unstake': return 'bg-red-500 text-white'
+    case 'vote': return 'bg-blue-500 text-white'
+    case 'proposal_created': return 'bg-purple-500 text-white'
+    case 'delegation': return 'bg-orange-500 text-white'
+    default: return 'bg-gray-500 text-white'
+  }
+}
+
+const getActivityTitle = (activity: any): string => {
+  switch (activity.type) {
+    case 'stake': return 'Staked Tokens'
+    case 'unstake': return 'Unstaked Tokens'
+    case 'vote': return 'Cast Vote'
+    case 'proposal_created': return 'Created Proposal'
+    case 'delegation': return 'Delegated Voting Power'
+    default: return 'Activity'
+  }
+}
+
+const hasActivityDetails = (activity: any): boolean => {
+  return !!(
+    activity.amount || 
+    activity.metadata?.lockDuration || 
+    activity.metadata?.voteChoice || 
+    activity.metadata?.proposalId ||
+    activity.metadata?.delegateTo
+  )
+}
+
+const getExplorerUrl = (blockIndex: number): string => {
+  // Return IC block explorer URL
+  return `https://dashboard.internetcomputer.org/bitcoin/transaction/${blockIndex}`
+}
+
+const findTierById = (tierId: number) => {
+  // Mock implementation - replace with actual tier lookup
+  const tiers = [
+    { id: 0, name: 'Liquid Staking' },
+    { id: 1, name: 'Short Term' },
+    { id: 2, name: 'Medium Term' },
+    { id: 3, name: 'Long Term' },
+    { id: 4, name: 'Diamond Hands' }
+  ]
+  return tiers.find(tier => tier.id === tierId)
+}
+
 onMounted(() => {
   fetchData()
+  refreshStakingData()
+  fetchUserActivity()
 })
 </script>
