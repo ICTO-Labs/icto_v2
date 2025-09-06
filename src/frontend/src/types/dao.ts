@@ -72,6 +72,20 @@ export interface CustomSecurityParams {
 // DAO Governance Level Types
 export type GovernanceLevel = 'motion-only' | 'semi-managed' | 'fully-managed'
 
+// Distribution Contract Types for Voting Power Integration
+export interface DistributionContractInfo {
+  canisterId: string
+  name: string
+  status: 'empty' | 'loading' | 'loaded' | 'error'
+  errorMessage?: string
+}
+
+export interface DistributionContractConfig {
+  canisterId: string
+  projectName: string
+  isActive: boolean
+}
+
 // Frontend adaptation of BackendDAOConfig for form handling
 export interface DAOConfig {
   name: string
@@ -90,6 +104,7 @@ export interface DAOConfig {
   minVotingPeriod: number
   stakeLockPeriods: number[] // Legacy - for backward compatibility
   customMultiplierTiers?: any[] // Custom tier configuration from CustomTierManager
+  distributionContracts?: DistributionContractConfig[] // Distribution contracts for voting power
   emergencyContacts: string[]
   emergencyPauseEnabled: boolean
   managedByDAO: boolean // This now depends on governanceLevel

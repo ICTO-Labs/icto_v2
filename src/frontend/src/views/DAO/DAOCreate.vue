@@ -93,10 +93,10 @@
             ></textarea>
           </div>
 
-          <div>
+          <div class="md:col-span-2">
             <TokenSelector
               v-model="formData.tokenCanisterId"
-              label="Token Canister ID"
+              label="Token Canister ID*"
               placeholder="rdmx6-jaaaa-aaaaa-aaadq-cai"
               help-text="The ICRC token you want to use for this DAO"
               required
@@ -319,6 +319,19 @@
             />
           </div>
 
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Transfer Fee (tokens)*</label>
+            <input
+              v-model="formData.transferFee"
+              type="number"
+              placeholder="0.0001"
+              step="0.0001"
+              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
+              required
+            />
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Fee for internal token transfers</p>
+          </div>
+
           <div class="md:col-span-2">
             <div class="flex items-center space-x-3">
               <input
@@ -373,38 +386,24 @@
               @validation-changed="onTierValidationChanged"
             />
           </div>
-          
-          <!-- DAO Treasury Governance Notice -->
-          <div class="md:col-span-2 mt-6">
-            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <h4 class="font-medium text-blue-800 dark:text-blue-200 mb-2">🏛️ Community Treasury Governance</h4>
-              <p class="text-sm text-blue-700 dark:text-blue-300">
-                Treasury funds are controlled exclusively by DAO community through governance proposals. Higher approval thresholds (75%) and quorum requirements (40%) automatically apply to treasury operations for community protection.
-              </p>
-            </div>
-          </div>
 
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Transfer Fee (tokens)*</label>
-            <input
-              v-model="formData.transferFee"
-              type="number"
-              placeholder="0.0001"
-              step="0.0001"
-              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-              required
+          <!-- Distribution Contract Manager Integration -->
+          <div class="md:col-span-2 mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
+            <DistributionContractManager 
+              v-model="formData.distributionContracts"
+              @validation-changed="onDistributionValidationChanged"
             />
-            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Fee for internal token transfers</p>
           </div>
 
           <div class="md:col-span-2">
             <div class="flex items-center space-x-3 mb-4">
               <input
+                id="emergencyPauseEnabled"
                 v-model="formData.emergencyPauseEnabled"
                 type="checkbox"
                 class="w-4 h-4 text-yellow-600 bg-white border-gray-300 rounded focus:ring-yellow-500 dark:focus:ring-yellow-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
               />
-              <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Enable Emergency Pause</label>
+              <label class="text-sm font-medium text-gray-700 dark:text-gray-300" for="emergencyPauseEnabled" >Enable Emergency Pause</label>
             </div>
             <p class="text-xs text-gray-500 dark:text-gray-400">Allow designated contacts to pause DAO operations in emergencies</p>
           </div>
@@ -412,14 +411,23 @@
           <div v-if="formData.emergencyPauseEnabled" class="md:col-span-2">
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Emergency Contacts</label>
             <div class="space-y-2">
-              <input
-                v-for="(contact, index) in formData.emergencyContacts"
-                :key="index"
+              <div v-for="(contact, index) in formData.emergencyContacts" :key="index" class="flex items-center justify-between">
+                <input
                 v-model="formData.emergencyContacts[index]"
                 type="text"
                 placeholder="Principal ID"
-                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
+                class="w-full text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
               />
+              <button
+                @click="formData.emergencyContacts.splice(index, 1)"
+                type="button"
+                class="p-2 ml-2 text-red-600 px-3 py-3 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                title="Remove contact"
+              >
+                <XIcon class="h-4 w-4" />
+              </button>
+              </div>
+              
               <button 
                 @click="addEmergencyContact"
                 class="text-sm text-yellow-600 hover:text-yellow-700 dark:text-yellow-400 dark:hover:text-yellow-300"
@@ -430,7 +438,7 @@
           </div>
 
           <!-- DAO Token Management - Now derived from Governance Level -->
-          <div class="md:col-span-2">
+          <!-- <div class="md:col-span-2">
             <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
               <div class="flex items-center justify-between mb-2">
                 <h4 class="text-sm font-medium text-gray-900 dark:text-white">Token Management Rights</h4>
@@ -446,7 +454,6 @@
                 Based on your Governance Level selection. Can be upgraded later through proposals.
               </p>
               
-              <!-- SNS Architecture Note -->
               <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
                 <p class="text-xs text-blue-600 dark:text-blue-400">
                   <strong>Future SNS Integration:</strong> When ICTO joins SNS, the hierarchy will be: 
@@ -454,7 +461,7 @@
                 </p>
               </div>
             </div>
-          </div>
+          </div> -->
 
           <!-- Custom Security Settings -->
           <div class="md:col-span-2 mt-8 border-t border-gray-200 dark:border-gray-700 pt-6">
@@ -573,7 +580,7 @@
               <div class="text-sm space-y-1">
                 <p><span class="text-gray-500">Name:</span> {{ formData.name }}</p>
                 <p><span class="text-gray-500">Voting Model:</span> {{ formData.votingPowerModel }}</p>
-                <p><span class="text-gray-500">Governance Level:</span> 
+                <p><span class="text-gray-500 mr-2">Governance Level:</span> 
                   <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium"
                         :class="formData.governanceLevel === 'motion-only' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
                                formData.governanceLevel === 'semi-managed' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
@@ -581,18 +588,24 @@
                     {{ getGovernanceLevelOptions().find(o => o.value === formData.governanceLevel)?.label }}
                   </span>
                 </p>
-                <p><span class="text-gray-500">Public:</span> {{ formData.isPublic ? 'Yes' : 'No' }}</p>
-                <p><span class="text-gray-500">Staking System:</span> 
-                  <span class="text-green-600">Custom Multiplier Tiers</span>
-                  <span class="text-xs text-gray-400 ml-1">({{ customTiers.length }} tiers configured)</span>
+                <p><span class="text-gray-500 mr-2">Public:</span>{{ formData.isPublic ? 'Yes' : 'No' }}</p>
+                <p><span class="text-gray-500 mr-2">Staking System:</span> 
+                  <span class="text-green-600  mr-2">Custom Multiplier Tiers</span>
+                  <span class="text-xs text-gray-400  mr-2">({{ customTiers.length }} tiers configured)</span>
                 </p>
-                <p><span class="text-gray-500">Security Level:</span> 
+                <p><span class="text-gray-500  mr-2">Security Level:</span> 
                   <span :class="{
                     'text-green-600': tierSecurityScore >= 80,
                     'text-yellow-600': tierSecurityScore >= 60,
                     'text-red-600': tierSecurityScore < 60
                   }">
                     {{ tierSecurityScore }}/100 - {{ getSecurityLevel(tierSecurityScore) }}
+                  </span>
+                </p>
+                <p><span class="text-gray-500  mr-2">Distribution Contracts:</span> 
+                  <span class="text-blue-600  mr-2">{{ formData.distributionContracts?.length || 0 }} configured</span>
+                  <span v-if="formData.distributionContracts && formData.distributionContracts.length > 0" class="text-xs text-gray-400 ml-2">
+                    (provides additional voting power)
                   </span>
                 </p>
               </div>
@@ -731,7 +744,7 @@
             v-if="currentStep > 0"
             @click="previousStep"
             :disabled="isPaying"
-            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 transition-colors disabled:opacity-50"
+            class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500  disabled:opacity-50"
           >
             <ArrowLeftIcon class="h-4 w-4 mr-2" />
             Previous
@@ -743,7 +756,7 @@
               v-if="currentStep < steps.length - 1"
               @click="nextStep"
               :disabled="!canProceed || isPaying"
-              class="inline-flex items-center px-6 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-700 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              class="inline-flex items-center px-6 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-yellow-600 to-amber-600 hover:from-yellow-700 hover:to-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 disabled:opacity-50 disabled:cursor-not-allowed "
             >
               Next Step
               <ArrowRightIcon class="h-4 w-4 ml-2" />
@@ -795,15 +808,10 @@ import TokenSelector from '@/components/common/TokenSelector.vue'
 import Select from '@/components/common/Select.vue'
 import type { DAOConfig, CreateDAOResponse, CustomSecurityParams, GovernanceLevel } from '@/types/dao'
 import { getGovernanceLevelOptions, getGovernanceLevelCapabilities, isTokenOwnershipRequired } from '@/types/dao'
-import {
-  MAX_LOCK_DAYS,
-  SECONDS_PER_DAY,
-  calculateSoftMultiplier,
-  secondsToDays,
-  daysToSeconds
-} from '@/types/staking'
+// Note: Using local daysToSeconds and secondsToDays functions instead of staking imports
 import { useSwal } from '@/composables/useSwal2'
 import CustomTierManager from '@/components/dao/CustomTierManager.vue'
+import DistributionContractManager from '@/components/dao/DistributionContractManager.vue'
 const router = useRouter()
 const authStore = useAuthStore()
 const daoService = DAOService.getInstance()
@@ -827,6 +835,7 @@ const formData = ref<DAOConfig>({
   minVotingPeriod: 86400, // 1 day in seconds
   stakeLockPeriods: [604800, 2592000, 7776000, 15552000, 31536000], // Legacy - 7, 30, 90, 180, 365 days
   customMultiplierTiers: undefined, // Will be set by CustomTierManager
+  distributionContracts: [], // Distribution contracts for voting power
   emergencyContacts: [''],
   emergencyPauseEnabled: false,
   managedByDAO: false, // This will be computed based on governanceLevel
@@ -878,6 +887,9 @@ const timelockDays = ref(2)
 const customTiers = ref<any[]>([])
 const tierSecurityScore = ref(85)
 const tierValidationStatus = ref<{ valid: boolean; errors: string[]; score?: number }>({ valid: true, errors: [] })
+
+// Distribution Contract System Configuration
+const distributionValidationStatus = ref<{ valid: boolean; errors: string[] }>({ valid: true, errors: [] })
 
 // Security is now handled through formData.emergencyPauseEnabled and emergencyContacts
 
@@ -968,6 +980,10 @@ const validateSecuritySettings = (): { valid: boolean; errors: string[] } => {
     }
   }
   
+  // Validate distribution contracts
+  if (!distributionValidationStatus.value.valid) {
+    errors.push(...distributionValidationStatus.value.errors)
+  }
   
   // Validate emergency contacts
   if (formData.value.emergencyPauseEnabled && 
@@ -1048,7 +1064,8 @@ const canProceed = computed(() => {
       const emergencyValid = !formData.value.emergencyPauseEnabled || 
                             formData.value.emergencyContacts.some(contact => contact.trim())
       const securityValid = tierSecurityScore.value >= 60 // Minimum security score
-      return formData.value.transferFee && stakingValid && emergencyValid && securityValid
+      const distributionValid = distributionValidationStatus.value.valid // Distribution contracts must be valid
+      return formData.value.transferFee && stakingValid && emergencyValid && securityValid && distributionValid
     case 3:
       return true
     default:
@@ -1179,6 +1196,10 @@ const onTierConfigChanged = (tiers: any[]) => {
 const onTierValidationChanged = (validation: { valid: boolean; score: number; errors: string[] }) => {
   tierValidationStatus.value = validation
   tierSecurityScore.value = validation.score
+}
+
+const onDistributionValidationChanged = (validation: { valid: boolean; errors: string[] }) => {
+  distributionValidationStatus.value = validation
 }
 
 const getSecurityLevel = (score: number): string => {
