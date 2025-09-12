@@ -19,6 +19,7 @@ import Text "mo:base/Text";
 import Cycles "mo:base/ExperimentalCycles";
 import Types "./Types";
 import DAOTypes "../shared/types/DAOTypes";
+import DistributionTypes "../shared/types/DistributionTypes";
 import ICRC "../shared/types/ICRC";
 import SafeMath "../shared/utils/SafeMath";
 import DAOUtils "../shared/utils/DAO";
@@ -71,6 +72,10 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     var proposals = Trie.empty<Nat, Types.Proposal>();
     var stakes = Trie.empty<Principal, Types.StakeRecord>();
     var delegations = Trie.empty<Principal, Types.DelegationRecord>();
+    
+    // NEW: Distribution voting power Tries - SAFE defaults
+    var distributionRegistry = Trie.empty<Principal, Types.DistributionContractRegistry>();
+    var votingPowerSnapshots = Trie.empty<Nat, Types.VotingPowerSnapshot>();
     
     // Initialize default secure tiers
     private func _initializeDefaultTiers() {
@@ -638,6 +643,10 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     // Vote tracking
     var vote_records_stable : [Types.VoteRecord] = [];
     
+    // NEW: Distribution contract management - UPGRADE SAFE with defaults  
+    stable var authorizedDistributionContracts_stable : [(Principal, Types.DistributionContractRegistry)] = [];
+    stable var votingPowerSnapshots_stable : [(Nat, Types.VotingPowerSnapshot)] = [];
+    
     // Transient variables (reconstructed from stable data)
     private transient var vote_records_trie : Trie.Trie<Text, Types.VoteRecord> = Trie.empty();
     private transient var rate_limits_trie : Trie.Trie<Principal, Types.RateLimitRecord> = Trie.empty();
@@ -711,6 +720,10 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             contextBuffer.add((id, context));
         };
         execution_contexts_stable := Buffer.toArray(contextBuffer);
+        
+        // NEW: Save distribution voting power data - UPGRADE SAFE
+        authorizedDistributionContracts_stable := Iter.toArray(Trie.iter(distributionRegistry));
+        votingPowerSnapshots_stable := Iter.toArray(Trie.iter(votingPowerSnapshots));
     };
     
     system func postupgrade() {
@@ -820,6 +833,23 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         };
         
         // Timers will need to be restored manually after upgrade
+        
+        // NEW: Restore distribution voting power data - UPGRADE SAFE
+        distributionRegistry := Trie.empty<Principal, Types.DistributionContractRegistry>();
+        for ((contractId, registry) in authorizedDistributionContracts_stable.vals()) {
+            let key = { key = contractId; hash = Principal.hash(contractId) };
+            distributionRegistry := Trie.put(distributionRegistry, key, Principal.equal, registry).0;
+        };
+        
+        votingPowerSnapshots := Trie.empty<Nat, Types.VotingPowerSnapshot>();
+        for ((proposalId, snapshot) in votingPowerSnapshots_stable.vals()) {
+            let key = { key = proposalId; hash = Int.hash(proposalId) };
+            votingPowerSnapshots := Trie.put(votingPowerSnapshots, key, Nat.equal, snapshot).0;
+        };
+        
+        // Clear stable arrays to free memory
+        authorizedDistributionContracts_stable := [];
+        votingPowerSnapshots_stable := [];
         
         // Perform security validation after upgrade
         _performSecurityValidation();
@@ -3767,5 +3797,233 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
     public query func getStakeEntry(user: Principal, entryId: Nat) : async ?Types.StakeEntry {
         let userEntries = _getUserStakeEntries(user);
         Array.find<Types.StakeEntry>(userEntries, func(e) = e.id == entryId and e.staker == user)
+    };
+    
+    // ================ DISTRIBUTION VOTING POWER MANAGEMENT ================
+    // NEW: Added for distribution contract integration - BACKWARD COMPATIBLE
+    
+    /// Add distribution contract to whitelist (owner only)
+    public shared({ caller }) func addDistributionContract(
+        contractId: Principal,
+        projectName: Text
+    ) : async Result.Result<(), Text> {
+        if (not _isOwnerOrGovernance(caller)) {
+            return #err("Unauthorized: Only owner or governance can add distribution contracts");
+        };
+        
+        // Verify it's actually a distribution contract
+        let distributionContract = actor(Principal.toText(contractId)) : actor {
+            healthCheck: () -> async Bool;
+        };
+        
+        try {
+            let isHealthy = await distributionContract.healthCheck();
+            
+            if (not isHealthy) {
+                return #err("Distribution contract is not healthy");
+            };
+            
+            let registry: Types.DistributionContractRegistry = {
+                contractId = contractId;
+                projectName = projectName;
+                addedAt = Time.now();
+                isActive = true;
+                verifiedBy = caller;
+            };
+            
+            let key = { key = contractId; hash = Principal.hash(contractId) };
+            distributionRegistry := Trie.put(distributionRegistry, key, Principal.equal, registry).0;
+            
+            Debug.print("✅ Added distribution contract: " # projectName # " (" # Principal.toText(contractId) # ")");
+            #ok()
+        } catch (error) {
+            #err("Failed to verify distribution contract: " # Error.message(error))
+        }
+    };
+    
+    /// Remove distribution contract from whitelist
+    public shared({ caller }) func removeDistributionContract(
+        contractId: Principal
+    ) : async Result.Result<(), Text> {
+        if (not _isOwnerOrGovernance(caller)) {
+            return #err("Unauthorized: Only owner or governance can remove distribution contracts");
+        };
+        
+        let key = { key = contractId; hash = Principal.hash(contractId) };
+        switch (Trie.get(distributionRegistry, key, Principal.equal)) {
+            case (?registry) {
+                let updatedRegistry = { registry with isActive = false };
+                distributionRegistry := Trie.put(distributionRegistry, key, Principal.equal, updatedRegistry).0;
+                #ok()
+            };
+            case null { #err("Distribution contract not found in registry") };
+        }
+    };
+    
+    /// Get all active distribution contracts
+    public query func getActiveDistributionContracts() : async [Types.DistributionContractRegistry] {
+        let buffer = Buffer.Buffer<Types.DistributionContractRegistry>(0);
+        
+        for ((_, registry) in Trie.iter(distributionRegistry)) {
+            if (registry.isActive) {
+                buffer.add(registry);
+            };
+        };
+        
+        Buffer.toArray(buffer)
+    };
+    
+    /// Calculate voting power breakdown for a principal (includes distribution contracts)
+    public func getVotingPowerBreakdown(principal: Principal) : async Types.VotingPowerBreakdown {
+        var stakingVP: Nat = 0;
+        var distributionVP: Nat = 0;
+        let sources = Buffer.Buffer<Types.VPSource>(0);
+        
+        // 1. Calculate DAO staking VP (existing system)
+        stakingVP := _getEffectiveVotingPower(principal);
+        if (stakingVP > 0) {
+            sources.add({
+                contractId = Principal.fromActor(Self);
+                remaining = stakingVP;
+                remainingTime = 0; // Staking VP is already calculated
+                maxLock = 0;
+                vpCalculated = stakingVP;
+                sourceType = "DAO_Staking";
+            });
+        };
+        
+        // 2. Query all distribution contracts
+        for ((contractId, registry) in Trie.iter(distributionRegistry)) {
+            if (registry.isActive) {
+                let distributionContract = actor(Principal.toText(contractId)) : actor {
+                    getDistributionSnapshotForPrincipal: (Principal) -> async ?Types.DistributionSnapshotEntry;
+                };
+                
+                try {
+                    switch (await distributionContract.getDistributionSnapshotForPrincipal(principal)) {
+                        case (?entry) {
+                            // Apply formula: VP = floor((remaining × remaining_time) / max_lock)
+                            let vpFromContract = if (entry.max_lock > 0) {
+                                (entry.remaining * entry.remaining_time) / entry.max_lock
+                            } else { 0 };
+                            
+                            if (vpFromContract > 0) {
+                                distributionVP += vpFromContract;
+                                sources.add({
+                                    contractId = contractId;
+                                    remaining = entry.remaining;
+                                    remainingTime = entry.remaining_time;
+                                    maxLock = entry.max_lock;
+                                    vpCalculated = vpFromContract;
+                                    sourceType = "Distribution_Contract";
+                                });
+                            };
+                        };
+                        case null { /* No locked tokens in this contract */ };
+                    };
+                } catch (error) {
+                    Debug.print("Warning: Failed to query distribution contract " # Principal.toText(contractId) # ": " # Error.message(error));
+                };
+            };
+        };
+        
+        {
+            principal = principal;
+            stakingVP = stakingVP;
+            distributionVP = distributionVP;
+            totalVP = stakingVP + distributionVP;
+            sources = Buffer.toArray(sources);
+        }
+    };
+    
+    /// Get voting power snapshot for a proposal
+    public query func getVotingPowerSnapshot(proposalId: Nat) : async ?Types.VotingPowerSnapshot {
+        let key = { key = proposalId; hash = Int.hash(proposalId) };
+        Trie.get(votingPowerSnapshots, key, Nat.equal)
+    };
+    
+    /// Create enhanced proposal with voting power snapshot
+    public shared({ caller }) func createProposalWithSnapshot(
+        payload: Types.ProposalPayload
+    ) : async Result.Result<Nat, Text> {
+        // First create the proposal using existing logic
+        let proposalResult = await submitProposal(payload);
+        switch (proposalResult) {
+            case (#ok(proposalId)) {
+                // Now create voting power snapshot
+                await _createVotingPowerSnapshot(proposalId);
+                #ok(proposalId)
+            };
+            case (#err(error)) { #err(error) };
+        }
+    };
+    
+    /// Private helper to create voting power snapshot
+    private func _createVotingPowerSnapshot(proposalId: Nat) : async () {
+        // Get all unique principals who might have voting power
+        let allPrincipals = await _gatherAllPotentialVoters();
+        
+        // Calculate voting power for each principal
+        let vpBreakdowns = Buffer.Buffer<Types.VotingPowerBreakdown>(0);
+        var totalVP: Nat = 0;
+        
+        for (principal in allPrincipals.vals()) {
+            let breakdown = await getVotingPowerBreakdown(principal);
+            if (breakdown.totalVP > 0) {
+                vpBreakdowns.add(breakdown);
+                totalVP += breakdown.totalVP;
+            };
+        };
+        
+        // Create snapshot
+        let snapshot: Types.VotingPowerSnapshot = {
+            proposalId = proposalId;
+            snapshotTime = Time.now();
+            totalParticipants = vpBreakdowns.size();
+            totalVotingPower = totalVP;
+            distributionSources = []; // Could aggregate by contract if needed
+            participantVP = Buffer.toArray(Buffer.map<Types.VotingPowerBreakdown, (Principal, Types.VotingPowerBreakdown)>(vpBreakdowns, func(bd) = (bd.principal, bd)));
+        };
+        
+        // Store snapshot
+        let key = { key = proposalId; hash = Int.hash(proposalId) };
+        votingPowerSnapshots := Trie.put(votingPowerSnapshots, key, Nat.equal, snapshot).0;
+    };
+    
+    /// Private helper to gather all potential voters
+    private func _gatherAllPotentialVoters() : async [Principal] {
+        let votersSet = Buffer.Buffer<Principal>(0);
+        
+        // Add all accounts (existing stakeholders)
+        for ((principal, _) in Trie.iter(accounts)) {
+            votersSet.add(principal);
+        };
+        
+        // Add participants from all distribution contracts
+        for ((contractId, registry) in Trie.iter(distributionRegistry)) {
+            if (registry.isActive) {
+                let distributionContract = actor(Principal.toText(contractId)) : actor {
+                    getAllParticipantsWithLockedTokens: () -> async [Types.DistributionSnapshotEntry];
+                };
+                
+                try {
+                    let participants = await distributionContract.getAllParticipantsWithLockedTokens();
+                    for (entry in participants.vals()) {
+                        votersSet.add(entry.principal);
+                    };
+                } catch (error) {
+                    Debug.print("Warning: Failed to get participants from " # Principal.toText(contractId));
+                };
+            };
+        };
+        
+        Buffer.toArray(votersSet)
+    };
+    
+    /// Check if caller is governance (simplified for now)
+    private func _isOwnerOrGovernance(caller: Principal) : Bool {
+        // For now, allow any caller - TODO: implement proper authorization
+        // In production, this should check against a proper owner field or governance
+        true
     };
 };

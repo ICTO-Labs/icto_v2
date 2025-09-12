@@ -367,11 +367,26 @@ const router = createRouter({
       path: '/launchpad',
       name: 'LaunchpadIndex',
       component: () => import('@/views/Launchpad/LaunchpadIndex.vue'),
+      meta: {
+        title: 'Token Launchpad',
+      },
+    },
+    {
+      path: '/launchpad/create',
+      name: 'LaunchpadCreate',
+      component: () => import('@/views/Launchpad/LaunchpadCreate.vue'),
+      meta: {
+        title: 'Launch New Project',
+        requiresAuth: true,
+      },
     },
     {
       path: '/launchpad/:id',
       name: 'LaunchpadDetail',
       component: () => import('@/views/Launchpad/LaunchpadDetail.vue'),
+      meta: {
+        title: 'Launchpad Detail',
+      },
     },
   ],
 })

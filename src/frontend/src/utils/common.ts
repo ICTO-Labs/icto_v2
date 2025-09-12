@@ -58,3 +58,17 @@ export const keyToText = (obj: Record<string, any>): string => {
 export const cyclesToT = (cycles: number | bigint) => {
     return (Number(cycles) / 1_000_000_000_000).toFixed(2) + ' T';
 }
+
+//Stringify an object with bigint values
+export const stringifyWithBigInt = (obj: any): string => {
+    return JSON.stringify(obj, (_, value) =>
+        typeof value === "bigint" ? value.toString() : value
+    );
+}
+
+//Parse a string with bigint values
+export const parseWithBigInt = (str: string): any => {
+    return JSON.parse(str, (_, value) =>
+        typeof value === "string" && /^\d+$/.test(value) ? BigInt(value) : value
+    );
+}

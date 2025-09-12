@@ -24,6 +24,12 @@ import {
     idlFactory as distributionContractIDL,
 } from "../../../declarations/distribution_contract";
 import type { _SERVICE as _DISTRIBUTION_CONTRACT_SERVICE } from "../../../declarations/distribution_contract/distribution_contract.did.d.ts";
+// Launchpad Contract
+import {
+    canisterId as launchpadContractCanisterId,
+    idlFactory as launchpadContractIDL,
+} from "../../../declarations/launchpad_contract";
+import type { _SERVICE as _LAUNCHPAD_CONTRACT_SERVICE } from "../../../declarations/launchpad_contract/launchpad_contract.did.d.ts";
 
 
 // Consolidated canister types
@@ -33,6 +39,7 @@ export type CanisterType = {
     ICRC2_LEDGER: _ICRC2_SERVICE;
     DISTRIBUTION_CONTRACT: _DISTRIBUTION_CONTRACT_SERVICE;
     DAO_CONTRACT: _DAO_CONTRACT_SERVICE;
+    LAUNCHPAD_CONTRACT: _LAUNCHPAD_CONTRACT_SERVICE;
 };
 
 export type CanisterConfigs = {
@@ -71,5 +78,10 @@ export const canisters: CanisterConfigs = {
         canisterId: import.meta.env.VITE_DAO_CONTRACT_CANISTER_ID,
         idl: daoContractIDL,
         type: {} as CanisterType["DAO_CONTRACT"],
+    },
+    launchpad_contract: {
+        canisterId: import.meta.env.VITE_LAUNCHPAD_CONTRACT_CANISTER_ID,
+        idl: launchpadContractIDL,
+        type: {} as CanisterType["LAUNCHPAD_CONTRACT"],
     },
 };

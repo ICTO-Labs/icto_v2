@@ -52,6 +52,13 @@ module Types {
     public type TimelineEntry = DAOTypes.TimelineEntry;
     public type TimelineAction = DAOTypes.TimelineAction;
     public type StakingSummary = DAOTypes.StakingSummary;
+    
+    // NEW: Distribution voting power types - BACKWARD COMPATIBLE
+    public type DistributionSnapshotEntry = DAOTypes.DistributionSnapshotEntry;
+    public type DistributionContractRegistry = DAOTypes.DistributionContractRegistry;
+    public type VPSource = DAOTypes.VPSource;
+    public type VotingPowerBreakdown = DAOTypes.VotingPowerBreakdown;
+    public type VotingPowerSnapshot = DAOTypes.VotingPowerSnapshot;
     // Re-export utility functions
     public let proposal_key = DAOTypes.proposal_key;
     public let account_key = DAOTypes.account_key;

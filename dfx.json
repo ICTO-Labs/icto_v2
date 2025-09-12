@@ -78,6 +78,13 @@
                 "output": "src/declarations/dao_contract"
             }
         },
+        "launchpad_contract": {
+            "type": "motoko",
+            "main": "src/motoko/launchpad_factory/LaunchpadContract.mo",
+            "declarations": {
+                "output": "src/declarations/launchpad_contract"
+            }
+        },
         "dao_factory": {
             "type": "motoko",
             "main": "src/motoko/dao_factory/main.mo",

@@ -692,5 +692,50 @@ module DAOTypes {
     
     // Basis points for percentage calculations
     public let BASIS_POINTS : Nat = 10000; // 100% = 10000 basis points
+    
+    // ================ DISTRIBUTION VOTING POWER TYPES ================
+    // NEW: Added for distribution contract integration - BACKWARD COMPATIBLE
+    
+    public type DistributionSnapshotEntry = {
+        principal: Principal;
+        remaining: Nat;         // token chưa vest tại snapshot
+        remaining_time: Nat;    // thời gian còn lại tới lock_end (seconds)
+        max_lock: Nat;          // tổng thời gian khóa ban đầu (seconds)
+        contract_id: Principal; // canister id của distribution contract
+    };
+    
+    public type DistributionContractRegistry = {
+        contractId: Principal;
+        projectName: Text;
+        addedAt: Time.Time;
+        isActive: Bool;
+        verifiedBy: Principal; // Who added this contract to whitelist
+    };
+    
+    public type VPSource = {
+        contractId: Principal;
+        remaining: Nat;
+        remainingTime: Nat;
+        maxLock: Nat;
+        vpCalculated: Nat;
+        sourceType: Text;       // "DAO_Staking" or "Distribution_Contract"
+    };
+    
+    public type VotingPowerBreakdown = {
+        principal: Principal;
+        stakingVP: Nat;         // From direct DAO staking  
+        distributionVP: Nat;    // From distribution contracts
+        totalVP: Nat;           // stakingVP + distributionVP
+        sources: [VPSource];    // Detailed breakdown
+    };
+    
+    public type VotingPowerSnapshot = {
+        proposalId: Nat;
+        snapshotTime: Time.Time;
+        totalParticipants: Nat;
+        totalVotingPower: Nat;
+        distributionSources: [(Principal, Nat)]; // Contract -> total VP from that contract
+        participantVP: [(Principal, VotingPowerBreakdown)];
+    };
 
 }

@@ -11,7 +11,7 @@
                 width === 'auto' ? 'w-auto min-w-fit' : width === 'full' ? 'w-full' : `w-${width}`,
                 !noShadow && 'shadow-sm',
                 customButtonClass,
-                size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : 'py-2'
+                size === 'sm' ? 'py-1.5' : size === 'lg' ? 'py-2.5' : size === 'xs' ? 'py-1' : 'py-2'
             ]" :style="customWidth ? { width: customWidth } : {}">
                 <span class="block" :class="!selectedLabel && 'text-gray-400'">
                     {{ selectedLabel || placeholder }}
@@ -101,7 +101,7 @@ interface Props {
     error?: string
     customButtonClass?: string
     dropdownClass?: string
-    size?: 'sm' | 'md' | 'lg'
+    size?: 'sm' | 'md' | 'lg' | 'xs'
     // Width control
     width?: 'auto' | 'full' | string
     customWidth?: string
@@ -120,7 +120,7 @@ const props = withDefaults(defineProps<Props>(), {
     noShadow: false,
     labelKey: 'label',
     valueKey: 'value',
-    size: 'md'
+    size: 'md' as const
 })
 
 // Emits

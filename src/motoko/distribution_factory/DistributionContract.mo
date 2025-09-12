@@ -1,5 +1,5 @@
 // ICTO Distribution Contract - Individual Distribution Canister
-import Principal "mo:base/Principal";
+import Principal "mo:core/Principal";
 import Result "mo:base/Result";
 import Time "mo:base/Time";
 import Text "mo:base/Text";
@@ -1339,5 +1339,146 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             backendCanisterId = backendCanisterId;
             contractAddress = Principal.fromActor(self);
         }
+    };
+    
+    // ================ DAO VOTING POWER INTEGRATION ================
+    // NEW: Added for DAO voting power calculation - PUBLIC FUNCTIONS
+    
+    /// Private helper for sync snapshot calculation
+    private func _getDistributionSnapshotSync(
+        queriedPrincipal: Principal
+    ) : ?{
+        principal: Principal;
+        remaining: Nat;
+        remaining_time: Nat;
+        max_lock: Nat;
+        contract_id: Principal;
+    } {
+        switch (Trie.get(participants, _principalKey(queriedPrincipal), Principal.equal)) {
+            case (?participant) {
+                let now = Time.now();
+                let vestingStart = switch (participant.vestingStart) {
+                    case (?start) { start };
+                    case null { config.distributionStart };
+                };
+                
+                // Calculate remaining locked amount
+                let unlockedAmount = _calculateUnlockedAmount(participant);
+                let remainingAmount = if (participant.eligibleAmount > unlockedAmount) {
+                    Nat.sub(participant.eligibleAmount, unlockedAmount)
+                } else { 0 };
+                
+                if (remainingAmount == 0) {
+                    return null; // No locked tokens = no voting power
+                };
+                
+                // Calculate remaining time and max lock duration
+                let (remainingTime, maxLock) = switch (config.vestingSchedule) {
+                    case (#Linear(linear)) {
+                        let elapsed = Int.abs(now - vestingStart);
+                        let remaining = if (linear.duration > elapsed) {
+                            Nat.sub(linear.duration, elapsed)
+                        } else { 0 };
+                        (remaining, linear.duration)
+                    };
+                    case (#Cliff(cliff)) {
+                        let totalDuration = cliff.cliffDuration + cliff.vestingDuration;
+                        let elapsed = Int.abs(now - vestingStart);
+                        let remaining = if (totalDuration > elapsed) {
+                            Nat.sub(totalDuration, elapsed)
+                        } else { 0 };
+                        (remaining, totalDuration)
+                    };
+                    case (#Single(single)) {
+                        let elapsed = Int.abs(now - vestingStart);
+                        let remaining = if (single.duration > elapsed) {
+                            Nat.sub(single.duration, elapsed)
+                        } else { 0 };
+                        (remaining, single.duration)
+                    };
+                    case (_) { (0, 0) }; // Other types need implementation
+                };
+                
+                ?{
+                    principal = queriedPrincipal;
+                    remaining = remainingAmount;
+                    remaining_time = remainingTime / 1_000_000_000; // Convert to seconds
+                    max_lock = maxLock / 1_000_000_000; // Convert to seconds
+                    contract_id = Principal.fromActor(self);
+                }
+            };
+            case null { null };
+        }
+    };
+    
+    /// Get distribution snapshot for a specific principal (for DAO queries)
+    public shared ({ caller }) func getDistributionSnapshotForPrincipal(
+        queriedPrincipal: Principal  // Not caller - allow canister-to-canister queries
+    ) : async ?{
+        principal: Principal;
+        remaining: Nat;         // token not vested at snapshot
+        remaining_time: Nat;    // remaining time to lock_end (seconds)
+        max_lock: Nat;          // total time to lock (seconds)
+        contract_id: Principal; // canister id of distribution contract
+    } {
+        //Only allow canister-to-canister queries
+        assert Principal.isCanister(caller);
+        _getDistributionSnapshotSync(queriedPrincipal)
+    };
+    
+    /// Get all participants with locked tokens (for DAO discovery)
+    public shared ({ caller }) func getAllParticipantsWithLockedTokens() : async [{
+        principal: Principal;
+        remaining: Nat;
+        remaining_time: Nat;
+        max_lock: Nat;
+        contract_id: Principal;
+    }] {
+        //Only allow canister-to-canister queries
+        assert Principal.isCanister(caller);
+        let buffer = Buffer.Buffer<{
+            principal: Principal;
+            remaining: Nat;
+            remaining_time: Nat;
+            max_lock: Nat;
+            contract_id: Principal;
+        }>(0);
+        
+        for ((principal, _) in Trie.iter(participants)) {
+            switch (_getDistributionSnapshotSync(principal)) {
+                case (?entry) { buffer.add(entry) };
+                case null { /* Skip fully vested participants */ };
+            };
+        };
+        
+        Buffer.toArray(buffer)
+    };
+    
+    /// Batch query for multiple principals (more efficient for DAO)
+    public query func getBatchDistributionSnapshot(
+        principals: [Principal]
+    ) : async [{
+        principal: Principal;
+        remaining: Nat;
+        remaining_time: Nat;
+        max_lock: Nat;
+        contract_id: Principal;
+    }] {
+        let buffer = Buffer.Buffer<{
+            principal: Principal;
+            remaining: Nat;
+            remaining_time: Nat;
+            max_lock: Nat;
+            contract_id: Principal;
+        }>(0);
+        
+        for (principal in principals.vals()) {
+            switch (_getDistributionSnapshotSync(principal)) {
+                case (?entry) { buffer.add(entry) };
+                case null { /* Skip principals with no locked tokens */ };
+            };
+        };
+        
+        Buffer.toArray(buffer)
     };
 }

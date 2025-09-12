@@ -193,3 +193,7 @@ export const distributionContractActor = ({ canisterId, anon = false, requiresSi
 export const daoContractActor = ({ canisterId, anon = false, requiresSigning = true }: { canisterId: string, anon?: boolean, requiresSigning?: boolean }) => {
     return pnp.getActor<CanisterType["DAO_CONTRACT"]>({ canisterId, idl: canisters.dao_contract.idl, anon, requiresSigning });
 }
+
+export const launchpadContractActor = ({ canisterId, anon = false, requiresSigning = true }: { canisterId: string, anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["LAUNCHPAD_CONTRACT"]>({ canisterId, idl: canisters.launchpad_contract.idl, anon, requiresSigning });
+}

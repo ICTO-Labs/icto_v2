@@ -6,9 +6,22 @@
         <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-4">
           🚀 Token Launchpad
         </h1>
-        <p class="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+        <p class="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto mb-6">
           Explore and participate in decentralized fundraising campaigns built on Internet Computer.
         </p>
+        
+        <!-- Create New Launchpad Button -->
+        <div class="flex justify-center">
+          <router-link
+            to="/launchpad/create"
+            class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 hover:from-yellow-500 hover:via-yellow-600 hover:to-yellow-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 ease-in-out"
+          >
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+            </svg>
+            Launch New Project
+          </router-link>
+        </div>
       </div>
 
       <!-- Filter Tabs -->
@@ -51,9 +64,17 @@
             class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           >
             <option value="">All Status</option>
+            <option value="setup">Setup</option>
             <option value="upcoming">Upcoming</option>
-            <option value="launching">Launching</option>
-            <option value="finished">Finished</option>
+            <option value="whitelist">Whitelist Open</option>
+            <option value="active">Live</option>
+            <option value="ended">Sale Ended</option>
+            <option value="distributing">Distributing</option>
+            <option value="claiming">Claiming</option>
+            <option value="completed">Completed</option>
+            <option value="successful">Successful</option>
+            <option value="failed">Failed</option>
+            <option value="cancelled">Cancelled</option>
           </select>
 
           <!-- Sort -->
@@ -84,9 +105,10 @@
       <div v-else-if="filteredLaunchpads.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <LaunchpadCard
           v-for="launchpad in filteredLaunchpads"
-          :key="launchpad.id"
+          :key="launchpad.canisterId.toText()"
           :launchpad="launchpad"
-          @click="navigateToDetail(launchpad.id)"
+          :participated="checkParticipated(launchpad)"
+          @click="navigateToDetail(launchpad.canisterId.toText())"
         />
       </div>
 
@@ -106,12 +128,14 @@
   </AdminLayout>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import LaunchpadCard from '@/components/Launchpad/LaunchpadCard.vue'
+import LaunchpadCard from '@/components/launchpad/LaunchpadCard.vue'
 import { useLaunchpad } from '@/composables/launchpad/useLaunchpad'
-import AdminLayout from '@/components/layout/AdminLayout.vue';
+import AdminLayout from '@/components/layout/AdminLayout.vue'
+import type { LaunchpadFilters } from '@/api/services/launchpad'
+
 const router = useRouter()
 const { launchpads, isLoading, fetchLaunchpads } = useLaunchpad()
 
@@ -119,65 +143,94 @@ const { launchpads, isLoading, fetchLaunchpads } = useLaunchpad()
 const activeTab = ref('all')
 const searchQuery = ref('')
 const statusFilter = ref('')
-const sortBy = ref('recent')
+const sortBy = ref<LaunchpadFilters['sortBy']>('recent')
+
+// Computed filters
+const currentFilters = computed<LaunchpadFilters>(() => ({
+  search: searchQuery.value || undefined,
+  status: statusFilter.value ? [statusFilter.value] : undefined,
+  sortBy: sortBy.value,
+  sortOrder: 'desc'
+}))
 
 // Tabs configuration
 const tabs = computed(() => [
   { label: 'All', value: 'all', count: launchpads.value.length },
   { label: 'Participated', value: 'participated', count: participatedCount.value },
   { label: 'Upcoming', value: 'upcoming', count: upcomingCount.value },
-  { label: 'Launching', value: 'launching', count: launchingCount.value },
-  { label: 'Finished', value: 'finished', count: finishedCount.value }
+  { label: 'Live', value: 'active', count: activeCount.value },
+  { label: 'Completed', value: 'completed', count: completedCount.value }
 ])
 
-// Computed counts
+// Computed counts based on status
 const participatedCount = computed(() => 
-  launchpads.value.filter(l => l.participated).length
+  launchpads.value.filter(l => checkParticipated(l)).length
 )
 const upcomingCount = computed(() => 
-  launchpads.value.filter(l => l.status === 'upcoming').length
+  launchpads.value.filter(l => getStatusKey(l.status) === 'upcoming').length
 )
-const launchingCount = computed(() => 
-  launchpads.value.filter(l => l.status === 'launching').length
+const activeCount = computed(() => 
+  launchpads.value.filter(l => ['active', 'whitelist'].includes(getStatusKey(l.status))).length
 )
-const finishedCount = computed(() => 
-  launchpads.value.filter(l => l.status === 'finished').length
+const completedCount = computed(() => 
+  launchpads.value.filter(l => ['completed', 'successful', 'failed', 'cancelled'].includes(getStatusKey(l.status))).length
 )
 
-// Filtered launchpads
+// Filtered launchpads based on current tab
 const filteredLaunchpads = computed(() => {
   let filtered = [...launchpads.value]
 
-  // Tab filter
+  // Apply tab filter
   if (activeTab.value === 'participated') {
-    filtered = filtered.filter(l => l.participated)
+    filtered = filtered.filter(l => checkParticipated(l))
   } else if (activeTab.value !== 'all') {
-    filtered = filtered.filter(l => l.status === activeTab.value)
+    filtered = filtered.filter(l => {
+      const statusKey = getStatusKey(l.status)
+      switch (activeTab.value) {
+        case 'upcoming':
+          return statusKey === 'upcoming'
+        case 'active':
+          return ['active', 'whitelist'].includes(statusKey)
+        case 'completed':
+          return ['completed', 'successful', 'failed', 'cancelled'].includes(statusKey)
+        default:
+          return true
+      }
+    })
   }
 
-  // Search filter
+  // Apply search filter
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     filtered = filtered.filter(l => 
-      l.name.toLowerCase().includes(query) || 
-      l.symbol.toLowerCase().includes(query)
+      l.config.projectInfo.name.toLowerCase().includes(query) || 
+      l.config.saleToken.symbol.toLowerCase().includes(query) ||
+      l.config.projectInfo.tags.some(tag => tag.toLowerCase().includes(query))
     )
   }
 
-  // Status filter
+  // Apply status filter
   if (statusFilter.value) {
-    filtered = filtered.filter(l => l.status === statusFilter.value)
+    filtered = filtered.filter(l => getStatusKey(l.status) === statusFilter.value)
   }
 
-  // Sort
-  if (sortBy.value === 'recent') {
-    filtered.sort((a, b) => new Date(b.startDate) - new Date(a.startDate))
-  } else if (sortBy.value === 'endingSoon') {
-    filtered = filtered.filter(l => l.status === 'launching')
-    filtered.sort((a, b) => new Date(a.endDate) - new Date(b.endDate))
-  } else if (sortBy.value === 'popular') {
-    filtered.sort((a, b) => b.participantCount - a.participantCount)
-  }
+  // Apply sorting
+  filtered.sort((a, b) => {
+    switch (sortBy.value) {
+      case 'recent':
+        return Number(b.createdAt - a.createdAt)
+      case 'endingSoon':
+        return Number(a.config.timeline.saleEnd - b.config.timeline.saleEnd)
+      case 'popular':
+        return Number(b.stats.participantCount - a.stats.participantCount)
+      case 'raised':
+        return Number(b.stats.totalRaised - a.stats.totalRaised)
+      case 'alphabetical':
+        return a.config.projectInfo.name.localeCompare(b.config.projectInfo.name)
+      default:
+        return 0
+    }
+  })
 
   return filtered
 })
@@ -193,13 +246,36 @@ const emptyStateMessage = computed(() => {
   return 'No active launchpads at the moment'
 })
 
+// Helper methods
+const getStatusKey = (status: any): string => {
+  if ('Setup' in status) return 'setup'
+  if ('Upcoming' in status) return 'upcoming'
+  if ('WhitelistOpen' in status) return 'whitelist'
+  if ('SaleActive' in status) return 'active'
+  if ('SaleEnded' in status) return 'ended'
+  if ('Distributing' in status) return 'distributing'
+  if ('Claiming' in status) return 'claiming'
+  if ('Completed' in status) return 'completed'
+  if ('Successful' in status) return 'successful'
+  if ('Failed' in status) return 'failed'
+  if ('Cancelled' in status) return 'cancelled'
+  if ('Emergency' in status) return 'emergency'
+  return 'unknown'
+}
+
+const checkParticipated = (launchpad: any): boolean => {
+  // This would need to check if current user participated
+  // For now, return false as we don't have user context
+  return false
+}
+
 // Methods
-const navigateToDetail = (id) => {
-  router.push(`/launchpad/${id}`)
+const navigateToDetail = (launchpadId: string) => {
+  router.push(`/launchpad/${launchpadId}`)
 }
 
 // Lifecycle
-onMounted(() => {
-  fetchLaunchpads()
+onMounted(async () => {
+  await fetchLaunchpads(currentFilters.value)
 })
 </script>
