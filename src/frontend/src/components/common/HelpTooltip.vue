@@ -4,7 +4,7 @@
         <div class="trigger-wrapper" @mouseenter="handleTriggerEnter" @mouseleave="handleTriggerLeave">
             <slot name="trigger">
                 <div class="help-icon text-gray-500 ">
-                    <CircleHelp class="w-4 h-4" />
+                    <CircleHelp :class="[size === 'lg' ? 'w-4.5 h-4.5' : size === 'sm' ? 'w-3 h-3' : size === 'md' ? 'w-4 h-4' : 'w-3 h-3']" />
                 </div>
             </slot>
         </div>
@@ -46,6 +46,11 @@ const props = defineProps({
         hideDelay: {
             type: Number,
             default: 100
+        },
+        size: {
+            type: String,
+            default: 'sm',
+            validator: (value: string) => ['sm', 'md', 'lg'].includes(value)
         }
     })
 
@@ -135,7 +140,7 @@ defineExpose({
     white-space: normal;
     font-style: normal;
     text-decoration: none;
-    opacity: .7;
+    opacity: .9;
 }
 
 .tooltip-text {

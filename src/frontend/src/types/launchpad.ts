@@ -44,164 +44,223 @@ export interface VestingSchedule {
   'frequency' : VestingFrequency,
 }
 export interface LaunchpadFormData {
-  // Project Information
-  projectName: string
-  description: string
-  website?: string
-  twitter?: string
-  telegram?: string
-  discord?: string
-  whitepaper?: string
-  
-  // Sale Token Configuration
-  saleTokenName: string
-  saleTokenSymbol: string
-  saleTokenDecimals: number
-  saleTokenTotalSupply: string
-  saleTokenTransferFee: string
-  saleTokenLogo?: string
-  saleTokenDescription?: string
-  
-  // Purchase Token Configuration
-  purchaseToken: 'ICP' | 'ICRC1'
-  purchaseTokenCanisterId?: string
-  purchaseTokenSymbol?: string
-  
-  // Sale Parameters
-  saleType: 'FairLaunch' | 'PrivateSale' | 'PublicSale'
-  allocationMethod: 'FirstComeFirstServe' | 'Proportional' | 'Lottery'
-  tokenPrice: string
-  softCap: string
-  hardCap: string
-  minContribution: string
-  maxContribution?: string
-  totalSaleAmount: string
-  requiresWhitelist: boolean
-  requiresKYC: boolean
-  
-  // Timeline
-  whitelistStart?: Date
-  saleStart: Date
-  saleEnd: Date
-  claimStart?: Date
-  
-  // Vesting Schedule
-  vestingEnabled: boolean
-  tgePercentage: number
-  cliffDuration: number
-  vestingDuration: number
-  vestingInterval: number
-  
-  // Token Distribution
-  distribution: {
+  // Project Information - Sync with ProjectInfo
+  projectInfo: {
+    name: string
+    description: string
+    logo?: string
+    banner?: string
+    website?: string
+    whitepaper?: string
+    documentation?: string
+    telegram?: string
+    twitter?: string
+    discord?: string
+    github?: string
+    isAudited: boolean
+    auditReport?: string
+    isKYCed: boolean
+    kycProvider?: string
+    tags: string[]
     category: string
+    metadata?: Array<[string, string]>
+    blockIdRequired: number
+  }
+  
+  // Sale Token Configuration - Sync with TokenInfo
+  saleToken: {
+    canisterId?: string  // Will be set after deployment
+    symbol: string
+    name: string
+    decimals: number
+    totalSupply: string
+    transferFee: string
+    logo?: string
+    description?: string
+    website?: string
+    standard: string  // "ICRC-1", "ICRC-2", etc.
+  }
+  
+  // Purchase Token Configuration - Sync with TokenInfo
+  purchaseToken: {
+    canisterId: string
+    symbol: string
+    name: string
+    decimals: number
+    totalSupply: string
+    transferFee: string
+    logo?: string
+    description?: string
+    website?: string
+    standard: string
+  }
+  
+  // Sale Parameters - Sync with SaleParams
+  saleParams: {
+    saleType: 'FairLaunch' | 'PrivateSale' | 'IDO' | 'Auction' | 'Lottery'
+    allocationMethod: 'FirstComeFirstServe' | 'ProRata' | 'Lottery' | 'Weighted'
+    totalSaleAmount: string
+    softCap: string
+    hardCap: string
+    tokenPrice: string
+    minContribution: string
+    maxContribution?: string
+    maxParticipants?: number
+    requiresWhitelist: boolean
+    requiresKYC: boolean
+    blockIdRequired: number
+    restrictedRegions: string[]
+    whitelistMode: 'Closed' | 'OpenRegistration'
+    whitelistEntries: Array<{
+      principal: string
+      allocation?: string
+      tier?: number
+      registeredAt?: string
+      approvedAt?: string
+    }>
+  }
+  
+  // Timeline - Sync with Timeline
+  timeline: {
+    createdAt: string
+    whitelistStart?: string
+    whitelistEnd?: string
+    saleStart: string
+    saleEnd: string
+    claimStart: string
+    vestingStart?: string
+    listingTime?: string
+    daoActivation?: string
+  }
+  
+  // Token Distribution - Sync with DistributionCategory
+  distribution: Array<{
+    name: string
     percentage: number
     totalAmount: string
     vestingSchedule?: VestingSchedule
-    recipients: string[]
-  }[]
+    recipients: {
+      type: 'SaleParticipants' | 'FixedList' | 'TeamAllocation' | 'TreasuryReserve' | 'LiquidityPool' | 'Airdrop' | 'Staking' | 'Marketing' | 'Advisors'
+      list?: Array<{
+        address: string
+        amount: string
+        description?: string
+        vestingOverride?: VestingSchedule
+      }>
+    }
+    description?: string
+  }>
   
-  // DEX Configuration
+  // DEX Configuration - Sync with DEXConfig
   dexConfig: {
-    platform: 'ICPSwap' | 'Sonic' | 'KongSwap' | 'ICDex'
     enabled: boolean
+    platform: string
     listingPrice: string
     totalLiquidityToken: string
+    initialLiquidityToken: string
+    initialLiquidityPurchase: string
     liquidityLockDays: number
     autoList: boolean
     slippageTolerance: number
-  }
-  
-  // Multi-DEX Support
-  multiDexEnabled: boolean
-  multiDexConfig: {
-    [key: string]: {
-      enabled: boolean
-      listingPrice: string
-      liquidityAllocation: string
-      lockDays: number
-      autoList: boolean
+    fees: {
+      listingFee: string
+      transactionFee: number
     }
   }
   
-  // Raised Funds Allocation
+  // Multi-DEX Support - Sync with MultiDEXConfig
+  multiDexConfig?: {
+    platforms: Array<{
+      id: string
+      name: string
+      enabled: boolean
+      allocationPercentage: number
+      calculatedTokenLiquidity: string
+      calculatedPurchaseLiquidity: string
+      fees: {
+        listing: string
+        transaction: number
+      }
+    }>
+    totalLiquidityAllocation: string
+    distributionStrategy: 'Equal' | 'Weighted' | 'Priority'
+  }
+  
+  // Raised Funds Allocation - Sync with RaisedFundsAllocation
   raisedFundsAllocation: {
     teamAllocation: number
     developmentFund: number
     marketingFund: number
-    teamRecipients: {
+    liquidityFund: number
+    reserveFund: number
+    teamRecipients: Array<{
       principal: string
       percentage: number
-      name?: string
-      vestingEnabled: boolean
       vestingSchedule?: VestingSchedule
-    }[]
-    developmentRecipients: {
+      description?: string
+    }>
+    developmentRecipients: Array<{
       principal: string
       percentage: number
-      name?: string
-      vestingEnabled: boolean
       vestingSchedule?: VestingSchedule
-    }[]
-    marketingRecipients: {
+      description?: string
+    }>
+    marketingRecipients: Array<{
       principal: string
       percentage: number
-      name?: string
-      vestingEnabled: boolean
       vestingSchedule?: VestingSchedule
-    }[]
-    lpTokenRecipients: {
-      principal: string
+      description?: string
+    }>
+    customAllocations: Array<{
+      name: string
       percentage: number
-      name?: string
-      unlockConditions: {
-        type: 'immediate' | 'time-locked' | 'milestone-based'
-        lockDuration?: number // in days for time-locked
-        unlockPercentage?: number // for partial unlocks
-        milestone?: string // for milestone-based
-      }
-    }[]
+      recipients: Array<{
+        principal: string
+        percentage: number
+        vestingSchedule?: VestingSchedule
+        description?: string
+      }>
+      vestingSchedule?: VestingSchedule
+      description?: string
+    }>
   }
   
-  // Affiliate Program
-  affiliateEnabled: boolean
-  affiliateCommissionRate: number
-  affiliateConfig?: {
-    maxCommission: number
-    tierStructure: {
-      tier: number
-      minReferrals: number
-      commissionRate: number
-    }[]
+  // Affiliate Program - Sync with AffiliateConfig
+  affiliateConfig: {
+    enabled: boolean
+    commissionRate: number
+    maxTiers: number
+    tierRates: number[]
+    minPurchaseForCommission: string
+    paymentToken: string
+    vestingSchedule?: VestingSchedule
   }
   
-  // Governance Configuration
-  governanceEnabled: boolean
-  governanceConfig?: {
+  // Governance Configuration - Sync with GovernanceConfig
+  governanceConfig: {
+    enabled: boolean
+    daoCanisterId?: string
+    votingToken: string
     proposalThreshold: string
     quorumPercentage: number
-    votingPeriod: number
-    timelockDuration: number
-    enableDelegation: boolean
+    votingPeriod: string
+    timelockDuration: string
+    emergencyContacts: string[]
+    initialGovernors: string[]
+    autoActivateDAO: boolean
   }
   
-  // Security & Admin
+  // Security & Compliance - Sync with LaunchpadConfig
+  whitelist: string[]
+  blacklist: string[]
   adminList: string[]
   emergencyContacts: string[]
   pausable: boolean
   cancellable: boolean
-  enableAuditLog: boolean
-  platformFeeRate: number
   
-  // Whitelist Management
-  whitelist: string[]
-  whitelistTiers: {
-    tier: number
-    name: string
-    allocation: string
-    maxContribution: string
-    participants: string[]
-  }[]
+  // Fee Structure
+  platformFeeRate: number
+  successFeeRate: number
 }
 
 // API Response Types

@@ -40,7 +40,7 @@
               placeholder="25"
               class="w-full px-2 py-1 pr-6 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-800"
             />
-            <span class="absolute right-2 top-1 text-xs text-gray-500">%</span>
+            <span class="absolute right-2 top-2 text-xs text-gray-500">%</span>
           </div>
           <p class="text-xs text-gray-500 mt-1">Released immediately at Token Generation Event</p>
         </div>

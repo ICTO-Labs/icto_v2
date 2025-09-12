@@ -49,7 +49,7 @@
         <!-- Team Percentage Input -->
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Team Allocation Percentage <HelpTooltip>Percentage of raised funds allocated to the team for compensation and operations. Consider vesting schedules for team allocations to build trust.</HelpTooltip>
+            Team Allocation Percentage <HelpTooltip size="sm">Percentage of raised funds allocated to the team for compensation and operations. Consider vesting schedules for team allocations to build trust.</HelpTooltip>
           </label>
           <NumberInput
             v-model="teamPercentage"
@@ -66,7 +66,7 @@
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Team Amount (Calculated)
           </label>
-          <div class="px-3 py-2 pt-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+          <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
             {{ formatAmount(teamAmount) }} ICP
           </div>
         </div>
@@ -417,14 +417,15 @@
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
               Unlock Conditions
             </label>
-            <select 
+            <Select size="md"
               v-model="recipient.unlockConditions.type"
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+              :options="[
+                { value: 'immediate', label: 'Immediate (No Lock)' },
+                { value: 'time-locked', label: 'Time-Locked' },
+                { value: 'milestone-based', label: 'Milestone-Based' }
+              ]"
             >
-              <option value="immediate">Immediate (No Lock)</option>
-              <option value="time-locked">Time-Locked</option>
-              <option value="milestone-based">Milestone-Based</option>
-            </select>
+            </Select>
           </div>
           
           <div v-if="recipient.unlockConditions.type === 'time-locked'" class="grid grid-cols-1 md:grid-cols-2 gap-4">

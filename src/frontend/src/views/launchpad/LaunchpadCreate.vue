@@ -116,6 +116,7 @@
                     { value: 'Other', label: 'Other' }
                   ]"
                   required
+                  size="lg"
                 />
               </div>
 
@@ -202,17 +203,14 @@
               <!-- BlockID Verification -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  BlockID Required <HelpTooltip>Minimum BlockID level required for participants. Higher levels indicate more verified users with established identity and reputation.</HelpTooltip>
+                  BlockID Required <HelpTooltip>Minimum BlockID level required for participants. Higher levels indicate more verified users with established identity and reputation. If you don't want to use BlockID, leave it as 0.</HelpTooltip>
                 </label>
-                <Select
-                  v-model="formData.saleParams.blockIdRequired"
-                  placeholder="Select BlockID Requirement"
-                  :options="[
-                    { value: BigInt(0), label: 'No BlockID Required' },
-                    { value: BigInt(1), label: 'BlockID Level 1 (Basic)' },
-                    { value: BigInt(2), label: 'BlockID Level 2 (Verified)' },
-                    { value: BigInt(3), label: 'BlockID Level 3 (Premium)' }
-                  ]"
+                <input
+                  v-model="formData.projectInfo.blockIdRequired"
+                  type="number"
+                  min="0"
+                  placeholder="e.g.0, 1, 2, 3, 4, 5"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
                 />
                 <p class="text-xs text-gray-500 mt-1">Higher BlockID levels reduce bot participation and increase user quality</p>
               </div>
@@ -261,11 +259,141 @@
         </div>
       </div>
 
-      <!-- Step 3: Token Configuration -->
+      <!-- Step 2: Token & Sale Configuration -->
       <div v-if="currentStep === 2" class="p-6">
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Token & Sale Configuration</h2>
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Token Configuration Section -->
+        <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-6 mb-6">
+          <h3 class="text-lg font-semibold text-green-900 dark:text-green-100 mb-4">Token Configuration</h3>
+          <p class="text-sm text-green-700 dark:text-green-300 mb-6">Configure your token details for deployment on Internet Computer</p>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Token Name -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Name* <HelpTooltip>The full name of your token (e.g., "Awesome Project Token"). This will be visible to all users and cannot be changed after deployment.</HelpTooltip></label>
+              <input
+                v-model="formData.saleToken.name"
+                type="text"
+                placeholder="My Awesome Token"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700"
+                required
+              />
+            </div>
+
+            <!-- Token Symbol -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Symbol* <HelpTooltip>Short ticker symbol for your token (e.g., "APT"). Usually 3-5 characters, uppercase. This will be used in trading pairs.</HelpTooltip></label>
+              <input
+                v-model="formData.saleToken.symbol"
+                type="text"
+                placeholder="TOKEN"
+                maxlength="10"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 uppercase"
+                required
+              />
+            </div>
+
+            <!-- Token Decimals -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Decimals* <HelpTooltip>Number of decimal places for your token (typically 8 for IC ecosystem). Higher decimals allow for more granular amounts.</HelpTooltip></label>
+              <Select
+                v-model="formData.saleToken.decimals"
+                :options="[
+                  { value: 6, label: '6 decimals' },
+                  { value: 8, label: '8 decimals (recommended)' },
+                  { value: 12, label: '12 decimals' },
+                  { value: 18, label: '18 decimals' }
+                ]"
+                placeholder="Select decimals"
+                required
+                size="lg"
+              />
+            </div>
+
+            <!-- Total Supply -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Total Supply* <HelpTooltip>Maximum number of tokens that will ever exist. Consider your tokenomics carefully - this cannot be changed after deployment.</HelpTooltip></label>
+              <input
+                v-model="formData.saleToken.totalSupply"
+                type="number"
+                step="1"
+                min="1"
+                placeholder="1000000000"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700"
+                required
+              />
+            </div>
+
+            <!-- Transfer Fee -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Transfer Fee <HelpTooltip>Fee charged for each token transfer (in smallest token unit). Set to 0 for no fees. Higher fees discourage spam but affect usability.</HelpTooltip></label>
+              <div class="relative">
+                <input
+                  v-model="formData.saleToken.fee"
+                  type="number"
+                  step="1"
+                  min="0"
+                  placeholder="10000"
+                  class="w-full px-3 py-2 pr-20 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700"
+                />
+                <span class="absolute right-3 top-3 text-xs text-gray-500">e{{ formData.saleToken.decimals || 8 }}</span>
+              </div>
+            </div>
+
+            <!-- Token Logo -->
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Logo <HelpTooltip>Upload a logo for your token. Recommended size: 200x200px, PNG or JPG format. This will represent your token across the ecosystem.</HelpTooltip></label>
+              <div class="flex items-center space-x-4">
+                <input
+                  ref="tokenLogoInput"
+                  type="file"
+                  accept="image/*"
+                  @change="handleTokenLogoUpload"
+                  class="hidden"
+                />
+                <button
+                  @click="triggerTokenLogoInput"
+                  type="button"
+                  class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                >
+                  <UploadIcon class="h-4 w-4 mr-2" />
+                  {{ tokenLogoPreview ? 'Change Logo' : 'Upload Logo' }}
+                </button>
+                
+                <!-- Logo Preview -->
+                <div v-if="tokenLogoPreview" class="flex items-center space-x-3">
+                  <div class="relative">
+                    <img :src="tokenLogoPreview" alt="Token Logo" class="h-12 w-12 rounded-full object-cover border-2 border-green-300" />
+                    <button
+                      @click="removeTokenLogo"
+                      type="button"
+                      class="absolute -top-1 -right-1 h-5 w-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 transition-colors"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <div class="text-xs text-green-600 dark:text-green-400">
+                    <div class="font-medium">✓ Loaded</div>
+                    <div class="text-gray-500">{{ formData.saleToken.name || 'Token' }} logo ready</div>
+                  </div>
+                </div>
+                
+                <!-- Error Message -->
+                <div v-if="tokenLogoError" class="text-xs text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded">
+                  {{ tokenLogoError }}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sale Configuration Section -->
+        <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-6 mb-6">
+          <h3 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">Sale Configuration</h3>
+          <p class="text-sm text-blue-700 dark:text-blue-300 mb-6">Configure how your token sale will operate</p>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
           <!-- Sale Type -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sale Type* <HelpTooltip>Choose the type of token sale. IDO offers immediate liquidity, Private Sale is for pre-launch investors, Fair Launch ensures equal opportunity, Auction allows price discovery, and Lottery adds randomization.</HelpTooltip></label>
@@ -546,8 +674,9 @@
           </div>
         </div>
       </div>
+      </div>
 
-      <!-- Step 4: Token & Raised Funds Allocation -->
+      <!-- Step 3: Token & Raised Funds Allocation -->
       <div v-if="currentStep === 3" class="p-6">
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Token & Raised Funds Allocation</h2>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
@@ -578,7 +707,7 @@
       </div>
 
 
-      <!-- Step 5: Timeline & DEX Configuration -->
+      <!-- Step 4: Timeline & DEX Configuration -->
       <div v-if="currentStep === 4" class="p-6">
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Timeline & DEX Configuration</h2>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
@@ -969,7 +1098,7 @@
                       </div>
                     </div>
                     <div class="text-right">
-                      <div class="font-bold text-gray-900 dark:text-white">{{ formatNumber(allocation.totalAmount) }}</div>
+                      <div class="font-bold text-gray-900 dark:text-white">{{ formatNumber(Number(allocation.totalAmount)) }}</div>
                       <div class="text-xs text-gray-500 dark:text-gray-400">{{ saleTokenSymbol }}</div>
                     </div>
                   </div>
@@ -983,7 +1112,7 @@
                       </div>
                     </div>
                     <div class="text-right">
-                      <div class="font-bold text-blue-900 dark:text-blue-100">{{ formatNumber(remainingAllocation) }}</div>
+                      <div class="font-bold text-blue-900 dark:text-blue-100">{{ formatNumber(Number(remainingAllocation)) }}</div>
                       <div class="text-xs text-blue-600 dark:text-blue-400">{{ saleTokenSymbol }}</div>
                     </div>
                   </div>
@@ -992,11 +1121,11 @@
                 <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
                   <div class="flex justify-between text-sm mb-2">
                     <span class="text-gray-600 dark:text-gray-400">Total Allocated:</span>
-                    <span class="font-medium">{{ formatNumber(totalAllocationAmount) }} {{ saleTokenSymbol }}</span>
+                    <span class="font-medium">{{ formatNumber(Number(totalAllocationAmount)) }} {{ saleTokenSymbol }}</span>
                   </div>
                   <div class="flex justify-between text-sm">
                     <span class="text-gray-600 dark:text-gray-400">Total Supply:</span>
-                    <span class="font-medium">{{ formatNumber(formData.saleToken.totalSupply || 0) }} {{ saleTokenSymbol }}</span>
+                    <span class="font-medium">{{ formatNumber(Number(formData.saleToken.totalSupply) || 0) }} {{ saleTokenSymbol }}</span>
                   </div>
                 </div>
               </div>
@@ -1036,7 +1165,7 @@
                     </div>
                   </div>
                   
-                  <div class="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                  <div v-if="developmentAllocationPercentage > 0" class="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                     <div class="flex items-center space-x-3">
                       <div class="w-4 h-4 rounded-full bg-green-500"></div>
                       <div>
@@ -1050,7 +1179,7 @@
                     </div>
                   </div>
                   
-                  <div class="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                  <div v-if="marketingAllocationPercentage > 0" class="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
                     <div class="flex items-center space-x-3">
                       <div class="w-4 h-4 rounded-full bg-purple-500"></div>
                       <div>
@@ -1064,17 +1193,17 @@
                     </div>
                   </div>
                   
-                  <div v-if="remainingRaisedFunds > 0" class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                  <div v-if="remainingRaisedFunds > 0" class="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                     <div class="flex items-center space-x-3">
                       <div class="w-4 h-4 rounded-full bg-gray-400"></div>
                       <div>
-                        <div class="font-medium text-gray-900 dark:text-gray-100">DAO Treasury (Auto)</div>
-                        <div class="text-xs text-gray-600 dark:text-gray-400">{{ remainingAllocationPercentage.toFixed(1) }}% unallocated</div>
+                        <div class="font-medium text-blue-900 dark:text-gray-100">DAO Treasury (Auto)</div>
+                        <div class="text-xs text-blue-900 dark:text-gray-400">{{ remainingAllocationPercentage.toFixed(1) }}% unallocated</div>
                       </div>
                     </div>
                     <div class="text-right">
-                      <div class="font-bold text-gray-900 dark:text-gray-100">{{ formatNumber(remainingRaisedFunds) }}</div>
-                      <div class="text-xs text-gray-600 dark:text-gray-400">{{ purchaseTokenSymbol }}</div>
+                      <div class="font-bold text-blue-900 dark:text-gray-100">{{ formatNumber(Number(remainingRaisedFunds)) }}</div>
+                      <div class="text-xs text-blue-900 dark:text-gray-400">{{ purchaseTokenSymbol }}</div>
                     </div>
                   </div>
                 </div>
@@ -1082,15 +1211,15 @@
                 <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600 space-y-2">
                   <div class="flex justify-between text-sm">
                     <span class="text-gray-600 dark:text-gray-400">Platform Fee ({{ platformFeePercentage }}%):</span>
-                    <span class="text-red-600">-{{ formatNumber(hardCapAmount * (platformFeePercentage / 100)) }} {{ purchaseTokenSymbol }}</span>
+                    <span class="text-red-600">-{{ formatNumber(Number(hardCapAmount) * (platformFeePercentage / 100)) }} {{ purchaseTokenSymbol }}</span>
                   </div>
                   <div class="flex justify-between text-sm">
                     <span class="text-gray-600 dark:text-gray-400">DEX Liquidity:</span>
-                    <span class="text-orange-600">-{{ formatNumber(totalPurchaseLiquidityRequired) }} {{ purchaseTokenSymbol }}</span>
+                    <span class="text-orange-600">-{{ formatNumber(Number(totalPurchaseLiquidityRequired)) }} {{ purchaseTokenSymbol }}</span>
                   </div>
                   <div class="flex justify-between text-sm font-medium">
                     <span class="text-gray-600 dark:text-gray-400">Available for Allocation:</span>
-                    <span>{{ formatNumber(raisedFundsAfterFees.availableForLiquidity) }} {{ purchaseTokenSymbol }}</span>
+                    <span>{{ formatNumber(Number(raisedFundsAfterFees.availableForLiquidity)) }} {{ purchaseTokenSymbol }}</span>
                   </div>
                 </div>
               </div>
@@ -1175,7 +1304,7 @@
         </div>
       </div>
 
-      <!-- Form Actions -->
+      <!-- Form Actions - Moved outside step conditions -->
       <div class="border-t border-gray-200 dark:border-gray-700 px-6 py-4">
         <div class="flex items-center justify-between">
           <button
@@ -1208,7 +1337,6 @@
               Next
               <ArrowRightIcon class="h-4 w-4 ml-2" />
             </button>
-            
             <button
               v-else
               @click="createLaunchpad"
@@ -1335,6 +1463,9 @@ const selectedPurchaseToken = ref('ryjl3-tyaaa-aaaaa-aaaba-cai')
 const logoPreview = ref('')
 const logoError = ref('')
 const fileInput = ref<HTMLInputElement | null>(null)
+const tokenLogoInput = ref<HTMLInputElement | null>(null)
+const tokenLogoPreview = ref('')
+const tokenLogoError = ref('')
 const csvFileName = ref('')
 const csvFileInput = ref<HTMLInputElement | null>(null)
 const showTeamDetails = ref(false)
@@ -1412,7 +1543,8 @@ const formData = ref({
     kycProvider: '',
     isKYCed: false,
     isAudited: false,
-    metadata: []
+    metadata: [],
+    blockIdRequired: 0
   } as any,
   saleToken: {
     name: '',
@@ -2119,7 +2251,11 @@ const canProceed = computed(() => {
              formData.value.projectInfo.description && 
              formData.value.projectInfo.category
     case 2: // Token & Sale Config
-      return formData.value.saleParams.saleType && 
+      return formData.value.saleToken.name && 
+             formData.value.saleToken.symbol &&
+             formData.value.saleToken.decimals &&
+             formData.value.saleToken.totalSupply &&
+             formData.value.saleParams.saleType && 
              formData.value.saleParams.allocationMethod &&
              formData.value.saleParams.totalSaleAmount &&
              formData.value.saleParams.softCap &&
@@ -2191,6 +2327,11 @@ const previousStep = () => {
 
 // Template loading function
 const loadTemplate = (template: LaunchpadTemplate | null) => {
+  console.log('🚀 loadTemplate called with:', template?.name || 'blank template')
+  console.log('Current step before:', currentStep.value)
+  console.log('Steps length:', steps.length)
+  console.log('Can proceed before:', canProceed.value)
+  
   try {
     // Handle "Start from Scratch" option (template is null)
     if (template === null) {
@@ -2265,6 +2406,11 @@ const loadTemplate = (template: LaunchpadTemplate | null) => {
     
     // Show success message
     toast.success(`Template "${template.name}" loaded successfully!`)
+    console.log('✅ Template loaded successfully!')
+    console.log('Current step after:', currentStep.value)
+    console.log('Can proceed after:', canProceed.value)
+    console.log('Button should show:', currentStep.value < steps.length - 1)
+    
   } catch (error) {
     console.error('Failed to load template:', error)
     toast.error('Failed to load template. Please try again.')
@@ -2349,6 +2495,52 @@ const handleFileUpload = (event: Event) => {
       formData.value.saleToken.logo = result
     }
     reader.readAsDataURL(file)
+  }
+}
+
+// Token Logo handling functions
+const triggerTokenLogoInput = () => {
+  tokenLogoInput.value?.click()
+}
+
+const handleTokenLogoUpload = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  if (input.files && input.files[0]) {
+    const file = input.files[0]
+    tokenLogoError.value = ''
+
+    // Validate file type
+    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+    if (!validTypes.includes(file.type)) {
+      tokenLogoError.value = 'Please upload a valid image file (JPEG, PNG, GIF, or WebP)'
+      return
+    }
+
+    // Validate file size (200KB max for token logo)
+    const maxSize = 200 * 1024 // 200KB
+    if (file.size > maxSize) {
+      tokenLogoError.value = 'Logo size is too large, max size is 200KB'
+      return
+    }
+
+    // Create preview and convert to base64
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const result = e.target?.result as string
+      tokenLogoPreview.value = result
+      // Store the base64 data for the backend
+      formData.value.saleToken.logo = result
+    }
+    reader.readAsDataURL(file)
+  }
+}
+
+const removeTokenLogo = () => {
+  tokenLogoPreview.value = ''
+  tokenLogoError.value = ''
+  formData.value.saleToken.logo = ''
+  if (tokenLogoInput.value) {
+    tokenLogoInput.value.value = ''
   }
 }
 

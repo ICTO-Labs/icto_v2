@@ -51,6 +51,7 @@ module LaunchpadTypes {
         tags: [Text]; // ["DeFi", "Gaming", "NFT", etc.]
         category: ProjectCategory;
         metadata: ?[(Text, Text)]; // Additional key-value metadata
+        blockIdRequired: Nat; // Minimum BlockID score requirement
     };
 
     public type ProjectCategory = {
@@ -96,6 +97,19 @@ module LaunchpadTypes {
         #Weighted;        // Based on user scores/tiers
     };
 
+    public type WhitelistMode = {
+        #Closed;          // Only pre-approved addresses
+        #OpenRegistration; // Users can register for whitelist approval
+    };
+
+    public type WhitelistEntry = {
+        principal: Principal;
+        allocation: ?Nat;  // Optional specific allocation for this address
+        tier: ?Nat8;       // Optional tier level
+        registeredAt: ?Time.Time; // When they registered (for open registration mode)
+        approvedAt: ?Time.Time;   // When they were approved
+    };
+
     public type SaleParams = {
         saleType: SaleType;
         allocationMethod: AllocationMethod;
@@ -110,6 +124,8 @@ module LaunchpadTypes {
         requiresKYC: Bool;           // Whether KYC is required
         blockIdRequired: Nat;         // Minimum BlockID score (0 = no requirement)
         restrictedRegions: [Text];    // ISO country codes
+        whitelistMode: WhitelistMode; // Whitelist registration mode
+        whitelistEntries: [WhitelistEntry]; // Whitelist entries
     };
 
     // ================ DEX INTEGRATION & LIQUIDITY ================
