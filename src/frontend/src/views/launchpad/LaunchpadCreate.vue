@@ -106,15 +106,7 @@
                 <Select
                   v-model="formData.projectInfo.category"
                   placeholder="Select Category"
-                  :options="[
-                    { value: 'DeFi', label: 'Decentralized Finance (DeFi)' },
-                    { value: 'NFT', label: 'Non-Fungible Tokens (NFT)' },
-                    { value: 'Gaming', label: 'Gaming & Metaverse' },
-                    { value: 'Infrastructure', label: 'Infrastructure & Tools' },
-                    { value: 'Social', label: 'Social & Community' },
-                    { value: 'DAO', label: 'Decentralized Autonomous Organization' },
-                    { value: 'Other', label: 'Other' }
-                  ]"
+                  :options="PROJECT_CATEGORIES"
                   required
                   size="lg"
                 />
@@ -257,6 +249,22 @@
             </div>
           </div>
         </div>
+        
+        <!-- Step 1 Validation Errors -->
+        <div v-if="step1ValidationErrors.length > 0" class="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div class="flex items-start space-x-2">
+            <AlertTriangleIcon class="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <div class="flex-1">
+              <h4 class="text-sm font-medium text-red-800 dark:text-red-200 mb-2">Please complete these required fields:</h4>
+              <ul class="text-sm text-red-700 dark:text-red-300 space-y-1">
+                <li v-for="error in step1ValidationErrors" :key="error" class="flex items-start">
+                  <span class="w-1.5 h-1.5 bg-red-400 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+                  <span>{{ error }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Step 2: Token & Sale Configuration -->
@@ -299,12 +307,7 @@
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Decimals* <HelpTooltip>Number of decimal places for your token (typically 8 for IC ecosystem). Higher decimals allow for more granular amounts.</HelpTooltip></label>
               <Select
                 v-model="formData.saleToken.decimals"
-                :options="[
-                  { value: 6, label: '6 decimals' },
-                  { value: 8, label: '8 decimals (recommended)' },
-                  { value: 12, label: '12 decimals' },
-                  { value: 18, label: '18 decimals' }
-                ]"
+                :options="TOKEN_DECIMAL_OPTIONS"
                 placeholder="Select decimals"
                 required
                 size="lg"
@@ -394,19 +397,31 @@
           <p class="text-sm text-blue-700 dark:text-blue-300 mb-6">Configure how your token sale will operate</p>
           
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <!-- Purchase Token -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Purchase Token* <HelpTooltip>The token that participants will use to buy your sale token. ICP is the default and most liquid option. ckUSDT/ckUSDC provide stable pricing.</HelpTooltip></label>
+            <Select
+              v-model="formData.purchaseToken.canisterId"
+              placeholder="Select Purchase Token"
+              :options="PURCHASE_TOKEN_OPTIONS.map(token => ({
+                value: token.value,
+                label: `${token.symbol} - ${token.label}`,
+                data: token
+              }))"
+              @change="handlePurchaseTokenChange"
+              required
+            />
+            <p class="text-xs text-gray-500 mt-1">Token used by participants to purchase your tokens</p>
+          </div>
+          <div></div>
+          
           <!-- Sale Type -->
           <div>
             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Sale Type* <HelpTooltip>Choose the type of token sale. IDO offers immediate liquidity, Private Sale is for pre-launch investors, Fair Launch ensures equal opportunity, Auction allows price discovery, and Lottery adds randomization.</HelpTooltip></label>
             <Select
               v-model="formData.saleParams.saleType"
               placeholder="Select Sale Type"
-              :options="[
-                { value: 'IDO', label: 'IDO (Initial DEX Offering)' },
-                { value: 'PrivateSale', label: 'Private Sale' },
-                { value: 'FairLaunch', label: 'Fair Launch' },
-                { value: 'Auction', label: 'Auction' },
-                { value: 'Lottery', label: 'Lottery' }
-              ]"
+              :options="SALE_TYPE_OPTIONS"
               required
             />
           </div>
@@ -417,12 +432,7 @@
             <Select
               v-model="formData.saleParams.allocationMethod"
               placeholder="Select Method"
-              :options="[
-                { value: 'FirstComeFirstServe', label: 'First Come First Serve' },
-                { value: 'ProRata', label: 'Pro Rata' },
-                { value: 'Weighted', label: 'Weighted' },
-                { value: 'Lottery', label: 'Lottery' }
-              ]"
+              :options="ALLOCATION_METHOD_OPTIONS"
               required
             />
           </div>
@@ -443,6 +453,8 @@
               <span class="absolute right-3 top-2.5 text-sm text-gray-500">{{ saleTokenSymbol }}</span>
             </div>
           </div>
+
+
 
           <!-- Max Participants -->
           <div>
@@ -487,6 +499,37 @@
                 required
               />
               <span class="absolute right-3 top-2.5 text-sm text-gray-500">{{ purchaseTokenSymbol }}</span>
+            </div>
+          </div>
+
+          <!-- Token Price Range (Dynamic) -->
+          <div class="md:col-span-2 bg-gradient-to-r from-green-50 to-red-50 dark:from-green-900/20 dark:to-red-900/20 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+            <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">🎯 Token Price Range (Dynamic)</h4>
+            <p class="text-xs text-gray-600 dark:text-gray-400 mb-4">Based on campaign participation levels and your allocation settings</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div class="relative">
+                <div class="w-full px-3 py-2 pr-16 border border-green-300 dark:border-green-600 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-900 dark:text-green-100 font-medium">
+                  {{ tokenPriceAtSoftCap || '0' }}
+                </div>
+                <span class="absolute right-3 top-2.5 text-sm text-green-600">{{ purchaseTokenSymbol }}</span>
+                <p class="text-xs text-green-600 mt-1">Min Price (at Soft Cap)</p>
+              </div>
+              <div class="relative">
+                <div class="w-full px-3 py-2 pr-16 border border-red-300 dark:border-red-600 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-900 dark:text-red-100 font-medium">
+                  {{ tokenPriceAtHardCap || '0' }}
+                </div>
+                <span class="absolute right-3 top-2.5 text-sm text-red-600">{{ purchaseTokenSymbol }}</span>
+                <p class="text-xs text-red-600 mt-1">Max Price (at Hard Cap)</p>
+              </div>
+            </div>
+            <div class="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+              <p class="text-xs text-blue-700 dark:text-blue-300">
+                <strong>Dynamic Pricing:</strong> Final token price = Total Committed Amount ÷ {{ formatNumber(formData.saleParams.totalSaleAmount || 0) }} {{ saleTokenSymbol }}
+              </p>
+              <p class="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                If campaign doesn't reach soft cap ({{ formatNumber(formData.saleParams.softCap || 0) }} {{ purchaseTokenSymbol }}), all funds will be refunded.
+              </p>
             </div>
           </div>
 
@@ -539,24 +582,8 @@
             <p class="text-xs text-gray-500 mt-1">Enable if you want to restrict participation to whitelisted addresses</p>
           </div>
 
-          <!-- Requires KYC -->
-          <div class="md:col-span-2">
-            <div class="flex items-center space-x-3">
-              <input
-                v-model="formData.saleParams.requiresKYC"
-                type="checkbox"
-                :id="uniqueIds.requiresKYC"
-                class="w-4 h-4 text-yellow-600 bg-gray-100 border-gray-300 rounded focus:ring-yellow-500 dark:focus:ring-yellow-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-              />
-              <label :for="uniqueIds.requiresKYC" class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Requires KYC <HelpTooltip>Require participants to complete Know Your Customer verification. Increases compliance but may reduce participation. Consider your jurisdiction requirements.</HelpTooltip>
-              </label>
-            </div>
-            <p class="text-xs text-gray-500 mt-1">Enable if you require participants to complete KYC verification</p>
-          </div>
-
-          <!-- Whitelist Management (shown when whitelist is required) -->
-          <div v-if="formData.saleParams.requiresWhitelist" class="md:col-span-2 mt-4 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+           <!-- Whitelist Management (shown when whitelist is required) -->
+           <div v-if="formData.saleParams.requiresWhitelist" class="md:col-span-2 mt-4 p-4 bg-blue-50 dark:bg-blue-500/20 border border-blue-200 dark:border-blue-800 rounded-lg">
             <h4 class="text-md font-semibold text-blue-900 dark:text-blue-100 mb-3">Whitelist Management</h4>
             
             <div class="space-y-4">
@@ -672,51 +699,48 @@
               </div>
             </div>
           </div>
-        </div>
-      </div>
-      </div>
 
-      <!-- Step 3: Token & Raised Funds Allocation -->
-      <div v-if="currentStep === 3" class="p-6">
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Token & Raised Funds Allocation</h2>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
-          Configure how tokens will be distributed and how raised funds will be allocated to team, development, and marketing.
-        </p>
+          <!-- Requires KYC -->
+          <div class="md:col-span-2">
+            <div class="flex items-center space-x-3">
+              <input
+                v-model="formData.saleParams.requiresKYC"
+                type="checkbox"
+                :id="uniqueIds.requiresKYC"
+                class="w-4 h-4 text-yellow-600 bg-gray-100 border-gray-300 rounded focus:ring-yellow-500 dark:focus:ring-yellow-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+              />
+              <label :for="uniqueIds.requiresKYC" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Requires KYC <HelpTooltip>Require participants to complete Know Your Customer verification. Increases compliance but may reduce participation. Consider your jurisdiction requirements.</HelpTooltip>
+              </label>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">Enable if you require participants to complete KYC verification</p>
+          </div>
+
+        </div>
         
-        <!-- Token Allocation -->
-        <div class="mb-8">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Token Distribution</h3>
-          <TokenAllocation
-            v-model="formData.distribution"
-            :sale-token-symbol="saleTokenSymbol"
-            :total-sale-amount="Number(formData.saleParams.totalSaleAmount) || 0"
-            :total-supply="Number(formData.saleToken.totalSupply) || 100000000"
-          />
+        <!-- Step 2 Validation Errors -->
+        <div v-if="step2ValidationErrors.length > 0" class="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div class="flex items-start space-x-2">
+            <AlertTriangleIcon class="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <div class="flex-1">
+              <h4 class="text-sm font-medium text-red-800 dark:text-red-200 mb-2">Please complete these required fields:</h4>
+              <ul class="text-sm text-red-700 dark:text-red-300 space-y-1">
+                <li v-for="error in step2ValidationErrors" :key="error" class="flex items-start">
+                  <span class="w-1.5 h-1.5 bg-red-400 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+                  <span>{{ error }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
 
-        <!-- Raised Funds Allocation -->
-        <div>
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Raised Funds Allocation</h3>
-          <RaisedFundsAllocation
-            v-model="formData.raisedFundsAllocation"
-            :soft-cap="formData.saleParams.softCap"
-            :hard-cap="formData.saleParams.hardCap"
-            :platform-fee-rate="platformFeePercentage"
-          />
-        </div>
+        
       </div>
-
-
-      <!-- Step 4: Timeline & DEX Configuration -->
-      <div v-if="currentStep === 4" class="p-6">
-        <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Timeline & DEX Configuration</h2>
-        <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
-          Configure your sale timeline and DEX listing settings.
-        </p>
-
-        <!-- Timeline Configuration -->
-        <div class="mb-8">
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Sale Timeline</h3>
+      <!-- Sale Timeline Configuration -->
+      <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">📅 Sale Timeline</h3>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">Configure the timing for your token sale phases.</p>
+          
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             <!-- Whitelist Start -->
             <div v-if="formData.saleParams.requiresWhitelist">
@@ -798,222 +822,74 @@
             </div>
           </div>
         </div>
+      </div>
 
-        <!-- DEX Listing Configuration -->
-        <div class="mt-8 p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-          <h3 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">Multi-DEX Listing Configuration</h3>
-          <p class="text-sm text-blue-700 dark:text-blue-300 mb-4">Configure automatic listing on multiple DEX platforms with smart liquidity allocation</p>
-          
-          <!-- Global Settings -->
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <!-- Listing Price -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Listing Price* <HelpTooltip>Initial price per token when listed on DEX platforms. This should be strategic - often set at or slightly above the sale price to prevent immediate dumps.</HelpTooltip></label>
-              <div class="relative">
-                <NumberInput
-                  v-model="formData.dexConfig.listingPrice"
-                  :options="ICTOMasks.price(8)"
-                  placeholder="0.1"
-                  :suffix="purchaseTokenSymbol"
-                  @update:modelValue="updateLiquidityCalculations"
-                />
-              </div>
-              <p class="text-xs text-gray-500 mt-1">Base price for listing across all DEX platforms</p>
-            </div>
 
-            <!-- Total Liquidity Amount -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Total Initial Liquidity* <HelpTooltip>Total amount of your tokens to provide as liquidity across all DEX platforms. Higher liquidity reduces price volatility and improves trading experience.</HelpTooltip></label>
-              <div class="relative">
-                <NumberInput
-                  v-model="formData.dexConfig.totalLiquidityToken"
-                  :options="ICTOMasks.tokenAmount(8)"
-                  placeholder="10000"
-                  :suffix="saleTokenSymbol"
-                  @update:modelValue="redistributeLiquidity"
-                />
-              </div>
-              <p class="text-xs text-gray-500 mt-1">Total {{ saleTokenSymbol }} to be allocated across selected DEXs</p>
-            </div>
+      <!-- Step 3: Token & Raised Funds Allocation -->
+      <div v-if="currentStep === 3" class="p-6">
+        <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Token & Raised Funds Allocation</h2>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+          Configure token distribution and raised funds allocation. Multi-DEX configuration included.
+        </p>
+        
+        <!-- Token Allocation -->
+        <div class="mb-8">
+          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Token Distribution</h3>
+          <TokenAllocation
+            v-model="formData.distribution"
+            :sale-token-symbol="saleTokenSymbol"
+            :total-sale-amount="Number(formData.saleParams.totalSaleAmount) || 0"
+            :total-liquidity-token="Number(formData.dexConfig.totalLiquidityToken) || 0"
+            :total-supply="Number(formData.saleToken.totalSupply) || 100000000"
+          />
+        </div>
 
-            <!-- Liquidity Lock Period -->
-            <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Liquidity Lock Period <HelpTooltip>How long liquidity tokens will be locked to prevent immediate withdrawal. Longer lock periods increase investor confidence and price stability. Common range: 30-365 days.</HelpTooltip></label>
-              <div class="relative">
-                <NumberInput
-                  v-model="formData.dexConfig.liquidityLockDays"
-                  :options="ICTOMasks.integer()"
-                  placeholder="180"
-                  suffix="days"
-                />
-              </div>
-            </div>
+        <!-- Multi-DEX Listing Configuration -->
+        <div class="mb-8">
+          <MultiDEXConfiguration
+            v-model:dex-config="formData.dexConfig"
+            v-model:available-dexs="availableDEXs"
+            :sale-token-symbol="saleTokenSymbol"
+            :purchase-token-symbol="purchaseTokenSymbol"
+            :hard-cap-amount="hardCapAmount"
+            :platform-fee-percentage="platformFeePercentage"
+            :raised-funds-after-fees="raisedFundsAfterFees"
+            @update-liquidity-calculations="updateLiquidityCalculations"
+            @redistribute-liquidity="redistributeLiquidity"
+            @handle-dex-toggle="handleDexToggle"
+          />
+        </div>
 
-            <!-- Auto-list on DEX -->
-            <div>
-              <div class="flex items-center space-x-3 mb-2">
-                <input
-                  v-model="formData.dexConfig.autoList"
-                  type="checkbox"
-                  :id="uniqueIds.autoList"
-                  class="w-4 h-4 text-yellow-600 bg-gray-100 border-gray-300 rounded focus:ring-yellow-500 dark:focus:ring-yellow-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                />
-                <label :for="uniqueIds.autoList" class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Enable Multi-DEX Auto-listing <HelpTooltip>Automatically list your token on selected DEX platforms after sale completion. Saves time and ensures immediate trading availability for participants.</HelpTooltip>
-                </label>
-              </div>
-              <p class="text-xs text-gray-500">Automatically list on selected DEX platforms after sale ends</p>
-            </div>
-          </div>
-
-          <!-- DEX Platform Selection -->
-          <div class="space-y-4">
-            <h4 class="text-md font-semibold text-gray-900 dark:text-white mb-3">DEX Platform Selection</h4>
-            
-            <div 
-              v-for="dex in availableDEXs" 
-              :key="dex.id"
-              class="border border-gray-200 dark:border-gray-700 rounded-lg p-4"
-              :class="{ 'bg-blue-50 dark:bg-blue-900/10 border-blue-300 dark:border-blue-700': dex.enabled }"
-            >
-              <div class="flex items-start justify-between">
-                <!-- DEX Info -->
-                <div class="flex items-center space-x-3">
-                  <input
-                    v-model="dex.enabled"
-                    type="checkbox"
-                    :id="`dex-${dex.id}-${uniqueIds.autoList}`"
-                    @change="handleDEXToggle(dex)"
-                    class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-                  />
-                  <div>
-                    <label :for="`dex-${dex.id}-${uniqueIds.autoList}`" class="text-sm font-medium text-gray-900 dark:text-white">
-                      {{ dex.name }}
-                    </label>
-                    <p class="text-xs text-gray-500">{{ dex.description }}</p>
-                  </div>
-                </div>
-
-                <!-- Allocation Percentage -->
-                <div v-if="dex.enabled" class="flex items-center space-x-2">
-                  <label class="text-xs text-gray-500">Share:</label>
-                  <div class="relative">
-                    <NumberInput
-                      v-model="dex.allocationPercentage"
-                      :options="{ decimals: 1, min: 0, max: 100 }"
-                      placeholder="50"
-                      suffix="%"
-                      class="w-20"
-                      @update:modelValue="redistributeLiquidity"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <!-- DEX-specific Configuration -->
-              <div v-if="dex.enabled" class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 pl-7 border-l-2 border-blue-300">
-                <div>
-                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ saleTokenSymbol }} Liquidity</label>
-                  <div class="text-sm font-medium text-gray-900 dark:text-white">
-                    {{ formatNumber(dex.calculatedTokenLiquidity) }} {{ saleTokenSymbol }}
-                  </div>
-                </div>
-                <div>
-                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">{{ purchaseTokenSymbol }} Liquidity</label>
-                  <div class="text-sm font-medium text-gray-900 dark:text-white">
-                    {{ formatNumber(dex.calculatedPurchaseLiquidity) }} {{ purchaseTokenSymbol }}
-                  </div>
-                </div>
-                <div v-if="dex.fees">
-                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Platform Fees</label>
-                  <div class="text-xs text-gray-600 dark:text-gray-400">
-                    {{ dex.fees.listing }}% listing + {{ dex.fees.transaction }}% transaction
-                  </div>
-                </div>
-                <div>
-                  <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Estimated TVL</label>
-                  <div class="text-sm font-semibold text-green-600 dark:text-green-400">
-                    ${{ formatNumber((dex.calculatedTokenLiquidity * (parseFloat(formData.dexConfig.listingPrice) || 0) * 2)) }}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Summary -->
-          <div v-if="enabledDEXCount > 0" class="mt-6 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg">
-            <h5 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Liquidity Distribution Summary</h5>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-              <div>
-                <span class="text-gray-500">Total Platforms:</span>
-                <span class="ml-2 font-medium">{{ enabledDEXCount }}</span>
-              </div>
-              <div>
-                <span class="text-gray-500">Total {{ purchaseTokenSymbol }} Required:</span>
-                <span class="ml-2 font-medium text-blue-600">{{ formatNumber(totalPurchaseLiquidityRequired) }} {{ purchaseTokenSymbol }}</span>
-              </div>
-              <div>
-                <span class="text-gray-500">Est. Total TVL:</span>
-                <span class="ml-2 font-medium text-green-600">${{ formatNumber(estimatedTotalTVL) }}</span>
-              </div>
-            </div>
-            
-            <!-- Warnings and Validations -->
-            <div class="space-y-2 mt-3">
-              <!-- Allocation Warning -->
-              <div v-if="allocationPercentageTotal !== 100" class="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm">
-                <div class="flex items-center space-x-2">
-                  <AlertTriangleIcon class="h-4 w-4 text-yellow-600" />
-                  <span class="text-yellow-800 dark:text-yellow-200">
-                    Allocation percentages must total 100% (currently {{ allocationPercentageTotal.toFixed(1) }}%)
-                  </span>
-                </div>
-              </div>
-
-              <!-- Liquidity Critical Issues -->
-              <div v-for="issue in liquidityValidation" :key="issue" class="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm">
-                <div class="flex items-center space-x-2">
-                  <AlertTriangleIcon class="h-4 w-4 text-red-600" />
-                  <span class="text-red-800 dark:text-red-200">{{ issue }}</span>
-                </div>
-              </div>
-
-              <!-- Liquidity Warnings (non-blocking) -->
-              <div v-for="warning in liquidityWarnings" :key="warning" class="p-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-sm">
-                <div class="flex items-center space-x-2">
-                  <AlertTriangleIcon class="h-4 w-4 text-amber-600" />
-                  <span class="text-amber-800 dark:text-amber-200">{{ warning }}</span>
-                </div>
-              </div>
-
-              <!-- Fees Breakdown -->
-              <div v-if="enabledDEXCount > 0 && totalFeesEstimate > 0" class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded">
-                <h6 class="text-sm font-medium text-blue-900 dark:text-blue-100 mb-2">Fees Breakdown</h6>
-                <div class="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span class="text-blue-700 dark:text-blue-300">Platform Fee ({{ platformFeePercentage }}%):</span>
-                    <span class="ml-1 font-medium">{{ formatNumber(hardCapAmount * (platformFeePercentage / 100)) }} {{ purchaseTokenSymbol }}</span>
-                  </div>
-                  <div>
-                    <span class="text-blue-700 dark:text-blue-300">DEX Fees:</span>
-                    <span class="ml-1 font-medium">{{ formatNumber(dexFeesTotal) }} {{ purchaseTokenSymbol }}</span>
-                  </div>
-                  <div class="col-span-2 pt-1 border-t border-blue-200 dark:border-blue-700">
-                    <span class="text-blue-700 dark:text-blue-300">Remaining after fees & liquidity:</span>
-                    <span class="ml-1 font-medium" :class="raisedFundsAfterFees.availableForLiquidity >= 0 ? 'text-green-600' : 'text-red-600'">
-                      {{ formatNumber(raisedFundsAfterFees.availableForLiquidity) }} {{ purchaseTokenSymbol }}
-                    </span>
-                  </div>
-                </div>
-              </div>
+        <!-- Raised Funds Allocation -->
+        <div class="mb-8">
+          <RaisedFundsAllocation
+            v-model="formData.raisedFundsAllocation"
+            :soft-cap="formData.saleParams.softCap"
+            :hard-cap="formData.saleParams.hardCap"
+            :platform-fee-rate="platformFeePercentage"
+            :dex-liquidity-required="totalPurchaseLiquidityRequired"
+          />
+        </div>
+        
+        <!-- Step 3 Validation Errors -->
+        <div v-if="step3ValidationErrors.length > 0" class="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div class="flex items-start space-x-2">
+            <AlertTriangleIcon class="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <div class="flex-1">
+              <h4 class="text-sm font-medium text-red-800 dark:text-red-200 mb-2">Please complete these required fields:</h4>
+              <ul class="text-sm text-red-700 dark:text-red-300 space-y-1">
+                <li v-for="error in step3ValidationErrors" :key="error" class="flex items-start">
+                  <span class="w-1.5 h-1.5 bg-red-400 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+                  <span>{{ error }}</span>
+                </li>
+              </ul>
             </div>
           </div>
         </div>
-
       </div>
 
-      <!-- Step 5: Terms & Conditions -->
-      <div v-if="currentStep === 5" class="p-6">
+      <!-- Step 4: Launch Overview & Terms -->
+      <div v-if="currentStep === 4" class="p-6">
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Launch Overview & Terms</h2>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
           Review your launch configuration and accept the terms and conditions before launching your project.
@@ -1103,6 +979,21 @@
                     </div>
                   </div>
                   
+                  <!-- DEX Liquidity (if enabled) -->
+                  <div v-if="formData.dexConfig.autoList && Number(formData.dexConfig.totalLiquidityToken) > 0" class="flex items-center justify-between p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                    <div class="flex items-center space-x-3">
+                      <div class="w-4 h-4 rounded-full bg-orange-500"></div>
+                      <div>
+                        <div class="font-medium text-orange-900 dark:text-orange-100">DEX Liquidity</div>
+                        <div class="text-xs text-orange-600 dark:text-orange-400">{{ ((Number(formData.dexConfig.totalLiquidityToken) / Number(formData.saleToken.totalSupply)) * 100).toFixed(1) }}% for trading</div>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="font-bold text-orange-900 dark:text-orange-100">{{ formatNumber(Number(formData.dexConfig.totalLiquidityToken)) }}</div>
+                      <div class="text-xs text-orange-600 dark:text-orange-400">{{ saleTokenSymbol }}</div>
+                    </div>
+                  </div>
+                  
                   <div v-if="remainingAllocation > 0" class="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
                     <div class="flex items-center space-x-3">
                       <div class="w-4 h-4 rounded-full bg-gray-400"></div>
@@ -1132,94 +1023,116 @@
             </div>
           </div>
 
-          <!-- Raised Funds Allocation -->
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-4 mb-6" v-if="hardCapAmount > 0">
+          <!-- Complete Raised Funds Usage Overview with Simulation -->
+          <div class="bg-gradient-to-br from-yellow-50 to-amber-50 dark:from-yellow-900/20 dark:to-amber-900/20 rounded-lg border border-yellow-200 dark:border-yellow-700 p-6 mb-6">
+            <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">💰 Complete Raised Funds Usage Overview</h4>
+            <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+              Simulate different funding scenarios to understand how raised funds will be allocated across platform fees, DEX liquidity, and team allocations.
+            </p>
+            
+            <!-- Funding Simulation Slider -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-6">
+              <div class="flex justify-between items-center mb-4">
+                <h5 class="font-medium text-gray-900 dark:text-white">📊 Funding Simulation</h5>
+                <div class="text-sm font-bold text-blue-600">{{ formatNumber(simulatedAmount) }} {{ purchaseTokenSymbol }}</div>
+              </div>
+              
+              <input
+                v-model.number="simulatedAmount"
+                type="range"
+                :min="softCapAmount"
+                :max="hardCapAmount"
+                :step="stepSize"
+                class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 slider"
+              />
+              <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
+                <span>Soft Cap: {{ formatNumber(softCapAmount) }} {{ purchaseTokenSymbol }}</span>
+                <span>Hard Cap: {{ formatNumber(hardCapAmount) }} {{ purchaseTokenSymbol }}</span>
+              </div>
+            </div>
+
+            <!-- Comprehensive Financial Breakdown -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <!-- Chart Section -->
+              <!-- Summary Chart -->
               <div>
                 <PieChart
-                  title="Raised Funds Distribution"
-                  :chart-data="overviewRaisedFundsChartData"
+                  title="Complete Fund Allocation"
+                  :chart-data="comprehensiveFundsChartData"
                   :show-values="true"
-                  :value-unit="purchaseTokenSymbol"
-                  center-label="Hard Cap"
-                  :total-value="hardCapAmount"
+                  value-unit="ICP"
+                  center-label="Total Raised"
+                  :total-value="simulatedAmount"
                 />
               </div>
               
-              <!-- Summary Section -->
-              <div class="space-y-4">
-                <h4 class="font-semibold text-gray-900 dark:text-white mb-3">Raised Funds Allocation</h4>
-                <div class="space-y-3">
-                  <div class="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <div class="flex items-center space-x-3">
-                      <div class="w-4 h-4 rounded-full bg-blue-500"></div>
-                      <div>
-                        <div class="font-medium text-blue-900 dark:text-blue-100">Team</div>
-                        <div class="text-xs text-blue-600 dark:text-blue-400">{{ teamAllocationPercentage }}% of raised funds</div>
-                      </div>
+              <!-- Breakdown Table -->
+              <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+                <h6 class="font-medium text-gray-900 dark:text-white mb-3">💎 Usage Breakdown</h6>
+                <div class="space-y-3 text-sm">
+                  <!-- Platform Fee -->
+                  <div class="flex justify-between items-center p-2 bg-red-50 dark:bg-red-900/20 rounded">
+                    <div class="flex items-center">
+                      <div class="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
+                      <span class="text-red-700 dark:text-red-300">Platform Fee ({{ platformFeePercentage }}%)</span>
                     </div>
-                    <div class="text-right">
-                      <div class="font-bold text-blue-900 dark:text-blue-100">{{ formatNumber(Number(formData.raisedFundsAllocation.teamAllocation) || 0) }}</div>
-                      <div class="text-xs text-blue-600 dark:text-blue-400">{{ purchaseTokenSymbol }}</div>
-                    </div>
+                    <span class="font-medium text-red-700 dark:text-red-300">{{ formatNumber(simulatedPlatformFee) }}</span>
                   </div>
                   
-                  <div v-if="developmentAllocationPercentage > 0" class="flex items-center justify-between p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                    <div class="flex items-center space-x-3">
-                      <div class="w-4 h-4 rounded-full bg-green-500"></div>
-                      <div>
-                        <div class="font-medium text-green-900 dark:text-green-100">Development</div>
-                        <div class="text-xs text-green-600 dark:text-green-400">{{ developmentAllocationPercentage }}% of raised funds</div>
-                      </div>
+                  <!-- DEX Liquidity -->
+                  <div v-if="enabledDEXCount > 0" class="flex justify-between items-center p-2 bg-orange-50 dark:bg-orange-900/20 rounded">
+                    <div class="flex items-center">
+                      <div class="w-3 h-3 rounded-full bg-orange-500 mr-2"></div>
+                      <span class="text-orange-700 dark:text-orange-300">DEX Liquidity ({{ enabledDEXCount }} platforms)</span>
                     </div>
-                    <div class="text-right">
-                      <div class="font-bold text-green-900 dark:text-green-100">{{ formatNumber(Number(formData.raisedFundsAllocation.developmentFund) || 0) }}</div>
-                      <div class="text-xs text-green-600 dark:text-green-400">{{ purchaseTokenSymbol }}</div>
-                    </div>
+                    <span class="font-medium text-orange-700 dark:text-orange-300">{{ formatNumber(Number(totalPurchaseLiquidityRequired)) }}</span>
                   </div>
                   
-                  <div v-if="marketingAllocationPercentage > 0" class="flex items-center justify-between p-3 bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
-                    <div class="flex items-center space-x-3">
-                      <div class="w-4 h-4 rounded-full bg-purple-500"></div>
-                      <div>
-                        <div class="font-medium text-purple-900 dark:text-purple-100">Marketing</div>
-                        <div class="text-xs text-purple-600 dark:text-purple-400">{{ marketingAllocationPercentage }}% of raised funds</div>
-                      </div>
+                  <!-- DEX Platform Sub-lines -->
+                  <div v-for="(dex, index) in availableDEXs.filter(d => d.enabled)" 
+                       :key="dex.id" 
+                       class="flex justify-between items-center p-2 bg-orange-25 dark:bg-orange-900/10 rounded ml-4 border-l-2 border-orange-300">
+                    <div class="flex items-center">
+                      <div class="w-2 h-2 rounded-full bg-orange-400 mr-2"></div>
+                      <span class="text-orange-600 dark:text-orange-400 text-xs">{{ dex.name }}</span>
                     </div>
-                    <div class="text-right">
-                      <div class="font-bold text-purple-900 dark:text-purple-100">{{ formatNumber(Number(formData.raisedFundsAllocation.marketingFund) || 0) }}</div>
-                      <div class="text-xs text-purple-600 dark:text-purple-400">{{ purchaseTokenSymbol }}</div>
-                    </div>
+                    <span class="text-orange-700 dark:text-orange-300 text-xs">{{ formatNumber(dex.calculatedPurchaseLiquidity || 0) }}</span>
                   </div>
                   
-                  <div v-if="remainingRaisedFunds > 0" class="flex items-center justify-between p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <div class="flex items-center space-x-3">
-                      <div class="w-4 h-4 rounded-full bg-gray-400"></div>
-                      <div>
-                        <div class="font-medium text-blue-900 dark:text-gray-100">DAO Treasury (Auto)</div>
-                        <div class="text-xs text-blue-900 dark:text-gray-400">{{ remainingAllocationPercentage.toFixed(1) }}% unallocated</div>
-                      </div>
+                  <!-- Available for Team -->
+                  <div class="flex justify-between items-center p-2 bg-blue-50 dark:bg-blue-900/20 rounded border-l-4 border-blue-500">
+                    <div class="flex items-center">
+                      <div class="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
+                      <span class="font-medium text-blue-700 dark:text-blue-300">Available for Team</span>
                     </div>
-                    <div class="text-right">
-                      <div class="font-bold text-blue-900 dark:text-gray-100">{{ formatNumber(Number(remainingRaisedFunds)) }}</div>
-                      <div class="text-xs text-blue-900 dark:text-gray-400">{{ purchaseTokenSymbol }}</div>
+                    <span class="font-bold text-blue-700 dark:text-blue-300">{{ formatNumber(simulatedAvailableForTeam) }}</span>
+                  </div>
+                  
+                  <!-- Team Allocations -->
+                  <div v-for="(allocation, index) in formData.raisedFundsAllocation?.allocations?.filter(a => Number(a.amount || 0) > 0)" 
+                       :key="allocation.id" 
+                       class="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700 rounded ml-4">
+                    <div class="flex items-center">
+                      <div 
+                        class="w-2 h-2 rounded-full mr-2"
+                        :class="[
+                          index === 0 ? 'bg-blue-400' :
+                          index === 1 ? 'bg-green-400' :
+                          index === 2 ? 'bg-purple-400' :
+                          'bg-yellow-400'
+                        ]"
+                      ></div>
+                      <span class="text-gray-600 dark:text-gray-300 text-xs">{{ allocation.name }}</span>
                     </div>
+                    <span class="text-gray-700 dark:text-gray-300 text-xs">{{ formatNumber(simulatedAllocationAmount(allocation)) }}</span>
                   </div>
-                </div>
-                
-                <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600 space-y-2">
-                  <div class="flex justify-between text-sm">
-                    <span class="text-gray-600 dark:text-gray-400">Platform Fee ({{ platformFeePercentage }}%):</span>
-                    <span class="text-red-600">-{{ formatNumber(Number(hardCapAmount) * (platformFeePercentage / 100)) }} {{ purchaseTokenSymbol }}</span>
-                  </div>
-                  <div class="flex justify-between text-sm">
-                    <span class="text-gray-600 dark:text-gray-400">DEX Liquidity:</span>
-                    <span class="text-orange-600">-{{ formatNumber(Number(totalPurchaseLiquidityRequired)) }} {{ purchaseTokenSymbol }}</span>
-                  </div>
-                  <div class="flex justify-between text-sm font-medium">
-                    <span class="text-gray-600 dark:text-gray-400">Available for Allocation:</span>
-                    <span>{{ formatNumber(Number(raisedFundsAfterFees.availableForLiquidity)) }} {{ purchaseTokenSymbol }}</span>
+                  
+                  <!-- DAO Treasury -->
+                  <div v-if="simulatedRemainingToTreasury > 0" class="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700 rounded ml-4">
+                    <div class="flex items-center">
+                      <div class="w-2 h-2 rounded-full bg-gray-400 mr-2"></div>
+                      <span class="text-gray-600 dark:text-gray-300 text-xs">DAO Treasury</span>
+                    </div>
+                    <span class="text-gray-700 dark:text-gray-300 text-xs">{{ formatNumber(simulatedRemainingToTreasury) }}</span>
                   </div>
                 </div>
               </div>
@@ -1247,7 +1160,7 @@
 
           <!-- DEX Configuration -->
           <div class="bg-white dark:bg-gray-800 rounded-lg p-4">
-            <h4 class="font-semibold text-gray-900 dark:text-white mb-3">DEX Configuration</h4>
+            <h4 class="font-semibold text-gray-900 dark:text-white mb-3">DEX Configuration <span class="text-xs text-blue-600 border border-blue-600 rounded-full px-2 py-1">{{ formData.dexConfig.autoList ? 'Auto-listing' : '' }}</span></h4>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div class="flex justify-between">
                 <span class="text-gray-600 dark:text-gray-400">Primary Platform:</span>
@@ -1262,14 +1175,15 @@
                 <span class="font-medium">{{ formData.dexConfig.liquidityLockDays || 0 }} days</span>
               </div>
               <div class="flex justify-between">
-                <span class="text-gray-600 dark:text-gray-400">Auto List:</span>
-                <span class="font-medium">{{ formData.dexConfig.autoList ? 'Yes' : 'No' }}</span>
+                <span class="text-gray-600 dark:text-gray-400">Receive LP when unlocked:</span>
+                <span class="font-medium">{{ formData.dexConfig.lpTokenRecipient || 'DAO Treasury' }}</span>
               </div>
             </div>
           </div>
         </div>
         
-        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-6">
+        
+        <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-6 mt-8">
           <div class="prose dark:prose-invert max-w-none">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Platform Terms & Conditions</h3>
             <div class="space-y-4 text-sm text-gray-700 dark:text-gray-300">
@@ -1285,6 +1199,7 @@
               </ul>
             </div>
           </div>
+
           
           <div class="border-t border-gray-200 dark:border-gray-600 pt-6 mt-6">
             <div class="flex items-start space-x-3">
@@ -1402,10 +1317,63 @@
 .dark .slider-thumb::-moz-range-track {
   background: linear-gradient(to right, #065F46 0%, #10B981 100%);
 }
+
+/* Simulation Slider Styling */
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+  border: 2px solid white;
+  transition: all 0.2s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.6);
+}
+
+.slider::-moz-range-thumb {
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #3B82F6, #1D4ED8);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(59, 130, 246, 0.4);
+  border: 2px solid white;
+  transition: all 0.2s ease;
+}
+
+.slider::-webkit-slider-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #FEF3C7 0%, #F59E0B 100%);
+}
+
+.slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #FEF3C7 0%, #F59E0B 100%);
+}
+
+.slider:focus {
+  outline: none;
+}
+
+.dark .slider::-webkit-slider-track {
+  background: linear-gradient(to right, #451A03 0%, #F59E0B 100%);
+}
+
+.dark .slider::-moz-range-track {
+  background: linear-gradient(to right, #451A03 0%, #F59E0B 100%);
+}
 </style>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
 import { 
@@ -1426,68 +1394,62 @@ import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import TokenAllocation from '@/components/launchpad/TokenAllocation.vue'
 import RaisedFundsAllocation from '@/components/launchpad/RaisedFundsAllocation.vue'
 import LaunchpadTemplateSelector from '@/components/launchpad/LaunchpadTemplateSelector.vue'
+import MultiDEXConfiguration from '@/components/launchpad/MultiDEXConfiguration.vue'
 import PieChart from '@/components/common/PieChart.vue'
-import VueApexCharts from 'vue3-apexcharts'
 import { InputMask, ICTOMasks } from '@/utils/inputMask'
-import NumberInput from '@/components/common/NumberInput.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import { useLaunchpadService } from '@/composables/useLaunchpadService'
 import { useUniqueId } from '@/composables/useUniqueId'
 import type { LaunchpadTemplate } from '@/data/launchpadTemplates'
 
-const router = useRouter()
-const { createLaunchpad: createLaunchpadService, isCreating } = useLaunchpadService()
+// ===== CONSTANTS =====
+const PLATFORM_FEE_PERCENTAGE = 2.0
+const DEFAULT_LIQUIDITY_LOCK_DAYS = 180
+const MAX_LOGO_SIZE = 30 * 1024 // 30KB
+const MAX_TOKEN_LOGO_SIZE = 200 * 1024 // 200KB
+const VALID_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
 
-// Breadcrumb configuration
-const breadcrumbItems = [
-  { label: 'Launchpad', to: '/launchpad' },
-  { label: 'Create New Launch', to: '/launchpad/create' }
+const PROJECT_CATEGORIES = [
+  { value: 'DeFi', label: 'Decentralized Finance (DeFi)' },
+  { value: 'NFT', label: 'Non-Fungible Tokens (NFT)' },
+  { value: 'Gaming', label: 'Gaming & Metaverse' },
+  { value: 'Infrastructure', label: 'Infrastructure & Tools' },
+  { value: 'Social', label: 'Social & Community' },
+  { value: 'DAO', label: 'Decentralized Autonomous Organization' },
+  { value: 'Other', label: 'Other' }
 ]
 
-// Steps configuration
-const steps = [
-  { id: 'template', title: 'Template', description: 'Choose launchpad template' },
-  { id: 'project', title: 'Project Info', description: 'Basic project details' },
-  { id: 'token', title: 'Token Config', description: 'Token configuration' },
-  { id: 'allocation', title: 'Allocation', description: 'Token distribution' },
-  { id: 'timeline', title: 'Timeline & Funds', description: 'Schedule, DEX & raised funds' },
-  { id: 'terms', title: 'Terms', description: 'Accept terms and conditions' }
+const TOKEN_DECIMAL_OPTIONS = [
+  { value: 6, label: '6 decimals' },
+  { value: 8, label: '8 decimals (recommended)' },
+  { value: 12, label: '12 decimals' },
+  { value: 18, label: '18 decimals' }
 ]
 
-// State
-const currentStep = ref(0)
-const acceptTerms = ref(false)
-const tagsInput = ref('')
-const purchaseTokenInfo = ref<any>(null)
-const selectedPurchaseToken = ref('ryjl3-tyaaa-aaaaa-aaaba-cai')
-const logoPreview = ref('')
-const logoError = ref('')
-const fileInput = ref<HTMLInputElement | null>(null)
-const tokenLogoInput = ref<HTMLInputElement | null>(null)
-const tokenLogoPreview = ref('')
-const tokenLogoError = ref('')
-const csvFileName = ref('')
-const csvFileInput = ref<HTMLInputElement | null>(null)
-const showTeamDetails = ref(false)
-const previewRaisedAmount = ref(0)
+const SALE_TYPE_OPTIONS = [
+  { value: 'IDO', label: 'IDO (Initial DEX Offering)' },
+  { value: 'PrivateSale', label: 'Private Sale' },
+  { value: 'FairLaunch', label: 'Fair Launch' },
+  { value: 'Auction', label: 'Auction' },
+  { value: 'Lottery', label: 'Lottery' }
+]
 
-// Generate unique IDs for form elements
-const uniqueIds = {
-  isKYCed: useUniqueId('is-kyced'),
-  isAudited: useUniqueId('is-audited'),
-  requiresWhitelist: useUniqueId('requires-whitelist'),
-  requiresKYC: useUniqueId('requires-kyc'),
-  autoList: useUniqueId('auto-list'),
-  acceptTerms: useUniqueId('accept-terms')
-}
+const ALLOCATION_METHOD_OPTIONS = [
+  { value: 'FirstComeFirstServe', label: 'First Come First Serve' },
+  { value: 'ProRata', label: 'Pro Rata' },
+  { value: 'Weighted', label: 'Weighted' },
+  { value: 'Lottery', label: 'Lottery' }
+]
 
-// Percentage-based allocation state
-const teamAllocationPercentage = ref(30)
-const developmentAllocationPercentage = ref(20)
-const marketingAllocationPercentage = ref(10)
+const CHART_COLORS = [
+  '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
+  '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
+]
 
-// Predefined purchase token options
-const purchaseTokenOptions = [
+const DEX_LIQUIDITY_COLORS = ['#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#10B981']
+const RAISED_FUNDS_COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#6B7280']
+
+const PURCHASE_TOKEN_OPTIONS = [
   {
     value: 'ryjl3-tyaaa-aaaaa-aaaba-cai',
     label: 'ICP (Internet Computer)',
@@ -1521,6 +1483,47 @@ const purchaseTokenOptions = [
     logo: 'https://cryptologos.cc/logos/ethereum-eth-logo.png'
   }
 ]
+
+const router = useRouter()
+const { createLaunchpad: createLaunchpadService, isCreating } = useLaunchpadService()
+
+// Breadcrumb configuration
+const breadcrumbItems = [
+  { label: 'Launchpad', to: '/launchpad' },
+  { label: 'Create New Launch', to: '/launchpad/create' }
+]
+
+// Steps configuration - FINAL RESTRUCTURE
+const steps = [
+  { id: 'template', title: 'Template', description: 'Choose launchpad template' },
+  { id: 'project', title: 'Project Info', description: 'Basic project details' },
+  { id: 'token', title: 'Token & Sale Setup', description: 'Token config, sale parameters & timeline' },
+  { id: 'allocation', title: 'Token & Raised Funds', description: 'Token distribution & raised funds allocation with Multi-DEX' },
+  { id: 'overview', title: 'Launch Overview', description: 'Review & launch' }
+]
+
+// State
+const currentStep = ref(0)
+const acceptTerms = ref(false)
+const tagsInput = ref('')
+const purchaseTokenInfo = ref<any>(null)
+const selectedPurchaseToken = ref('ryjl3-tyaaa-aaaaa-aaaba-cai')
+const tokenLogoInput = ref<HTMLInputElement | null>(null)
+const tokenLogoPreview = ref('')
+const tokenLogoError = ref('')
+const csvFileName = ref('')
+const csvFileInput = ref<HTMLInputElement | null>(null)
+const previewRaisedAmount = ref(0)
+
+// Generate unique IDs for form elements
+const uniqueIds = {
+  isKYCed: useUniqueId('is-kyced'),
+  isAudited: useUniqueId('is-audited'),
+  requiresWhitelist: useUniqueId('requires-whitelist'),
+  requiresKYC: useUniqueId('requires-kyc'),
+  autoList: useUniqueId('auto-list'),
+  acceptTerms: useUniqueId('accept-terms')
+}
 
 // Form data
 const formData = ref({
@@ -1558,21 +1561,22 @@ const formData = ref({
     website: ''
   } as any,
   purchaseToken: {
-    canisterId: '',
-    name: '',
-    symbol: '',
+    canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai', // Default to ICP
+    name: 'Internet Computer',
+    symbol: 'ICP',
     decimals: 8,
-    totalSupply: BigInt(0),
-    transferFee: BigInt(0),
+    totalSupply: '0',
+    transferFee: '10000',
     standard: 'ICRC1',
-    logo: '',
-    description: '',
-    website: ''
+    logo: 'https://cryptologos.cc/logos/internet-computer-icp-logo.png',
+    description: 'Internet Computer Protocol',
+    website: 'https://internetcomputer.org'
   } as any,
   saleParams: {
-    saleType: 'FairLaunch' as string,
+    saleType: 'FairLaunch' as string, // Default to FairLaunch
     allocationMethod: 'FirstComeFirstServe' as string,
     totalSaleAmount: '',
+    price: '', // Token price
     tokenPrice: '',
     softCap: '',
     hardCap: '',
@@ -1603,60 +1607,61 @@ const formData = ref({
     totalLiquidityToken: '',
     initialLiquidityToken: '',
     initialLiquidityPurchase: '',
-    liquidityLockDays: 180,
-    autoList: false
+    liquidityLockDays: DEFAULT_LIQUIDITY_LOCK_DAYS,
+    autoList: false,
+    lpTokenRecipient: ''
   },
   raisedFundsAllocation: {
-    teamAllocation: '',
-    developmentFund: '',
-    marketingFund: '',
-    teamRecipients: [] as {
-      principal: string
-      percentage: number
-      name?: string
-      vestingEnabled: boolean
-      vestingSchedule?: {
-        cliffDays: number
-        durationDays: number
-        releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
-        immediateRelease: number
+    // Dynamic allocation system - starts with Team Allocation as default
+    allocations: [
+      {
+        id: 'team',
+        name: 'Team Allocation',
+        amount: '',
+        percentage: 0,
+        recipients: [] as {
+          principal: string
+          percentage: number
+          name?: string
+          vestingEnabled: boolean
+          vestingSchedule?: {
+            cliffDays: number
+            durationDays: number
+            releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
+            immediateRelease: number
+          }
+        }[]
       }
-    }[],
-    developmentRecipients: [] as {
-      principal: string
-      percentage: number
-      name?: string
-      vestingEnabled: boolean
-      vestingSchedule?: {
-        cliffDays: number
-        durationDays: number
-        releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
-        immediateRelease: number
-      }
-    }[],
-    marketingRecipients: [] as {
-      principal: string
-      percentage: number
-      name?: string
-      vestingEnabled: boolean
-      vestingSchedule?: {
-        cliffDays: number
-        durationDays: number
-        releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
-        immediateRelease: number
-      }
-    }[],
-    customAllocations: [] as {
+    ] as {
+      id: string
       name: string
       amount: string
-      recipients: { principal: string; percentage: number }[]
-      vestingSchedule: {
-        type: string
-        cliff: number
-        duration: number
-        releases: number
-      } | null
+      percentage: number
+      recipients: {
+        principal: string
+        percentage: number
+        name?: string
+        vestingEnabled: boolean
+        vestingSchedule?: {
+          cliffDays: number
+          durationDays: number
+          releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
+          immediateRelease: number
+        }
+      }[]
     }[]
+  },
+  governanceConfig: {
+    enabled: false,
+    daoCanisterId: '',
+    votingToken: '',
+    proposalThreshold: '',
+    quorumPercentage: 50,
+    votingPeriod: '7',
+    timelockDuration: '2',
+    emergencyContacts: [],
+    initialGovernors: [],
+    autoActivateDAO: false
   }
 })
 
@@ -1665,6 +1670,7 @@ interface DEXPlatform {
   id: string
   name: string
   description: string
+  logo: string
   enabled: boolean
   allocationPercentage: number
   calculatedTokenLiquidity: number
@@ -1680,6 +1686,7 @@ const availableDEXs = ref<DEXPlatform[]>([
     id: 'icpswap',
     name: 'ICPSwap',
     description: 'Leading DEX on Internet Computer with deep liquidity pools',
+    logo: 'https://app.icpswap.com/static/media/logo-dark.7b8c12091e650c40c5e9f561c57473ba.svg',
     enabled: true,
     allocationPercentage: 60,
     calculatedTokenLiquidity: 0,
@@ -1693,6 +1700,7 @@ const availableDEXs = ref<DEXPlatform[]>([
     id: 'kongswap',
     name: 'KongSwap',
     description: 'Fast and efficient DEX with competitive fees',
+    logo: '🦍',
     enabled: true,
     allocationPercentage: 40,
     calculatedTokenLiquidity: 0,
@@ -1706,6 +1714,7 @@ const availableDEXs = ref<DEXPlatform[]>([
     id: 'sonic',
     name: 'Sonic DEX',
     description: 'Advanced AMM with innovative features',
+    logo: '⚡',
     enabled: false,
     allocationPercentage: 0,
     calculatedTokenLiquidity: 0,
@@ -1719,6 +1728,7 @@ const availableDEXs = ref<DEXPlatform[]>([
     id: 'icdex',
     name: 'ICDex',
     description: 'Order-book based decentralized exchange',
+    logo: '📊',
     enabled: false,
     allocationPercentage: 0,
     calculatedTokenLiquidity: 0,
@@ -1734,6 +1744,165 @@ const availableDEXs = ref<DEXPlatform[]>([
 const saleTokenSymbol = computed(() => formData.value.saleToken.symbol || 'TOKEN')
 const purchaseTokenSymbol = computed(() => purchaseTokenInfo.value?.symbol || 'ICP')
 
+// Dynamic token price range calculations
+const tokenPriceAtSoftCap = computed(() => {
+  const softCap = Number(formData.value.saleParams.softCap) || 0
+  const saleAllocation = Number(formData.value.saleParams.totalSaleAmount) || 0
+  
+  if (softCap > 0 && saleAllocation > 0) {
+    const price = softCap / saleAllocation
+    return price.toFixed(8).replace(/\.?0+$/, '') // Remove trailing zeros
+  }
+  return '0'
+})
+
+const tokenPriceAtHardCap = computed(() => {
+  const hardCap = Number(formData.value.saleParams.hardCap) || 0
+  const saleAllocation = Number(formData.value.saleParams.totalSaleAmount) || 0
+  
+  if (hardCap > 0 && saleAllocation > 0) {
+    const price = hardCap / saleAllocation
+    return price.toFixed(8).replace(/\.?0+$/, '') // Remove trailing zeros
+  }
+  return '0'
+})
+
+// Average price for compatibility with existing systems
+const calculatedTokenPrice = computed(() => {
+  const minPrice = Number(tokenPriceAtSoftCap.value) || 0
+  const maxPrice = Number(tokenPriceAtHardCap.value) || 0
+  
+  if (minPrice > 0 && maxPrice > 0) {
+    const avgPrice = (minPrice + maxPrice) / 2
+    return avgPrice.toFixed(8).replace(/\.?0+$/, '')
+  }
+  return '0'
+})
+
+// Step validation computed properties
+const step1ValidationErrors = computed(() => {
+  const errors: string[] = []
+  
+  if (!formData.value.projectInfo.name?.trim()) {
+    errors.push('Project name is required')
+  }
+  if (!formData.value.projectInfo.description?.trim()) {
+    errors.push('Project description is required')
+  }
+  if (!formData.value.projectInfo.category?.trim()) {
+    errors.push('Project category is required')
+  }
+  
+  return errors
+})
+
+const step2ValidationErrors = computed(() => {
+  const errors: string[] = []
+  
+  // Token validation
+  if (!formData.value.saleToken.name?.trim()) {
+    errors.push('Token name is required')
+  }
+  if (!formData.value.saleToken.symbol?.trim()) {
+    errors.push('Token symbol is required')
+  }
+  if (!formData.value.saleToken.decimals || formData.value.saleToken.decimals < 1 || formData.value.saleToken.decimals > 18) {
+    errors.push('Token decimals must be between 1 and 18')
+  }
+  if (!formData.value.saleToken.totalSupply || Number(formData.value.saleToken.totalSupply) <= 0) {
+    errors.push('Token total supply must be greater than 0')
+  }
+  
+  // Sale configuration validation
+  if (!formData.value.saleParams.softCap || Number(formData.value.saleParams.softCap) <= 0) {
+    errors.push('Soft cap is required and must be greater than 0')
+  }
+  if (!formData.value.saleParams.hardCap || Number(formData.value.saleParams.hardCap) <= 0) {
+    errors.push('Hard cap is required and must be greater than 0')
+  }
+  if (Number(formData.value.saleParams.softCap) >= Number(formData.value.saleParams.hardCap)) {
+    errors.push('Hard cap must be greater than soft cap')
+  }
+  if (!tokenPriceAtSoftCap.value || !tokenPriceAtHardCap.value || Number(tokenPriceAtSoftCap.value) <= 0) {
+    errors.push('Token price range cannot be calculated - check Soft Cap, Hard Cap and Total Sale Amount values')
+  }
+  if (!formData.value.saleParams.totalSaleAmount || Number(formData.value.saleParams.totalSaleAmount) <= 0) {
+    errors.push('Total sale amount is required and must be greater than 0')
+  }
+  
+  // Timeline validation
+  if (!formData.value.timeline.saleStart) {
+    errors.push('Sale start time is required')
+  }
+  if (!formData.value.timeline.saleEnd) {
+    errors.push('Sale end time is required')
+  }
+  if (!formData.value.timeline.claimStart) {
+    errors.push('Claim start time is required')
+  }
+  
+  return errors
+})
+
+
+const step3ValidationErrors = computed(() => {
+  const errors: string[] = []
+  
+  if (!formData.value.distribution || formData.value.distribution.length === 0) {
+    errors.push('At least one token distribution category is required')
+  }
+  
+  // Check for DEX configuration if enabled
+  const enabledDEXs = availableDEXs.value.filter(dex => dex.enabled)
+  if (enabledDEXs.length > 0) {
+    enabledDEXs.forEach(dex => {
+      if (dex.allocationPercentage <= 0) {
+        errors.push(`${dex.name} allocation percentage must be greater than 0%`)
+      }
+    })
+  }
+  
+  // Check token allocation feasibility vs funding targets
+  const totalSaleAmount = Number(formData.value.saleParams.totalSaleAmount) || 0
+  const softCap = Number(formData.value.saleParams.softCap) || 0
+  const hardCap = Number(formData.value.saleParams.hardCap) || 0
+  
+  if (totalSaleAmount > 0 && softCap > 0 && hardCap > 0) {
+    // Calculate token prices at soft and hard cap
+    const minPrice = softCap / totalSaleAmount  // Price when reaching soft cap
+    const maxPrice = hardCap / totalSaleAmount  // Price when reaching hard cap
+    
+    // Check if allocation is feasible
+    if (minPrice <= 0) {
+      errors.push('Sale token allocation is too high - soft cap cannot provide meaningful token price')
+    }
+    
+    if (maxPrice > minPrice * 100) {  // More than 100x price difference is unreasonable
+      errors.push('Price range too wide - consider adjusting soft cap, hard cap, or sale token allocation')
+    }
+    
+    // Check if sale allocation makes sense relative to total supply
+    const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
+    if (totalSupply > 0) {
+      const salePercentage = (totalSaleAmount / totalSupply) * 100
+      if (salePercentage > 80) {
+        errors.push('Sale allocation exceeds 80% of total supply - consider reserving more tokens for team, development, and liquidity')
+      }
+    }
+  }
+
+  // Check raised funds allocation
+  if (formData.value.raisedFundsAllocation?.allocations) {
+    formData.value.raisedFundsAllocation.allocations.forEach(allocation => {
+      if (Number(allocation.amount) > 0 && (!allocation.recipients || !Array.isArray(allocation.recipients) || allocation.recipients.length === 0)) {
+        errors.push(`${allocation.name} requires at least one recipient`)
+      }
+    })
+  }
+  
+  return errors
+})
+
 // Chart data for overview
 const overviewTokenChartData = computed(() => {
   if (!formData.value.distribution || formData.value.distribution.length === 0) {
@@ -1746,10 +1915,7 @@ const overviewTokenChartData = computed(() => {
     }
   }
   
-  const colors = [
-    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
-    '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
-  ]
+  const colors = CHART_COLORS
   
   const labels = formData.value.distribution.map(a => a.name || 'Unnamed')
   const data = formData.value.distribution.map(a => Number(a.percentage || 0))
@@ -1792,38 +1958,24 @@ const overviewRaisedFundsChartData = computed(() => {
     }
   }
   
-  const labels = []
-  const data = []
-  const values = []
-  const colors = ['#3B82F6', '#10B981', '#F59E0B', '#6B7280']
+  const labels: string[] = []
+  const data: number[] = []
+  const values: number[] = []
+  const colors = CHART_COLORS
   
-  const teamAmount = Number(formData.value.raisedFundsAllocation.teamAllocation) || 0
-  const devAmount = Number(formData.value.raisedFundsAllocation.developmentFund) || 0
-  const marketingAmount = Number(formData.value.raisedFundsAllocation.marketingFund) || 0
+  // Process dynamic allocations
+  formData.value.raisedFundsAllocation?.allocations?.forEach((allocation, index) => {
+    const amount = Number(allocation.amount) || 0
+    if (amount > 0) {
+      const percentage = availableForAllocation > 0 ? (amount / availableForAllocation) * 100 : 0
+      labels.push(allocation.name)
+      data.push(percentage)
+      values.push(amount)
+    }
+  })
   
-  const teamPercentage = availableForAllocation > 0 ? (teamAmount / availableForAllocation) * 100 : 0
-  const devPercentage = availableForAllocation > 0 ? (devAmount / availableForAllocation) * 100 : 0
-  const marketingPercentage = availableForAllocation > 0 ? (marketingAmount / availableForAllocation) * 100 : 0
-  
-  if (teamAmount > 0) {
-    labels.push('Team')
-    data.push(teamPercentage)
-    values.push(teamAmount)
-  }
-  
-  if (devAmount > 0) {
-    labels.push('Development')
-    data.push(devPercentage)
-    values.push(devAmount)
-  }
-  
-  if (marketingAmount > 0) {
-    labels.push('Marketing')
-    data.push(marketingPercentage)
-    values.push(marketingAmount)
-  }
-  
-  const totalAllocated = teamAmount + devAmount + marketingAmount
+  // Add DAO Treasury (remaining)
+  const totalAllocated = totalRaisedAllocated.value
   const remaining = availableForAllocation - totalAllocated
   
   if (remaining > 0) {
@@ -1873,7 +2025,7 @@ const estimatedTotalTVL = computed(() => {
 const softCapAmount = computed(() => Number(formData.value.saleParams.softCap) || 0)
 const hardCapAmount = computed(() => Number(formData.value.saleParams.hardCap) || 0)
 
-const platformFeePercentage = computed(() => 2.0) // 2% platform fee
+const platformFeePercentage = computed(() => PLATFORM_FEE_PERCENTAGE)
 const dexFeesTotal = computed(() => {
   return availableDEXs.value.reduce((sum, dex) => {
     if (dex.enabled && dex.fees) {
@@ -1896,24 +2048,189 @@ const raisedFundsAfterFees = computed(() => {
   }
 })
 
+// Enhanced Chart Data for Complete Overview
+const enhancedRaisedFundsChartData = computed(() => {
+  const labels: string[] = []
+  const data: number[] = []
+  const values: number[] = []
+  const colors = RAISED_FUNDS_COLORS
+  
+  // Add allocations that have amounts
+  formData.value.raisedFundsAllocation?.allocations?.forEach((allocation, index) => {
+    const amount = Number(allocation.amount || 0)
+    if (amount > 0) {
+      labels.push(allocation.name)
+      data.push(allocation.percentage || 0)
+      values.push(amount)
+    }
+  })
+  
+  // Add remaining to treasury if any
+  const totalAllocated = formData.value.raisedFundsAllocation?.allocations?.reduce((sum, allocation) => sum + Number(allocation.amount || 0), 0) || 0
+  const remaining = raisedFundsAfterFees.value.availableForLiquidity - totalAllocated
+  
+  if (remaining > 0) {
+    const remainingPercentage = (remaining / raisedFundsAfterFees.value.availableForLiquidity) * 100
+    labels.push('DAO Treasury')
+    data.push(remainingPercentage)
+    values.push(remaining)
+  }
+  
+  return {
+    labels,
+    data,
+    values,
+    colors: colors.slice(0, labels.length),
+    percentages: data
+  }
+})
+
+const dexLiquidityChartData = computed(() => {
+  const labels: string[] = []
+  const data: number[] = []
+  const values: number[] = []
+  const colors = DEX_LIQUIDITY_COLORS
+  
+  availableDEXs.value.forEach((dex, index) => {
+    if (dex.enabled) {
+      labels.push(dex.name)
+      data.push(dex.allocationPercentage)
+      values.push(dex.calculatedPurchaseLiquidity)
+    }
+  })
+  
+  return {
+    labels,
+    data,
+    values,
+    colors: colors.slice(0, labels.length),
+    percentages: data
+  }
+})
+
+// Simulation Variables and Computeds
+const simulatedAmount = ref(0)
+const stepSize = computed(() => {
+  const diff = hardCapAmount.value - softCapAmount.value
+  return diff > 0 ? Math.max(1, Math.floor(diff / 100)) : 1000
+})
+
+// Initialize simulation amount
+watch([softCapAmount, hardCapAmount], ([softCap, hardCap]) => {
+  if (simulatedAmount.value === 0 || simulatedAmount.value < softCap || simulatedAmount.value > hardCap) {
+    simulatedAmount.value = hardCap
+  }
+}, { immediate: true })
+
+// Simulation calculations
+const simulatedPlatformFee = computed(() => {
+  return simulatedAmount.value * (platformFeePercentage.value / 100)
+})
+
+const simulatedAvailableForTeam = computed(() => {
+  return Math.max(0, simulatedAmount.value - simulatedPlatformFee.value - totalPurchaseLiquidityRequired.value)
+})
+
+const simulatedAllocationAmount = (allocation: any) => {
+  const percentage = allocation.percentage || 0
+  return (simulatedAvailableForTeam.value * percentage) / 100
+}
+
+const simulatedRemainingToTreasury = computed(() => {
+  const totalTeamAllocated = formData.value.raisedFundsAllocation?.allocations?.reduce((sum, allocation) => sum + simulatedAllocationAmount(allocation), 0) || 0
+  return Math.max(0, simulatedAvailableForTeam.value - totalTeamAllocated)
+})
+
+// Comprehensive chart data for simulation
+const comprehensiveFundsChartData = computed(() => {
+  const labels: string[] = []
+  const data: number[] = []
+  const values: number[] = []
+  const colors = CHART_COLORS
+  
+  // Platform Fee
+  const platformFee = simulatedPlatformFee.value
+  if (platformFee > 0) {
+    labels.push('Platform Fee')
+    data.push((platformFee / simulatedAmount.value) * 100)
+    values.push(platformFee)
+  }
+  
+  // DEX Liquidity
+  const dexLiquidity = totalPurchaseLiquidityRequired.value
+  if (dexLiquidity > 0) {
+    labels.push('DEX Liquidity')
+    data.push((dexLiquidity / simulatedAmount.value) * 100)
+    values.push(dexLiquidity)
+  }
+  
+  // Team Allocations
+  let colorIndex = 2 // Start after platform fee and DEX liquidity colors
+  formData.value.raisedFundsAllocation?.allocations?.forEach((allocation) => {
+    const amount = simulatedAllocationAmount(allocation)
+    if (amount > 0) {
+      labels.push(allocation.name)
+      data.push((amount / simulatedAmount.value) * 100)
+      values.push(amount)
+      colorIndex++
+    }
+  })
+  
+  // DAO Treasury
+  const treasury = simulatedRemainingToTreasury.value
+  if (treasury > 0) {
+    labels.push('DAO Treasury')
+    data.push((treasury / simulatedAmount.value) * 100)
+    values.push(treasury)
+  }
+  
+  return {
+    labels,
+    data,
+    values,
+    colors: colors.slice(0, labels.length),
+    percentages: data.map(d => Number(d.toFixed(1)))
+  }
+})
+
 const liquidityValidation = computed(() => {
   const issues: string[] = []
+  const warnings: string[] = []
   
-  // Only show critical errors that prevent proceeding
-  if (totalPurchaseLiquidityRequired.value > hardCapAmount.value) {
-    issues.push(`DEX liquidity requirement (${formatNumber(totalPurchaseLiquidityRequired.value)} ${purchaseTokenSymbol.value}) exceeds hard cap`)
+  // Skip validation if auto listing is disabled
+  if (!formData.value.dexConfig.autoList) {
+    return { issues, warnings }
+  }
+  
+  // Critical validation: DEX liquidity must be feasible even at softCap (worst case scenario)
+  const softCapAfterFees = softCapAmount.value * (1 - platformFeePercentage.value / 100)
+  const softCapAvailableForLiquidity = Math.max(0, softCapAfterFees - totalPurchaseLiquidityRequired.value)
+  
+  if (totalPurchaseLiquidityRequired.value > softCapAfterFees) {
+    issues.push(`DEX liquidity requirement (${formatNumber(totalPurchaseLiquidityRequired.value)} ${purchaseTokenSymbol.value}) exceeds soft cap after fees (${formatNumber(softCapAfterFees)} ${purchaseTokenSymbol.value}). This means if you only reach soft cap, you won't have enough funds for DEX liquidity.`)
+  }
+  
+  // Warning: High liquidity ratio (>20% of softCap)
+  const liquidityRatio = softCapAmount.value > 0 ? (totalPurchaseLiquidityRequired.value / softCapAmount.value * 100) : 0
+  if (liquidityRatio > 20) {
+    warnings.push(`DEX liquidity requirement is ${liquidityRatio.toFixed(1)}% of soft cap. Consider reducing liquidity allocation or increasing soft cap.`)
   }
   
   if (raisedFundsAfterFees.value.availableForLiquidity < 0) {
     issues.push(`Insufficient raised funds after fees and DEX liquidity allocation`)
   }
   
-  return issues
+  return { issues, warnings }
 })
 
 // Separate warnings that don't block progress
 const liquidityWarnings = computed(() => {
   const warnings: string[] = []
+  
+  // Skip warnings if auto listing is disabled
+  if (!formData.value.dexConfig.autoList) {
+    return warnings
+  }
   
   if (totalPurchaseLiquidityRequired.value > softCapAmount.value) {
     warnings.push(`DEX liquidity requirement exceeds soft cap - project may not reach minimum funding`)
@@ -1927,75 +2244,61 @@ const liquidityWarnings = computed(() => {
   return warnings
 })
 
-// Recipient Validation
+// Recipient Validation - DYNAMIC VERSION
 const recipientValidation = computed(() => {
   const issues: string[] = []
   
-  // Check Team Allocation
-  if (Number(formData.value.raisedFundsAllocation.teamAllocation) > 0 && 
-      (!formData.value.raisedFundsAllocation.teamRecipients || 
-       formData.value.raisedFundsAllocation.teamRecipients.length === 0)) {
-    issues.push('Team allocation requires at least one recipient with vesting details')
-  }
-  
-  // Check Development Fund
-  if (Number(formData.value.raisedFundsAllocation.developmentFund) > 0 && 
-      (!formData.value.raisedFundsAllocation.developmentRecipients || 
-       formData.value.raisedFundsAllocation.developmentRecipients.length === 0)) {
-    issues.push('Development fund requires at least one recipient with vesting details')
-  }
-  
-  // Check Marketing Fund
-  if (Number(formData.value.raisedFundsAllocation.marketingFund) > 0 && 
-      (!formData.value.raisedFundsAllocation.marketingRecipients || 
-       formData.value.raisedFundsAllocation.marketingRecipients.length === 0)) {
-    issues.push('Marketing fund requires at least one recipient with vesting details')
-  }
-  
-  // Validate recipient details
-  formData.value.raisedFundsAllocation.teamRecipients?.forEach((recipient, index) => {
-    if (!recipient.principal || !recipient.principal.trim()) {
-      issues.push(`Team recipient ${index + 1} requires a valid Principal ID`)
+  // Check each dynamic allocation
+  formData.value.raisedFundsAllocation.allocations?.forEach((allocation, allocIndex) => {
+    if (Number(allocation.amount) > 0 && 
+        (!allocation.recipients || allocation.recipients.length === 0)) {
+      issues.push(`${allocation.name} requires at least one recipient with vesting details`)
     }
-    if (recipient.percentage <= 0 || recipient.percentage > 100) {
-      issues.push(`Team recipient ${index + 1} percentage must be between 1-100%`)
+    
+    // Validate recipient details for this allocation
+    if (allocation.recipients && Array.isArray(allocation.recipients)) {
+      allocation.recipients.forEach((recipient, recipientIndex) => {
+        if (!recipient.principal || !recipient.principal.trim()) {
+          issues.push(`${allocation.name} recipient ${recipientIndex + 1} requires a valid Principal ID`)
+        }
+        if (recipient.percentage <= 0 || recipient.percentage > 100) {
+          issues.push(`${allocation.name} recipient ${recipientIndex + 1} percentage must be between 1-100%`)
+        }
+      })
     }
-  })
-  
-  formData.value.raisedFundsAllocation.developmentRecipients?.forEach((recipient, index) => {
-    if (!recipient.principal || !recipient.principal.trim()) {
-      issues.push(`Development recipient ${index + 1} requires a valid Principal ID`)
-    }
-    if (recipient.percentage <= 0 || recipient.percentage > 100) {
-      issues.push(`Development recipient ${index + 1} percentage must be between 1-100%`)
-    }
-  })
-  
-  formData.value.raisedFundsAllocation.marketingRecipients?.forEach((recipient, index) => {
-    if (!recipient.principal || !recipient.principal.trim()) {
-      issues.push(`Marketing recipient ${index + 1} requires a valid Principal ID`)
-    }
-    if (recipient.percentage <= 0 || recipient.percentage > 100) {
-      issues.push(`Marketing recipient ${index + 1} percentage must be between 1-100%`)
+    
+    // Validate that recipients percentages sum to 100%
+    const totalPercentage = (allocation.recipients && Array.isArray(allocation.recipients)) 
+      ? allocation.recipients.reduce((sum, recipient) => sum + recipient.percentage, 0) 
+      : 0
+    if (allocation.recipients && Array.isArray(allocation.recipients) && allocation.recipients.length > 0 && Math.abs(totalPercentage - 100) > 0.1) {
+      issues.push(`${allocation.name} recipients percentages must sum to 100% (currently ${totalPercentage.toFixed(1)}%)`)
     }
   })
   
   return issues
 })
 
-// Raised Funds Allocation Computed Properties
+// Raised Funds Allocation Computed Properties - DYNAMIC VERSION
 const totalRaisedAllocated = computed(() => {
-  const team = Number(formData.value.raisedFundsAllocation.teamAllocation) || 0
-  const dev = Number(formData.value.raisedFundsAllocation.developmentFund) || 0
-  const marketing = Number(formData.value.raisedFundsAllocation.marketingFund) || 0
-  const custom = formData.value.raisedFundsAllocation.customAllocations?.reduce(
+  return formData.value.raisedFundsAllocation.allocations?.reduce(
     (sum, allocation) => sum + (Number(allocation.amount) || 0), 0
   ) || 0
-  return team + dev + marketing + custom
 })
 
 const remainingRaisedFunds = computed(() => {
-  return Math.max(0, raisedFundsAfterFees.value.availableForLiquidity) - totalRaisedAllocated.value
+  // Use a more conservative calculation based on realistic scenarios
+  // If softCap is reached, what's the actual available amount after all deductions?
+  const softCapAfterFees = softCapAmount.value * (1 - platformFeePercentage.value / 100)
+  const softCapAfterLiquidity = Math.max(0, softCapAfterFees - totalPurchaseLiquidityRequired.value)
+  
+  // For allocation planning, use the more conservative softCap scenario
+  const availableForAllocation = Math.min(
+    raisedFundsAfterFees.value.availableForLiquidity, // Hard cap scenario
+    softCapAfterLiquidity // Soft cap scenario (more conservative)
+  )
+  
+  return Math.max(0, availableForAllocation - totalRaisedAllocated.value)
 })
 
 // Allocation chart data
@@ -2118,85 +2421,44 @@ const previewAllocations = computed(() => {
     platformFee,
     dexLiquidity,
     availableForAllocation,
-    teamAllocations: {
-      team: (Number(formData.value.raisedFundsAllocation.teamAllocation) / hardCapAmount.value) * availableForAllocation,
-      development: (Number(formData.value.raisedFundsAllocation.developmentFund) / hardCapAmount.value) * availableForAllocation,
-      marketing: (Number(formData.value.raisedFundsAllocation.marketingFund) / hardCapAmount.value) * availableForAllocation
-    }
+    dynamicAllocations: formData.value.raisedFundsAllocation.allocations.map(allocation => ({
+      name: allocation.name,
+      amount: Number(allocation.amount) || 0,
+      percentage: allocation.percentage
+    }))
   }
 })
 
-// Smart Allocation Suggestions
+// Smart Allocation Suggestions - SIMPLIFIED FOR DYNAMIC ALLOCATIONS
 const smartAllocationSuggestions = computed(() => {
   const suggestions: any[] = []
-  const totalTeamAllocation = Number(formData.value.raisedFundsAllocation.teamAllocation) + 
-                             Number(formData.value.raisedFundsAllocation.developmentFund) + 
-                             Number(formData.value.raisedFundsAllocation.marketingFund)
+  const totalAllocated = totalRaisedAllocated.value
+  const availableAmount = raisedFundsAfterFees.value.availableForLiquidity
+  const allocationPercentage = availableAmount > 0 ? (totalAllocated / availableAmount) * 100 : 0
   
-  const availableAmount = previewAllocations.value.availableForAllocation
-  const allocationPercentage = (totalTeamAllocation / availableAmount) * 100
-  
-  // High team allocation warning
+  // High allocation warning
   if (allocationPercentage > 70) {
     suggestions.push({
       title: 'High Team Allocation',
-      description: `${allocationPercentage.toFixed(1)}% of raised funds allocated to team. Consider reducing to increase DAO treasury for sustainability.`,
+      description: `${allocationPercentage.toFixed(1)}% of raised funds allocated. Consider reducing to increase DAO treasury for sustainability.`,
       action: `Reduce to ~50% (${formatNumber(availableAmount * 0.5)} ${purchaseTokenSymbol.value})`,
       priority: 'high',
-      autoFix: () => {
-        const recommended = availableAmount * 0.5
-        const currentTotal = totalTeamAllocation
-        const ratio = recommended / currentTotal
-        formData.value.raisedFundsAllocation.teamAllocation = String(Number(formData.value.raisedFundsAllocation.teamAllocation) * ratio)
-        formData.value.raisedFundsAllocation.developmentFund = String(Number(formData.value.raisedFundsAllocation.developmentFund) * ratio)
-        formData.value.raisedFundsAllocation.marketingFund = String(Number(formData.value.raisedFundsAllocation.marketingFund) * ratio)
-      }
+      autoFix: false // Disabled for now - will implement with dynamic allocation support
     })
   }
   
-  // No team recipients warning
-  if (Number(formData.value.raisedFundsAllocation.teamAllocation) > 0 && 
-      (!formData.value.raisedFundsAllocation.teamRecipients || formData.value.raisedFundsAllocation.teamRecipients.length === 0)) {
-    suggestions.push({
-      title: 'Missing Team Recipients',
-      description: 'Team allocation specified but no recipients configured. Add team members to receive funds.',
-      action: 'Configure team member wallet addresses',
-      priority: 'high',
-      autoFix: false
-    })
-  }
-  
-  // Low treasury allocation suggestion
-  if (remainingRaisedFunds.value / availableAmount < 0.2) {
-    suggestions.push({
-      title: 'Low DAO Treasury Allocation',
-      description: 'Less than 20% will go to DAO treasury. Consider reducing team allocation to strengthen DAO governance.',
-      action: `Increase treasury to ~30% (${formatNumber(availableAmount * 0.3)} ${purchaseTokenSymbol.value})`,
-      priority: 'medium',
-      autoFix: () => {
-        const targetTreasury = availableAmount * 0.3
-        const currentRemaining = remainingRaisedFunds.value
-        const reduceBy = targetTreasury - currentRemaining
-        
-        // Proportionally reduce team allocations
-        const reductionRatio = reduceBy / totalTeamAllocation
-        formData.value.raisedFundsAllocation.teamAllocation = String(Number(formData.value.raisedFundsAllocation.teamAllocation) * (1 - reductionRatio))
-        formData.value.raisedFundsAllocation.developmentFund = String(Number(formData.value.raisedFundsAllocation.developmentFund) * (1 - reductionRatio))
-        formData.value.raisedFundsAllocation.marketingFund = String(Number(formData.value.raisedFundsAllocation.marketingFund) * (1 - reductionRatio))
-      }
-    })
-  }
-  
-  // Balanced allocation suggestion
-  if (allocationPercentage >= 40 && allocationPercentage <= 60 && remainingRaisedFunds.value > 0) {
-    suggestions.push({
-      title: 'Well-Balanced Allocation',
-      description: 'Your allocation appears balanced between team and DAO treasury, promoting sustainable governance.',
-      action: 'No changes needed',
-      priority: 'low',
-      autoFix: false
-    })
-  }
+  // Missing recipients warning for allocations with no recipients
+  formData.value.raisedFundsAllocation?.allocations?.forEach((allocation, index) => {
+    if (Number(allocation.amount) > 0 && allocation.recipients.length === 0) {
+      suggestions.push({
+        title: `Missing ${allocation.name} Recipients`,
+        description: `${allocation.name} allocation specified but no recipients configured.`,
+        action: 'Add recipient wallet addresses',
+        priority: 'high',
+        autoFix: false
+      })
+    }
+  })
   
   return suggestions
 })
@@ -2208,34 +2470,137 @@ watch(hardCapAmount, (newVal) => {
   }
 }, { immediate: true })
 
-// Sync percentage-based allocations with form data
-watch(teamAllocationPercentage, (percentage) => {
-  const availableAmount = raisedFundsAfterFees.value.availableForLiquidity
-  formData.value.raisedFundsAllocation.teamAllocation = String(availableAmount * percentage / 100)
-})
+// Track if we're currently updating allocations to prevent recursion
+let updatingAllocations = false
 
-watch(developmentAllocationPercentage, (percentage) => {
-  const availableAmount = raisedFundsAfterFees.value.availableForLiquidity
-  formData.value.raisedFundsAllocation.developmentFund = String(availableAmount * percentage / 100)
-})
+// Watch for changes from RaisedFundsAllocation component and sync to dynamic allocation structure
+watch(() => formData.value.raisedFundsAllocation, (newAllocation) => {
+  if (updatingAllocations || !newAllocation || (newAllocation as any).teamAllocation === undefined) {
+    return
+  }
+  
+  // Handle new dynamic allocation system from RaisedFundsAllocation component
+  const oldData = newAllocation as any
+  
+  // Skip if this looks like our own allocation structure
+  if (oldData.allocations && Array.isArray(oldData.allocations)) {
+    return
+  }
+  
+  updatingAllocations = true
+  
+  try {
+    // Initialize or clear existing allocations
+    if (!formData.value.raisedFundsAllocation?.allocations) {
+      formData.value.raisedFundsAllocation = { ...formData.value.raisedFundsAllocation, allocations: [] }
+    }
+    const allocations = formData.value.raisedFundsAllocation.allocations
+    allocations.length = 0
+    
+    // Add Team allocation
+    if (oldData.teamAllocationPercentage > 0) {
+      allocations.push({
+        id: 'team',
+        name: 'Team',
+        percentage: oldData.teamAllocationPercentage || 0,
+        totalAmount: oldData.teamAllocation || '0',
+        recipients: {
+          type: 'FixedList',
+          list: (oldData.teamRecipients || []).map((recipient: any) => ({
+            address: recipient.principal,
+            amount: '',
+            description: recipient.name || '',
+            vestingOverride: recipient.vestingSchedule
+          }))
+        },
+        description: 'Team allocation for project development and operations'
+      })
+    }
+    
+    // Add custom allocations
+    if (oldData.customAllocations && Array.isArray(oldData.customAllocations)) {
+      oldData.customAllocations.forEach((customAllocation: any) => {
+        if (customAllocation.percentage > 0) {
+          allocations.push({
+            id: customAllocation.id || `custom_${Date.now()}`,
+            name: customAllocation.name || 'Custom',
+            percentage: customAllocation.percentage,
+            totalAmount: customAllocation.amount || '0',
+            recipients: {
+              type: 'FixedList',
+              list: (customAllocation.recipients || []).map((recipient: any) => ({
+                address: recipient.principal,
+                amount: '',
+                description: recipient.name || '',
+                vestingOverride: recipient.vestingSchedule
+              }))
+            },
+            description: `Custom allocation: ${customAllocation.name || 'Unnamed'}`
+          })
+        }
+      })
+    }
+    
+    // Add Treasury allocation if there's remaining percentage
+    if (oldData.remainingPercentage > 0) {
+      allocations.push({
+        id: 'treasury',
+        name: 'Treasury', 
+        percentage: oldData.remainingPercentage,
+        totalAmount: oldData.remainingAmount || '0',
+        recipients: {
+          type: 'TreasuryReserve',
+          list: []
+        },
+        description: 'Treasury reserve for future project needs'
+      })
+    }
+  } finally {
+    updatingAllocations = false
+  }
+}, { deep: true, immediate: true })
 
-watch(marketingAllocationPercentage, (percentage) => {
-  const availableAmount = raisedFundsAfterFees.value.availableForLiquidity
-  formData.value.raisedFundsAllocation.marketingFund = String(availableAmount * percentage / 100)
+// Dynamic allocation system - no need for fixed watchers
+// Individual allocation amounts are managed by the dynamic system
+
+// Watch Total Sale Amount và auto-sync với Distribution allocation
+watch(() => formData.value.saleParams.totalSaleAmount, (newAmount) => {
+  if (newAmount && Number(newAmount) > 0) {
+    // Tìm Sale allocation trong distribution
+    let saleAllocation = formData.value.distribution.find((item: any) => 
+      item.name === 'Sale' || item.name === 'Public Sale' || item.category === 'sale'
+    )
+    
+    // Nếu chưa có Sale allocation, tạo mới
+    if (!saleAllocation) {
+      saleAllocation = {
+        name: 'Sale',
+        percentage: 0,
+        totalAmount: newAmount,
+        recipients: { type: 'SaleParticipants' },
+        description: 'Public token sale allocation'
+      }
+      formData.value.distribution.push(saleAllocation)
+    } else {
+      // Cập nhật amount
+      saleAllocation.totalAmount = newAmount
+    }
+    
+    // Tính lại percentage dựa trên total supply
+    const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
+    if (totalSupply > 0) {
+      saleAllocation.percentage = (Number(newAmount) / totalSupply) * 100
+    }
+  }
 })
 
 // Computed for total allocation percentages
 const totalAllocationPercentage = computed(() => {
-  const customTotal = formData.value.raisedFundsAllocation.customAllocations?.reduce((sum, allocation) => {
-    const availableAmount = raisedFundsAfterFees.value.availableForLiquidity
+  const availableAmount = raisedFundsAfterFees.value.availableForLiquidity
+  return formData.value.raisedFundsAllocation.allocations?.reduce((sum, allocation) => {
     const percentage = availableAmount > 0 ? (Number(allocation.amount) / availableAmount * 100) : 0
     return sum + percentage
   }, 0) || 0
-  
-  return teamAllocationPercentage.value + 
-         developmentAllocationPercentage.value + 
-         marketingAllocationPercentage.value + 
-         customTotal
 })
 
 const remainingAllocationPercentage = computed(() => {
@@ -2247,31 +2612,12 @@ const canProceed = computed(() => {
     case 0: // Template Selection
       return true // Always allow proceeding from template selection
     case 1: // Project Info
-      return formData.value.projectInfo.name && 
-             formData.value.projectInfo.description && 
-             formData.value.projectInfo.category
-    case 2: // Token & Sale Config
-      return formData.value.saleToken.name && 
-             formData.value.saleToken.symbol &&
-             formData.value.saleToken.decimals &&
-             formData.value.saleToken.totalSupply &&
-             formData.value.saleParams.saleType && 
-             formData.value.saleParams.allocationMethod &&
-             formData.value.saleParams.totalSaleAmount &&
-             formData.value.saleParams.softCap &&
-             formData.value.saleParams.hardCap &&
-             formData.value.saleParams.minContribution
-    case 3: // Token & Raised Funds Allocation
-      return formData.value.distribution && formData.value.distribution.length > 0 &&
-             remainingRaisedFunds.value >= 0 && // No over-allocation
-             recipientValidation.value.length === 0 // All allocations have recipients
-    case 4: // Timeline & DEX Configuration
-      return formData.value.timeline.saleStart && 
-             formData.value.timeline.saleEnd && 
-             formData.value.timeline.claimStart &&
-             timelineValidation.value.length === 0 &&
-             liquidityValidation.value.length === 0
-    case 5: // Terms
+      return step1ValidationErrors.value.length === 0
+    case 2: // Token & Sale Configuration (includes timeline)
+      return step2ValidationErrors.value.length === 0 && timelineValidation.value.length === 0
+    case 3: // Token & Raised Funds Allocation (includes Multi-DEX)
+      return step3ValidationErrors.value.length === 0 && liquidityValidation.value.issues.length === 0
+    case 4: // Launch Overview & Timeline - Final step
       return acceptTerms.value
     default:
       return true
@@ -2281,6 +2627,134 @@ const canProceed = computed(() => {
 const canLaunch = computed(() => {
   return canProceed.value && acceptTerms.value
 })
+
+// Fixed Allocation System - Auto-manage Sale and DEX Liquidity allocations
+const ensureSaleAllocation = (saleAmount: number) => {
+  if (saleAmount <= 0) return
+  
+  // Find existing Sale allocation
+  const saleAllocationIndex = formData.value.distribution.findIndex(a => 
+    a.name === 'Sale Participants' || 
+    a.name === 'Sale' || 
+    a.name === 'Public Sale' ||
+    a.name === 'Community Sale' ||
+    a.name === 'Private Sale' ||
+    a.recipientConfig?.type === 'SaleParticipants'
+  )
+  
+  const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
+  const percentage = totalSupply > 0 ? (saleAmount / totalSupply) * 100 : 0
+  
+  const saleAllocation = {
+    name: 'Public Sale',
+    percentage: percentage,
+    totalAmount: saleAmount.toString(),
+    recipientConfig: {
+      type: 'SaleParticipants',
+      recipients: []
+    },
+    vestingSchedule: null,
+    isRequired: true
+  }
+  
+  if (saleAllocationIndex >= 0) {
+    // Update existing
+    formData.value.distribution[saleAllocationIndex] = saleAllocation
+  } else {
+    // Add new at the beginning
+    formData.value.distribution.unshift(saleAllocation)
+  }
+}
+
+const ensureDEXLiquidityAllocation = (liquidityAmount: number) => {
+  if (liquidityAmount <= 0) return
+  
+  // Find existing DEX Liquidity allocation
+  const liquidityAllocationIndex = formData.value.distribution.findIndex(a => 
+    a.name === 'DEX Liquidity' || 
+    a.name === 'Liquidity Pool' ||
+    a.name === 'LP Tokens' ||
+    a.recipientConfig?.type === 'LiquidityPool'
+  )
+  
+  const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
+  const percentage = totalSupply > 0 ? (liquidityAmount / totalSupply) * 100 : 0
+  
+  const liquidityAllocation = {
+    name: 'DEX Liquidity',
+    percentage: percentage,
+    totalAmount: liquidityAmount.toString(),
+    recipientConfig: {
+      type: 'LiquidityPool',
+      recipients: []
+    },
+    vestingSchedule: null,
+    isRequired: true
+  }
+  
+  if (liquidityAllocationIndex >= 0) {
+    // Update existing
+    formData.value.distribution[liquidityAllocationIndex] = liquidityAllocation
+  } else {
+    // Add new after Sale allocation
+    const saleIndex = formData.value.distribution.findIndex(a => a.recipientConfig?.type === 'SaleParticipants')
+    const insertIndex = saleIndex >= 0 ? saleIndex + 1 : 1
+    formData.value.distribution.splice(insertIndex, 0, liquidityAllocation)
+  }
+}
+
+const recalculatePercentages = () => {
+  const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
+  if (totalSupply > 0) {
+    formData.value.distribution.forEach(allocation => {
+      allocation.percentage = (Number(allocation.totalAmount) / totalSupply) * 100
+    })
+  }
+}
+
+// Fixed Allocation Watchers - Auto-sync with sale allocation and DEX liquidity
+watch(() => formData.value.saleParams.totalSaleAmount, (newAmount) => {
+  if (newAmount && Number(newAmount) > 0) {
+    ensureSaleAllocation(Number(newAmount))
+  }
+}, { immediate: true })
+
+watch(() => formData.value.dexConfig.totalLiquidityToken, (newAmount) => {
+  if (newAmount && Number(newAmount) > 0) {
+    ensureDEXLiquidityAllocation(Number(newAmount))
+  }
+}, { immediate: true })
+
+// Bi-directional sync: When DEX Liquidity allocation changes, update dexConfig.totalLiquidityToken
+watch(() => formData.value.distribution, (newDistribution) => {
+  if (!newDistribution) return
+  
+  // Find DEX Liquidity allocation
+  const dexAllocation = newDistribution.find(a => 
+    a.name === 'DEX Liquidity' || 
+    a.name === 'Liquidity Pool' ||
+    a.name === 'LP Tokens' ||
+    a.recipientConfig?.type === 'LiquidityPool'
+  )
+  
+  if (dexAllocation) {
+    const newAmount = Number(dexAllocation.totalAmount) || 0
+    // Only update if different to avoid infinite loop
+    if (newAmount !== Number(formData.value.dexConfig.totalLiquidityToken)) {
+      formData.value.dexConfig.totalLiquidityToken = newAmount
+    }
+  }
+}, { deep: true })
+
+// Recalculate percentages when total supply changes
+watch(() => formData.value.saleToken.totalSupply, () => {
+  recalculatePercentages()
+}, { immediate: true })
+
+// Auto-sync calculated price to formData for other components
+watch(calculatedTokenPrice, (newPrice) => {
+  formData.value.saleParams.price = newPrice
+}, { immediate: true })
 
 const timelineValidation = computed(() => {
   const issues: string[] = []
@@ -2316,12 +2790,16 @@ const timelineValidation = computed(() => {
 const nextStep = () => {
   if (canProceed.value && currentStep.value < steps.length - 1) {
     currentStep.value++
+    // Scroll to top of the page when navigating to next step
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 }
 
 const previousStep = () => {
   if (currentStep.value > 0) {
     currentStep.value--
+    // Scroll to top of the page when navigating to previous step
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 }
 
@@ -2395,14 +2873,53 @@ const loadTemplate = (template: LaunchpadTemplate | null) => {
     // Note: Vesting properties are handled in the vesting configuration step
     // Template vesting configuration will be stored for later use
     
-    // Distribution mapping - convert category to name
+    // DEX Configuration mapping
+    if (templateData.dexConfig) {
+      Object.assign(formData.value.dexConfig, {
+        platform: templateData.dexConfig.platform || formData.value.dexConfig.platform,
+        listingPrice: templateData.dexConfig.listingPrice || formData.value.dexConfig.listingPrice,
+        totalLiquidityToken: templateData.dexConfig.totalLiquidityToken || formData.value.dexConfig.totalLiquidityToken,
+        liquidityLockDays: templateData.dexConfig.liquidityLockDays || formData.value.dexConfig.liquidityLockDays,
+        autoList: templateData.dexConfig.autoList ?? formData.value.dexConfig.autoList,
+        slippageTolerance: templateData.dexConfig.slippageTolerance || formData.value.dexConfig.slippageTolerance
+      })
+    }
+
+    // Distribution mapping - convert template structure to current form structure
     if (templateData.distribution && Array.isArray(templateData.distribution)) {
       formData.value.distribution = templateData.distribution.map((item: any) => ({
-        ...item,
         name: item.category || item.name, // Convert category to name for form compatibility
-        category: item.category || item.name
+        percentage: item.percentage || 0,
+        totalAmount: item.totalAmount || '0',
+        vestingSchedule: item.vestingSchedule || null,
+        recipientConfig: {
+          type: item.category === 'Public Sale' ? 'SaleParticipants' :
+                item.category === 'Team' ? 'TeamAllocation' :
+                item.category === 'Liquidity' ? 'LiquidityPool' :
+                item.category === 'Development' ? 'TreasuryReserve' :
+                item.category === 'Marketing' ? 'Marketing' :
+                'FixedList',
+          recipients: item.recipients || []
+        },
+        description: item.description || `${item.category || item.name} allocation from template`
       }))
     }
+    
+    // Force recalculation of allocations after template load
+    // This ensures percentages are correct for the loaded template
+    nextTick(() => {
+      // Small delay to ensure all watchers have processed the template data
+      setTimeout(() => {
+        // Trigger percentage recalculation by briefly updating totalSupply
+        const currentSupply = formData.value.saleToken.totalSupply
+        if (currentSupply && Number(currentSupply) > 0) {
+          formData.value.saleToken.totalSupply = (Number(currentSupply) + 1).toString()
+          nextTick(() => {
+            formData.value.saleToken.totalSupply = currentSupply
+          })
+        }
+      }, 100)
+    })
     
     // Show success message
     toast.success(`Template "${template.name}" loaded successfully!`)
@@ -2433,7 +2950,7 @@ const removeTag = (tag: string) => {
 }
 
 const handlePurchaseTokenChange = (canisterId: string) => {
-  const selectedToken = purchaseTokenOptions.find(token => token.value === canisterId)
+  const selectedToken = PURCHASE_TOKEN_OPTIONS.find(token => token.value === canisterId)
   if (selectedToken) {
     purchaseTokenInfo.value = selectedToken
     formData.value.purchaseToken = {
@@ -2452,51 +2969,6 @@ const handlePurchaseTokenChange = (canisterId: string) => {
   }
 }
 
-// Logo upload handlers
-const triggerFileInput = () => {
-  fileInput.value?.click()
-}
-
-const removeLogo = () => {
-  logoPreview.value = ''
-  logoError.value = ''
-  formData.value.saleToken.logo = ''
-  if (fileInput.value) {
-    fileInput.value.value = ''
-  }
-}
-
-const handleFileUpload = (event: Event) => {
-  const input = event.target as HTMLInputElement
-  if (input.files && input.files[0]) {
-    const file = input.files[0]
-    logoError.value = ''
-
-    // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-    if (!validTypes.includes(file.type)) {
-      logoError.value = 'Please upload a valid image file (JPEG, PNG, GIF, or WebP)'
-      return
-    }
-
-    // Validate file size (30KB max)
-    const maxSize = 30 * 1024 // 30KB
-    if (file.size > maxSize) {
-      logoError.value = 'Logo size is too large, max size is 30KB'
-      return
-    }
-
-    // Create preview and convert to base64
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const result = e.target?.result as string
-      logoPreview.value = result
-      // Store the base64 data for the backend
-      formData.value.saleToken.logo = result
-    }
-    reader.readAsDataURL(file)
-  }
-}
 
 // Token Logo handling functions
 const triggerTokenLogoInput = () => {
@@ -2510,15 +2982,13 @@ const handleTokenLogoUpload = (event: Event) => {
     tokenLogoError.value = ''
 
     // Validate file type
-    const validTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-    if (!validTypes.includes(file.type)) {
+    if (!VALID_IMAGE_TYPES.includes(file.type)) {
       tokenLogoError.value = 'Please upload a valid image file (JPEG, PNG, GIF, or WebP)'
       return
     }
 
     // Validate file size (200KB max for token logo)
-    const maxSize = 200 * 1024 // 200KB
-    if (file.size > maxSize) {
+    if (file.size > MAX_TOKEN_LOGO_SIZE) {
       tokenLogoError.value = 'Logo size is too large, max size is 200KB'
       return
     }
@@ -2612,7 +3082,7 @@ const updateLiquidityCalculations = () => {
   }
 }
 
-// Raised Funds Methods
+// Dynamic Raised Funds Methods
 const calculatePercentage = (amount: string | number): string => {
   const numAmount = Number(amount) || 0
   const available = Math.max(0, raisedFundsAfterFees.value.availableForLiquidity)
@@ -2620,77 +3090,74 @@ const calculatePercentage = (amount: string | number): string => {
   return ((numAmount / available) * 100).toFixed(1)
 }
 
-const addCustomAllocation = () => {
-  formData.value.raisedFundsAllocation.customAllocations.push({
-    name: `Custom Allocation ${formData.value.raisedFundsAllocation.customAllocations.length + 1}`,
+const addDynamicAllocation = () => {
+  const allocationTypes = [
+    'Development Fund',
+    'Marketing Fund', 
+    'Liquidity Fund',
+    'Reserve Fund',
+    'Advisor Fund',
+    'Partnership Fund',
+    'Legal & Compliance',
+    'Audit & Security'
+  ]
+  
+  const existingNames = formData.value.raisedFundsAllocation.allocations.map(a => a.name)
+  const availableTypes = allocationTypes.filter(type => !existingNames.includes(type))
+  
+  const newName = availableTypes.length > 0 
+    ? availableTypes[0] 
+    : `Custom Allocation ${formData.value.raisedFundsAllocation.allocations.length + 1}`
+  
+  formData.value.raisedFundsAllocation.allocations.push({
+    id: `allocation-${Date.now()}`,
+    name: newName,
     amount: '',
-    recipients: [],
-    vestingSchedule: null
+    percentage: 0,
+    recipients: []
   })
 }
 
-const removeCustomAllocation = (index: number) => {
-  formData.value.raisedFundsAllocation.customAllocations.splice(index, 1)
+const removeDynamicAllocation = (index: number) => {
+  // Can't remove Team Allocation (first item)
+  if (index > 0) {
+    formData.value.raisedFundsAllocation.allocations.splice(index, 1)
+  }
 }
 
-// Team Recipients Management
-const addTeamRecipient = () => {
-  formData.value.raisedFundsAllocation.teamRecipients.push({
-    principal: '',
-    percentage: 100,
-    name: '',
-    vestingEnabled: false,
-    vestingSchedule: {
-      cliffDays: 0,
-      durationDays: 365,
-      releaseFrequency: 'monthly',
-      immediateRelease: 0
-    }
-  })
+const updateAllocationPercentage = (index: number) => {
+  const allocation = formData.value.raisedFundsAllocation.allocations[index]
+  const availableAmount = raisedFundsAfterFees.value.availableForLiquidity
+  
+  if (availableAmount > 0) {
+    allocation.percentage = (Number(allocation.amount) / availableAmount) * 100
+  }
 }
 
-const removeTeamRecipient = (index: number) => {
-  formData.value.raisedFundsAllocation.teamRecipients.splice(index, 1)
+// Dynamic Allocation Recipients Management
+const addRecipientToAllocation = (allocationId: string) => {
+  const allocation = formData.value.raisedFundsAllocation.allocations.find(a => a.id === allocationId)
+  if (allocation) {
+    allocation.recipients.push({
+      principal: '',
+      percentage: 100,
+      name: '',
+      vestingEnabled: false,
+      vestingSchedule: {
+        cliffDays: 0,
+        durationDays: allocationId === 'team' ? 365 : allocationId === 'development' ? 730 : 180,
+        releaseFrequency: 'monthly',
+        immediateRelease: 0
+      }
+    })
+  }
 }
 
-// Development Recipients Management
-const addDevelopmentRecipient = () => {
-  formData.value.raisedFundsAllocation.developmentRecipients.push({
-    principal: '',
-    percentage: 100,
-    name: '',
-    vestingEnabled: false,
-    vestingSchedule: {
-      cliffDays: 0,
-      durationDays: 730,
-      releaseFrequency: 'monthly',
-      immediateRelease: 0
-    }
-  })
-}
-
-const removeDevelopmentRecipient = (index: number) => {
-  formData.value.raisedFundsAllocation.developmentRecipients.splice(index, 1)
-}
-
-// Marketing Recipients Management
-const addMarketingRecipient = () => {
-  formData.value.raisedFundsAllocation.marketingRecipients.push({
-    principal: '',
-    percentage: 100,
-    name: '',
-    vestingEnabled: false,
-    vestingSchedule: {
-      cliffDays: 0,
-      durationDays: 180,
-      releaseFrequency: 'monthly',
-      immediateRelease: 0
-    }
-  })
-}
-
-const removeMarketingRecipient = (index: number) => {
-  formData.value.raisedFundsAllocation.marketingRecipients.splice(index, 1)
+const removeRecipientFromAllocation = (allocationId: string, recipientIndex: number) => {
+  const allocation = formData.value.raisedFundsAllocation.allocations.find(a => a.id === allocationId)
+  if (allocation) {
+    allocation.recipients.splice(recipientIndex, 1)
+  }
 }
 
 // Apply smart allocation suggestion

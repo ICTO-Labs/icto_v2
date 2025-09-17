@@ -23,7 +23,19 @@
       </div>
       <div class="space-y-2">
         <div class="flex justify-between text-sm">
-          <span class="text-blue-700 dark:text-blue-300">Allocated:</span>
+          <span class="text-blue-700 dark:text-blue-300">Sale Amount:</span>
+          <span class="font-medium text-blue-800 dark:text-blue-200">{{ formatTokenAmount(props.totalSaleAmount || 0) }}</span>
+        </div>
+        <div v-if="props.totalLiquidityToken && props.totalLiquidityToken > 0" class="flex justify-between text-sm">
+          <span class="text-blue-700 dark:text-blue-300">DEX Liquidity:</span>
+          <span class="font-medium text-orange-600 dark:text-orange-400">{{ formatTokenAmount(props.totalLiquidityToken) }}</span>
+        </div>
+        <div class="flex justify-between text-sm">
+          <span class="text-blue-700 dark:text-blue-300">Distribution Allocated:</span>
+          <span class="font-medium text-blue-800 dark:text-blue-200">{{ formatTokenAmount(totalAllocated - (props.totalLiquidityToken || 0)) }}</span>
+        </div>
+        <div class="flex justify-between text-sm font-semibold border-t border-blue-200 dark:border-blue-700 pt-2">
+          <span class="text-blue-700 dark:text-blue-300">Total Allocated:</span>
           <span class="font-medium text-blue-800 dark:text-blue-200">{{ formatTokenAmount(totalAllocated) }} ({{ allocationPercentage.toFixed(2) }}%)</span>
         </div>
         <div class="flex justify-between text-sm">
@@ -43,17 +55,6 @@
       </div>
     </div>
 
-    <!-- Token Allocation Chart -->
-    <div v-if="allocations.length > 0">
-      <PieChart
-        title="Token Distribution"
-        :chart-data="tokenAllocationChartData"
-        :show-values="true"
-        :value-unit="saleTokenSymbol || 'Tokens'"
-        center-label="Total Supply"
-        :total-value="totalSupply"
-      />
-    </div>
 
     <!-- Allocation Categories -->
     <div v-if="allocations.length === 0" class="text-center py-8 bg-gray-50 dark:bg-gray-700 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600">
@@ -79,20 +80,20 @@
               type="text"
               placeholder="Category name (e.g., Public Sale, Team, Liquidity)"
               class="font-medium text-gray-900 dark:text-white bg-transparent border-none p-0 focus:ring-0 focus:outline-none placeholder:text-gray-400"
-              :class="{ 'pr-12': allocation.isRequired }"
-              :readonly="allocation.isRequired"
+              :class="{ 'pr-12': isAutoManagedAllocation(allocation) }"
+              :readonly="isAutoManagedAllocation(allocation)"
               @input="validateAndEmit"
             />
             <span 
-              v-if="allocation.isRequired"
-              class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
-              title="Required allocation based on sale parameters"
+              v-if="isAutoManagedAllocation(allocation)"
+              class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+              title="Auto-managed allocation - amount is synchronized with your sale/DEX settings"
             >
-              Required
+              Auto-managed
             </span>
           </div>
           <button
-            v-if="!allocation.isRequired"
+            v-if="!isAutoManagedAllocation(allocation)"
             @click="removeAllocation(index)"
             type="button"
             class="p-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
@@ -103,7 +104,7 @@
           <div
             v-else
             class="p-1 text-gray-400 dark:text-gray-600 rounded"
-            title="Required allocation - cannot be removed"
+            title="Auto-managed allocation - cannot be removed"
           >
             <XIcon class="h-4 w-4 opacity-50" />
           </div>
@@ -114,7 +115,7 @@
           <div>
             <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
               Total Amount <HelpTooltip>Number of tokens allocated to this category. For sale participants, this is automatically calculated from your sale parameters.</HelpTooltip>
-              <span v-if="allocation.isRequired" class="text-xs text-blue-600 dark:text-blue-400">(Auto-calculated)</span>
+              <span v-if="isAutoManagedAllocation(allocation)" class="text-xs text-green-600 dark:text-green-400">(Auto-synced)</span>
             </label>
             <input
               v-model="allocation.totalAmount"
@@ -123,12 +124,12 @@
               min="0"
               step="1"
               placeholder="1000000"
-              :readonly="allocation.isRequired"
+              :readonly="isAutoManagedAllocation(allocation)"
               class="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-              :class="{ 'bg-gray-100 dark:bg-gray-600 cursor-not-allowed': allocation.isRequired }"
+              :class="{ 'bg-gray-100 dark:bg-gray-600 cursor-not-allowed': isAutoManagedAllocation(allocation) }"
             />
-            <p v-if="allocation.isRequired" class="text-xs text-blue-600 dark:text-blue-400 mt-1">
-              Amount is automatically set based on Total Sale Amount in sale parameters
+            <p v-if="isAutoManagedAllocation(allocation)" class="text-xs text-green-600 dark:text-green-400 mt-1">
+              Amount is automatically synchronized with your sale/DEX configuration
             </p>
           </div>
 
@@ -301,12 +302,12 @@ import { ref, computed, watch } from 'vue'
 import { PlusIcon, XIcon, CoinsIcon, AlertCircleIcon } from 'lucide-vue-next'
 import VestingScheduleConfig from './VestingScheduleConfig.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
-import PieChart from '@/components/common/PieChart.vue'
 import { stringifyWithBigInt } from '@/utils/common'
 interface Props {
   modelValue?: any[]
   totalSupply?: number
   totalSaleAmount?: number
+  totalLiquidityToken?: number
   saleTokenSymbol?: string
 }
 
@@ -318,6 +319,7 @@ interface Emits {
 const props = withDefaults(defineProps<Props>(), {
   totalSupply: 100000000,
   totalSaleAmount: 0,
+  totalLiquidityToken: 0,
   saleTokenSymbol: 'TOKEN'
 })
 const emit = defineEmits<Emits>()
@@ -328,9 +330,11 @@ const isUpdatingFromParent = ref(false)
 
 // Computed properties
 const totalAllocated = computed(() => {
-  return allocations.value.reduce((sum, allocation) => {
+  const allocationSum = allocations.value.reduce((sum, allocation) => {
     return sum + (Number(allocation.totalAmount) || 0)
   }, 0)
+  // Add Total Initial Liquidity for DEX to the total allocation
+  return allocationSum + (props.totalLiquidityToken || 0)
 })
 
 // Recipient type options
@@ -422,6 +426,22 @@ const formatTokenAmount = (amount: number): string => {
   return new Intl.NumberFormat().format(amount)
 }
 
+// Check if allocation should be auto-managed
+const isAutoManagedAllocation = (allocation: any): boolean => {
+  // Check if explicitly marked as required
+  if (allocation.isRequired) return true
+  
+  // Only consider specific recipient types for auto-management
+  if (allocation.recipientConfig?.type === 'SaleParticipants') return true
+  if (allocation.recipientConfig?.type === 'LiquidityPool') return true
+  
+  // Check by exact name matches only for critical allocations
+  if (allocation.name === 'Public Sale' && allocation.recipientConfig?.type === 'SaleParticipants') return true
+  if (allocation.name === 'DEX Liquidity' && allocation.recipientConfig?.type === 'LiquidityPool') return true
+  
+  return false
+}
+
 const getCategoryColor = (name: string): string => {
   const colors = [
     '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
@@ -473,6 +493,14 @@ const convertRecipientConfig = (config: any) => {
 }
 
 const convertFromRecipientConfig = (recipients: any) => {
+  // Handle null or undefined recipients
+  if (!recipients || typeof recipients !== 'object') {
+    return {
+      type: 'SaleParticipants',
+      recipients: []
+    }
+  }
+  
   if ('FixedList' in recipients) {
     return {
       type: 'FixedList',
@@ -495,7 +523,15 @@ const convertFromRecipientConfig = (recipients: any) => {
     'Airdrop': 'Airdrop'
   }
   
-  const key = Object.keys(recipients)[0]
+  const keys = Object.keys(recipients)
+  if (keys.length === 0) {
+    return {
+      type: 'SaleParticipants',
+      recipients: []
+    }
+  }
+  
+  const key = keys[0]
   return {
     type: typeMap[key] || 'SaleParticipants',
     recipients: []
@@ -516,10 +552,13 @@ const convertToDistributionCategory = (allocation: any) => {
 
 // Helper function to ensure Sale allocation exists and is updated
 const ensureSaleAllocation = (saleAmount: number) => {
+  // Find any sale-related allocation (handle template variations)
   const saleAllocationIndex = allocations.value.findIndex(a => 
     a.name === 'Sale Participants' || 
     a.name === 'Sale' || 
     a.name === 'Public Sale' ||
+    a.name === 'Community Sale' ||
+    a.name === 'Private Sale' ||
     a.recipientConfig?.type === 'SaleParticipants'
   )
   
@@ -570,6 +609,67 @@ const removeSaleAllocation = () => {
   }
 }
 
+// Helper function to ensure DEX Liquidity allocation exists and is updated
+const ensureDEXLiquidityAllocation = (liquidityAmount: number) => {
+  const dexAllocationIndex = allocations.value.findIndex(a => 
+    a.name === 'DEX Liquidity' || 
+    a.name === 'Liquidity' || 
+    a.name === 'Liquidity Pool' ||
+    a.recipientConfig?.type === 'LiquidityPool'
+  )
+  
+  if (dexAllocationIndex >= 0) {
+    // Update existing DEX allocation
+    const existing = allocations.value[dexAllocationIndex]
+    allocations.value[dexAllocationIndex] = {
+      ...existing,
+      name: 'DEX Liquidity',
+      totalAmount: liquidityAmount,
+      percentage: props.totalSupply > 0 ? (liquidityAmount / props.totalSupply) * 100 : 0,
+      description: `Token allocation for DEX liquidity pools. Total liquidity: ${formatTokenAmount(liquidityAmount)} ${props.saleTokenSymbol}`,
+      recipientConfig: {
+        type: 'LiquidityPool',
+        recipients: existing.recipientConfig?.recipients || []
+      },
+      isRequired: true
+    }
+  } else if (liquidityAmount > 0) {
+    // Add DEX liquidity allocation
+    const dexAllocation = {
+      name: 'DEX Liquidity',
+      description: `Token allocation for DEX liquidity pools. Total liquidity: ${formatTokenAmount(liquidityAmount)} ${props.saleTokenSymbol}`,
+      totalAmount: liquidityAmount,
+      percentage: props.totalSupply > 0 ? (liquidityAmount / props.totalSupply) * 100 : 0,
+      recipientConfig: {
+        type: 'LiquidityPool',
+        recipients: []
+      },
+      vestingSchedule: null,
+      isRequired: true
+    }
+    // Add after Sale allocation
+    const insertIndex = allocations.value.findIndex(a => !a.isRequired) 
+    if (insertIndex >= 0) {
+      allocations.value.splice(insertIndex, 0, dexAllocation)
+    } else {
+      allocations.value.push(dexAllocation)
+    }
+  }
+}
+
+// Helper function to remove DEX Liquidity allocation if amount is 0
+const removeDEXLiquidityAllocation = () => {
+  const dexAllocationIndex = allocations.value.findIndex(a => 
+    a.name === 'DEX Liquidity' || 
+    a.name === 'Liquidity' || 
+    a.name === 'Liquidity Pool' ||
+    a.recipientConfig?.type === 'LiquidityPool'
+  )
+  if (dexAllocationIndex >= 0) {
+    allocations.value.splice(dexAllocationIndex, 1)
+  }
+}
+
 // Watch for totalSaleAmount changes and auto-manage Sale allocation
 watch(() => props.totalSaleAmount, (newSaleAmount) => {
   if (newSaleAmount && newSaleAmount > 0) {
@@ -578,6 +678,31 @@ watch(() => props.totalSaleAmount, (newSaleAmount) => {
     removeSaleAllocation()
   }
 }, { immediate: true })
+
+// Watch for totalLiquidityToken changes and auto-manage DEX Liquidity allocation
+watch(() => props.totalLiquidityToken, (newLiquidityAmount) => {
+  if (newLiquidityAmount && newLiquidityAmount > 0) {
+    ensureDEXLiquidityAllocation(newLiquidityAmount)
+  } else {
+    removeDEXLiquidityAllocation()
+  }
+}, { immediate: true })
+
+// Function to recalculate all percentages based on current totalSupply
+const recalculatePercentages = () => {
+  if (props.totalSupply > 0) {
+    allocations.value.forEach(allocation => {
+      allocation.percentage = (Number(allocation.totalAmount) / props.totalSupply) * 100
+    })
+  }
+}
+
+// Watch for totalSupply changes and recalculate percentages (important for templates)
+watch(() => props.totalSupply, (newTotalSupply) => {
+  if (newTotalSupply && newTotalSupply > 0) {
+    recalculatePercentages()
+  }
+}, { immediate: false }) // Don't trigger immediately to avoid conflicts with template loading
 
 // Watch for validation changes
 watch(validationErrors, (errors) => {
@@ -641,14 +766,27 @@ watch(() => props.modelValue, (newValue) => {
   isUpdatingFromParent.value = true
   
   if (newValue && newValue.length > 0) {
-    allocations.value = newValue.map(category => ({
-      name: category.name,
-      description: category.description?.[0] || '',
-      totalAmount: Number(category.totalAmount),
-      percentage: category.percentage,
-      recipientConfig: convertFromRecipientConfig(category.recipients),
-      vestingSchedule: category.vestingSchedule?.[0] || null
-    }))
+    allocations.value = newValue.map(category => {
+      const recipientConfig = convertFromRecipientConfig(category.recipients)
+      
+      // Auto-correct recipient type based on name if it's still default
+      if (recipientConfig.type === 'SaleParticipants' && category.name) {
+        const suggestedType = getDefaultRecipientType(category.name)
+        if (suggestedType !== 'SaleParticipants') {
+          recipientConfig.type = suggestedType
+          console.log(`Auto-corrected recipient type for "${category.name}" from SaleParticipants to ${suggestedType}`)
+        }
+      }
+      
+      return {
+        name: category.name,
+        description: category.description?.[0] || '',
+        totalAmount: Number(category.totalAmount),
+        percentage: category.percentage,
+        recipientConfig,
+        vestingSchedule: category.vestingSchedule?.[0] || null
+      }
+    })
   } else {
     allocations.value = []
   }
@@ -751,45 +889,4 @@ const handleAmountChange = (allocation: any) => {
 }
 
 // Token Allocation Chart Data
-const tokenAllocationChartData = computed(() => {
-  if (allocations.value.length === 0) {
-    return {
-      labels: [],
-      data: [],
-      values: [],
-      colors: [],
-      percentages: []
-    }
-  }
-  
-  const colors = [
-    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
-    '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
-  ]
-  
-  const labels = allocations.value.map(a => a.name || 'Unnamed')
-  const data = allocations.value.map(a => Number(a.percentage || 0))
-  const values = allocations.value.map(a => Number(a.totalAmount || 0))
-  
-  // Calculate actual percentages
-  const total = data.reduce((sum, value) => sum + value, 0)
-  const percentages = data.map(value => total > 0 ? Number((value / total * 100).toFixed(1)) : 0)
-  
-  // Add unallocated portion if exists
-  const unallocatedPercentage = Math.max(0, 100 - allocationPercentage.value)
-  if (unallocatedPercentage > 0) {
-    labels.push('Unallocated')
-    data.push(unallocatedPercentage)
-    values.push(remainingTokens.value > 0 ? remainingTokens.value : 0)
-    percentages.push(Number(unallocatedPercentage.toFixed(1)))
-  }
-  
-  return {
-    labels,
-    data,
-    values,
-    colors: colors.slice(0, labels.length),
-    percentages
-  }
-})
 </script>

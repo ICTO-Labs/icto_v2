@@ -26,22 +26,28 @@
         <div 
           v-for="(item, index) in chartData.labels" 
           :key="`${item}-${index}`"
-          class="flex items-center justify-between p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          class="flex items-center justify-between p-2 rounded hover:bg-white dark:hover:bg-gray-800 hover:shadow-sm transition-all duration-200 border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
         >
           <div class="flex items-center">
             <span 
               class="w-3 h-3 rounded-full mr-3 flex-shrink-0"
               :style="{ backgroundColor: chartData.colors[index] }"
             ></span>
-            <span class="text-sm text-gray-700 dark:text-gray-300 truncate">
+            <span 
+              class="text-sm font-medium truncate"
+              :style="`color: ${chartData.colors[index]} !important`"
+            >
               {{ item }}
             </span>
           </div>
           <div class="text-right ml-2">
-            <div class="text-sm font-medium text-gray-900 dark:text-white">
+            <div 
+              class="text-sm font-bold"
+              :style="`color: ${chartData.colors[index]} !important`"
+            >
               {{ chartData.percentages[index] }}%
             </div>
-            <div v-if="showValues && chartData.values" class="text-xs text-gray-500 dark:text-gray-400">
+            <div v-if="showValues && chartData.values" class="text-xs opacity-60" :style="`color: ${chartData.colors[index]} !important`">
               {{ formatNumber(chartData.values[index]) }} {{ valueUnit }}
             </div>
           </div>

@@ -28,33 +28,31 @@
     </div>
 
     <!-- Templates Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <!-- Blank Template -->
       <div 
         @click="selectTemplate(null)"
         :class="[
-          'relative p-6 border-2 rounded-xl cursor-pointer transition-all hover:shadow-lg',
+          'relative p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md',
           selectedTemplate === null
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
             : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
         ]"
       >
         <div class="text-center">
-          <div class="text-4xl mb-4">📝</div>
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">Start from Scratch</h3>
-          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-            Create your own custom configuration with full control over all parameters.
+          <div class="text-2xl mb-2">📝</div>
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">Custom</h3>
+          <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">
+            Start from scratch
           </p>
-          <div class="space-y-2 text-xs text-gray-500 dark:text-gray-400">
-            <div>✨ Full customization</div>
-            <div>🎯 Expert-level control</div>
-            <div>🔧 All advanced features</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400">
+            Full control
           </div>
         </div>
         
-        <div v-if="selectedTemplate === null" class="absolute top-3 right-3">
-          <div class="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-            <CheckIcon class="w-4 h-4 text-white" />
+        <div v-if="selectedTemplate === null" class="absolute top-2 right-2">
+          <div class="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+            <CheckIcon class="w-3 h-3 text-white" />
           </div>
         </div>
       </div>
@@ -65,165 +63,87 @@
         :key="template.id"
         @click="selectTemplate(template)"
         :class="[
-          'relative p-6 border-2 rounded-xl cursor-pointer transition-all hover:shadow-lg',
+          'relative p-4 border-2 rounded-lg cursor-pointer transition-all hover:shadow-md',
           selectedTemplate?.id === template.id
             ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
             : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
         ]"
       >
         <!-- Badge -->
-        <div v-if="template.badge" class="absolute top-3 left-3">
-          <span class="px-2 py-1 text-xs font-medium bg-gradient-to-r from-yellow-400 to-orange-500 text-white rounded-full">
+        <div v-if="template.badge" class="absolute top-2 left-2">
+          <span class="px-1.5 py-0.5 text-xs font-medium bg-gradient-to-r from-yellow-400 to-orange-500 text-white rounded">
             {{ template.badge }}
           </span>
         </div>
 
         <!-- Selection Indicator -->
-        <div v-if="selectedTemplate?.id === template.id" class="absolute top-3 right-3">
-          <div class="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-            <CheckIcon class="w-4 h-4 text-white" />
+        <div v-if="selectedTemplate?.id === template.id" class="absolute top-2 right-2">
+          <div class="w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+            <CheckIcon class="w-3 h-3 text-white" />
           </div>
         </div>
 
         <!-- Content -->
         <div class="text-center">
-          <div class="text-4xl mb-4">{{ template.icon }}</div>
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ template.name }}</h3>
+          <div class="text-2xl mb-2">{{ template.icon }}</div>
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-1">{{ template.name }}</h3>
           
           <!-- Complexity Badge -->
-          <div class="mb-3">
+          <div class="mb-2">
             <span :class="[
-              'px-2 py-1 text-xs font-medium rounded-full',
+              'px-1.5 py-0.5 text-xs font-medium rounded',
               getComplexityClass(template.complexity)
             ]">
               {{ getComplexityLabel(template.complexity) }}
             </span>
           </div>
           
-          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+          <p class="text-xs text-gray-600 dark:text-gray-400 mb-2 line-clamp-2">
             {{ template.description }}
           </p>
           
-          <!-- Features -->
-          <div class="space-y-1 text-xs text-left">
-            <div class="font-medium text-gray-700 dark:text-gray-300 mb-2">Key Features:</div>
-            <div v-for="feature in template.features.slice(0, 3)" :key="feature" class="flex items-center text-gray-600 dark:text-gray-400">
-              <div class="w-1 h-1 bg-green-500 rounded-full mr-2"></div>
-              {{ feature }}
-            </div>
-            <div v-if="template.features.length > 3" class="text-gray-500 dark:text-gray-500">
-              +{{ template.features.length - 3 }} more...
-            </div>
+          <!-- Key info only -->
+          <div class="text-xs text-gray-500 dark:text-gray-400">
+            {{ template.data.saleType }}
           </div>
         </div>
       </div>
     </div>
 
     <!-- Template Details -->
-    <div v-if="selectedTemplate" class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-xl p-6 border border-blue-200 dark:border-blue-700">
-      <h4 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">
-        {{ selectedTemplate.icon }} {{ selectedTemplate.name }} - Template Details
+    <div v-if="selectedTemplate" class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
+      <h4 class="text-md font-semibold text-blue-900 dark:text-blue-100 mb-3">
+        {{ selectedTemplate.icon }} {{ selectedTemplate.name }}
       </h4>
       
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <!-- Recommended For -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
         <div>
-          <h5 class="font-medium text-gray-900 dark:text-white mb-2">Recommended For:</h5>
-          <ul class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <li v-for="recommendation in selectedTemplate.recommendedFor" :key="recommendation" class="flex items-center">
-              <div class="w-1 h-1 bg-blue-500 rounded-full mr-2"></div>
-              {{ recommendation }}
-            </li>
-          </ul>
+          <span class="text-gray-500 dark:text-gray-400">Sale Type:</span>
+          <div class="font-medium">{{ selectedTemplate.data.saleType }}</div>
         </div>
-        
-        <!-- All Features -->
         <div>
-          <h5 class="font-medium text-gray-900 dark:text-white mb-2">All Features:</h5>
-          <ul class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <li v-for="feature in selectedTemplate.features" :key="feature" class="flex items-center">
-              <div class="w-1 h-1 bg-green-500 rounded-full mr-2"></div>
-              {{ feature }}
-            </li>
-          </ul>
+          <span class="text-gray-500 dark:text-gray-400">Price:</span>
+          <div class="font-medium">${{ selectedTemplate.data.tokenPrice }}</div>
         </div>
-      </div>
-      
-      <!-- Quick Preview -->
-      <div class="mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg">
-        <h5 class="font-medium text-gray-900 dark:text-white mb-2">Quick Preview:</h5>
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div>
-            <span class="text-gray-500 dark:text-gray-400">Sale Type:</span>
-            <div class="font-medium">{{ selectedTemplate.data.saleType }}</div>
-          </div>
-          <div>
-            <span class="text-gray-500 dark:text-gray-400">Token Price:</span>
-            <div class="font-medium">${{ selectedTemplate.data.tokenPrice }} ICP</div>
-          </div>
-          <div>
-            <span class="text-gray-500 dark:text-gray-400">Hard Cap:</span>
-            <div class="font-medium">{{ formatNumber(selectedTemplate.data.hardCap) }} ICP</div>
-          </div>
-          <div>
-            <span class="text-gray-500 dark:text-gray-400">Vesting:</span>
-            <div class="font-medium">{{ selectedTemplate.data.vestingEnabled ? 'Yes' : 'No' }}</div>
-          </div>
+        <div>
+          <span class="text-gray-500 dark:text-gray-400">Hard Cap:</span>
+          <div class="font-medium">{{ formatNumber(selectedTemplate.data.hardCap) }} ICP</div>
+        </div>
+        <div>
+          <span class="text-gray-500 dark:text-gray-400">Vesting:</span>
+          <div class="font-medium">{{ selectedTemplate.data.vestingEnabled ? 'Yes' : 'No' }}</div>
         </div>
       </div>
     </div>
 
     <!-- Blank Template Details -->
-    <div v-else-if="selectedTemplate === null" class="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-900/50 dark:to-slate-900/50 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
-      <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-        📝 Custom Configuration - Start from Scratch
+    <div v-else-if="selectedTemplate === null" class="bg-gradient-to-r from-gray-50 to-slate-50 dark:from-gray-900/50 dark:to-slate-900/50 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+      <h4 class="text-md font-semibold text-gray-900 dark:text-white mb-2">
+        📝 Custom Configuration
       </h4>
-      
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <h5 class="font-medium text-gray-900 dark:text-white mb-2">Perfect For:</h5>
-          <ul class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-blue-500 rounded-full mr-2"></div>
-              Experienced developers
-            </li>
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-blue-500 rounded-full mr-2"></div>
-              Unique project requirements
-            </li>
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-blue-500 rounded-full mr-2"></div>
-              Custom tokenomics
-            </li>
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-blue-500 rounded-full mr-2"></div>
-              Full control over all parameters
-            </li>
-          </ul>
-        </div>
-        
-        <div>
-          <h5 class="font-medium text-gray-900 dark:text-white mb-2">What You'll Configure:</h5>
-          <ul class="space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-green-500 rounded-full mr-2"></div>
-              Project information & branding
-            </li>
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-green-500 rounded-full mr-2"></div>
-              Token economics & distribution
-            </li>
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-green-500 rounded-full mr-2"></div>
-              Sale parameters & timeline
-            </li>
-            <li class="flex items-center">
-              <div class="w-1 h-1 bg-green-500 rounded-full mr-2"></div>
-              Advanced features & governance
-            </li>
-          </ul>
-        </div>
-      </div>
+      <p class="text-sm text-gray-600 dark:text-gray-400">
+        Start from scratch with full control over all parameters and features.
+      </p>
     </div>
 
     <!-- Selection Status -->

@@ -33,6 +33,10 @@
             <span class="text-gray-600 dark:text-gray-400">Platform Fee ({{ platformFeeRate }}%):</span>
             <span class="font-medium text-red-600">-{{ formatAmount(platformFee) }} ICP</span>
           </div>
+          <div v-if="dexLiquidityFee > 0" class="flex justify-between text-sm">
+            <span class="text-gray-600 dark:text-gray-400">DEX Liquidity Required:</span>
+            <span class="font-medium text-orange-600">-{{ formatAmount(dexLiquidityFee) }} ICP</span>
+          </div>
           <div class="flex justify-between text-sm font-semibold border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
             <span>Available for Allocation:</span>
             <span class="text-green-600">{{ formatAmount(availableForAllocation) }} ICP</span>
@@ -75,7 +79,7 @@
       <!-- Team Recipients Configuration -->
       <div v-if="teamPercentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
         <div class="flex justify-between items-center mb-3">
-          <h4 class="font-medium text-gray-900 dark:text-white">Team Recipients <HelpTooltip>Configure principals who will receive team allocation and their distribution terms.</HelpTooltip></h4>
+          <h4 class="font-medium text-gray-900 dark:text-white required">Team Recipients <HelpTooltip>Configure principals who will receive team allocation and their distribution terms.</HelpTooltip></h4>
           <button 
             @click="addTeamRecipient"
             type="button"
@@ -101,7 +105,7 @@
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal ID</label>
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal * </label>
               <input
                 v-model="recipient.principal"
                 type="text"
@@ -144,337 +148,165 @@
       </div>
     </div>
 
-    <!-- Development Fund Allocation -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Development Fund</h3>
-      
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <!-- Development Percentage Input -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Development Fund Percentage <HelpTooltip>Funds allocated for ongoing development, feature improvements, and technical maintenance. Essential for project growth and sustainability.</HelpTooltip>
-          </label>
-          <NumberInput
-            v-model="developmentPercentage"
-            placeholder="0"
-            suffix="%"
-            :min="0"
-            :max="100"
-            class="w-full"
-          />
-        </div>
-        
-        <!-- Development Amount Display (Readonly) -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Development Amount (Calculated)
-          </label>
-          <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
-            {{ formatAmount(developmentAmount) }} ICP
-          </div>
-        </div>
-      </div>
-
-      <!-- Development Recipients Configuration -->
-      <div v-if="developmentPercentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <div class="flex justify-between items-center mb-3">
-          <h4 class="font-medium text-gray-900 dark:text-white">Development Recipients <HelpTooltip>Configure principals who will receive development fund allocation.</HelpTooltip></h4>
-          <button 
-            @click="addDevelopmentRecipient"
-            type="button"
-            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
-          >
-            Add Recipient
-          </button>
-        </div>
-        
-        <div v-if="developmentRecipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
-          ⚠️ At least one recipient is required for non-zero development allocation
-        </div>
-        
-        <div v-for="(recipient, index) in developmentRecipients" :key="index" class="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name (Optional)</label>
-              <input
-                v-model="recipient.name"
-                type="text"
-                placeholder="Developer name"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal ID</label>
-              <input
-                v-model="recipient.principal"
-                type="text"
-                placeholder="Principal ID"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Percentage</label>
-              <div class="flex items-center space-x-2">
-                <div class="flex-1">
-                  <NumberInput
-                    v-model="recipient.percentage"
-                    placeholder="0"
-                    suffix="%"
-                    :min="0"
-                    :max="100"
-                    class="w-full h-10"
-                  />
-                </div>
-                <button 
-                  @click="removeDevelopmentRecipient(index)"
-                  type="button"
-                  class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors h-10 flex-shrink-0"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Vesting Configuration -->
-          <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
-            <VestingScheduleConfig
-              v-model="recipient.vestingSchedule"
-              :allocation-name="`Raised Fund Recipient ${index + 1}`"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Marketing Fund Allocation -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Marketing Fund</h3>
-      
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <!-- Marketing Percentage Input -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Marketing Fund Percentage <HelpTooltip>Budget for marketing campaigns, community building, partnerships, and user acquisition. Critical for project adoption and ecosystem growth.</HelpTooltip>
-          </label>
-          <NumberInput
-            v-model="marketingPercentage"
-            placeholder="0"
-            suffix="%"
-            :min="0"
-            :max="100"
-            class="w-full"
-          />
-        </div>
-        
-        <!-- Marketing Amount Display (Readonly) -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Marketing Amount (Calculated)
-          </label>
-          <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
-            {{ formatAmount(marketingAmount) }} ICP
-          </div>
-        </div>
-      </div>
-
-      <!-- Marketing Recipients Configuration -->
-      <div v-if="marketingPercentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <div class="flex justify-between items-center mb-3">
-          <h4 class="font-medium text-gray-900 dark:text-white">Marketing Recipients <HelpTooltip>Configure principals who will receive marketing fund allocation.</HelpTooltip></h4>
-          <button 
-            @click="addMarketingRecipient"
-            type="button"
-            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
-          >
-            Add Recipient
-          </button>
-        </div>
-        
-        <div v-if="marketingRecipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
-          ⚠️ At least one recipient is required for non-zero marketing allocation
-        </div>
-        
-        <div v-for="(recipient, index) in marketingRecipients" :key="index" class="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name (Optional)</label>
-              <input
-                v-model="recipient.name"
-                type="text"
-                placeholder="Marketing team member"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal ID</label>
-              <input
-                v-model="recipient.principal"
-                type="text"
-                placeholder="Principal ID"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Percentage</label>
-              <div class="flex items-center space-x-2">
-                <div class="flex-1">
-                  <NumberInput
-                    v-model="recipient.percentage"
-                    placeholder="0"
-                    suffix="%"
-                    :min="0"
-                    :max="100"
-                    class="w-full h-10"
-                  />
-                </div>
-                <button 
-                  @click="removeMarketingRecipient(index)"
-                  type="button"
-                  class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors h-10 flex-shrink-0"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          <!-- Vesting Configuration -->
-          <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
-            <VestingScheduleConfig
-              v-model="recipient.vestingSchedule"
-              :allocation-name="`Raised Fund Recipient ${index + 1}`"
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- LP Token Recipients -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+    <!-- Custom Allocations -->
+    <div 
+      v-for="(allocation, index) in customAllocations" 
+      :key="allocation.id"
+      class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+    >
       <div class="flex justify-between items-center mb-4">
-        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">LP Token Recipients <HelpTooltip>Configure who will receive LP tokens after DEX listing and their unlock conditions.</HelpTooltip></h3>
+        <div class="flex items-center space-x-2">
+          <input
+            v-model="allocation.name"
+            type="text"
+            placeholder="Allocation name (e.g., Development Fund)"
+            class="text-lg font-semibold bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-400"
+          />
+        </div>
         <button 
-          @click="addLPRecipient"
+          @click="removeCustomAllocation(index)"
           type="button"
-          class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded-md transition-colors"
+          class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
         >
-          Add LP Recipient
+          Remove
         </button>
       </div>
       
-      <div v-if="lpTokenRecipients.length === 0" class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-sm text-blue-800 dark:text-blue-200">
-        💡 LP tokens will be distributed to configured recipients after DEX listing
-      </div>
-      
-      <div v-for="(recipient, index) in lpTokenRecipients" :key="index" class="mb-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-          <div>
-            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name (Optional)</label>
-            <input
-              v-model="recipient.name"
-              type="text"
-              placeholder="Recipient name"
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal ID</label>
-            <input
-              v-model="recipient.principal"
-              type="text"
-              placeholder="Principal ID"
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-            />
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Percentage</label>
-            <div class="flex items-center space-x-2">
-              <div class="flex-1">
-                <NumberInput
-                  v-model="recipient.percentage"
-                  placeholder="0"
-                  suffix="%"
-                  :min="0"
-                  :max="100"
-                  class="w-full h-10"
-                />
-              </div>
-              <button 
-                @click="removeLPRecipient(index)"
-                type="button"
-                class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors h-10 flex-shrink-0"
-              >
-                Remove
-              </button>
-            </div>
-          </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <!-- Allocation Percentage Input -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            {{ allocation.name || 'Custom' }} Allocation Percentage <HelpTooltip>Percentage of raised funds allocated to this category.</HelpTooltip>
+          </label>
+          <NumberInput
+            v-model="allocation.percentage"
+            placeholder="0"
+            suffix="%"
+            :min="0"
+            :max="100"
+            class="w-full"
+          />
         </div>
         
-        <!-- Unlock Conditions -->
-        <div class="border-t border-green-200 dark:border-green-700 pt-3">
-          <div class="mb-3">
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-              Unlock Conditions
-            </label>
-            <Select size="md"
-              v-model="recipient.unlockConditions.type"
-              :options="[
-                { value: 'immediate', label: 'Immediate (No Lock)' },
-                { value: 'time-locked', label: 'Time-Locked' },
-                { value: 'milestone-based', label: 'Milestone-Based' }
-              ]"
-            >
-            </Select>
+        <!-- Allocation Amount Display (Readonly) -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            {{ allocation.name || 'Custom' }} Amount (Calculated)
+          </label>
+          <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+            {{ formatAmount(calculateAllocationAmount(allocation.percentage)) }} ICP
           </div>
-          
-          <div v-if="recipient.unlockConditions.type === 'time-locked'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        </div>
+      </div>
+
+      <!-- Custom Allocation Recipients Configuration -->
+      <div v-if="allocation.percentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <div class="flex justify-between items-center mb-3">
+          <h4 class="font-medium text-gray-900 dark:text-white">{{ allocation.name || 'Custom' }} Recipients <HelpTooltip>Configure principals who will receive this allocation.</HelpTooltip></h4>
+          <button 
+            @click="addCustomAllocationRecipient(allocation.id)"
+            type="button"
+            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+          >
+            Add Recipient
+          </button>
+        </div>
+        
+        <div v-if="allocation.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
+          ⚠️ At least one recipient is required for non-zero {{ allocation.name || 'custom' }} allocation
+        </div>
+        
+        <div v-for="(recipient, recipientIndex) in allocation.recipients" :key="recipientIndex" class="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
             <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Lock Duration (Days)</label>
-              <NumberInput
-                v-model="recipient.unlockConditions.lockDuration"
-                placeholder="365"
-                :min="1"
-                size="sm"
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name (Optional)</label>
+              <input
+                v-model="recipient.name"
+                type="text"
+                placeholder="Recipient name"
+                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
               />
             </div>
             <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Initial Unlock %</label>
-              <NumberInput
-                v-model="recipient.unlockConditions.unlockPercentage"
-                placeholder="0"
-                suffix="%"
-                :min="0"
-                :max="100"
-                size="sm"
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal ID</label>
+              <input
+                v-model="recipient.principal"
+                type="text"
+                placeholder="Principal ID"
+                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
               />
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Percentage</label>
+              <div class="flex items-center space-x-2">
+                <div class="flex-1">
+                  <NumberInput
+                    v-model="recipient.percentage"
+                    placeholder="0"
+                    suffix="%"
+                    :min="0"
+                    :max="100"
+                    class="w-full h-10"
+                  />
+                </div>
+                <button 
+                  @click="removeCustomAllocationRecipient(allocation.id, recipientIndex)"
+                  type="button"
+                  class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors h-10 flex-shrink-0"
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           </div>
           
-          <div v-if="recipient.unlockConditions.type === 'milestone-based'" class="">
-            <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Milestone Description</label>
-            <input
-              v-model="recipient.unlockConditions.milestone"
-              type="text"
-              placeholder="e.g., After 1000 active users, TVL > $1M"
-              class="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+          <!-- Vesting Configuration -->
+          <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+            <VestingScheduleConfig
+              v-model="recipient.vestingSchedule"
+              :allocation-name="`${allocation.name || 'Custom'} Recipient ${recipientIndex + 1}`"
             />
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Raised Funds Allocation Chart -->
-    <div class="mt-8">
-      <PieChart
-        title="Raised Funds Allocation"
-        :chart-data="raisedFundsChartData"
-        :show-values="true"
-        value-unit="ICP"
-        center-label="Total Raised"
-        :total-value="availableForAllocation"
-      />
+
+    <!-- Add Custom Allocation -->
+    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-6">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Additional Allocations <HelpTooltip>Add custom allocation categories beyond team allocation as needed for your project.</HelpTooltip></h3>
+        <div class="flex space-x-2">
+          <button 
+            @click="addQuickAllocation('Development Fund', 15)"
+            type="button"
+            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+          >
+            + Development Fund
+          </button>
+          <button 
+            @click="addQuickAllocation('Marketing Fund', 10)"
+            type="button"
+            class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded-md transition-colors"
+          >
+            + Marketing Fund
+          </button>
+          <button 
+            @click="addCustomAllocation()"
+            type="button"
+            class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-md transition-colors"
+          >
+            + Custom Allocation
+          </button>
+        </div>
+      </div>
+      
+      <div v-if="customAllocations.length === 0" class="p-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded text-sm text-gray-600 dark:text-gray-400">
+        💡 Click the buttons above to add custom allocations as needed for your project
+      </div>
     </div>
+
+
 
     <!-- Summary -->
     <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg border border-blue-200 dark:border-blue-700 p-4">
@@ -485,18 +317,14 @@
           <span class="text-gray-600 dark:text-gray-400">Team ({{ teamPercentage }}%):</span>
           <span class="font-medium">{{ formatAmount(teamAmount) }} ICP</span>
         </div>
-        <div class="flex justify-between text-sm">
-          <span class="text-gray-600 dark:text-gray-400">Development ({{ developmentPercentage }}%):</span>
-          <span class="font-medium">{{ formatAmount(developmentAmount) }} ICP</span>
-        </div>
-        <div class="flex justify-between text-sm">
-          <span class="text-gray-600 dark:text-gray-400">Marketing ({{ marketingPercentage }}%):</span>
-          <span class="font-medium">{{ formatAmount(marketingAmount) }} ICP</span>
+        <div v-for="allocation in customAllocations" :key="allocation.id" v-if="allocation && allocation.percentage > 0" class="flex justify-between text-sm">
+          <span class="text-gray-600 dark:text-gray-400">{{ allocation.name }} ({{ allocation.percentage }}%):</span>
+          <span class="font-medium">{{ formatAmount(calculateAllocationAmount(allocation.percentage)) }} ICP</span>
         </div>
         <div class="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
           <div class="flex justify-between text-sm font-semibold">
-            <span>Total Allocated ({{ totalPercentage.toFixed(1) }}%):</span>
-            <span>{{ formatAmount(totalAllocated) }} ICP</span>
+            <span>Total Allocated ({{ totalAllocationPercentage.toFixed(1) }}%):</span>
+            <span>{{ formatAmount(totalAllocationAmount) }} ICP</span>
           </div>
           <div class="flex justify-between text-sm">
             <span class="text-gray-600 dark:text-gray-400">Remaining to Treasury ({{ remainingPercentage.toFixed(1) }}%):</span>
@@ -509,12 +337,12 @@
       <div class="mt-4">
         <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
           <span>Allocation Progress</span>
-          <span>{{ totalPercentage.toFixed(1) }}% of available funds</span>
+          <span>{{ totalAllocationPercentage.toFixed(1) }}% of available funds</span>
         </div>
         <div class="w-full bg-gray-200 rounded-full h-2">
           <div 
             class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-            :style="{ width: `${Math.min(totalPercentage, 100)}%` }"
+            :style="{ width: `${Math.min(totalAllocationPercentage, 100)}%` }"
           ></div>
         </div>
       </div>
@@ -534,7 +362,6 @@
 import { ref, computed, watch } from 'vue'
 import NumberInput from '@/components/common/NumberInput.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
-import PieChart from '@/components/common/PieChart.vue'
 import VestingScheduleConfig from './VestingScheduleConfig.vue'
 
 const props = defineProps({
@@ -549,6 +376,10 @@ const props = defineProps({
   platformFeeRate: {
     type: Number,
     default: 2.5
+  },
+  dexLiquidityRequired: {
+    type: Number,
+    default: 0
   },
   modelValue: {
     type: Object,
@@ -579,27 +410,45 @@ const currentRaisedAmount = ref(1000)
 
 // Percentage inputs
 const teamPercentage = ref(30)
-const developmentPercentage = ref(20)
-const marketingPercentage = ref(10)
 
 // Recipients arrays
 const teamRecipients = ref([])
-const developmentRecipients = ref([])
-const marketingRecipients = ref([])
-const lpTokenRecipients = ref([])
+
+// Custom allocations system
+const customAllocations = ref([])
+let allocationIdCounter = 0
+
+// Helper to generate unique allocation IDs
+const generateAllocationId = () => {
+  return `allocation_${++allocationIdCounter}_${Date.now()}`
+}
 
 // Calculations
 const platformFee = computed(() => currentRaisedAmount.value * (props.platformFeeRate / 100))
-const availableForAllocation = computed(() => currentRaisedAmount.value - platformFee.value)
+const dexLiquidityFee = computed(() => props.dexLiquidityRequired || 0)
+const availableForAllocation = computed(() => currentRaisedAmount.value - platformFee.value - dexLiquidityFee.value)
 
 const teamAmount = computed(() => availableForAllocation.value * (teamPercentage.value / 100))
-const developmentAmount = computed(() => availableForAllocation.value * (developmentPercentage.value / 100))
-const marketingAmount = computed(() => availableForAllocation.value * (marketingPercentage.value / 100))
 
-const totalAllocated = computed(() => teamAmount.value + developmentAmount.value + marketingAmount.value)
-const totalPercentage = computed(() => teamPercentage.value + developmentPercentage.value + marketingPercentage.value)
-const remainingPercentage = computed(() => Math.max(0, 100 - totalPercentage.value))
-const remainingAmount = computed(() => availableForAllocation.value - totalAllocated.value)
+// Calculate allocation amount for any percentage
+const calculateAllocationAmount = (percentage) => {
+  return availableForAllocation.value * (percentage / 100)
+}
+
+// Total custom allocations
+const totalCustomPercentage = computed(() => {
+  return customAllocations.value.reduce((sum, allocation) => sum + (allocation.percentage || 0), 0)
+})
+
+const totalCustomAmount = computed(() => {
+  return customAllocations.value.reduce((sum, allocation) => sum + calculateAllocationAmount(allocation.percentage || 0), 0)
+})
+
+// Overall totals
+const totalAllocationPercentage = computed(() => teamPercentage.value + totalCustomPercentage.value)
+const totalAllocationAmount = computed(() => teamAmount.value + totalCustomAmount.value)
+const remainingPercentage = computed(() => Math.max(0, 100 - totalAllocationPercentage.value))
+const remainingAmount = computed(() => availableForAllocation.value - totalAllocationAmount.value)
 
 // Format amount for display
 const formatAmount = (amount) => {
@@ -620,16 +469,12 @@ const createDefaultRecipient = () => ({
   vestingSchedule: null // VestingScheduleConfig expects null or VestingSchedule object
 })
 
-const createDefaultLPRecipient = () => ({
-  principal: '',
-  percentage: 0,
-  name: '',
-  unlockConditions: {
-    type: 'immediate',
-    lockDuration: 365,
-    unlockPercentage: 0,
-    milestone: ''
-  }
+// Custom allocation management
+const createCustomAllocation = (name = '', percentage = 0) => ({
+  id: generateAllocationId(),
+  name,
+  percentage,
+  recipients: []
 })
 
 const addTeamRecipient = () => {
@@ -640,28 +485,31 @@ const removeTeamRecipient = (index) => {
   teamRecipients.value.splice(index, 1)
 }
 
-const addDevelopmentRecipient = () => {
-  developmentRecipients.value.push(createDefaultRecipient())
+// Custom allocation management
+const addCustomAllocation = () => {
+  customAllocations.value.push(createCustomAllocation())
 }
 
-const removeDevelopmentRecipient = (index) => {
-  developmentRecipients.value.splice(index, 1)
+const addQuickAllocation = (name, percentage) => {
+  customAllocations.value.push(createCustomAllocation(name, percentage))
 }
 
-const addMarketingRecipient = () => {
-  marketingRecipients.value.push(createDefaultRecipient())
+const removeCustomAllocation = (index) => {
+  customAllocations.value.splice(index, 1)
 }
 
-const removeMarketingRecipient = (index) => {
-  marketingRecipients.value.splice(index, 1)
+const addCustomAllocationRecipient = (allocationId) => {
+  const allocation = customAllocations.value.find(a => a.id === allocationId)
+  if (allocation) {
+    allocation.recipients.push(createDefaultRecipient())
+  }
 }
 
-const addLPRecipient = () => {
-  lpTokenRecipients.value.push(createDefaultLPRecipient())
-}
-
-const removeLPRecipient = (index) => {
-  lpTokenRecipients.value.splice(index, 1)
+const removeCustomAllocationRecipient = (allocationId, recipientIndex) => {
+  const allocation = customAllocations.value.find(a => a.id === allocationId)
+  if (allocation) {
+    allocation.recipients.splice(recipientIndex, 1)
+  }
 }
 
 // Validation
@@ -673,13 +521,12 @@ const validationErrors = computed(() => {
     errors.push('Team allocation requires at least one recipient')
   }
   
-  if (developmentPercentage.value > 0 && developmentRecipients.value.length === 0) {
-    errors.push('Development allocation requires at least one recipient')
-  }
-  
-  if (marketingPercentage.value > 0 && marketingRecipients.value.length === 0) {
-    errors.push('Marketing allocation requires at least one recipient')
-  }
+  // Check custom allocations
+  customAllocations.value.forEach((allocation, index) => {
+    if (allocation.percentage > 0 && allocation.recipients.length === 0) {
+      errors.push(`${allocation.name || `Custom allocation ${index + 1}`} requires at least one recipient`)
+    }
+  })
   
   // Check recipient percentages sum to 100% for each category
   const checkRecipientPercentages = (recipients, category) => {
@@ -692,9 +539,11 @@ const validationErrors = computed(() => {
   }
   
   checkRecipientPercentages(teamRecipients.value, 'Team')
-  checkRecipientPercentages(developmentRecipients.value, 'Development')
-  checkRecipientPercentages(marketingRecipients.value, 'Marketing')
-  checkRecipientPercentages(lpTokenRecipients.value, 'LP Token')
+  
+  // Check custom allocation recipients
+  customAllocations.value.forEach((allocation, index) => {
+    checkRecipientPercentages(allocation.recipients, allocation.name || `Custom allocation ${index + 1}`)
+  })
   
   // Check for missing principal IDs
   const checkPrincipalIds = (recipients, category) => {
@@ -706,9 +555,11 @@ const validationErrors = computed(() => {
   }
   
   checkPrincipalIds(teamRecipients.value, 'Team')
-  checkPrincipalIds(developmentRecipients.value, 'Development')
-  checkPrincipalIds(marketingRecipients.value, 'Marketing')
-  checkPrincipalIds(lpTokenRecipients.value, 'LP Token')
+  
+  // Check custom allocation recipients
+  customAllocations.value.forEach((allocation, index) => {
+    checkPrincipalIds(allocation.recipients, allocation.name || `Custom allocation ${index + 1}`)
+  })
   
   return errors
 })
@@ -716,63 +567,25 @@ const validationErrors = computed(() => {
 const hasValidationErrors = computed(() => validationErrors.value.length > 0)
 
 // Pie Chart Data
-const raisedFundsChartData = computed(() => {
-  const labels = []
-  const data = []
-  const values = []
-  const colors = ['#3B82F6', '#10B981', '#F59E0B', '#6B7280'] // Blue, Green, Amber, Gray
-  
-  if (teamPercentage.value > 0) {
-    labels.push('Team')
-    data.push(teamPercentage.value)
-    values.push(teamAmount.value)
-  }
-  
-  if (developmentPercentage.value > 0) {
-    labels.push('Development')
-    data.push(developmentPercentage.value)
-    values.push(developmentAmount.value)
-  }
-  
-  if (marketingPercentage.value > 0) {
-    labels.push('Marketing')
-    data.push(marketingPercentage.value)
-    values.push(marketingAmount.value)
-  }
-  
-  if (remainingPercentage.value > 0) {
-    labels.push('Treasury')
-    data.push(remainingPercentage.value)
-    values.push(remainingAmount.value)
-  }
-  
-  // Calculate actual percentages for display
-  const total = data.reduce((sum, value) => sum + value, 0)
-  const percentages = data.map(value => total > 0 ? Number((value / total * 100).toFixed(1)) : 0)
-  
-  return {
-    labels,
-    data,
-    values,
-    colors: colors.slice(0, labels.length),
-    percentages
-  }
-})
 
 // Watch for changes and emit to parent
-watch([teamPercentage, developmentPercentage, marketingPercentage, currentRaisedAmount, teamRecipients, developmentRecipients, marketingRecipients, lpTokenRecipients], () => {
+watch([teamPercentage, currentRaisedAmount, teamRecipients, customAllocations], () => {
   const allocationData = {
     teamAllocation: teamAmount.value.toString(),
-    developmentFund: developmentAmount.value.toString(),
-    marketingFund: marketingAmount.value.toString(),
     teamAllocationPercentage: teamPercentage.value,
-    developmentAllocationPercentage: developmentPercentage.value,
-    marketingAllocationPercentage: marketingPercentage.value,
     simulatedRaisedAmount: currentRaisedAmount.value,
     teamRecipients: teamRecipients.value,
-    developmentRecipients: developmentRecipients.value,
-    marketingRecipients: marketingRecipients.value,
-    lpTokenRecipients: lpTokenRecipients.value
+    customAllocations: customAllocations.value.map(allocation => ({
+      id: allocation.id,
+      name: allocation.name,
+      percentage: allocation.percentage,
+      amount: calculateAllocationAmount(allocation.percentage).toString(),
+      recipients: allocation.recipients
+    })),
+    totalAllocationPercentage: totalAllocationPercentage.value,
+    totalAllocationAmount: totalAllocationAmount.value.toString(),
+    remainingPercentage: remainingPercentage.value,
+    remainingAmount: remainingAmount.value.toString()
   }
   
   emit('update:modelValue', allocationData)
