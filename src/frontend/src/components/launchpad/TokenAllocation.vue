@@ -117,7 +117,8 @@
               Total Amount <HelpTooltip>Number of tokens allocated to this category. For sale participants, this is automatically calculated from your sale parameters.</HelpTooltip>
               <span v-if="isAutoManagedAllocation(allocation)" class="text-xs text-green-600 dark:text-green-400">(Auto-synced)</span>
             </label>
-            <input
+            <money3
+              v-bind="money3Options"
               v-model="allocation.totalAmount"
               @input="handleAmountChange(allocation)"
               type="number"
@@ -128,9 +129,9 @@
               class="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
               :class="{ 'bg-gray-100 dark:bg-gray-600 cursor-not-allowed': isAutoManagedAllocation(allocation) }"
             />
-            <p v-if="isAutoManagedAllocation(allocation)" class="text-xs text-green-600 dark:text-green-400 mt-1">
+            <!-- <p v-if="isAutoManagedAllocation(allocation)" class="text-xs text-green-600 dark:text-green-400 mt-1">
               Amount is automatically synchronized with your sale/DEX configuration
-            </p>
+            </p> -->
           </div>
 
           <!-- Percentage -->
@@ -315,6 +316,22 @@ interface Emits {
   (e: 'update:modelValue', value: any[]): void
   (e: 'validation-changed', validation: { valid: boolean; errors: string[] }): void
 }
+const money3Options = {
+  masked: false,
+  prefix: '',
+  suffix: '',
+  thousands: ',',
+  decimal: '.',
+  precision: 0,
+  disableNegative: false,
+  disabled: false,
+  min: null,
+  max: null,
+  allowBlank: false,
+  minimumNumberOfCharacters: 0,
+  shouldRound: true,
+  focusOnRight: false,
+}
 
 const props = withDefaults(defineProps<Props>(), {
   totalSupply: 100000000,
@@ -426,19 +443,35 @@ const formatTokenAmount = (amount: number): string => {
   return new Intl.NumberFormat().format(amount)
 }
 
+// Helper function to determine default recipient type based on allocation name
+const getDefaultRecipientType = (allocationName: string): string => {
+  const name = allocationName.toLowerCase().trim()
+
+  if (name.includes('team')) return 'TeamAllocation'
+  if (name.includes('advisor')) return 'Advisors'
+  if (name.includes('liquidity') || name.includes('pool')) return 'LiquidityPool'
+  if (name.includes('treasury') || name.includes('reserve')) return 'TreasuryReserve'
+  if (name.includes('marketing')) return 'Marketing'
+  if (name.includes('staking')) return 'Staking'
+  if (name.includes('airdrop')) return 'Airdrop'
+  if (name.includes('sale') || name.includes('public')) return 'SaleParticipants'
+
+  return 'SaleParticipants' // Default fallback
+}
+
 // Check if allocation should be auto-managed
 const isAutoManagedAllocation = (allocation: any): boolean => {
   // Check if explicitly marked as required
   if (allocation.isRequired) return true
-  
+
   // Only consider specific recipient types for auto-management
   if (allocation.recipientConfig?.type === 'SaleParticipants') return true
   if (allocation.recipientConfig?.type === 'LiquidityPool') return true
-  
+
   // Check by exact name matches only for critical allocations
   if (allocation.name === 'Public Sale' && allocation.recipientConfig?.type === 'SaleParticipants') return true
   if (allocation.name === 'DEX Liquidity' && allocation.recipientConfig?.type === 'LiquidityPool') return true
-  
+
   return false
 }
 
@@ -796,21 +829,6 @@ watch(() => props.modelValue, (newValue) => {
   }, 10)
 }, { immediate: true })
 
-// Helper function to determine default recipient type based on allocation name
-const getDefaultRecipientType = (allocationName: string): string => {
-  const name = allocationName.toLowerCase().trim()
-  
-  if (name.includes('team')) return 'TeamAllocation'
-  if (name.includes('advisor')) return 'Advisors'
-  if (name.includes('liquidity') || name.includes('pool')) return 'LiquidityPool'
-  if (name.includes('treasury') || name.includes('reserve')) return 'TreasuryReserve'
-  if (name.includes('marketing')) return 'Marketing'
-  if (name.includes('staking')) return 'Staking'
-  if (name.includes('airdrop')) return 'Airdrop'
-  if (name.includes('sale') || name.includes('public')) return 'SaleParticipants'
-  
-  return 'SaleParticipants' // Default fallback
-}
 
 // Methods
 const addAllocation = () => {

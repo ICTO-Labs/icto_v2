@@ -123,46 +123,41 @@
     
     <!-- Global Settings -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <!-- Listing Price -->
+      <!-- Liquidity Allocation Percentage -->
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Listing Price* 
-          <HelpTooltip>Initial price per token when listed on DEX platforms. This should be strategic - often set at or slightly above the sale price to prevent immediate dumps.</HelpTooltip>
+          Liquidity Allocation*
+          <HelpTooltip>Percentage of raised funds (after platform fees) that will be used for DEX liquidity. This creates a transparent commitment to liquidity provision regardless of final raise amount.</HelpTooltip>
         </label>
         <div class="relative">
           <input
             type="number"
-            :value="dexConfig.listingPrice"
-            placeholder="0.0001"
-            step="0.0001"
-            min="0"
+            :value="dexConfig.liquidityPercentage || 20"
+            placeholder="20"
+            step="1"
+            min="5"
+            max="50"
             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-16"
-            @input="updateDexConfig('listingPrice', ($event.target as HTMLInputElement).value)"
+            @input="updateDexConfig('liquidityPercentage', ($event.target as HTMLInputElement).value)"
           />
-          <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">{{ purchaseTokenSymbol }}</span>
+          <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">%</span>
         </div>
-        <p class="text-xs text-gray-500 mt-1">Base price for listing across all DEX platforms</p>
+        <p class="text-xs text-gray-500 mt-1">Percentage of raised funds allocated for liquidity</p>
       </div>
 
-      <!-- Total Liquidity Amount -->
+      <!-- Dynamic Price Info -->
       <div>
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Total Initial Liquidity* 
-          <HelpTooltip>Total amount of your tokens to provide as liquidity across all DEX platforms. Higher liquidity reduces price volatility and improves trading experience.</HelpTooltip>
+          Final Token Price
+          <HelpTooltip>Token price will be determined dynamically based on actual participation: Total Raised Amount ÷ Sale Token Allocation. This ensures fair price discovery through market participation.</HelpTooltip>
         </label>
         <div class="relative">
-          <input
-            type="number"
-            :value="dexConfig.totalLiquidityToken"
-            placeholder="10000"
-            step="0.01"
-            min="0"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-16"
-            @input="updateDexConfig('totalLiquidityToken', ($event.target as HTMLInputElement).value)"
-          />
-          <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">{{ saleTokenSymbol }}</span>
+          <div class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400">
+            Dynamic (Post-Campaign)
+          </div>
+          <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">{{ purchaseTokenSymbol }}</span>
         </div>
-        <p class="text-xs text-gray-500 mt-1">Total {{ saleTokenSymbol }} to be allocated across selected DEXs</p>
+        <p class="text-xs text-blue-600 dark:text-blue-400 mt-1">Calculated after campaign completion</p>
       </div>
 
       <!-- LP Lock -->
