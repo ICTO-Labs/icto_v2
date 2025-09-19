@@ -158,7 +158,11 @@ const sortBy = ref('startTime')
 const filterOptions = [
   { label: 'All', value: 'all' },
   { label: 'Public', value: 'public' },
-  { label: 'My Campaigns', value: 'mine' }
+  { label: 'Private', value: 'private' },
+  { label: 'My Campaigns', value: 'mine' },
+  { label: 'Launchpad', value: 'launchpad' },
+  { label: 'MultiSig', value: 'multisig' },
+  { label: 'Active', value: 'active' }
 ]
 
 // Computed filtered and sorted campaigns
@@ -181,9 +185,17 @@ const filteredCampaigns = computed(() => {
       switch (activeFilter.value) {
         case 'public':
           return !campaign.isWhitelisted
+        case 'private':
+          return campaign.isWhitelisted
         case 'mine':
           // TODO: Filter by current user's campaigns
           return true
+        case 'launchpad':
+          return campaign.config?.launchpadContext !== undefined
+        case 'multisig':
+          return campaign.config?.governance?.enabled === true
+        case 'active':
+          return ['Active', 'Deployed', 'Ongoing'].includes(campaign.status)
         default:
           return true
       }

@@ -140,6 +140,7 @@ module LaunchpadTypes {
         liquidityLockDays: Nat;          // Days to lock LP tokens
         autoList: Bool;                  // Automatically list after successful sale
         slippageTolerance: Nat8;         // Slippage tolerance (0-100)
+        lpTokenRecipient: ?Principal;    // LP token recipient (matches frontend)
         fees: {
             listingFee: Nat;             // Platform listing fee
             transactionFee: Nat8;        // Transaction fee percentage
@@ -155,6 +156,8 @@ module LaunchpadTypes {
     public type DEXPlatform = {
         id: Text;                        // "icswap", "sonic", etc.
         name: Text;
+        description: ?Text;              // Platform description (matches frontend)
+        logo: ?Text;                     // Platform logo URL (matches frontend)
         enabled: Bool;
         allocationPercentage: Nat8;      // Percentage of total liquidity (0-100)
         calculatedTokenLiquidity: Nat;   // Calculated token amount
@@ -173,7 +176,30 @@ module LaunchpadTypes {
 
     // ================ RAISED FUNDS ALLOCATION ================
 
+    // Updated to support dynamic allocation structure from frontend
     public type RaisedFundsAllocation = {
+        allocations: [FundAllocation];   // Dynamic allocation system
+    };
+
+    public type FundAllocation = {
+        id: Text;                        // Unique identifier ("team", "development", etc.)
+        name: Text;                      // Display name ("Team Allocation", "Development Fund", etc.)
+        amount: Nat;                     // Calculated amount in e8s
+        percentage: Nat8;                // Percentage of total raised funds (0-100)
+        recipients: [FundRecipient];     // List of recipients for this allocation
+    };
+
+    public type FundRecipient = {
+        principal: Principal;
+        percentage: Nat8;                // Percentage of the allocation (0-100)
+        name: ?Text;                     // Optional name/description for recipient
+        vestingEnabled: Bool;            // Whether vesting is enabled
+        vestingSchedule: ?VestingSchedule; // Optional vesting for fund recipients
+        description: ?Text;              // Description of recipient role
+    };
+
+    // Legacy compatibility - keeping old structure for backward compatibility
+    public type LegacyRaisedFundsAllocation = {
         teamAllocation: Nat8;            // Percentage for team (0-100)
         developmentFund: Nat8;           // Percentage for development (0-100)
         marketingFund: Nat8;             // Percentage for marketing (0-100)
@@ -183,13 +209,6 @@ module LaunchpadTypes {
         developmentRecipients: [FundRecipient];
         marketingRecipients: [FundRecipient];
         customAllocations: [CustomFundAllocation];
-    };
-
-    public type FundRecipient = {
-        principal: Principal;
-        percentage: Nat8;                // Percentage of the category allocation (0-100)
-        vestingSchedule: ?VestingSchedule; // Optional vesting for fund recipients
-        description: ?Text;              // Description of recipient role
     };
 
     public type CustomFundAllocation = {
@@ -203,18 +222,20 @@ module LaunchpadTypes {
     // ================ TOKEN DISTRIBUTION & VESTING ================
 
     public type VestingSchedule = {
-        cliff: Time.Time;             // Cliff period (seconds)
-        duration: Time.Time;          // Total vesting duration (seconds)
-        frequency: VestingFrequency;  // How often tokens are released
-        initialUnlock: Nat8;          // Percentage unlocked at TGE (0-100)
+        cliffDays: Nat;               // Cliff period in days (matches frontend)
+        durationDays: Nat;            // Total vesting duration in days (matches frontend)
+        releaseFrequency: VestingFrequency;  // How often tokens are released
+        immediateRelease: Nat8;       // Percentage unlocked immediately (0-100)
     };
 
     public type VestingFrequency = {
-        #Immediate;       // All at once after cliff
-        #Linear;          // Continuous linear vesting
+        #Daily;           // Daily unlocks
+        #Weekly;          // Weekly unlocks
         #Monthly;         // Monthly unlocks
         #Quarterly;       // Quarterly unlocks
         #Yearly;          // Yearly unlocks
+        #Immediate;       // All at once after cliff
+        #Linear;          // Continuous linear vesting
         #Custom: Nat;     // Custom period in seconds
     };
 

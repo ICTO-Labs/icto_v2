@@ -1136,6 +1136,7 @@
 					</div>
 				</div>
 
+
 				<!-- Navigation Buttons -->
 				<div class="flex justify-between pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
 					<button type="button" v-if="currentStep > 0" @click="previousStep" :class="`bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded flex items-center justify-center text-sm`">
@@ -1532,7 +1533,7 @@ const formData = reactive<DistributionFormData>({
 	allowCancel: true,
 	allowModification: false,
 	governance: '',
-	externalCheckers: []
+	externalCheckers: [],
 })
 
 // Fee Payment Token Configuration
@@ -1578,7 +1579,7 @@ const steps = [
 	{ id: 'basic', name: 'Basic Info' },
 	{ id: 'eligibility', name: 'Eligibility' },
 	{ id: 'vesting', name: 'Configuration & Timing' },
-	{ id: 'settings', name: 'Settings' }
+	{ id: 'settings', name: 'Settings' },
 ]
 
 // Configuration options
@@ -2046,7 +2047,7 @@ const buildDistributionConfig = () => {
 		allowModification: formData.allowModification,
 		owner: authStore?.principal || '',
 		governance: formData.governance || null,
-		externalCheckers: formData.externalCheckers?.length ? formData.externalCheckers : null
+		externalCheckers: formData.externalCheckers?.length ? formData.externalCheckers : null,
 	}
 
 	console.log('Distribution config being sent:', config)

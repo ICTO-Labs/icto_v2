@@ -290,4 +290,16 @@ module LaunchpadFactoryService {
             totalCost = baseDeploymentFee + estimatedCycleCost + platformFee;
         }
     };
+
+    // Get standard deployment fee for launchpad creation
+    public func getDeploymentFee() : Nat {
+        // Standard deployment fee for launchpad creation in e8s (ICP)
+        // This covers basic deployment costs
+        50_000_000 // 0.5 ICP base fee
+    };
+
+    // Get estimated total cost including cycles for a specific configuration
+    public func getEstimatedTotalCost(config: LaunchpadFactoryTypes.LaunchpadConfig) : LaunchpadFactoryTypes.LaunchpadCosts {
+        calculateDeploymentCosts(config)
+    };
 }

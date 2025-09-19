@@ -443,13 +443,13 @@
 
           <!-- Right Column - Actions & Info -->
           <div class="space-y-6">
-            <!-- Campaign Timeline -->
-            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-100 dark:border-gray-700">
-              <CampaignTimeline 
-                :timeline="campaignTimeline" 
-                :campaign-type="getVariantKey(details?.campaignType)"
-              />
-            </div>
+            <!-- Contract Status -->
+            <ContractStatus
+              :details="details"
+              :user-context="userContext"
+              :campaign-timeline="campaignTimeline"
+              @action="handleStatusAction"
+            />
             
             <!-- Eligibility Status -->
             <div v-if="userContext"
@@ -791,6 +791,7 @@ import VueApexCharts from 'vue3-apexcharts'
 import ProgressBar from '@/components/common/ProgressBar.vue'
 import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
 import CampaignTimeline from '@/components/campaign/CampaignTimeline.vue'
+import ContractStatus from '@/components/distribution/ContractStatus.vue'
 import type { DistributionDetails, DistributionStats } from '@/types/distribution'
 import type { CampaignTimeline as CampaignTimelineType } from '@/types/campaignPhase'
 import { detectCampaignPhase, getPhaseConfig } from '@/utils/campaignPhase'
@@ -1275,7 +1276,7 @@ const registerForCampaign = async () => {
     } else {
       toast.error('Error: ' + result.err)
     }
-    
+
     // Refresh data after successful registration
     await refreshData()
   } catch (err) {
@@ -1283,6 +1284,23 @@ const registerForCampaign = async () => {
     // Handle error - could show toast notification
   } finally {
     registering.value = false
+  }
+}
+
+// Handle actions from ContractStatus component
+const handleStatusAction = async (actionKey: string) => {
+  switch (actionKey) {
+    case 'check-eligibility':
+      await checkEligibility()
+      break
+    case 'register':
+      await registerForCampaign()
+      break
+    case 'claim':
+      await claimTokens()
+      break
+    default:
+      console.warn('Unknown action:', actionKey)
   }
 }
 
@@ -1417,8 +1435,12 @@ const campaignTimeline = computed((): CampaignTimelineType => {
       distributionEnd: undefined
     }
   }
-  
-  const hasRegistration = details.value.recipientMode && 'SelfService' in details.value.recipientMode
+
+  // Check if registration is required: SelfService mode AND has registration period configured
+  const isSelfService = details.value.recipientMode && 'SelfService' in details.value.recipientMode
+  const hasRegistrationPeriod = details.value.registrationPeriod && details.value.registrationPeriod.length > 0
+  const hasRegistration = isSelfService && hasRegistrationPeriod
+
   const regPeriod = details.value.registrationPeriod
   
   // Handle distributionEnd properly

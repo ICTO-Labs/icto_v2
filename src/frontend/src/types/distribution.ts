@@ -78,6 +78,7 @@ export interface FeeTier {
 }
 
 
+
 export type VestingSchedule = 
   | { type: 'Instant' }
   | { type: 'Linear', config: LinearVesting }
@@ -171,6 +172,7 @@ export interface DistributionFormData {
   allowModification: boolean;
   governance?: string;
   externalCheckers?: Array<{name: string, canisterId: string}>;
+
 }
 
 // Real-time Distribution Data Types

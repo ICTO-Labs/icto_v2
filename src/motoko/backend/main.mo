@@ -1429,6 +1429,7 @@ persistent actor Backend {
             ("token_factory", ConfigService.getNumber(configState, "token_factory.fee", 0)),
             ("template_deployer", ConfigService.getNumber(configState, "template_deployer.fee", 0)),
             ("distribution_factory", ConfigService.getNumber(configState, "distribution_factory.fee", 0)),
+            ("launchpad_factory", ConfigService.getNumber(configState, "launchpad_factory.fee", 50_000_000)),
         ];
         return {
             acceptedTokens = paymentInfo.acceptedTokens;

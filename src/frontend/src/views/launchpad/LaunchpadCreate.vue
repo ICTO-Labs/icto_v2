@@ -1266,6 +1266,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { toast } from 'vue-sonner'
+import Swal from 'sweetalert2'
 import { 
   ArrowLeftIcon, 
   ArrowRightIcon, 
@@ -1290,6 +1291,10 @@ import { InputMask, ICTOMasks } from '@/utils/inputMask'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import { useLaunchpadService } from '@/composables/useLaunchpadService'
 import { useUniqueId } from '@/composables/useUniqueId'
+import { useAuthStore } from '@/stores/auth'
+import { backendService } from '@/api/services/backend'
+import { IcrcService } from '@/api/services/icrc'
+import { useProgressDialog } from '@/composables/useProgressDialog'
 import type { LaunchpadTemplate } from '@/data/launchpadTemplates'
 
 // ===== CONSTANTS =====
@@ -1393,6 +1398,14 @@ const PURCHASE_TOKEN_OPTIONS = [
 
 const router = useRouter()
 const { createLaunchpad: createLaunchpadService, isCreating } = useLaunchpadService()
+const authStore = useAuthStore()
+const progress = useProgressDialog()
+
+// Payment flow variables
+const isPaying = ref(false)
+const deployResult = ref<any>(null)
+const creationCostBigInt = ref<bigint>(BigInt(0))
+const showSuccessModal = ref(false)
 
 // Breadcrumb configuration
 const breadcrumbItems = [
@@ -1676,12 +1689,18 @@ const tokenPriceAtHardCap = computed(() => {
 const calculatedTokenPrice = computed(() => {
   const minPrice = Number(tokenPriceAtSoftCap.value) || 0
   const maxPrice = Number(tokenPriceAtHardCap.value) || 0
-  
+
   if (minPrice > 0 && maxPrice > 0) {
     const avgPrice = (minPrice + maxPrice) / 2
     return avgPrice.toFixed(8).replace(/\.?0+$/, '')
   }
   return '0'
+})
+
+// Deployment cost computed property
+const creationCost = computed(() => {
+  const cost = Number(creationCostBigInt.value) / 100_000_000 // Convert e8s to ICP
+  return cost.toFixed(3)
 })
 
 // Step validation computed properties
@@ -3261,23 +3280,194 @@ const initializeDefaults = () => {
 // Initialize defaults on component mount
 initializeDefaults()
 
-const createLaunchpad = async () => {
-  if (!canLaunch.value) return
-  
+// Load deployment cost
+const loadDeploymentCost = async () => {
   try {
-    // Call the service layer through composable
-    const result = await createLaunchpadService(formData.value as any)
-    
-    if (result) {
-      // Navigate to the new launchpad detail page
-      router.push(`/launchpad/${result.launchpadId}`)
-    }
-    
+    creationCostBigInt.value = await backendService.getDeploymentFee('launchpad_factory')
   } catch (error) {
-    console.error('Error creating launchpad:', error)
-    // Error handling is done in the composable
+    console.error('Error loading deployment cost:', error)
+    creationCostBigInt.value = BigInt(50_000_000) // 0.5 ICP fallback
   }
 }
+
+// Helper function to handle approve result
+const hanldeApproveResult = (result: any): { error?: { message: string } } => {
+  if ('Err' in result) {
+    return { error: { message: result.Err } }
+  }
+  return {}
+}
+
+// Payment approval flow
+const handlePayment = async () => {
+  if (!canLaunch.value) return
+
+  const isConfirmed = await Swal.fire({
+    title: 'Are you sure?',
+    text: 'You are about to deploy a launchpad. This action is irreversible.',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Yes, deploy it!'
+  })
+  if (!isConfirmed.isConfirmed) return
+
+  isPaying.value = true
+  deployResult.value = null
+
+  // Progress steps
+  const steps = [
+    'Getting deployment price...',
+    'Approving payment amount...',
+    'Verifying approval...',
+    'Deploying launchpad to canister...',
+    'Initializing contract...',
+    'Finalizing deployment...'
+  ]
+
+  let deployPrice = BigInt(0)
+  let icpToken: any | null = null
+  let backendCanisterId = ''
+  let approveAmount = BigInt(0)
+
+  // Main step runner
+  const runSteps = async () => {
+    for (let i = 0; i < steps.length; i++) {
+      progress.setStep(i)
+
+      try {
+        switch (i) {
+          case 0: // Get deployment price
+            deployPrice = await backendService.getDeploymentFee('launchpad_factory')
+            backendCanisterId = await backendService.getBackendCanisterId()
+
+            // Get ICP token info for approval
+            icpToken = {
+              canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai', // ICP Ledger
+              name: 'Internet Computer',
+              symbol: 'ICP',
+              decimals: 8,
+              fee: 10000,
+              standards: ['ICRC-1', 'ICRC-2'],
+              metrics: {
+                price: 0,
+                volume: 0,
+                marketCap: 0,
+                totalSupply: 0
+              }
+            }
+
+            // Calculate approve amount: deployPrice + (2 * transaction fee)
+            const transactionFee = BigInt(icpToken.fee)
+            approveAmount = deployPrice + (transactionFee * BigInt(2))
+            break
+
+          case 1: // ICRC2 Approve
+            if (!icpToken || !authStore.principal) {
+              throw new Error('Missing required data for approval')
+            }
+
+            const now = BigInt(Date.now()) * 1_000_000n // nanoseconds
+            const oneHour = 60n * 60n * 1_000_000_000n  // 1 hour in nanoseconds
+
+            const approveResult = await IcrcService.icrc2Approve(
+              icpToken,
+              Principal.fromText(backendCanisterId),
+              approveAmount,
+              {
+                memo: undefined,
+                createdAtTime: now,
+                expiresAt: now + oneHour,
+                expectedAllowance: undefined
+              }
+            )
+
+            const approveResultData = hanldeApproveResult(approveResult)
+            if (approveResultData.error) {
+              throw new Error(approveResultData.error.message)
+            }
+            break
+
+          case 2: // Verify approval
+            if (!icpToken || !authStore.principal) {
+              throw new Error('Missing required data for verification')
+            }
+
+            const allowance = await IcrcService.getIcrc2Allowance(
+              icpToken,
+              Principal.fromText(authStore.principal),
+              Principal.fromText(backendCanisterId)
+            )
+
+            if (allowance < deployPrice) {
+              throw new Error(`Insufficient allowance: ${allowance.toString()} < ${deployPrice.toString()}`)
+            }
+            break
+
+          case 3: // Deploy launchpad
+            const result = await createLaunchpadService(formData.value as any)
+
+            if (!result) {
+              throw new Error('Launchpad deployment failed')
+            }
+
+            deployResult.value = {
+              launchpadId: result.launchpadId,
+              canisterId: result.canisterId,
+              success: true
+            }
+            break
+
+          case 4: // Initialize contract (handled in service)
+            // Contract initialization is handled in the service layer
+            break
+
+          case 5: // Finalize deployment
+            showSuccessModal.value = true
+            isPaying.value = false
+            progress.setLoading(false)
+
+            // Navigate to launchpad detail after short delay
+            setTimeout(() => {
+              if (deployResult.value?.launchpadId) {
+                router.push(`/launchpad/${deployResult.value.launchpadId}`)
+              }
+            }, 2000)
+            return
+        }
+
+        await new Promise(resolve => setTimeout(resolve, 500))
+      } catch (error: unknown) {
+        throw error
+      }
+    }
+  }
+
+  // Start the deployment process
+  try {
+    progress.setLoading(true)
+    progress.setSteps(steps)
+    await runSteps()
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+    progress.setError(errorMessage)
+    deployResult.value = {
+      success: false,
+      error: errorMessage
+    }
+    toast.error('Deployment failed: ' + errorMessage)
+  } finally {
+    isPaying.value = false
+    progress.setLoading(false)
+  }
+}
+
+// Legacy function for backward compatibility
+const createLaunchpad = async () => {
+  await handlePayment()
+}
+
+// Load deployment cost on mount
+loadDeploymentCost()
 
 // These functions are now handled by TypeConverter in the service layer
 </script>

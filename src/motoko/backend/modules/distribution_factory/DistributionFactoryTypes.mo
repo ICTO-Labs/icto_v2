@@ -31,6 +31,20 @@ module DistributionFactoryTypes {
     public type DistributionStatus = DistributionTypes.DistributionStatus;
     public type DeploymentResult = DistributionTypes.DeploymentResult;
 
+    // Launchpad batch types
+    public type DistributionCategory = DistributionTypes.DistributionCategory;
+    public type ProjectMetadata = DistributionTypes.ProjectMetadata;
+    public type BatchDistributionRequest = DistributionTypes.BatchDistributionRequest;
+
+    // Helper functions
+    public func getCommonCategories() : [DistributionCategory] = DistributionTypes.getCommonCategories();
+    public func getPresetVestingSchedule(categoryId: Text) : VestingSchedule = DistributionTypes.getPresetVestingSchedule(categoryId);
+    public func createDistributionConfigForCategory(
+        baseConfig: DistributionConfig,
+        category: DistributionCategory,
+        vestingOverride: ?VestingSchedule
+    ) : DistributionConfig = DistributionTypes.createDistributionConfigForCategory(baseConfig, category, vestingOverride);
+
     // Legacy compatibility for backend service state management
     public type StableState = DistributionTypes.StableState;
     public func emptyState() : StableState = DistributionTypes.emptyState();

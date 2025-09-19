@@ -43,6 +43,32 @@ export interface MotokoDistributionConfig {
     
     // External Integrations
     externalCheckers?: Array<[string, Principal]>;  // (name, principal) tuples
+
+    // Launchpad Integration (optional)
+    launchpadContext?: LaunchpadContextMotoko;
+}
+
+// Launchpad Context matching Motoko backend
+export interface LaunchpadContextMotoko {
+    launchpadId: Principal;
+    category: DistributionCategoryMotoko;
+    projectMetadata: ProjectMetadataMotoko;
+    batchId?: string;
+}
+
+export interface DistributionCategoryMotoko {
+    id: string;
+    name: string;
+    description?: string;
+    order?: bigint;
+}
+
+export interface ProjectMetadataMotoko {
+    name: string;
+    symbol: string;
+    logo?: string;
+    website?: string;
+    description: string;
 }
 
 // Eligibility Types matching Motoko backend exactly

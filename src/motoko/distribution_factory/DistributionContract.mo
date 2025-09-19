@@ -11,6 +11,7 @@ import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Float "mo:base/Float";
 import Nat "mo:base/Nat";
+import Array "mo:base/Array";
 import Error "mo:base/Error";
 // Import shared types (trust source)
 import DistributionTypes "../shared/types/DistributionTypes";
@@ -83,9 +84,12 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private let BLOCK_ID_CANISTER_ID = "3c7yh-4aaaa-aaaap-qhria-cai";
     private let BLOCK_ID_APPLICATION = "block-id";
     private let blockID: BlockID.Self = actor(BLOCK_ID_CANISTER_ID);
-    
+
     // Backend integration for relationship updates
     private var backendCanisterId: ?Principal = init_backend_canister;
+
+    // Launchpad Integration - Optional features
+    private var launchpadCanisterId: ?Principal = null;
 
     //Token info
     private var transferFee: Nat = 0;
@@ -110,6 +114,10 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         
         // Initialize whitelist and participants from config
         _initializeWhitelist();
+
+        // Initialize Launchpad features if linked
+        _initializeLaunchpadFeatures();
+
         // Start the timer
         await startTimer();
 
@@ -180,8 +188,7 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     };
     
     private func _isOwner(caller: Principal) : Bool {
-        Principal.equal(caller, creator) or Principal.equal(caller, config.owner) or
-        (Option.isSome(config.governance) and Principal.equal(caller, Option.get(config.governance, caller)))
+        Principal.equal(caller, creator) or Principal.equal(caller, config.owner)
     };
     
     private func _isActive() : Bool {
@@ -204,7 +211,7 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
                 // Initialize whitelist from recipients field
                 for (recipient in config.recipients.vals()) {
                     whitelist := Trie.put(whitelist, _principalKey(recipient.address), Principal.equal, true).0;
-                    
+
                     // For whitelist distributions, also initialize participants directly
                     let participant: Participant = {
                         principal = recipient.address;
@@ -222,6 +229,20 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             };
             case (_) {
                 // For non-whitelist distributions, participants register themselves
+            };
+        };
+    };
+
+    private func _initializeLaunchpadFeatures() {
+        // Check if this is a launchpad-linked distribution
+        switch (config.launchpadContext) {
+            case (?context) {
+                launchpadCanisterId := ?context.launchpadId;
+                Debug.print("🚀 Initialized Launchpad-linked distribution: " # context.category.name);
+
+            };
+            case null {
+                Debug.print("✅ Standalone distribution initialized");
             };
         };
     };
@@ -770,11 +791,16 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     };
     
     public shared({ caller }) func claim() : async Result.Result<Nat, Text> {
-        // Check if distribution is active
+        // CHECKS: All validation first, no state changes
         if (not _isActive()) {
             return #err("Distribution is not currently active");
         };
-        
+
+        // Check if caller is blacklisted
+        if (_isBlacklisted(caller)) {
+            return #err("Address is blacklisted");
+        };
+
         // Get participant, with auto-registration if enabled
         let participant = switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
             case (?p) { p };
@@ -796,66 +822,219 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
                 };
             };
         };
-        
-        // Calculate unlocked amount
-        let unlockedAmount = _calculateUnlockedAmount(participant);
+
+        // Calculate unlocked amount with overflow protection
+        let unlockedAmountResult = _safeCalculateUnlockedAmount(participant);
+        let unlockedAmount = switch (unlockedAmountResult) {
+            case (#ok(amount)) { amount };
+            case (#err(error)) { return #err("Calculation error: " # error) };
+        };
+
         let claimableAmount = if (unlockedAmount > participant.claimedAmount) {
             Nat.sub(unlockedAmount, participant.claimedAmount)
         } else { 0 };
-        
+
         if (claimableAmount == 0) {
             return #err("No tokens available to claim at this time");
         };
-        
+
+        // Additional safety check for maximum claim amount per transaction
+        let maxClaimPerTx = 10000000000; // 100 tokens with 8 decimals
+        if (claimableAmount > maxClaimPerTx) {
+            return #err("Claim amount exceeds maximum per transaction");
+        };
+
         // Check BlockID score if required
         let isEligible = await _checkEligibility(caller);
         if (not isEligible) {
             return #err("Not eligible for this distribution");
         };
-        
-        // Transfer tokens to participant
-        let transferResult = await* _transfer(caller, claimableAmount);
-        let txIndex = switch (transferResult) {
-            case (#ok(index)) { ?index };
-            case (#err(err)) {
-                return #err("Token transfer failed: " # debug_show(err));
-            };
-        };
-        
-        // Update participant record
-        let updatedParticipant: Participant = {
-            principal = participant.principal;
-            registeredAt = participant.registeredAt;
-            eligibleAmount = participant.eligibleAmount;
+
+        // EFFECTS: Update state before external calls
+        let updatedParticipant = {
+            participant with
             claimedAmount = participant.claimedAmount + claimableAmount;
             lastClaimTime = ?Time.now();
-            status = if (participant.claimedAmount + claimableAmount >= participant.eligibleAmount) {
-                #Claimed
-            } else {
-                #PartialClaim
-            };
-            vestingStart = participant.vestingStart;
-            note = participant.note; // Preserve existing note
         };
-        
+
+        // Update participant state
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, updatedParticipant).0;
-        
-        // Add claim record
+        totalClaimed += claimableAmount;
+
+        // Create claim record for tracking
         let claimRecord: ClaimRecord = {
             participant = caller;
             amount = claimableAmount;
             timestamp = Time.now();
             blockHeight = null; // TODO: Get from blockchain
-            transactionId = switch (txIndex) {
-                case (?index) { ?Nat.toText(index) };
-                case null { null };
-            }; // Transaction ID from ICRC transfer
+            transactionId = null; // Will be updated after transfer
+        };
+        claimRecords.add(claimRecord);
+
+        // INTERACTIONS: External calls last
+        let transferResult = await* _transfer(caller, claimableAmount);
+        let txIndex = switch (transferResult) {
+            case (#ok(index)) {
+                // Update claim record with transaction index
+                let finalClaimRecord = { claimRecord with txIndex = ?index };
+                let _ = claimRecords.removeLast(); // Remove temporary record
+                claimRecords.add(finalClaimRecord);
+                ?index
+            };
+            case (#err(err)) {
+                // REVERT: Rollback state changes on transfer failure
+                let revertedParticipant = {
+                    participant with
+                    claimedAmount = participant.claimedAmount; // Original amount
+                    lastClaimTime = participant.lastClaimTime; // Original time
+                };
+                participants := Trie.put(participants, _principalKey(caller), Principal.equal, revertedParticipant).0;
+                totalClaimed -= claimableAmount;
+                let _ = claimRecords.removeLast(); // Remove failed claim record
+
+                return #err("Token transfer failed: " # debug_show(err));
+            };
         };
         
-        claimRecords.add(claimRecord);
-        totalClaimed += claimableAmount;
-        
         #ok(claimableAmount)
+    };
+
+    // Add blacklist checking function
+    private func _isBlacklisted(principal: Principal) : Bool {
+        switch (Trie.get(blacklist, _principalKey(principal), Principal.equal)) {
+            case (?true) { true };
+            case _ { false };
+        };
+    };
+
+    // Safe calculation with overflow protection
+    private func _safeCalculateUnlockedAmount(participant: Participant) : Result.Result<Nat, Text> {
+        let vestingStart = switch (participant.vestingStart) {
+            case (?start) { start };
+            case null { config.distributionStart };
+        };
+
+        let currentTime = Time.now();
+        if (currentTime < vestingStart) {
+            return #ok(0); // Vesting hasn't started
+        };
+
+        let elapsed = Int.abs(currentTime - vestingStart);
+        let totalAmount = participant.eligibleAmount;
+
+        // Check for reasonable bounds
+        if (totalAmount == 0) {
+            return #ok(0);
+        };
+
+        // Safe calculation of initial unlock
+        let initialUnlockResult = _safePercentageOf(totalAmount, config.initialUnlockPercentage);
+        let initialUnlock = switch (initialUnlockResult) {
+            case (#ok(amount)) { amount };
+            case (#err(error)) { return #err(error) };
+        };
+
+        switch (config.vestingSchedule) {
+            case (#Instant) {
+                #ok(totalAmount)
+            };
+            case (#Linear(linear)) {
+                if (elapsed >= linear.duration) {
+                    #ok(totalAmount)
+                } else {
+                    let vestingAmount = _safeSubtract(totalAmount, initialUnlock);
+                    let vestedResult = _safeMultiplyDivide(vestingAmount, elapsed, linear.duration);
+                    switch (vestedResult) {
+                        case (#ok(vested)) { #ok(initialUnlock + vested) };
+                        case (#err(error)) { #err(error) };
+                    };
+                }
+            };
+            case (#Cliff(cliff)) {
+                if (elapsed < cliff.cliffDuration) {
+                    #ok(initialUnlock)
+                } else if (elapsed >= cliff.cliffDuration + cliff.vestingDuration) {
+                    #ok(totalAmount)
+                } else {
+                    let cliffAmountResult = _safePercentageOf(totalAmount, cliff.cliffPercentage);
+                    let cliffAmount = switch (cliffAmountResult) {
+                        case (#ok(amount)) { amount };
+                        case (#err(error)) { return #err(error) };
+                    };
+
+                    let remainingAmount = _safeSubtract(_safeSubtract(totalAmount, initialUnlock), cliffAmount);
+                    let postCliffElapsed = _safeSubtract(elapsed, cliff.cliffDuration);
+                    let vestedResult = _safeMultiplyDivide(remainingAmount, postCliffElapsed, cliff.vestingDuration);
+
+                    switch (vestedResult) {
+                        case (#ok(vested)) { #ok(initialUnlock + cliffAmount + vested) };
+                        case (#err(error)) { #err(error) };
+                    };
+                }
+            };
+            case (#Single(single)) {
+                if (elapsed >= single.duration) {
+                    #ok(totalAmount)
+                } else {
+                    #ok(initialUnlock)
+                }
+            };
+            case (#SteppedCliff(steps)) {
+                var unlockedAmount = initialUnlock;
+                for (step in steps.vals()) {
+                    if (elapsed >= step.timeOffset) {
+                        let stepAmountResult = _safePercentageOf(totalAmount, step.percentage);
+                        let stepAmount = switch (stepAmountResult) {
+                            case (#ok(amount)) { amount };
+                            case (#err(error)) { return #err(error) };
+                        };
+                        unlockedAmount += stepAmount;
+                    };
+                };
+                #ok(Nat.min(unlockedAmount, totalAmount))
+            };
+            case (#Custom(unlockEvents)) {
+                var unlockedAmount = initialUnlock;
+                for (event in unlockEvents.vals()) {
+                    if (currentTime >= event.timestamp) {
+                        unlockedAmount += event.amount;
+                    };
+                };
+                #ok(Nat.min(unlockedAmount, totalAmount))
+            };
+        };
+    };
+
+    // Safe arithmetic operations with overflow protection
+    private func _safeMultiplyDivide(a: Nat, b: Nat, c: Nat) : Result.Result<Nat, Text> {
+        if (c == 0) return #err("Division by zero");
+        if (a == 0 or b == 0) return #ok(0);
+
+        // Check for overflow in multiplication
+        let maxNat = 18446744073709551615; // 2^64 - 1
+        if (a > maxNat / b) {
+            return #err("Arithmetic overflow in multiplication");
+        };
+
+        let product = a * b;
+        #ok(product / c)
+    };
+
+    private func _safePercentageOf(amount: Nat, percentage: Nat) : Result.Result<Nat, Text> {
+        if (percentage > 100) {
+            return #err("Percentage cannot exceed 100");
+        };
+        if (amount == 0 or percentage == 0) {
+            return #ok(0);
+        };
+
+        // Use safe multiplication
+        let result = _safeMultiplyDivide(amount, percentage, 100);
+        result
+    };
+
+    private func _safeSubtract(a: Nat, b: Nat) : Nat {
+        if (a >= b) { a - b } else { 0 }
     };
     
     // Early unlock with penalty
@@ -1298,8 +1477,111 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         { timerId = timerId; isRunning = timerId > 0 }
     };
     
+    // ================ LAUNCHPAD INTEGRATION FUNCTIONS ================
+
+    // Get launchpad context information
+    public query func getLaunchpadContext() : async ?DistributionTypes.LaunchpadContext {
+        config.launchpadContext
+    };
+
+    // Check if this distribution is linked to a launchpad
+    public query func isLaunchpadLinked() : async Bool {
+        switch (config.launchpadContext) {
+            case (?_) { true };
+            case null { false };
+        }
+    };
+
+    // Auto-fund distribution from launchpad (called by launchpad canister)
+    public shared({ caller }) func fundFromLaunchpad(expectedAmount: Nat) : async Result.Result<(), Text> {
+        // Only allow calls from linked launchpad
+        switch (launchpadCanisterId) {
+            case (?launchpadId) {
+                if (not Principal.equal(caller, launchpadId)) {
+                    return #err("Unauthorized: Only linked launchpad can fund this distribution");
+                };
+            };
+            case null {
+                return #err("This distribution is not linked to any launchpad");
+            };
+        };
+
+        // Check if contract received the expected tokens
+        let currentBalance = await _getContractTokenBalance();
+        if (currentBalance >= expectedAmount) {
+            Debug.print("✅ Distribution funded successfully: " # Nat.toText(currentBalance) # " tokens");
+            #ok()
+        } else {
+            #err("Insufficient funding: expected " # Nat.toText(expectedAmount) # ", received " # Nat.toText(currentBalance))
+        }
+    };
+
+    // Batch add participants (optimized for large lists from launchpad)
+    public shared({ caller }) func addParticipantsBatch(
+        newParticipants: [(Principal, Nat)],
+        batchSize: ?Nat
+    ) : async Result.Result<Nat, Text> {
+        if (not _isOwner(caller) and not _isLaunchpadCaller(caller)) {
+            return #err("Unauthorized: Only owner or linked launchpad can add participants");
+        };
+
+        let maxBatchSize = switch (batchSize) {
+            case (?size) { size };
+            case null { 1000 }; // Default batch size
+        };
+
+        var processedCount = 0;
+        let totalParticipants = newParticipants.size();
+
+        label addLoop for ((principal, amount) in newParticipants.vals()) {
+            if (processedCount >= maxBatchSize) {
+                break addLoop;
+            };
+
+            // Check if already exists
+            switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
+                case (?existing) {
+                    // Update existing participant
+                    let updated: Participant = {
+                        existing with
+                        eligibleAmount = amount;
+                    };
+                    participants := Trie.put(participants, _principalKey(principal), Principal.equal, updated).0;
+                };
+                case null {
+                    // Add new participant
+                    let participant: Participant = {
+                        principal = principal;
+                        registeredAt = Time.now();
+                        eligibleAmount = amount;
+                        claimedAmount = 0;
+                        lastClaimTime = null;
+                        status = #Eligible;
+                        vestingStart = ?Time.now();
+                        note = null;
+                    };
+                    participants := Trie.put(participants, _principalKey(principal), Principal.equal, participant).0;
+                    participantCount += 1;
+                };
+            };
+
+            processedCount += 1;
+        };
+
+        #ok(processedCount)
+    };
+
+    // Helper function to check if caller is linked launchpad
+    private func _isLaunchpadCaller(caller: Principal) : Bool {
+        switch (launchpadCanisterId) {
+            case (?launchpadId) { Principal.equal(caller, launchpadId) };
+            case null { false };
+        }
+    };
+
+
     // ================ ADDITIONAL QUERY FUNCTIONS ================
-    
+
     public query func getContractBalance() : async Nat {
         // This is a query approximation; use getContractBalanceAsync for real-time balance
         0 // Placeholder since we can't make async calls in query functions

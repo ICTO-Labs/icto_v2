@@ -956,11 +956,13 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     private func _calculateRaisedFundsAllocations() : Nat {
-        let teamAlloc = totalRaised * Nat8.toNat(config.raisedFundsAllocation.teamAllocation) / 100;
-        let devAlloc = totalRaised * Nat8.toNat(config.raisedFundsAllocation.developmentFund) / 100;
-        let marketingAlloc = totalRaised * Nat8.toNat(config.raisedFundsAllocation.marketingFund) / 100;
-        
-        teamAlloc + devAlloc + marketingAlloc
+        var totalAllocated : Nat = 0;
+
+        for (allocation in config.raisedFundsAllocation.allocations.vals()) {
+            totalAllocated += allocation.amount;
+        };
+
+        totalAllocated
     };
 
     private func _processRefunds() : async () {

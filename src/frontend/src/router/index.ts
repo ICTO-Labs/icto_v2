@@ -308,6 +308,16 @@ const router = createRouter({
       },
     },
     {
+      path: '/distribution/:id/governance',
+      name: 'DistributionGovernance',
+      component: () => import('../views/Distribution/DistributionGovernance.vue'),
+      meta: {
+        title: 'Distribution Governance',
+        requiresAuth: true,
+        adminOnly: true
+      },
+    },
+    {
       path: '/dao',
       name: 'DAOIndex',
       component: () => import('../views/DAO/DAOIndex.vue'),

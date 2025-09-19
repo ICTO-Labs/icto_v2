@@ -1,12 +1,11 @@
-import type { 
-    DistributionConfig, 
-    EligibilityType, 
-    EligibilityLogic, 
-    DistributionDetails, 
+import type {
+    DistributionConfig,
+    EligibilityLogic,
+    DistributionDetails,
     NFTHolderConfig,
-    TokenHolderConfig
+    TokenHolderConfig,
 } from '@/types/distribution';
-import type { 
+import type {
     MotokoDistributionConfig,
     EligibilityTypeMotoko,
     EligibilityLogicMotoko,
@@ -39,8 +38,8 @@ export class DistributionUtils {
                 decimals: config.tokenInfo.decimals
             },
             totalAmount: formatTokenAmount(config.totalAmount, config.tokenInfo.decimals).toNumber(),
-            eligibilityType: config.eligibilityType,
-            recipientMode: config.recipientMode,
+            eligibilityType: this.convertEligibilityType(config.eligibilityType, config),
+            recipientMode: this.convertRecipientMode(config.recipientMode),
             vestingSchedule: this.convertVestingSchedule(config.vestingSchedule),
             initialUnlockPercentage: BigInt(config.initialUnlockPercentage),
             penaltyUnlock: config.penaltyUnlock ? [this.convertPenaltyUnlock(config.penaltyUnlock)] : [], // Candid optional
@@ -67,9 +66,15 @@ export class DistributionUtils {
         // Handle other optional fields as Candid optionals
         result.distributionEnd = config.distributionEnd ? [BigInt(Math.floor(config.distributionEnd.getTime()) * 1_000_000)] : [];
         result.governance = (config.governance && config.governance.trim()) ? [Principal.fromText(config.governance)] : [];
-        result.externalCheckers = (config.externalCheckers && config.externalCheckers.length > 0) ? 
-            [config.externalCheckers.map(checker => [checker.name, Principal.fromText(checker.canisterId)] as [string, Principal])] : 
+        result.externalCheckers = (config.externalCheckers && config.externalCheckers.length > 0) ?
+            [config.externalCheckers.map(checker => [checker.name, Principal.fromText(checker.canisterId)] as [string, Principal])] :
             [];
+
+        // Handle MultiSig Governance as Candid optional (disabled)
+        result.multiSigGovernance = [];
+
+        // Handle LaunchpadContext as Candid optional (null for standalone distributions)
+        result.launchpadContext = [];
 
         return result as MotokoDistributionConfig;
     }
@@ -77,13 +82,16 @@ export class DistributionUtils {
     /**
      * Convert frontend EligibilityType to backend EligibilityTypeMotoko
      */
-    private static convertEligibilityType(eligibilityType: string, config: DistributionConfig): EligibilityType {
+    private static convertEligibilityType(eligibilityType: string, config: DistributionConfig): EligibilityTypeMotoko {
         switch (eligibilityType) {
             case 'Open':
                 return { Open: null };
             
             case 'Whitelist':
-                return { Whitelist: null };
+                // For whitelist, we get the addresses from recipients array
+                const recipients = this.buildRecipientsArray(config);
+                const whitelistAddresses = recipients.map(r => r.address);
+                return { Whitelist: whitelistAddresses };
             
             case 'TokenHolder':
                 const tokenConfig = (config as any).tokenHolderConfig;
@@ -91,8 +99,8 @@ export class DistributionUtils {
                     TokenHolder: {
                         canisterId: Principal.fromText(tokenConfig?.canisterId || ''),
                         minAmount: BigInt(tokenConfig?.minAmount || 0),
-                        snapshotTime: tokenConfig?.snapshotTime ? 
-                            [BigInt(tokenConfig.snapshotTime.getTime() * 1_000_000)] : []
+                        snapshotTime: tokenConfig?.snapshotTime ?
+                            BigInt(tokenConfig.snapshotTime.getTime() * 1_000_000) : undefined
                     }
                 };
             
@@ -351,6 +359,7 @@ export class DistributionUtils {
                 return { Free: null };
         }
     }
+
 
     /**
      * Get distribution deployment price from backend

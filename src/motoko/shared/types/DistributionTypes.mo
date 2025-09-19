@@ -15,6 +15,31 @@ module DistributionTypes {
         #Airdrop;
         #Vesting;
         #Lock;
+        #LaunchpadDistribution; // New: For launchpad-linked distributions
+    };
+
+    // Launchpad Integration Types
+    public type LaunchpadContext = {
+        launchpadId: Principal;           // Reference to launchpad project
+        category: DistributionCategory;   // Type of distribution within launchpad
+        projectMetadata: ProjectMetadata; // Project info for display
+        batchId: ?Text;                   // For grouping multiple distributions from same launchpad
+    };
+
+    // Dynamic distribution category - can be any text for flexibility
+    public type DistributionCategory = {
+        id: Text;           // Unique identifier (e.g. "team", "advisors", "fairlaunch")
+        name: Text;         // Display name (e.g. "Team Allocation", "Advisor Vesting")
+        description: ?Text; // Optional description
+        order: ?Nat;        // Optional ordering for display
+    };
+
+    public type ProjectMetadata = {
+        name: Text;
+        symbol: Text;
+        logo: ?Text;
+        website: ?Text;
+        description: Text;
     };
 
     // Unified Recipient type for all participant data
@@ -32,40 +57,46 @@ module DistributionTypes {
         title: Text;
         description: Text;
         isPublic: Bool;
-        campaignType: CampaignType; // New field
-        
+        campaignType: CampaignType;
+
+        // Launchpad Integration (Optional - backward compatible)
+        launchpadContext: ?LaunchpadContext; // New: Optional launchpad linking
+
         // Token Configuration
         tokenInfo: TokenInfo;
         totalAmount: Nat;
-        
+
         // Eligibility & Recipients
         eligibilityType: EligibilityType;
         eligibilityLogic: ?EligibilityLogic;
         recipientMode: RecipientMode;
         maxRecipients: ?Nat;
-        
+
         // Unified Recipients List (replaces separate whitelist, etc.)
-        recipients: [Recipient]; // New unified field
-        
+        recipients: [Recipient];
+
         // Vesting Configuration
         vestingSchedule: VestingSchedule;
         initialUnlockPercentage: Nat;
         penaltyUnlock: ?PenaltyUnlock; // Optional penalty unlock configuration for any vesting type
-        
+
         // Timing
         registrationPeriod: ?RegistrationPeriod;
         distributionStart: Time.Time;
         distributionEnd: ?Time.Time;
-        
+
         // Fees & Permissions
         feeStructure: FeeStructure;
         allowCancel: Bool;
         allowModification: Bool;
-        
+
         // Owner & Governance
         owner: Principal;
-        governance: ?Principal;
-        
+        governance: ?Principal; // Legacy single governance
+
+        // Enhanced Governance (Optional - can be used by ANY distribution)
+        multiSigGovernance: ?MultiSigGovernance; // New: Optional multisig for any distribution
+
         // External Integrations
         externalCheckers: ?[(Text, Principal)];
     };
@@ -201,6 +232,100 @@ module DistributionTypes {
         status: DistributionStatus;
     };
 
+    // Batch Operations for Launchpad
+    public type BatchDistributionRequest = {
+        launchpadId: Principal;
+        projectMetadata: ProjectMetadata;
+        batchId: Text;
+        distributions: [DistributionConfig];
+    };
+
+    public type BatchDistributionResult = {
+        batchId: Text;
+        launchpadId: Principal;
+        distributions: [DistributionDeploymentResult];
+        successCount: Nat;
+        failureCount: Nat;
+    };
+
+    public type DistributionDeploymentResult = {
+        category: DistributionCategory;
+        result: {
+            #Ok: Principal;  // Deployed canister ID
+            #Err: Text;      // Error message
+        };
+    };
+
+    // Multi-signature Governance (can be used by ANY distribution)
+    public type MultiSigGovernance = {
+        threshold: Nat;              // Required signatures (must be <= signers.size())
+        signers: [Principal];        // Authorized signers
+        timelock: ?Nat;             // Timelock period in nanoseconds (optional)
+        proposalExpiry: ?Nat;       // Proposal expiry time in nanoseconds (optional)
+
+        // Governance scope - what actions require multisig approval
+        governanceScope: GovernanceScope;
+
+        // Emergency settings
+        emergencyActions: ?EmergencySettings;
+    };
+
+    public type GovernanceScope = {
+        requireApprovalFor: [GovernanceAction]; // Which actions need multisig
+        exemptActions: [GovernanceAction];      // Which actions owner can do alone
+    };
+
+    public type GovernanceAction = {
+        #PauseDistribution;
+        #ResumeDistribution;
+        #CancelDistribution;
+        #UpdateConfig;
+        #EmergencyWithdraw;
+        #AddParticipants;
+        #RemoveParticipants;
+        #UpdateVesting;
+        #ChangeOwnership;
+        #UpdateGovernance;
+        #FundDistribution;
+        #All; // Require approval for ALL actions
+    };
+
+    public type EmergencySettings = {
+        emergencySigners: [Principal];    // Special signers for emergencies
+        emergencyThreshold: Nat;          // Lower threshold for emergencies
+        emergencyTimelock: ?Nat;          // Shorter timelock for emergencies
+        allowEmergencyBypass: Bool;       // Allow bypassing normal governance in emergency
+    };
+
+    public type GovernanceProposal = {
+        id: Text;
+        proposer: Principal;
+        proposalType: ProposalType;
+        description: Text;
+        signatures: [Principal];
+        createdAt: Time.Time;
+        executedAt: ?Time.Time;
+        expiresAt: ?Time.Time;
+        status: ProposalStatus;
+    };
+
+    public type ProposalType = {
+        #UpdateConfig: DistributionConfig;
+        #PauseDistribution;
+        #ResumeDistribution;
+        #CancelDistribution;
+        #EmergencyWithdraw: { recipient: Principal; amount: ?Nat };
+        #UpdateGovernance: MultiSigGovernance;
+    };
+
+    public type ProposalStatus = {
+        #Pending;
+        #Approved;
+        #Executed;
+        #Rejected;
+        #Expired;
+    };
+
     public type DistributionStatus = {
         #Created;
         #Deployed;
@@ -297,6 +422,7 @@ module DistributionTypes {
             case (#Airdrop) { "Airdrop" };
             case (#Vesting) { "Vesting" };
             case (#Lock) { "Lock" };
+            case (#LaunchpadDistribution) { "LaunchpadDistribution" };
         }
     };
 
@@ -306,7 +432,298 @@ module DistributionTypes {
             case ("Airdrop") { ?#Airdrop };
             case ("Vesting") { ?#Vesting };
             case ("Lock") { ?#Lock };
+            case ("LaunchpadDistribution") { ?#LaunchpadDistribution };
             case (_) { null };
+        }
+    };
+
+    // Distribution Category helpers
+    public func createDistributionCategory(id: Text, name: Text, description: ?Text, order: ?Nat) : DistributionCategory {
+        {
+            id = id;
+            name = name;
+            description = description;
+            order = order;
+        }
+    };
+
+    // Predefined common categories for convenience
+    public func getCommonCategories() : [DistributionCategory] {
+        [
+            { id = "fairlaunch"; name = "Fair Launch"; description = ?"Public sale allocation - TGE unlock"; order = ?1 },
+            { id = "team"; name = "Team"; description = ?"Team allocation - 12M cliff + 24M linear"; order = ?2 },
+            { id = "advisors"; name = "Advisors"; description = ?"Advisor allocation - 6M cliff + 24M linear"; order = ?3 },
+            { id = "marketing"; name = "Marketing"; description = ?"Marketing allocation - 3M cliff + 12M linear"; order = ?4 },
+            { id = "liquidity"; name = "Liquidity"; description = ?"Liquidity pool allocation - instant unlock"; order = ?5 },
+            { id = "treasury"; name = "Treasury"; description = ?"Treasury allocation - 24M single lock"; order = ?6 },
+            { id = "private"; name = "Private Sale"; description = ?"Private sale - 6M cliff + 18M linear"; order = ?7 },
+            { id = "seed"; name = "Seed"; description = ?"Seed round - 12M cliff + 18M linear"; order = ?8 },
+            { id = "strategic"; name = "Strategic"; description = ?"Strategic partners - 9M cliff + 15M linear"; order = ?9 }
+        ]
+    };
+
+    // Preset vesting schedules for common categories
+    public func getPresetVestingSchedule(categoryId: Text) : VestingSchedule {
+        switch (categoryId) {
+            case ("fairlaunch") {
+                #Instant // TGE unlock
+            };
+            case ("team") {
+                #Cliff({
+                    cliffDuration = 365 * 24 * 60 * 60 * 1_000_000_000; // 12 months
+                    cliffPercentage = 0; // No unlock at cliff
+                    vestingDuration = 730 * 24 * 60 * 60 * 1_000_000_000; // 24 months
+                    frequency = #Monthly;
+                })
+            };
+            case ("advisors") {
+                #Cliff({
+                    cliffDuration = 180 * 24 * 60 * 60 * 1_000_000_000; // 6 months
+                    cliffPercentage = 0;
+                    vestingDuration = 730 * 24 * 60 * 60 * 1_000_000_000; // 24 months
+                    frequency = #Monthly;
+                })
+            };
+            case ("marketing") {
+                #Cliff({
+                    cliffDuration = 90 * 24 * 60 * 60 * 1_000_000_000; // 3 months
+                    cliffPercentage = 10; // 10% unlock at cliff
+                    vestingDuration = 365 * 24 * 60 * 60 * 1_000_000_000; // 12 months
+                    frequency = #Monthly;
+                })
+            };
+            case ("liquidity") {
+                #Instant // Immediate unlock for DEX
+            };
+            case ("treasury") {
+                #Single({
+                    duration = 730 * 24 * 60 * 60 * 1_000_000_000; // 24 months lock
+                })
+            };
+            case ("private") {
+                #Cliff({
+                    cliffDuration = 180 * 24 * 60 * 60 * 1_000_000_000; // 6 months
+                    cliffPercentage = 5; // 5% unlock at cliff
+                    vestingDuration = 545 * 24 * 60 * 60 * 1_000_000_000; // 18 months
+                    frequency = #Monthly;
+                })
+            };
+            case ("seed") {
+                #Cliff({
+                    cliffDuration = 365 * 24 * 60 * 60 * 1_000_000_000; // 12 months
+                    cliffPercentage = 0;
+                    vestingDuration = 545 * 24 * 60 * 60 * 1_000_000_000; // 18 months
+                    frequency = #Monthly;
+                })
+            };
+            case ("strategic") {
+                #Cliff({
+                    cliffDuration = 270 * 24 * 60 * 60 * 1_000_000_000; // 9 months
+                    cliffPercentage = 10; // 10% unlock at cliff
+                    vestingDuration = 455 * 24 * 60 * 60 * 1_000_000_000; // 15 months
+                    frequency = #Monthly;
+                })
+            };
+            case (_) {
+                // Default: 6 month cliff + 18 month linear
+                #Cliff({
+                    cliffDuration = 180 * 24 * 60 * 60 * 1_000_000_000;
+                    cliffPercentage = 0;
+                    vestingDuration = 545 * 24 * 60 * 60 * 1_000_000_000;
+                    frequency = #Monthly;
+                })
+            };
+        }
+    };
+
+    // Create distribution config with preset vesting for category
+    public func createDistributionConfigForCategory(
+        baseConfig: DistributionConfig,
+        category: DistributionCategory,
+        overrideVesting: ?VestingSchedule // Optional override
+    ) : DistributionConfig {
+        let vestingSchedule = switch (overrideVesting) {
+            case (?customVesting) { customVesting };
+            case null { getPresetVestingSchedule(category.id) };
+        };
+
+        {
+            baseConfig with
+            vestingSchedule = vestingSchedule;
+            title = category.name # " - " # baseConfig.title;
+            description = switch (category.description) {
+                case (?desc) { desc # " | " # baseConfig.description };
+                case null { baseConfig.description };
+            };
+        }
+    };
+
+    // MULTISIG GOVERNANCE HELPERS
+
+    // Create standard multisig for team allocations
+    public func createTeamMultiSig(signers: [Principal]) : MultiSigGovernance {
+        {
+            threshold = 2; // Require 2 signatures
+            signers = signers;
+            timelock = ?(24 * 60 * 60 * 1_000_000_000); // 24 hours
+            proposalExpiry = ?(7 * 24 * 60 * 60 * 1_000_000_000); // 7 days
+            governanceScope = {
+                requireApprovalFor = [
+                    #PauseDistribution,
+                    #CancelDistribution,
+                    #UpdateConfig,
+                    #EmergencyWithdraw,
+                    #UpdateVesting,
+                    #ChangeOwnership
+                ];
+                exemptActions = [#AddParticipants, #RemoveParticipants]; // Owner can manage participants
+            };
+            emergencyActions = ?{
+                emergencySigners = signers;
+                emergencyThreshold = 1; // In emergency, only 1 signature needed
+                emergencyTimelock = ?(1 * 60 * 60 * 1_000_000_000); // 1 hour in emergency
+                allowEmergencyBypass = true;
+            };
+        }
+    };
+
+    // Create strict multisig for high-value allocations
+    public func createStrictMultiSig(signers: [Principal], threshold: Nat) : MultiSigGovernance {
+        {
+            threshold = threshold;
+            signers = signers;
+            timelock = ?(48 * 60 * 60 * 1_000_000_000); // 48 hours
+            proposalExpiry = ?(14 * 24 * 60 * 60 * 1_000_000_000); // 14 days
+            governanceScope = {
+                requireApprovalFor = [#All]; // ALL actions need approval
+                exemptActions = []; // No exemptions
+            };
+            emergencyActions = ?{
+                emergencySigners = signers;
+                emergencyThreshold = threshold; // Same threshold even in emergency
+                emergencyTimelock = ?(12 * 60 * 60 * 1_000_000_000); // 12 hours in emergency
+                allowEmergencyBypass = false; // No bypass allowed
+            };
+        }
+    };
+
+    // Create flexible multisig for marketing/operations
+    public func createOperationalMultiSig(signers: [Principal]) : MultiSigGovernance {
+        {
+            threshold = 1; // Only 1 signature needed (but tracked)
+            signers = signers;
+            timelock = ?(2 * 60 * 60 * 1_000_000_000); // 2 hours
+            proposalExpiry = ?(3 * 24 * 60 * 60 * 1_000_000_000); // 3 days
+            governanceScope = {
+                requireApprovalFor = [
+                    #CancelDistribution,
+                    #EmergencyWithdraw,
+                    #ChangeOwnership
+                ]; // Only major actions
+                exemptActions = [
+                    #PauseDistribution,
+                    #ResumeDistribution,
+                    #AddParticipants,
+                    #RemoveParticipants,
+                    #UpdateConfig
+                ]; // Owner can do operational tasks
+            };
+            emergencyActions = null; // No special emergency procedures
+        }
+    };
+
+    // Create custom multisig
+    public func createCustomMultiSig(
+        signers: [Principal],
+        threshold: Nat,
+        timelockHours: ?Nat,
+        requiredActions: [GovernanceAction],
+        exemptActions: [GovernanceAction]
+    ) : MultiSigGovernance {
+        let timelock = switch (timelockHours) {
+            case (?hours) { ?(hours * 60 * 60 * 1_000_000_000) };
+            case null { null };
+        };
+
+        {
+            threshold = threshold;
+            signers = signers;
+            timelock = timelock;
+            proposalExpiry = ?(7 * 24 * 60 * 60 * 1_000_000_000); // Default 7 days
+            governanceScope = {
+                requireApprovalFor = requiredActions;
+                exemptActions = exemptActions;
+            };
+            emergencyActions = null; // Custom setups handle emergencies separately
+        }
+    };
+
+    // Check if action requires multisig approval
+    public func requiresMultiSigApproval(
+        governance: ?MultiSigGovernance,
+        action: GovernanceAction
+    ) : Bool {
+        switch (governance) {
+            case (?multiSig) {
+                // Check if action is in exemptions first
+                let isExempt = Array.find<GovernanceAction>(
+                    multiSig.governanceScope.exemptActions,
+                    func(exemptAction) = exemptAction == action
+                ) != null;
+
+                if (isExempt) return false;
+
+                // Check if action requires approval or if ALL actions require approval
+                let requiresApproval = Array.find<GovernanceAction>(
+                    multiSig.governanceScope.requireApprovalFor,
+                    func(requiredAction) = requiredAction == action or requiredAction == #All
+                ) != null;
+
+                requiresApproval
+            };
+            case null { false }; // No multisig = no approval needed
+        }
+    };
+
+    // Check if distribution is linked to launchpad
+    public func isLaunchpadDistribution(config: DistributionConfig) : Bool {
+        switch (config.launchpadContext) {
+            case (?_) { true };
+            case null { false };
+        }
+    };
+
+    // Get distribution category from config
+    public func getDistributionCategory(config: DistributionConfig) : ?DistributionCategory {
+        switch (config.launchpadContext) {
+            case (?context) { ?context.category };
+            case null { null };
+        }
+    };
+
+    // Get category by ID from common categories
+    public func findCategoryById(id: Text) : ?DistributionCategory {
+        let categories = getCommonCategories();
+        Array.find<DistributionCategory>(categories, func(c) = c.id == id)
+    };
+
+    // Create launchpad-linked distribution config
+    public func createLaunchpadDistributionConfig(
+        baseConfig: DistributionConfig,
+        launchpadId: Principal,
+        category: DistributionCategory,
+        projectMetadata: ProjectMetadata,
+        batchId: ?Text
+    ) : DistributionConfig {
+        {
+            baseConfig with
+            campaignType = #LaunchpadDistribution;
+            launchpadContext = ?{
+                launchpadId = launchpadId;
+                category = category;
+                projectMetadata = projectMetadata;
+                batchId = batchId;
+            };
         }
     };
 
