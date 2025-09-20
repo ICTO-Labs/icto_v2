@@ -39,5 +39,9 @@
     "vue": "^3.5.19",
     "vue-sonner": "^2.0.1",
     "vue-sweetalert2": "^5.0.11"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.5.2"
   }
 }
