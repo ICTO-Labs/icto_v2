@@ -15,6 +15,7 @@ module MicroserviceTypes {
         templateFactory: ?Principal;
         distributionFactory: ?Principal;
         daoFactory: ?Principal;
+        multisigFactory: ?Principal;
         lockFactory: ?Principal;
         launchpadFactory: ?Principal;
         invoiceStorage: ?Principal;

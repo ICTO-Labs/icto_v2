@@ -62,6 +62,7 @@ module Types {
         #CreateTemplate;
         #CreateDistribution;
         #CreateDAO;
+        #CreateMultisig;
         
         // Pipeline Actions
         #StartPipeline;
@@ -171,6 +172,18 @@ module Types {
         timelockDuration: ?Nat;
         maxVotingPeriod: ?Nat;
     };
+
+    public type MultisigActionData = {
+        walletName: Text;
+        signersCount: Nat;
+        threshold: Nat;
+        requiresTimelock: Bool;
+        dailyLimit: ?Nat;
+        description: ?Text;
+        allowRecovery: Bool;
+        maxProposalLifetime: Int;
+        emergencyContacts: [Text];
+    };
     
     public type PaymentActionData = {
         amount: Nat;
@@ -206,6 +219,7 @@ module Types {
             #Template: Text;
             #Distribution: DistributionActionData;
             #DAO: DAOActionData;
+            #Multisig: MultisigActionData;
             #Other: Text;
         };
         status: ActionStatus;
@@ -287,6 +301,7 @@ module Types {
         #LockFactory;
         #DistributionFactory;
         #DAOFactory;
+        #MultisigFactory;
         #LaunchpadFactory;
         #InvoiceService;
         #Backend;
@@ -327,6 +342,7 @@ module Types {
         #CreateDistribution;
         #CreateLaunchpad;
         #CreateDAO;
+        #CreateMultisig;
         #PipelineExecution;
         #CustomFee : Text;
     };

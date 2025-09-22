@@ -99,6 +99,7 @@ module AuditService {
             case (#CreateTemplate) "create_template";
             case (#CreateDistribution) "create_distribution";
             case (#CreateDAO) "create_dao";
+            case (#CreateMultisig) "create_multisig";
             case (#StartPipeline) "start_pipeline";
             case (#StepCompleted) "step_completed";
             case (#StepFailed) "step_failed";

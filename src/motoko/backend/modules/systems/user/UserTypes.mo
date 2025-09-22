@@ -113,6 +113,7 @@ module UserTypes {
         #Distribution : DistributionDeploymentInfo;
         #Launchpad : LaunchpadDeploymentInfo;
         #DAO : DAODeploymentInfo;
+        #Multisig : MultisigDeploymentInfo;
     };
     
     public type DeploymentStatus = {
@@ -213,6 +214,16 @@ module UserTypes {
         proposalDuration: Nat;
         executionDelay: Nat;
         memberCount: Nat;
+    };
+
+    public type MultisigDeploymentInfo = {
+        walletName: Text;
+        signersCount: Nat;
+        threshold: Nat;
+        requiresTimelock: Bool;
+        dailyLimit: ?Nat;
+        allowRecovery: Bool;
+        maxProposalLifetime: Int;
     };
 
     // --- UTILS ---

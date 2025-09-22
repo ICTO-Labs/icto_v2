@@ -80,6 +80,11 @@ module ConfigService {
         ignore set(state, "dao_factory.fee", "500000000", backendId); // 5 ICP for DAO deployment
         ignore set(state, "dao_factory.initial_cycles", "300000000", backendId);
 
+        // Launchpad Factory
+        ignore set(state, "launchpad_factory.enabled", "true", backendId);
+        ignore set(state, "launchpad_factory.fee", "1000000000", backendId);
+        ignore set(state, "launchpad_factory.initial_cycles", "2000000000", backendId);
+
     };
 
     public func fromStableState(stableState: ConfigTypes.StableState) : ConfigTypes.State {

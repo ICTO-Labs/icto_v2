@@ -1,6 +1,5 @@
 // ⬇️ Audit Types for the Backend Service
 
-import Time "mo:base/Time";
 import Principal "mo:base/Principal";
 import Int "mo:base/Int";
 import Trie "mo:base/Trie";

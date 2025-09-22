@@ -239,6 +239,73 @@ module LaunchpadTypes {
         #Custom: Nat;     // Custom period in seconds
     };
 
+    // ================ FIXED 4-CATEGORY DISTRIBUTION (V2) ================
+    // New structure that matches frontend fixed allocation design
+    
+    public type TokenDistribution = {
+        sale: SaleAllocation;
+        team: TeamAllocation;
+        liquidityPool: LiquidityPoolAllocation;
+        others: [OtherAllocation];
+    };
+
+    public type SaleAllocation = {
+        name: Text;                   // "Sale"
+        percentage: Float;            // Percentage of total supply
+        totalAmount: Text;            // String representation for large numbers
+        vestingSchedule: ?VestingSchedule;
+        description: ?Text;
+    };
+
+    public type TeamAllocation = {
+        name: Text;                   // "Team" 
+        percentage: Float;            // Percentage of total supply
+        totalAmount: Text;            // String representation for large numbers
+        vestingSchedule: ?VestingSchedule;
+        recipients: [TeamRecipient];
+        description: ?Text;
+    };
+
+    public type LiquidityPoolAllocation = {
+        name: Text;                   // "Liquidity Pool"
+        percentage: Float;            // Percentage of total supply (auto-calculated)
+        totalAmount: Text;            // String representation for large numbers
+        autoCalculated: Bool;         // Always true - calculated from DEX config
+        description: ?Text;
+        // NO vestingSchedule - LP tokens need to be available immediately
+    };
+
+    public type OtherAllocation = {
+        id: Text;                     // Unique identifier
+        name: Text;                   // Category name (Marketing, Advisors, etc.)
+        percentage: Float;            // Percentage of total supply
+        totalAmount: Text;            // String representation for large numbers
+        description: ?Text;
+        recipients: [OtherRecipient];
+        vestingSchedule: ?VestingSchedule;
+    };
+
+    public type TeamRecipient = {
+        principal: Text;              // Principal ID as text
+        percentage: Float;            // Percentage within team allocation
+        amount: ?Text;               // Optional amount override
+        name: ?Text;                 // Optional name/description
+        description: ?Text;
+        vestingOverride: ?VestingSchedule; // Override team-level vesting
+    };
+
+    public type OtherRecipient = {
+        principal: Text;              // Principal ID as text  
+        percentage: Float;            // Percentage within category allocation
+        amount: ?Text;               // Optional amount override
+        name: ?Text;                 // Optional name/description
+        description: ?Text;
+        vestingOverride: ?VestingSchedule; // Override category-level vesting
+    };
+
+    // ================ LEGACY DISTRIBUTION (V1) ================
+    // Kept for backward compatibility
+    
     public type DistributionCategory = {
         name: Text;                   // "Public Sale", "Private Sale", "Team", "Liquidity", etc.
         percentage: Nat8;             // Percentage of total supply (0-100)
@@ -414,7 +481,10 @@ module LaunchpadTypes {
         // Timeline
         timeline: Timeline;
         
-        // Token Distribution
+        // Token Distribution (V2 - Fixed 4-Category Structure)
+        tokenDistribution: ?TokenDistribution;  // New fixed structure
+        
+        // Legacy Distribution (V1 - Dynamic Array) - Backward compatibility
         distribution: [DistributionCategory];
         
         // DEX Integration

@@ -3,6 +3,8 @@ import Time "mo:base/Time";
 import Principal "mo:base/Principal";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
+import Char "mo:base/Char";
+import Iter "mo:base/Iter";
 import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
 import Int "mo:base/Int";
@@ -920,11 +922,26 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     private func _calculateTreasuryAllocation() : Nat {
-        // Calculate remaining tokens for DAO treasury
-        // Total supply - all allocations = treasury amount
+        // Calculate remaining tokens for DAO treasury using new fixed structure
         var allocatedTokens: Nat = 0;
-        for (category in config.distribution.vals()) {
-            allocatedTokens += category.totalAmount;
+        
+        switch (config.tokenDistribution) {
+            case (?fixedDistrib) {
+                // Use new V2 fixed structure  
+                allocatedTokens += _parseTokenAmount(fixedDistrib.sale.totalAmount);
+                allocatedTokens += _parseTokenAmount(fixedDistrib.team.totalAmount);
+                allocatedTokens += _parseTokenAmount(fixedDistrib.liquidityPool.totalAmount);
+                
+                for (other in fixedDistrib.others.vals()) {
+                    allocatedTokens += _parseTokenAmount(other.totalAmount);
+                };
+            };
+            case (null) {
+                // Fallback to legacy V1 structure
+                for (category in config.distribution.vals()) {
+                    allocatedTokens += category.totalAmount;
+                };
+            };
         };
         
         if (config.saleToken.totalSupply >= allocatedTokens) {
@@ -932,6 +949,41 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         } else {
             0
         }
+    };
+
+    // Helper function to parse string amounts
+    private func _parseTokenAmount(amountStr: Text) : Nat {
+        // Simple parser for string to Nat conversion
+        // In production, use a proper parsing library
+        var result: Nat = 0;
+        var multiplier: Nat = 1;
+        let charArray = Iter.toArray(Text.toIter(amountStr));
+        let size = charArray.size();
+        
+        var i = 0;
+        label parseLoop while (i < size) {
+            let char = charArray[size - 1 - i];
+            switch (char) {
+                case ('0') { result += 0 * multiplier; };
+                case ('1') { result += 1 * multiplier; };
+                case ('2') { result += 2 * multiplier; };
+                case ('3') { result += 3 * multiplier; };
+                case ('4') { result += 4 * multiplier; };
+                case ('5') { result += 5 * multiplier; };
+                case ('6') { result += 6 * multiplier; };
+                case ('7') { result += 7 * multiplier; };
+                case ('8') { result += 8 * multiplier; };
+                case ('9') { result += 9 * multiplier; };
+                case (',') { /* ignore commas */ };
+                case (_) { 
+                    // Invalid character, return 0
+                    return 0;
+                };
+            };
+            multiplier *= 10;
+            i += 1;
+        };
+        result
     };
 
     private func _calculateTreasuryFunds() : Nat {

@@ -40,11 +40,15 @@ import DistributionFactoryInterface "./modules/distribution_factory/Distribution
 import DAOFactoryService "./modules/dao_factory/DAOFactoryService";
 import DAOFactoryTypes "./modules/dao_factory/DAOFactoryTypes";
 import DAOFactoryInterface "./modules/dao_factory/DAOFactoryInterface";
+import MultisigFactoryService "./modules/multisig_factory/MultisigFactoryService";
+import MultisigFactoryTypes "./modules/multisig_factory/MultisigFactoryTypes";
+import MultisigFactoryInterface "./modules/multisig_factory/MultisigFactoryInterface";
 // Launchpad, Lock modules are used via the Microservice module
 
 // Shared Types
 import Common "./shared/types/Common";
 import Deployments "./shared/types/Deployments";
+import MultisigTypes "../shared/types/MultisigTypes";
 
 // Shared Utils
 import TokenValidation "../shared/utils/TokenValidation";
@@ -64,6 +68,7 @@ persistent actor Backend {
     private var stableProjectState : ?ProjectTypes.StableState = null;
     private var stableTokenSymbolRegistry : [(Text, Principal)] = [];
     private var stableDistributionFactoryState : ?DistributionFactoryTypes.StableState = null;
+    private var stableMultisigFactoryState : ?MultisigFactoryTypes.StableState = null;
     private var stableFactoryRegistryState : ?FactoryRegistryTypes.StableState = null;
 
     // --- Runtime State (must be initialized) ---
@@ -75,6 +80,7 @@ persistent actor Backend {
     private transient var microserviceState : MicroserviceTypes.State = MicroserviceService.initState();
     private transient var projectState : ProjectTypes.State = ProjectService.initState(stableBackend);
     private transient var distributionFactoryState : DistributionFactoryTypes.StableState = DistributionFactoryService.initState();
+    private transient var multisigFactoryState : MultisigFactoryTypes.ServiceState = MultisigFactoryService.initState();
     private transient var factoryRegistryState : FactoryRegistryTypes.State = FactoryRegistryService.initState();
     private transient var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
     private transient var defaultTokens : [Common.TokenInfo] = [];
@@ -87,6 +93,7 @@ persistent actor Backend {
         stableProjectState := ?ProjectService.toStableState(projectState);
         stablePaymentState := ?PaymentService.toStableState(paymentState);
         stableDistributionFactoryState := ?DistributionFactoryService.toStableState(distributionFactoryState);
+        stableMultisigFactoryState := ?MultisigFactoryService.toStableState(multisigFactoryState);
         stableFactoryRegistryState := ?FactoryRegistryService.toStableState(factoryRegistryState);
         stableTokenSymbolRegistry := Iter.toArray(Trie.iter(tokenSymbolRegistry));
     };
@@ -130,6 +137,10 @@ persistent actor Backend {
         distributionFactoryState := switch (stableDistributionFactoryState) {
             case null { DistributionFactoryService.initState() };
             case (?s) { DistributionFactoryService.fromStableState(s) };
+        };
+        multisigFactoryState := switch (stableMultisigFactoryState) {
+            case null { MultisigFactoryService.initState() };
+            case (?s) { MultisigFactoryService.fromStableState(s) };
         };
         factoryRegistryState := switch (stableFactoryRegistryState) {
             case null { FactoryRegistryService.initState() };
@@ -300,6 +311,17 @@ persistent actor Backend {
                         timelockDuration = ?config.timelockDuration;
                         maxVotingPeriod = ?config.maxVotingPeriod;
                     });
+                    case (#Multisig(request)) #Multisig({
+                        walletName = request.config.name;
+                        signersCount = request.config.signers.size();
+                        threshold = request.config.threshold;
+                        requiresTimelock = request.config.requiresTimelock;
+                        dailyLimit = request.config.dailyLimit;
+                        description = request.config.description;
+                        allowRecovery = request.config.allowRecovery;
+                        maxProposalLifetime = request.config.maxProposalLifetime;
+                        emergencyContacts = [];
+                    });
                 };
                 status = #Initiated;
                 payload = debug_show (payload);
@@ -413,6 +435,32 @@ persistent actor Backend {
                         };
                     };
                 };
+                case (#Multisig(request)) {
+                    Debug.print("Preparing Multisig wallet deployment");
+                    Debug.print("🚥 Multisig Config: " # debug_show (request));
+                    let preparedCallResult = MultisigFactoryService.prepareDeployment(
+                        multisigFactoryState,
+                        caller,
+                        request.config,
+                        configState,
+                        microserviceState,
+                    );
+
+                    Debug.print("⚠️ Multisig Prepared Call Result: " # debug_show (preparedCallResult));
+
+                    switch (preparedCallResult) {
+                        case (#err(msg)) { #err(msg) };
+                        case (#ok(call)) {
+                            Debug.print("⚠️ Multisig Call: " # debug_show (call));
+                            let deployerActor = actor (Principal.toText(call.canisterId)) : MultisigFactoryInterface.MultisigFactoryActor;
+                            let result = await deployerActor.createMultisigWallet(call.args.config, call.args.creator, call.args.initialCycles);
+                            switch (result) {
+                                case (#ok(res)) { #ok(res.canisterId) };
+                                case (#err(msg)) { #err(msg) };
+                            };
+                        };
+                    };
+                };
             };
         };
 
@@ -447,6 +495,7 @@ persistent actor Backend {
                     case (#CreateToken) { ?#Token };
                     case (#CreateTemplate) { ?#Template };
                     case (#CreateDAO) { ?#DAO };
+                    case (#CreateMultisig) { ?#Multisig };
                     case _ { null };
                 };
                 
@@ -471,6 +520,13 @@ persistent actor Backend {
                                 ?{
                                     name = ?config.name;
                                     description = ?config.description;
+                                    version = null;
+                                }
+                            };
+                            case (#Multisig(request)) {
+                                ?{
+                                    name = ?request.config.name;
+                                    description = request.config.description;
                                     version = null;
                                 }
                             };
@@ -832,6 +888,74 @@ persistent actor Backend {
                 // Return the specific result type expected by the frontend
                 return #ok({
                     daoCanisterId = result.canisterId;
+                });
+            };
+        };
+    };
+
+    public shared ({ caller }) func deployMultisig(
+        config : MultisigTypes.WalletConfig,
+        projectId : ?ProjectTypes.ProjectId
+    ) : async Result.Result<MultisigFactoryTypes.DeploymentResult, Text> {
+
+        // Basic validation
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated to deploy a multisig wallet.");
+        };
+
+        // All complex logic is now delegated to the standard flow
+        let flowResult = await _handleStandardDeploymentFlow(
+            caller,
+            #CreateMultisig, // The specific ActionType for auditing and fees
+            projectId,
+            #Multisig({
+                config = config;
+                initialDeposit = null;
+            }),
+        );
+
+        switch (flowResult) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok(result)) {
+
+                // Post-deployment state updates specific to multisig deployment
+                ignore UserService.recordDeployment(
+                    userState,
+                    caller,
+                    projectId,
+                    result.canisterId,
+                    #MultisigFactory,
+                    #Multisig({
+                        walletName = config.name;
+                        signersCount = config.signers.size();
+                        threshold = config.threshold;
+                        requiresTimelock = config.requiresTimelock;
+                        dailyLimit = config.dailyLimit;
+                        allowRecovery = config.allowRecovery;
+                        maxProposalLifetime = config.maxProposalLifetime;
+                    }),
+                    {
+                        cyclesCost = 0; // TODO
+                        deploymentFee = result.paidAmount;
+                        paymentToken = paymentState.config.acceptedTokens[0]; // Assuming first token
+                        totalCost = result.paidAmount;
+                        transactionId = result.transactionId;
+                    },
+                    {
+                        name = config.name;
+                        description = config.description;
+                        tags = [];
+                        version = "1.0.0";
+                        isPublic = false; // Multisig wallets are typically private
+                        parentProject = projectId;
+                        dependsOn = [];
+                    },
+                );
+
+                // Return the specific result type expected by the frontend
+                return #ok({
+                    walletId = "multisig-" # Principal.toText(result.canisterId);
+                    canisterId = result.canisterId;
                 });
             };
         };

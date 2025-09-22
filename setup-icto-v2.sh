@@ -27,6 +27,7 @@ dfx deploy invoice_storage
 dfx deploy token_factory
 dfx deploy template_factory
 dfx deploy distribution_factory
+dfx deploy multisig_factory
 
 # Step 2: Get canister IDs
 echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
@@ -34,7 +35,7 @@ BACKEND_ID=$(dfx canister id backend)
 TOKEN_FACTORY_ID=$(dfx canister id token_factory)
 AUDIT_STORAGE_ID=$(dfx canister id audit_storage)
 INVOICE_STORAGE_ID=$(dfx canister id invoice_storage)
-
+MULTISIG_FACTORY_ID=$(dfx canister id multisig_factory)
 # For services not yet implemented, use placeholder
 TEMPLATE_FACTORY_ID=$(dfx canister id template_factory)
 DISTRIBUTION_FACTORY_ID=$(dfx canister id distribution_factory)
@@ -44,12 +45,14 @@ echo -e "${GREEN}✅ Audit Storage ID: ${AUDIT_STORAGE_ID}${NC}"
 echo -e "${GREEN}✅ Invoice Storage ID: ${INVOICE_STORAGE_ID}${NC}"
 echo -e "${GREEN}✅ Template Factory ID: ${TEMPLATE_FACTORY_ID}${NC}"
 echo -e "${GREEN}✅ Distribution Factory ID: ${DISTRIBUTION_FACTORY_ID}${NC}"
+echo -e "${GREEN}✅ Multisig Factory ID: ${MULTISIG_FACTORY_ID}${NC}"
 # Step 3: Add sufficient cycles to token_deployer BEFORE setup
 echo -e "\n${BLUE}💰 Step 3: Adding cycles to token_deployer...${NC}"
 
 ## topup cycles to token_factory
 dfx ledger fabricate-cycles --canister token_factory --t 100
 dfx ledger fabricate-cycles --canister distribution_factory --t 100
+dfx ledger fabricate-cycles --canister multisig_factory --t 100
 
 if [ $? -eq 0 ]; then
     echo -e "${GREEN}✅ Cycles added to token_factory and distribution_factory${NC}"
@@ -67,6 +70,7 @@ declare -a SERVICES=(
     "invoice_storage" 
     "token_factory"
     "template_factory"
+    "multisig_factory"
 )
 
 # Status tracking (simple strings to avoid associative array issues)
@@ -172,6 +176,7 @@ SETUP_RESULT=$(dfx canister call backend setCanisterIds "(record {
     invoiceStorage = opt principal \"$INVOICE_STORAGE_ID\";
     templateFactory = opt principal \"$TEMPLATE_FACTORY_ID\";
     distributionFactory = opt principal \"$DISTRIBUTION_FACTORY_ID\";
+    multisigFactory = opt principal \"$MULTISIG_FACTORY_ID\";
 })" 2>&1 || echo "FAILED")
 
 if [[ "$SETUP_RESULT" == *"FAILED"* ]] || [[ "$SETUP_RESULT" == *"err"* ]]; then

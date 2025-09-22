@@ -32,6 +32,17 @@
             "main": "src/motoko/launchpad_factory/main.mo",
             "type": "motoko"
         },
+        "dao_factory": {
+            "type": "motoko",
+            "main": "src/motoko/dao_factory/main.mo",
+            "declarations": {
+                "output": "src/declarations/dao_factory"
+            }
+        },
+        "multisig_factory": {
+            "main": "src/motoko/multisig_factory/main.mo",
+            "type": "motoko"
+        },
         "icp_ledger": {
             "type": "custom",
             "candid": "https://github.com/dfinity/ic/releases/download/ledger-suite-icrc-2025-06-10/ledger.did",
@@ -85,11 +96,11 @@
                 "output": "src/declarations/launchpad_contract"
             }
         },
-        "dao_factory": {
+        "multisig_contract": {
             "type": "motoko",
-            "main": "src/motoko/dao_factory/main.mo",
+            "main": "src/motoko/multisig_factory/MultisigContract.mo",
             "declarations": {
-                "output": "src/declarations/dao_factory"
+                "output": "src/declarations/multisig_contract"
             }
         }
     },

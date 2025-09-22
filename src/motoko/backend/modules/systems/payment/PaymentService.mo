@@ -241,6 +241,7 @@ module PaymentService {
             case (#CreateLock) { "lock_factory" };
             case (#CreateDistribution) { "distribution_factory" };
             case (#CreateDAO) { "dao_factory" };
+            case (#CreateMultisig) { "multisig_factory" };
             case (#CreateLaunchpad) { "launchpad_factory" };
             case (_) { "generic" };
         };

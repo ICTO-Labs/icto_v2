@@ -160,17 +160,22 @@ persistent actor LaunchpadFactory {
     };
     
     private func isAdmin(caller: Principal) : Bool {
+        if (Principal.isController(caller)) {
+            return true;
+        };
+
         switch (Array.find<Text>(admins, func(admin: Text) : Bool {
             admin == Principal.toText(caller)
         })) {
             case (?_) true;
             case null false;
         };
+        
     };
     
     // ================ ADMIN FUNCTIONS ================
     
-    public shared({caller}) func addWhitelistedBackend(backend: Principal) : async Result.Result<(), Text> {
+    public shared({caller}) func addToWhitelist(backend: Principal) : async Result.Result<(), Text> {
         if (not isAdmin(caller)) {
             return #err("Unauthorized: Only admins can manage whitelisted backends");
         };

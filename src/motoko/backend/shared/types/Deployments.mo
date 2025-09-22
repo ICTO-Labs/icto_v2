@@ -5,6 +5,7 @@ import TokenFactoryTypes "../../modules/token_factory/TokenFactoryTypes";
 import TemplateFactoryTypes "../../modules/template_factory/TemplateFactoryTypes";
 import DistributionFactoryTypes "../../modules/distribution_factory/DistributionFactoryTypes";
 import DAOFactoryTypes "../../modules/dao_factory/DAOFactoryTypes";
+import MultisigFactoryTypes "../../modules/multisig_factory/MultisigFactoryTypes";
 
 module Deployments {
     
@@ -15,6 +16,7 @@ module Deployments {
         #Template: TemplateFactoryTypes.RemoteDeployRequest;
         #Distribution: DistributionFactoryTypes.DistributionConfig;
         #DAO: DAOFactoryTypes.DAOConfig;
+        #Multisig: MultisigFactoryTypes.CreateMultisigRequest;
     };
 
     // A standardized result returned by the unified deployment flow.

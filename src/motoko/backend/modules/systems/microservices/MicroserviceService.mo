@@ -89,6 +89,11 @@ module MicroserviceService {
                     let health = getCanisterHealth(tokenFactory, state.setupCompleted);
                     buffer.add(health);
                 };
+                if(Option.isSome(canisterIds.multisigFactory)) {
+                    let multisigFactory = Option.get(canisterIds.multisigFactory, Principal.fromText("multisig_factory"));
+                    let health = getCanisterHealth(multisigFactory, state.setupCompleted);
+                    buffer.add(health);
+                };
             };
             case null {
                     buffer.add({ canisterId = Principal.fromText("aaaaa-aaa"); cycles = null; isHealthy = null; name = "audit_storage"; status = #Error("Setup not completed") });
