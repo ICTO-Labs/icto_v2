@@ -34,10 +34,6 @@ export const useModalStore = defineStore('modal', () => {
             isOpen: false,
             data: undefined
         },
-        createMultisig: {
-            isOpen: false,
-            data: undefined
-        },
         manageSigners: {
             isOpen: false,
             data: undefined

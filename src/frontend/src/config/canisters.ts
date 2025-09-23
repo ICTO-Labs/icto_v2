@@ -30,6 +30,12 @@ import {
     idlFactory as launchpadContractIDL,
 } from "../../../declarations/launchpad_contract";
 import type { _SERVICE as _LAUNCHPAD_CONTRACT_SERVICE } from "../../../declarations/launchpad_contract/launchpad_contract.did.d.ts";
+// Multisig Contract
+import {
+    canisterId as multisigContractCanisterId,
+    idlFactory as multisigContractIDL,
+} from "../../../declarations/multisig_contract";
+import type { _SERVICE as _MULTISIG_CONTRACT_SERVICE } from "../../../declarations/multisig_contract/multisig_contract.did.d.ts";
 
 
 // Consolidated canister types
@@ -40,6 +46,7 @@ export type CanisterType = {
     DISTRIBUTION_CONTRACT: _DISTRIBUTION_CONTRACT_SERVICE;
     DAO_CONTRACT: _DAO_CONTRACT_SERVICE;
     LAUNCHPAD_CONTRACT: _LAUNCHPAD_CONTRACT_SERVICE;
+    MULTISIG_CONTRACT: _MULTISIG_CONTRACT_SERVICE;
 };
 
 export type CanisterConfigs = {
@@ -83,5 +90,10 @@ export const canisters: CanisterConfigs = {
         canisterId: import.meta.env.VITE_LAUNCHPAD_CONTRACT_CANISTER_ID,
         idl: launchpadContractIDL,
         type: {} as CanisterType["LAUNCHPAD_CONTRACT"],
+    },
+    multisig_contract: {
+        canisterId: import.meta.env.VITE_MULTISIG_CONTRACT_CANISTER_ID,
+        idl: multisigContractIDL,
+        type: {} as CanisterType["MULTISIG_CONTRACT"],
     },
 };

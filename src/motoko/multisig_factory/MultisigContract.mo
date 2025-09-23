@@ -29,7 +29,7 @@ persistent actor class MultisigContract(initArgs: {
         config: MultisigTypes.WalletConfig;
         creator: Principal;
         factory: Principal;
-    }) {
+    }) = self {
 
         // ============== TYPES ==============
 
@@ -39,7 +39,7 @@ persistent actor class MultisigContract(initArgs: {
 
         // ============== STATE ==============
 
-        private var walletId = initArgs.id;
+        private var walletId = Principal.toText(Principal.fromActor(self));//initArgs.id;
         private var walletConfig = initArgs.config;
         private var creator = initArgs.creator;
         private var factory = initArgs.factory;
@@ -106,6 +106,9 @@ persistent actor class MultisigContract(initArgs: {
             Text.equal,
             Text.hash
         );
+
+        // Reentrancy protection
+        private transient var isExecuting = false;
 
         private transient var observers = Buffer.fromArray<Principal>(observersArray);
 
@@ -217,8 +220,7 @@ persistent actor class MultisigContract(initArgs: {
 
         // ============== PROPOSAL MANAGEMENT ==============
 
-        public func createProposal(
-            caller: Principal,
+        public shared({caller}) func createProposal(
             proposalType: MultisigTypes.ProposalType,
             title: Text,
             description: Text,
@@ -304,8 +306,7 @@ persistent actor class MultisigContract(initArgs: {
             #ok(proposalId)
         };
 
-        public func signProposal(
-            caller: Principal,
+        public shared({caller}) func signProposal(
             proposalId: MultisigTypes.ProposalId,
             signature: Blob,
             note: ?Text
@@ -313,6 +314,17 @@ persistent actor class MultisigContract(initArgs: {
 
             if (not isSigner(caller)) {
                 return #err(#Unauthorized);
+            };
+
+            // Rate limiting for signing
+            switch (lastProposalTimes.get(caller)) {
+                case (?lastTime) {
+                    let timeSinceLastAction = Time.now() - lastTime;
+                    if (timeSinceLastAction < MIN_PROPOSAL_INTERVAL) {
+                        return #err(#SecurityCheckFailed);
+                    };
+                };
+                case null {};
             };
 
             switch (proposals.get(proposalId)) {
@@ -357,7 +369,7 @@ persistent actor class MultisigContract(initArgs: {
                         proposal with
                         approvals = newApprovals;
                         currentApprovals = currentApprovals;
-                        status = if (currentApprovals >= proposal.requiredApprovals) #Approved else #Pending;
+                        status = if (currentApprovals >= walletConfig.threshold) #Approved else #Pending;
                     };
 
                     proposals.put(proposalId, updatedProposal);
@@ -371,20 +383,21 @@ persistent actor class MultisigContract(initArgs: {
                     events.put(event.id, event);
 
                     updateLastActivity();
+                    lastProposalTimes.put(caller, Time.now());
 
-                    let readyForExecution = currentApprovals >= proposal.requiredApprovals and
+                    let readyForExecution = currentApprovals >= walletConfig.threshold and
                                           (switch (proposal.earliestExecution) {
                                               case (?earliest) Time.now() >= earliest;
                                               case null true;
                                           });
 
-                    Debug.print("MultisigContract: Proposal " # proposalId # " signed by " # Principal.toText(caller) # " (" # debug_show(currentApprovals) # "/" # debug_show(proposal.requiredApprovals) # ")");
+                    Debug.print("MultisigContract: Proposal " # proposalId # " signed by " # Principal.toText(caller) # " (" # debug_show(currentApprovals) # "/" # debug_show(walletConfig.threshold) # ")");
 
                     #ok({
                         proposalId = proposalId;
                         signatureId = generateSignatureId();
                         currentApprovals = currentApprovals;
-                        requiredApprovals = proposal.requiredApprovals;
+                        requiredApprovals = walletConfig.threshold;
                         readyForExecution = readyForExecution;
                     })
                 };
@@ -392,13 +405,28 @@ persistent actor class MultisigContract(initArgs: {
             }
         };
 
-        public func executeProposal(
-            caller: Principal,
+        public shared({caller}) func executeProposal(
             proposalId: MultisigTypes.ProposalId
         ): async Result.Result<MultisigTypes.ExecutionResult, MultisigTypes.ProposalError> {
 
+            // Reentrancy protection
+            if (isExecuting) {
+                return #err(#SecurityViolation("Execution already in progress"));
+            };
+
             if (not isSigner(caller)) {
                 return #err(#Unauthorized);
+            };
+
+            // Rate limiting for execution
+            switch (lastProposalTimes.get(caller)) {
+                case (?lastTime) {
+                    let timeSinceLastAction = Time.now() - lastTime;
+                    if (timeSinceLastAction < MIN_PROPOSAL_INTERVAL) {
+                        return #err(#SecurityViolation("Rate limit exceeded"));
+                    };
+                };
+                case null {};
             };
 
             switch (proposals.get(proposalId)) {
@@ -425,8 +453,9 @@ persistent actor class MultisigContract(initArgs: {
                     };
 
                     // Execute the proposal
+                    isExecuting := true;
                     try {
-                        let executionResult = await executeProposalActions(proposal);
+                        let executionResult = await executeProposalActions(proposal, caller);
 
                         // Update proposal status
                         let updatedProposal = {
@@ -454,6 +483,7 @@ persistent actor class MultisigContract(initArgs: {
                         events.put(event.id, event);
 
                         updateLastActivity();
+                        lastProposalTimes.put(caller, Time.now());
 
                         Debug.print("MultisigContract: Proposal " # proposalId # " executed by " # Principal.toText(caller) #
                                    " with result: " # debug_show(executionResult.success));
@@ -484,6 +514,8 @@ persistent actor class MultisigContract(initArgs: {
                         proposals.put(proposalId, updatedProposal);
 
                         #err(#ExecutionFailed(errorMsg))
+                    } finally {
+                        isExecuting := false;
                     }
                 };
                 case null #err(#InvalidProposal("Proposal not found"));
@@ -492,7 +524,7 @@ persistent actor class MultisigContract(initArgs: {
 
         // ============== EXECUTION ENGINE ==============
 
-        private func executeProposalActions(proposal: MultisigTypes.Proposal): async MultisigTypes.ExecutionResult {
+        private func executeProposalActions(proposal: MultisigTypes.Proposal, caller: Principal): async MultisigTypes.ExecutionResult {
             let actionResults = Buffer.Buffer<MultisigTypes.ActionResult>(proposal.actions.size());
             let balanceChanges = Buffer.Buffer<MultisigTypes.BalanceChange>(0);
             let transactionIds = Buffer.Buffer<MultisigTypes.TransactionId>(0);
@@ -502,7 +534,7 @@ persistent actor class MultisigContract(initArgs: {
             for (actionIndex in proposal.actions.keys()) {
                 let action = proposal.actions[actionIndex];
                 try {
-                    let result = await executeAction(action, actionIndex);
+                    let result = await executeAction(action, actionIndex, caller);
                     actionResults.add(result);
 
                     if (not result.success) {
@@ -539,7 +571,7 @@ persistent actor class MultisigContract(initArgs: {
             }
         };
 
-        private func executeAction(action: MultisigTypes.ProposalAction, actionIndex: Nat): async MultisigTypes.ActionResult {
+        private func executeAction(action: MultisigTypes.ProposalAction, actionIndex: Nat, caller: Principal): async MultisigTypes.ActionResult {
             switch (action.actionType) {
                 case (#Transfer(transferData)) {
                     await executeTransfer(transferData, actionIndex)
@@ -557,7 +589,7 @@ persistent actor class MultisigContract(initArgs: {
                     await executeContractCall(callData, actionIndex)
                 };
                 case (#EmergencyAction(emergencyData)) {
-                    await executeEmergencyAction(emergencyData, actionIndex)
+                    await executeEmergencyAction(emergencyData, actionIndex, caller)
                 };
                 case (#SystemUpdate(updateData)) {
                     await executeSystemUpdate(updateData, actionIndex)
@@ -747,13 +779,25 @@ persistent actor class MultisigContract(initArgs: {
 
         private func executeEmergencyAction(
             emergencyData: { actionType: MultisigTypes.EmergencyActionType },
-            actionIndex: Nat
+            actionIndex: Nat,
+            caller: Principal
         ): async MultisigTypes.ActionResult {
+
+            // Security check: Only owners can execute emergency actions
+            if (not isOwner(caller)) {
+                return {
+                    actionIndex = actionIndex;
+                    success = false;
+                    error = ?"Only owners can execute emergency actions";
+                    gasUsed = null;
+                    result = null;
+                };
+            };
 
             switch (emergencyData.actionType) {
                 case (#FreezeWallet) {
                     status := #Frozen;
-                    let event = createEvent(#EmergencyAction, Principal.fromText("2vxsx-fae"), ?"Wallet frozen");
+                    let event = createEvent(#EmergencyAction, caller, ?"Wallet frozen by owner");
                     events.put(event.id, event);
 
                     {
@@ -766,7 +810,7 @@ persistent actor class MultisigContract(initArgs: {
                 };
                 case (#UnfreezeWallet) {
                     status := #Active;
-                    let event = createEvent(#EmergencyAction, Principal.fromText("2vxsx-fae"), ?"Wallet unfrozen");
+                    let event = createEvent(#EmergencyAction, caller, ?"Wallet unfrozen by owner");
                     events.put(event.id, event);
 
                     {
@@ -838,8 +882,40 @@ persistent actor class MultisigContract(initArgs: {
                     if (Principal.isAnonymous(transferData.recipient)) {
                         return #err("Invalid recipient address");
                     };
+                    // Additional validation for transfer amount
+                    if (transferData.amount > 1_000_000_000_000_000) { // Max 1M ICP
+                        return #err("Transfer amount exceeds maximum limit");
+                    };
                 };
-                case (_) {}; // TODO: Add validation for other action types
+                case (#WalletModification(modData)) {
+                    switch (modData.modificationType) {
+                        case (#AddSigner(addData)) {
+                            if (Principal.isAnonymous(addData.signer)) {
+                                return #err("Invalid signer address");
+                            };
+                        };
+                        case (#RemoveSigner(removeData)) {
+                            if (Principal.isAnonymous(removeData.signer)) {
+                                return #err("Invalid signer address");
+                            };
+                        };
+                        case (#ChangeThreshold(thresholdData)) {
+                            if (thresholdData.newThreshold == 0) {
+                                return #err("Threshold must be greater than 0");
+                            };
+                        };
+                        case (_) {};
+                    };
+                };
+                case (#ContractCall(callData)) {
+                    if (Principal.isAnonymous(callData.canister)) {
+                        return #err("Invalid contract address");
+                    };
+                    if (callData.method.size() == 0) {
+                        return #err("Method name cannot be empty");
+                    };
+                };
+                case (_) {};
             };
 
             #ok()
@@ -902,7 +978,7 @@ persistent actor class MultisigContract(initArgs: {
                 case (#Critical) signers.size(); // Requires unanimous approval
                 case (#High) Nat.max(walletConfig.threshold + 1, (signers.size() * 2 / 3)); // Requires 2/3 or threshold+1
                 case (#Medium) walletConfig.threshold;
-                case (#Low) Nat.max(1, walletConfig.threshold - 1); // Can reduce by 1 for low risk
+                case (#Low) walletConfig.threshold; // Always use wallet threshold, do not reduce for low risk
             }
         };
 
@@ -1093,7 +1169,7 @@ persistent actor class MultisigContract(initArgs: {
         };
 
         // Create a transfer proposal
-        public func createTransferProposal(
+        public shared({caller}) func createTransferProposal(
             recipient: Principal,
             amount: Nat,
             asset: MultisigTypes.AssetType,
@@ -1101,9 +1177,6 @@ persistent actor class MultisigContract(initArgs: {
             title: Text,
             description: Text
         ): async MultisigTypes.ProposalResult {
-            // Note: In actual deployment, caller would be obtained from message context
-            // For now, we'll use the creator as a placeholder - this needs proper access control
-            let caller = creator;
 
             // Check if caller is authorized signer
             switch (signers.get(caller)) {
@@ -1190,15 +1263,16 @@ persistent actor class MultisigContract(initArgs: {
 
         // Assess transfer risk based on amount and asset type
         private func assessTransferRisk(amount: Nat, asset: MultisigTypes.AssetType): MultisigTypes.RiskLevel {
-            // Simple risk assessment - can be enhanced
+            // Enhanced risk assessment to ensure proper threshold enforcement
             switch (asset) {
                 case (#ICP) {
-                    if (amount > 100_000_000) #High // > 1 ICP
-                    else if (amount > 10_000_000) #Medium // > 0.1 ICP
-                    else #Low;
+                    // For ICP transfers, use more conservative risk assessment
+                    if (amount > 1_000_000_000) #High // > 10 ICP
+                    else if (amount > 100_000_000) #Medium // > 1 ICP
+                    else #Medium; // Always require at least Medium risk for any transfer
                 };
                 case (#Token(_)) {
-                    // For tokens, we'd need to check value/market cap
+                    // For tokens, default to Medium risk to ensure threshold compliance
                     #Medium;
                 };
                 case (#NFT(_)) #High; // NFTs are always high risk
@@ -1215,7 +1289,7 @@ persistent actor class MultisigContract(initArgs: {
         private func generateProposalId(): MultisigTypes.ProposalId {
             let id = nextProposalId;
             nextProposalId += 1;
-            walletId # "-proposal-" # Nat.toText(id)
+            Nat.toText(id)
         };
 
         private func generateSignatureId(): MultisigTypes.SignatureId {
@@ -1225,7 +1299,7 @@ persistent actor class MultisigContract(initArgs: {
         private func createEvent(
             eventType: MultisigTypes.EventType,
             actorEvent: Principal,
-            description: ?Text
+            _description: ?Text
         ): MultisigTypes.WalletEvent {
             let eventId = "event-" # Nat.toText(nextEventId);
             nextEventId += 1;
@@ -1253,7 +1327,7 @@ persistent actor class MultisigContract(initArgs: {
 
         // ============== UPGRADE HOOKS ==============
 
-        public func preUpgrade(): async () {
+        system func preupgrade(){
             signersEntries := Iter.toArray(signers.entries());
             proposalsEntries := Iter.toArray(proposals.entries());
             eventsEntries := Iter.toArray(events.entries());
@@ -1262,7 +1336,7 @@ persistent actor class MultisigContract(initArgs: {
             Debug.print("MultisigContract: Pre-upgrade completed for wallet " # walletId);
         };
 
-        public func postUpgrade(): async () {
+        system func postupgrade(){
             signersEntries := [];
             proposalsEntries := [];
             eventsEntries := [];

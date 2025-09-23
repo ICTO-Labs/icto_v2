@@ -11,23 +11,50 @@
     :disabled="disabled"
   >
     <span v-if="startIcon" class="flex items-center">
-      <component :is="startIcon" />
+      <component :is="iconMap[startIcon]" :size="16" />
     </span>
     <slot></slot>
     <span v-if="endIcon" class="flex items-center">
-      <component :is="endIcon" />
+      <component :is="iconMap[endIcon]" :size="16" />
     </span>
   </button>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import {
+  Plus,
+  Check,
+  ArrowLeft,
+  ArrowRight,
+  Trash2,
+  Edit,
+  Eye,
+  Settings,
+  UserPlus,
+  Save,
+  X
+} from 'lucide-vue-next'
+
+const iconMap: Record<string, any> = {
+  Plus,
+  Check,
+  ArrowLeft,
+  ArrowRight,
+  Trash2,
+  Edit,
+  Eye,
+  Settings,
+  UserPlus,
+  Save,
+  X
+}
 
 interface ButtonProps {
   size?: 'sm' | 'md'
   variant?: 'primary' | 'outline'
-  startIcon?: object
-  endIcon?: object
+  startIcon?: string
+  endIcon?: string
   onClick?: () => void
   className?: string
   disabled?: boolean

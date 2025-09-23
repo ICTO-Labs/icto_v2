@@ -180,6 +180,7 @@
 import { ref, computed, watch } from 'vue'
 import type { VestingSchedule, VestingFrequency } from '@/types/launchpad'
 import { useUniqueId } from '@/composables/useUniqueId'
+import Select from '@/components/common/Select.vue'
 
 interface Props {
   modelValue?: VestingSchedule | null
@@ -219,18 +220,71 @@ const frequencyOptions = [
   { label: 'Custom Period', value: 'Custom' }
 ]
 
+// Helper functions for type conversion (declared before watch)
+const convertToVestingFrequency = (frequency: string): VestingFrequency => {
+  switch (frequency) {
+    case 'Immediate':
+      return { 'Immediate': null }
+    case 'Linear':
+      return { 'Linear': null }
+    case 'Monthly':
+      return { 'Monthly': null }
+    case 'Quarterly':
+      return { 'Quarterly': null }
+    case 'Yearly':
+      return { 'Yearly': null }
+    case 'Custom':
+      return { 'Custom': BigInt(customPeriodDays.value * 24 * 60 * 60 * 1000000000) }
+    default:
+      return { 'Linear': null }
+  }
+}
+
+const getFrequencyString = (frequency: VestingFrequency | undefined): string => {
+  if (!frequency) return 'Linear'
+  if ('Immediate' in frequency) return 'Immediate'
+  if ('Linear' in frequency) return 'Linear'
+  if ('Monthly' in frequency) return 'Monthly'
+  if ('Quarterly' in frequency) return 'Quarterly'
+  if ('Yearly' in frequency) return 'Yearly'
+  if ('Custom' in frequency) {
+    customPeriodDays.value = Number(frequency.Custom) / (24 * 60 * 60 * 1000000000)
+    return 'Custom'
+  }
+  return 'Linear'
+}
+
+const getFrequencyDisplay = (): string => {
+  switch (vestingData.value.frequency) {
+    case 'Immediate':
+      return 'All at once'
+    case 'Linear':
+      return 'Continuous'
+    case 'Monthly':
+      return 'Monthly'
+    case 'Quarterly':
+      return 'Quarterly'
+    case 'Yearly':
+      return 'Yearly'
+    case 'Custom':
+      return `Every ${customPeriodDays.value} days`
+    default:
+      return vestingData.value.frequency
+  }
+}
+
 // Initialize from props
 watch(() => props.modelValue, (newValue) => {
   if (newValue) {
     vestingEnabled.value = true
     vestingData.value = {
-      initialUnlock: newValue.initialUnlock,
-      cliff: newValue.cliff,
-      duration: newValue.duration,
+      initialUnlock: newValue.initialUnlock || 0,
+      cliff: newValue.cliff || BigInt(0),
+      duration: newValue.duration || BigInt(0),
       frequency: getFrequencyString(newValue.frequency)
     }
-    cliffDays.value = Number(newValue.cliff) / (24 * 60 * 60 * 1000000000) // Convert nanoseconds to days
-    durationDays.value = Number(newValue.duration) / (24 * 60 * 60 * 1000000000) // Convert nanoseconds to days
+    cliffDays.value = Number(newValue.cliff || 0) / (24 * 60 * 60 * 1000000000) // Convert nanoseconds to days
+    durationDays.value = Number(newValue.duration || 0) / (24 * 60 * 60 * 1000000000) // Convert nanoseconds to days
   } else {
     vestingEnabled.value = false
     vestingData.value = {
@@ -245,30 +299,6 @@ watch(() => props.modelValue, (newValue) => {
 }, { immediate: true })
 
 // Methods
-const handleVestingToggle = () => {
-  if (vestingEnabled.value) {
-    // Apply default vesting
-    applyTemplate('public')
-  } else {
-    emit('update:modelValue', null)
-  }
-}
-
-const updateCliffFromDays = () => {
-  vestingData.value.cliff = BigInt((cliffDays.value || 0) * 24 * 60 * 60 * 1000000000) // Convert days to nanoseconds
-  updateVesting()
-}
-
-const updateDurationFromDays = () => {
-  vestingData.value.duration = BigInt((durationDays.value || 0) * 24 * 60 * 60 * 1000000000) // Convert days to nanoseconds
-  updateVesting()
-}
-
-const updateCustomPeriod = () => {
-  vestingData.value.frequency = 'Custom'
-  updateVesting()
-}
-
 const updateVesting = () => {
   if (vestingEnabled.value) {
     const schedule: VestingSchedule = {
@@ -314,61 +344,33 @@ const applyTemplate = (template: string) => {
       vestingData.value.frequency = 'Immediate'
       break
   }
-  
+
   updateCliffFromDays()
   updateDurationFromDays()
   updateVesting()
 }
 
-const getFrequencyDisplay = (): string => {
-  switch (vestingData.value.frequency) {
-    case 'Immediate':
-      return 'All at once'
-    case 'Linear':
-      return 'Continuous'
-    case 'Monthly':
-      return 'Monthly'
-    case 'Quarterly':
-      return 'Quarterly'
-    case 'Yearly':
-      return 'Yearly'
-    case 'Custom':
-      return `Every ${customPeriodDays.value} days`
-    default:
-      return vestingData.value.frequency
+const handleVestingToggle = () => {
+  if (vestingEnabled.value) {
+    // Apply default vesting
+    applyTemplate('public')
+  } else {
+    emit('update:modelValue', null)
   }
 }
 
-// Helper functions for type conversion
-const convertToVestingFrequency = (frequency: string): VestingFrequency => {
-  switch (frequency) {
-    case 'Immediate':
-      return { 'Immediate': null }
-    case 'Linear':
-      return { 'Linear': null }
-    case 'Monthly':
-      return { 'Monthly': null }
-    case 'Quarterly':
-      return { 'Quarterly': null }
-    case 'Yearly':
-      return { 'Yearly': null }
-    case 'Custom':
-      return { 'Custom': BigInt(customPeriodDays.value * 24 * 60 * 60 * 1000000000) }
-    default:
-      return { 'Linear': null }
-  }
+const updateCliffFromDays = () => {
+  vestingData.value.cliff = BigInt((cliffDays.value || 0) * 24 * 60 * 60 * 1000000000) // Convert days to nanoseconds
+  updateVesting()
 }
 
-const getFrequencyString = (frequency: VestingFrequency): string => {
-  if ('Immediate' in frequency) return 'Immediate'
-  if ('Linear' in frequency) return 'Linear'
-  if ('Monthly' in frequency) return 'Monthly'
-  if ('Quarterly' in frequency) return 'Quarterly'
-  if ('Yearly' in frequency) return 'Yearly'
-  if ('Custom' in frequency) {
-    customPeriodDays.value = Number(frequency.Custom) / (24 * 60 * 60 * 1000000000)
-    return 'Custom'
-  }
-  return 'Linear'
+const updateDurationFromDays = () => {
+  vestingData.value.duration = BigInt((durationDays.value || 0) * 24 * 60 * 60 * 1000000000) // Convert days to nanoseconds
+  updateVesting()
+}
+
+const updateCustomPeriod = () => {
+  vestingData.value.frequency = 'Custom'
+  updateVesting()
 }
 </script>

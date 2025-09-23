@@ -7,6 +7,29 @@ import type { LaunchpadFormData } from '../services/LaunchpadService'
 
 export class TypeConverter {
   /**
+   * Safely convert value to BigInt using Distribution pattern
+   */
+  private static toBigInt(value: any): bigint {
+    if (value === '' || value === null || value === undefined) {
+      return BigInt(0)
+    }
+
+    let num: number
+    if (typeof value === 'string') {
+      num = parseFloat(value)
+      if (isNaN(num)) return BigInt(0)
+    } else if (typeof value === 'bigint') {
+      return value // Already BigInt
+    } else {
+      num = Number(value)
+      if (isNaN(num)) return BigInt(0)
+    }
+
+    // Use Math.floor to ensure integer like Distribution pattern
+    return BigInt(Math.floor(num))
+  }
+
+  /**
    * Convert frontend formData to backend LaunchpadConfig
    */
   static formDataToLaunchpadConfig(formData: LaunchpadFormData): any {
@@ -39,8 +62,8 @@ export class TypeConverter {
         symbol: formData.saleToken.symbol,
         name: formData.saleToken.name,
         decimals: formData.saleToken.decimals,
-        totalSupply: BigInt(formData.saleToken.totalSupply),
-        transferFee: BigInt(formData.saleToken.transferFee),
+        totalSupply: TypeConverter.toBigInt(formData.saleToken.totalSupply),
+        transferFee: TypeConverter.toBigInt(formData.saleToken.transferFee),
         logo: formData.saleToken.logo ? [formData.saleToken.logo] : [],
         description: formData.saleToken.description ? [formData.saleToken.description] : [],
         website: formData.saleToken.website ? [formData.saleToken.website] : [],
@@ -65,67 +88,108 @@ export class TypeConverter {
       saleParams: {
         saleType: TypeConverter.stringToSaleType(formData.saleParams.saleType),
         allocationMethod: TypeConverter.stringToAllocationMethod(formData.saleParams.allocationMethod),
-        totalSaleAmount: BigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.totalSaleAmount)),
-        softCap: BigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.softCap)),
-        hardCap: BigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.hardCap)),
-        tokenPrice: BigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.tokenPrice)),
-        minContribution: BigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.minContribution)),
-        maxContribution: formData.saleParams.maxContribution 
-          ? [BigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.maxContribution))] 
+        totalSaleAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.totalSaleAmount)),
+        softCap: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.softCap)),
+        hardCap: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.hardCap)),
+        tokenPrice: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.tokenPrice)),
+        minContribution: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.minContribution)),
+        maxContribution: formData.saleParams.maxContribution
+          ? [TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.maxContribution))]
           : [],
         maxParticipants: [], // Optional
         requiresWhitelist: formData.saleParams.requiresWhitelist,
         requiresKYC: formData.saleParams.requiresKYC,
-        blockIdRequired: BigInt(0), // Default
+        blockIdRequired: 0n, // Default
         restrictedRegions: [] // Default
       },
 
-      // Timeline
+      // Timeline - Using Distribution pattern with BigInt literals
       timeline: {
-        createdAt: BigInt(Date.now() * 1_000_000), // Convert to nanoseconds
-        whitelistStart: formData.timeline.whitelistStart 
-          ? [BigInt(new Date(formData.timeline.whitelistStart).getTime() * 1_000_000)]
+        createdAt: BigInt(Date.now()) * 1_000_000n, // Convert to nanoseconds like Distribution
+        whitelistStart: formData.timeline.whitelistStart
+          ? [BigInt(new Date(formData.timeline.whitelistStart).getTime()) * 1_000_000n]
           : [],
         whitelistEnd: formData.timeline.whitelistEnd
-          ? [BigInt(new Date(formData.timeline.whitelistEnd).getTime() * 1_000_000)]
+          ? [BigInt(new Date(formData.timeline.whitelistEnd).getTime()) * 1_000_000n]
           : [],
-        saleStart: BigInt(new Date(formData.timeline.saleStart).getTime() * 1_000_000),
-        saleEnd: BigInt(new Date(formData.timeline.saleEnd).getTime() * 1_000_000),
-        claimStart: BigInt(new Date(formData.timeline.claimStart).getTime() * 1_000_000),
+        saleStart: BigInt(new Date(formData.timeline.saleStart).getTime()) * 1_000_000n,
+        saleEnd: BigInt(new Date(formData.timeline.saleEnd).getTime()) * 1_000_000n,
+        claimStart: BigInt(new Date(formData.timeline.claimStart).getTime()) * 1_000_000n,
         vestingStart: formData.timeline.vestingStart
-          ? [BigInt(new Date(formData.timeline.vestingStart).getTime() * 1_000_000)]
+          ? [BigInt(new Date(formData.timeline.vestingStart).getTime()) * 1_000_000n]
           : [],
         listingTime: formData.timeline.listingTime
-          ? [BigInt(new Date(formData.timeline.listingTime).getTime() * 1_000_000)]
+          ? [BigInt(new Date(formData.timeline.listingTime).getTime()) * 1_000_000n]
           : [],
         daoActivation: formData.timeline.daoActivation
-          ? [BigInt(new Date(formData.timeline.daoActivation).getTime() * 1_000_000)]
+          ? [BigInt(new Date(formData.timeline.daoActivation).getTime()) * 1_000_000n]
           : []
       },
 
-      // Token Distribution
-      distribution: formData.distribution.map(dist => ({
-        name: dist.name,
-        percentage: dist.percentage,
-        totalAmount: BigInt(TypeConverter.tokenAmountToE8s(dist.totalAmount)),
-        vestingSchedule: dist.vestingSchedule ? [TypeConverter.convertVestingSchedule(dist.vestingSchedule)] : [],
-        recipients: TypeConverter.convertRecipientConfig(dist.recipients),
-        description: [] // Optional
-      })),
+      // Token Distribution - Fixed Allocation Structure
+      distribution: [
+        // Sale allocation - no recipients (investors assigned after launch)
+        {
+          name: formData.distribution.sale.name,
+          percentage: formData.distribution.sale.percentage,
+          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.distribution.sale.totalAmount)),
+          vestingSchedule: formData.distribution.sale.vestingSchedule
+            ? [TypeConverter.convertVestingSchedule(formData.distribution.sale.vestingSchedule)]
+            : [],
+          recipients: { SaleParticipants: null }, // Empty, assigned after launch
+          description: [formData.distribution.sale.description || '']
+        },
+
+        // Team allocation - fixed category with recipients
+        {
+          name: formData.distribution.team.name,
+          percentage: formData.distribution.team.percentage,
+          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.distribution.team.totalAmount)),
+          vestingSchedule: formData.distribution.team.vestingSchedule
+            ? [TypeConverter.convertVestingSchedule(formData.distribution.team.vestingSchedule)]
+            : [],
+          recipients: TypeConverter.convertRecipientConfig(formData.distribution.team.recipients),
+          description: [formData.distribution.team.description || '']
+        },
+
+        // LP allocation - auto-calculated from DEX config
+        {
+          name: formData.distribution.liquidityPool.name,
+          percentage: formData.distribution.liquidityPool.percentage,
+          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.distribution.liquidityPool.totalAmount)),
+          vestingSchedule: formData.distribution.liquidityPool.vestingSchedule
+            ? [TypeConverter.convertVestingSchedule(formData.distribution.liquidityPool.vestingSchedule)]
+            : [],
+          recipients: { LiquidityPool: null }, // Special recipient type for LP
+          description: [formData.distribution.liquidityPool.description || '']
+        },
+
+        // Others - dynamic allocations
+        ...formData.distribution.others.map((allocation: any) => ({
+          name: allocation.name,
+          percentage: allocation.percentage,
+          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(allocation.totalAmount)),
+          vestingSchedule: allocation.vestingSchedule
+            ? [TypeConverter.convertVestingSchedule(allocation.vestingSchedule)]
+            : [],
+          recipients: TypeConverter.convertRecipientConfig(allocation.recipients),
+          description: [allocation.description || '']
+        }))
+      ],
 
       // DEX Configuration
       dexConfig: {
         enabled: true,
         platform: formData.dexConfig.platform,
-        listingPrice: BigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.listingPrice)),
-        totalLiquidityToken: BigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.totalLiquidityToken)),
-        initialLiquidityToken: BigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.totalLiquidityToken)),
-        initialLiquidityPurchase: BigInt(0), // Will be calculated
-        liquidityLockDays: BigInt(formData.dexConfig.liquidityLockDays),
+        listingPrice: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.listingPrice)),
+        totalLiquidityToken: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.totalLiquidityToken)),
+        initialLiquidityToken: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.totalLiquidityToken)),
+        initialLiquidityPurchase: 0n, // Will be calculated
+        liquidityLockDays: TypeConverter.toBigInt(formData.dexConfig.liquidityLockDays),
         autoList: formData.dexConfig.autoList,
         slippageTolerance: 5, // Default 5%
         fees: {
-          listingFee: BigInt(0), // Platform specific
+          listingFee: 0n, // Platform specific
           transactionFee: 3 // Default 0.3%
         }
       },
@@ -140,13 +204,13 @@ export class TypeConverter {
         marketingFund: Math.floor(parseFloat(formData.raisedFundsAllocation.marketingFund || '0')),
         liquidityFund: 50, // Default 50% for liquidity
         reserveFund: 0, // Default 0%
-        teamRecipients: formData.raisedFundsAllocation.teamRecipients.map(recipient => 
+        teamRecipients: formData.raisedFundsAllocation.teamRecipients.map((recipient: any) =>
           TypeConverter.convertFundRecipient(recipient)
         ),
-        developmentRecipients: formData.raisedFundsAllocation.developmentRecipients.map(recipient =>
+        developmentRecipients: formData.raisedFundsAllocation.developmentRecipients.map((recipient: any) =>
           TypeConverter.convertFundRecipient(recipient)
         ),
-        marketingRecipients: formData.raisedFundsAllocation.marketingRecipients.map(recipient =>
+        marketingRecipients: formData.raisedFundsAllocation.marketingRecipients.map((recipient: any) =>
           TypeConverter.convertFundRecipient(recipient)
         ),
         customAllocations: []
@@ -158,7 +222,7 @@ export class TypeConverter {
         commissionRate: 0,
         maxTiers: 1,
         tierRates: [0],
-        minPurchaseForCommission: BigInt(0),
+        minPurchaseForCommission: 0n,
         paymentToken: Principal.fromText('2vxsx-fae'), // Default
         vestingSchedule: []
       },
@@ -168,17 +232,17 @@ export class TypeConverter {
         enabled: false,
         daoCanisterId: [],
         votingToken: Principal.fromText('2vxsx-fae'), // Will be sale token
-        proposalThreshold: BigInt(1000),
+        proposalThreshold: 1000n,
         quorumPercentage: 10,
-        votingPeriod: BigInt(7 * 24 * 60 * 60 * 1_000_000_000), // 7 days in nanoseconds
-        timelockDuration: BigInt(2 * 24 * 60 * 60 * 1_000_000_000), // 2 days
+        votingPeriod: 7n * 24n * 60n * 60n * 1_000_000_000n, // 7 days in nanoseconds
+        timelockDuration: 2n * 24n * 60n * 60n * 1_000_000_000n, // 2 days
         emergencyContacts: [],
         initialGovernors: [],
         autoActivateDAO: false
       },
 
       // Security & Compliance
-      whitelist: formData.saleParams.whitelistAddresses.map(addr => 
+      whitelist: formData.saleParams.whitelistAddresses.map((addr: any) =>
         Principal.fromText(addr.principal)
       ),
       blacklist: [],
@@ -200,8 +264,8 @@ export class TypeConverter {
    */
   private static convertVestingSchedule(vesting: any): any {
     return {
-      cliff: BigInt(vesting.cliff * 24 * 60 * 60 * 1_000_000_000), // days to nanoseconds
-      duration: BigInt(vesting.duration * 24 * 60 * 60 * 1_000_000_000),
+      cliff: BigInt(Math.floor(vesting.cliff)) * 24n * 60n * 60n * 1_000_000_000n, // days to nanoseconds
+      duration: BigInt(Math.floor(vesting.duration)) * 24n * 60n * 60n * 1_000_000_000n,
       frequency: TypeConverter.stringToVestingFrequency(vesting.releases),
       initialUnlock: vesting.immediateRelease || 0
     }
@@ -293,7 +357,7 @@ export class TypeConverter {
    */
   private static stringToVestingFrequency(frequency: string | number): any {
     if (typeof frequency === 'number') {
-      return { Custom: BigInt(frequency) }
+      return { Custom: BigInt(Math.floor(frequency)) }
     }
 
     const frequencyMap: Record<string, any> = {
@@ -302,28 +366,56 @@ export class TypeConverter {
       'monthly': { Monthly: null },
       'quarterly': { Quarterly: null },
       'yearly': { Yearly: null },
-      'daily': { Custom: BigInt(24 * 60 * 60) },
-      'weekly': { Custom: BigInt(7 * 24 * 60 * 60) }
+      'daily': { Custom: 24n * 60n * 60n }, // seconds in a day
+      'weekly': { Custom: 7n * 24n * 60n * 60n } // seconds in a week
     }
     return frequencyMap[frequency.toLowerCase()] || { Linear: null }
   }
 
   /**
-   * Convert token amount string to e8s (1 token = 100_000_000 e8s)
+   * Convert token amount to e8s using Distribution pattern (1 token = 100_000_000 e8s)
    */
-  static tokenAmountToE8s(amount: string | number): string {
-    const num = typeof amount === 'string' ? parseFloat(amount) : amount
-    if (isNaN(num)) return '0'
-    
-    // Convert to e8s (multiply by 100_000_000)
-    return Math.floor(num * 100_000_000).toString()
+  static tokenAmountToE8s(amount: string | number | bigint): number {
+    if (amount === '' || amount === null || amount === undefined) {
+      return 0
+    }
+
+    let num: number
+    if (typeof amount === 'string') {
+      num = parseFloat(amount)
+      if (isNaN(num)) return 0
+    } else if (typeof amount === 'bigint') {
+      num = Number(amount)
+    } else {
+      num = Number(amount)
+      if (isNaN(num)) return 0
+    }
+
+    // Use Math.floor like Distribution: Math.floor(amount * 100_000_000)
+    return Math.floor(num * 100_000_000)
   }
 
   /**
    * Convert e8s back to token amount
    */
-  static e8sToTokenAmount(e8s: bigint): number {
-    return Number(e8s) / 100_000_000
+  static e8sToTokenAmount(e8s: bigint | number | string): number {
+    if (e8s === '' || e8s === null || e8s === undefined) {
+      return 0
+    }
+
+    let num: number
+    if (typeof e8s === 'string') {
+      num = parseFloat(e8s)
+      if (isNaN(num)) return 0
+    } else if (typeof e8s === 'bigint') {
+      num = Number(e8s)
+    } else {
+      num = Number(e8s)
+      if (isNaN(num)) return 0
+    }
+
+    // Convert from e8s to token amount (divide by 100_000_000)
+    return num / 100_000_000
   }
 
   /**
@@ -346,17 +438,17 @@ export class TypeConverter {
   }
 
   /**
-   * Convert nanoseconds to JavaScript Date
+   * Convert nanoseconds to JavaScript Date using Distribution pattern
    */
   static nanosToDate(nanos: bigint): Date {
-    return new Date(Number(nanos / BigInt(1_000_000)))
+    return new Date(Number(nanos / 1_000_000n))
   }
 
   /**
-   * Convert JavaScript Date to nanoseconds
+   * Convert JavaScript Date to nanoseconds using Distribution pattern
    */
   static dateToNanos(date: Date): bigint {
-    return BigInt(date.getTime() * 1_000_000)
+    return BigInt(date.getTime()) * 1_000_000n
   }
 
   /**

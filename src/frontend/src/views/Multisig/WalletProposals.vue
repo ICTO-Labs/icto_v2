@@ -1,5 +1,8 @@
 <template>
     <admin-layout>
+        <!-- Breadcrumb -->
+        <Breadcrumb :items="breadcrumbItems" />
+
         <div class="gap-4 md:gap-6">
             <!-- Header -->
             <div class="mb-8">
@@ -16,7 +19,7 @@
                                 Proposals
                             </h1>
                             <p class="text-sm text-gray-500 dark:text-gray-400" v-if="wallet">
-                                {{ wallet.name }} - {{ wallet.threshold }}-of-{{ wallet.totalSigners }} Multisig
+                                {{ wallet.config.name }} - {{ wallet.config.threshold }}-of-{{ wallet.signers.length }} Multisig
                             </p>
                         </div>
                     </div>
@@ -41,8 +44,13 @@
             </div>
 
             <!-- Loading state -->
-            <div v-if="loading" class="flex justify-center items-center py-12">
-                <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500"></div>
+            <div v-if="loading">
+                <!-- Stats Skeleton -->
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+                    <LoadingSkeleton type="stats" v-for="i in 4" :key="i" />
+                </div>
+                <!-- Table Skeleton -->
+                <LoadingSkeleton type="list" :count="5" item-type="table-row" />
             </div>
 
             <!-- Error state -->
@@ -105,6 +113,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMultisigStore } from '@/stores/multisig'
 import { useModalStore } from '@/stores/modal'
+import { multisigService } from '@/api/services/multisig'
 import type { TransactionProposal } from '@/types/multisig'
 import { 
     ArrowLeftIcon,
@@ -114,6 +123,8 @@ import {
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import MetricCard from '@/components/common/MetricCard.vue'
 import MultisigProposalTable from '@/components/multisig/MultisigProposalTable.vue'
+import LoadingSkeleton from '@/components/multisig/LoadingSkeleton.vue'
+import Breadcrumb from '@/components/common/Breadcrumb.vue'
 
 // Stores and router
 const route = useRoute()
@@ -131,7 +142,13 @@ const page = ref(1)
 // Computed
 const walletId = computed(() => route.params.id as string)
 const wallet = computed(() => multisigStore.getWalletById(walletId.value))
-const proposals = computed(() => multisigStore.getProposalsByWallet(walletId.value))
+const proposals = computed(() => {
+    const result = multisigStore.getProposalsByWallet(walletId.value)
+    console.log('MultisigProposals - computed proposals:', result)
+    console.log('MultisigProposals - walletId:', walletId.value)
+    console.log('MultisigProposals - all proposals in store:', multisigStore.proposals)
+    return result
+})
 
 const stats = computed(() => {
     const allProposals = proposals.value
@@ -143,16 +160,26 @@ const stats = computed(() => {
     }
 })
 
+// Breadcrumb
+const breadcrumbItems = computed(() => [
+    { label: 'Multisig Wallets', to: '/multisig' },
+    { label: wallet.value?.config?.name || 'Wallet', to: `/multisig/${walletId.value}` },
+    { label: 'Proposals' }
+])
+
 // Methods
 const loadProposals = async () => {
     if (!walletId.value) return
-    
+
     loading.value = true
     error.value = ''
-    
+
     try {
         await multisigStore.loadWallet(walletId.value)
-        // In real implementation, load proposals with pagination
+
+        // Use store method to fetch proposals (it handles API calls)
+        await multisigStore.fetchProposals(walletId.value)
+
         page.value = 1
         hasMore.value = false // For now, assume no pagination
     } catch (err) {
@@ -192,8 +219,8 @@ const openCreateProposalModal = () => {
 }
 
 const viewProposal = (proposal: TransactionProposal) => {
-    // Navigate to proposal detail or open modal
-    router.push(`/multisig/${walletId.value}/proposals/${proposal.id}`)
+    // Navigate to proposal detail
+    router.push(`/multisig/${walletId.value}/proposal/${proposal.id}`)
 }
 
 const openSignModal = (proposal: TransactionProposal) => {

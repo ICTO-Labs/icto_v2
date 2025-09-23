@@ -133,23 +133,60 @@ export interface LaunchpadFormData {
     daoActivation?: string
   }
   
-  // Token Distribution - Sync with DistributionCategory
-  distribution: Array<{
-    name: string
-    percentage: number
-    totalAmount: string
-    vestingSchedule?: VestingSchedule
-    recipients: {
-      type: 'SaleParticipants' | 'FixedList' | 'TeamAllocation' | 'TreasuryReserve' | 'LiquidityPool' | 'Airdrop' | 'Staking' | 'Marketing' | 'Advisors'
-      list?: Array<{
-        address: string
-        amount: string
+  // Token Distribution - Fixed Allocation Structure
+  distribution: {
+    // Sale allocation - no recipients needed (investors assigned after launch)
+    sale: {
+      name: 'Sale'
+      percentage: number
+      totalAmount: string
+      vestingSchedule?: VestingSchedule
+      description?: string
+    }
+
+    // Team allocation - fixed category with recipients
+    team: {
+      name: 'Team'
+      percentage: number
+      totalAmount: string
+      vestingSchedule?: VestingSchedule
+      recipients: Array<{
+        principal: string
+        percentage: number
+        name?: string
         description?: string
         vestingOverride?: VestingSchedule
       }>
+      description?: string
     }
-    description?: string
-  }>
+
+    // LP allocation - auto-calculated from DEX config
+    liquidityPool: {
+      name: 'Liquidity Pool'
+      percentage: number
+      totalAmount: string
+      autoCalculated: boolean // true when derived from dexConfig
+      vestingSchedule?: VestingSchedule
+      description?: string
+    }
+
+    // Others - dynamic allocations (marketing, advisors, etc.)
+    others: Array<{
+      id: string
+      name: string
+      percentage: number
+      totalAmount: string
+      vestingSchedule?: VestingSchedule
+      recipients: Array<{
+        principal: string
+        percentage: number
+        name?: string
+        description?: string
+        vestingOverride?: VestingSchedule
+      }>
+      description?: string
+    }>
+  }
   
   // DEX Configuration - Sync with DEXConfig
   dexConfig: {

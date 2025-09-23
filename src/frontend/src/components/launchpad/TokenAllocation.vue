@@ -1,40 +1,21 @@
 <template>
-  <div class="space-y-6">
-    <div class="flex items-center justify-between">
+  <div class="space-y-4">
+    <!-- Header -->
+    <div class="flex items-center justify-between mb-4">
       <div>
         <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-1">Token Distribution Allocation</h4>
-        <p class="text-xs text-gray-500 dark:text-gray-400">Configure how tokens will be distributed across different categories</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400">Configure how tokens will be distributed across 4 fixed categories</p>
       </div>
-      <button
-        @click="addAllocation"
-        type="button"
-        class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-yellow-700 bg-yellow-100 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 dark:bg-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-800"
-      >
-        <PlusIcon class="h-4 w-4 mr-1" />
-        Add Category
-      </button>
     </div>
 
-    <!-- Total Supply Display -->
-    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+    <!-- Allocation Progress - Moved to top -->
+    <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
       <div class="flex items-center justify-between mb-3">
         <h5 class="font-medium text-blue-900 dark:text-blue-100">Total Token Supply</h5>
         <span class="text-lg font-bold text-blue-600 dark:text-blue-400">{{ formatTokenAmount(totalSupply) }}</span>
       </div>
       <div class="space-y-2">
         <div class="flex justify-between text-sm">
-          <span class="text-blue-700 dark:text-blue-300">Sale Amount:</span>
-          <span class="font-medium text-blue-800 dark:text-blue-200">{{ formatTokenAmount(props.totalSaleAmount || 0) }}</span>
-        </div>
-        <div v-if="props.totalLiquidityToken && props.totalLiquidityToken > 0" class="flex justify-between text-sm">
-          <span class="text-blue-700 dark:text-blue-300">DEX Liquidity:</span>
-          <span class="font-medium text-orange-600 dark:text-orange-400">{{ formatTokenAmount(props.totalLiquidityToken) }}</span>
-        </div>
-        <div class="flex justify-between text-sm">
-          <span class="text-blue-700 dark:text-blue-300">Distribution Allocated:</span>
-          <span class="font-medium text-blue-800 dark:text-blue-200">{{ formatTokenAmount(totalAllocated - (props.totalLiquidityToken || 0)) }}</span>
-        </div>
-        <div class="flex justify-between text-sm font-semibold border-t border-blue-200 dark:border-blue-700 pt-2">
           <span class="text-blue-700 dark:text-blue-300">Total Allocated:</span>
           <span class="font-medium text-blue-800 dark:text-blue-200">{{ formatTokenAmount(totalAllocated) }} ({{ allocationPercentage.toFixed(2) }}%)</span>
         </div>
@@ -55,321 +36,985 @@
       </div>
     </div>
 
-
-    <!-- Allocation Categories -->
-    <div v-if="allocations.length === 0" class="text-center py-8 bg-gray-50 dark:bg-gray-700 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600">
-      <CoinsIcon class="mx-auto h-8 w-8 text-gray-400 mb-2" />
-      <p class="text-sm text-gray-500 dark:text-gray-400">No allocation categories created</p>
-      <p class="text-xs text-gray-400 dark:text-gray-500 mt-1">Add categories to distribute your tokens</p>
+    <!-- Liquidity Pool Info Card (Configured in Raised Funds Allocation) -->
+    <div class="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4 mb-4">
+      <div class="flex items-center justify-between mb-2">
+        <h5 class="font-medium text-orange-900 dark:text-orange-100">Liquidity Pool Allocation</h5>
+        <span class="text-lg font-bold text-orange-600 dark:text-orange-400">
+          {{ formatTokenAmount(lpAllocationMethod === 'token-supply' ? lpTokenSupplyAmount : lpRaisedTokenAmount) }}
+        </span>
+      </div>
+      <div class="text-sm space-y-1">
+        <div class="flex justify-between">
+          <span class="text-orange-700 dark:text-orange-300">Method:</span>
+          <span class="font-medium text-orange-800 dark:text-orange-200">
+            {{ lpAllocationMethod === 'token-supply' ? 'Token Supply Based' : 'Raised Funds Based' }}
+          </span>
+        </div>
+        <div class="flex justify-between" v-if="lpAllocationMethod === 'token-supply'">
+          <span class="text-orange-700 dark:text-orange-300">Percentage:</span>
+          <span class="font-medium text-orange-800 dark:text-orange-200">{{ lpTokenPercentage }}%</span>
+        </div>
+        <div class="flex justify-between" v-else>
+          <span class="text-orange-700 dark:text-orange-300">From Raised:</span>
+          <span class="font-medium text-orange-800 dark:text-orange-200">{{ lpRaisedPercentage }}%</span>
+        </div>
+        <div class="text-xs text-orange-600 dark:text-orange-400 pt-2 border-t border-orange-300 dark:border-orange-600">
+          💡 Configure liquidity method and DEX settings in Raised Funds Allocation section
+        </div>
+      </div>
     </div>
 
-    <div v-else class="space-y-4">
-      <div
-        v-for="(allocation, index) in allocations"
-        :key="`allocation-${index}`"
-        class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4"
-      >
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center space-x-3">
-            <div 
-              class="w-4 h-4 rounded-full"
-              :style="{ backgroundColor: getCategoryColor(allocation.name) }"
-            ></div>
-            <input
-              v-model="allocation.name"
-              type="text"
-              placeholder="Category name (e.g., Public Sale, Team, Liquidity)"
-              class="font-medium text-gray-900 dark:text-white bg-transparent border-none p-0 focus:ring-0 focus:outline-none placeholder:text-gray-400"
-              :class="{ 'pr-12': isAutoManagedAllocation(allocation) }"
-              :readonly="isAutoManagedAllocation(allocation)"
-              @input="validateAndEmit"
-            />
-            <span 
-              v-if="isAutoManagedAllocation(allocation)"
-              class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
-              title="Auto-managed allocation - amount is synchronized with your sale/DEX settings"
-            >
-              Auto-managed
-            </span>
-          </div>
-          <button
-            v-if="!isAutoManagedAllocation(allocation)"
-            @click="removeAllocation(index)"
-            type="button"
-            class="p-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-            title="Remove category"
-          >
-            <XIcon class="h-4 w-4" />
-          </button>
-          <div
-            v-else
-            class="p-1 text-gray-400 dark:text-gray-600 rounded"
-            title="Auto-managed allocation - cannot be removed"
-          >
-            <XIcon class="h-4 w-4 opacity-50" />
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-          <!-- Total Amount -->
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Total Amount <HelpTooltip>Number of tokens allocated to this category. For sale participants, this is automatically calculated from your sale parameters.</HelpTooltip>
-              <span v-if="isAutoManagedAllocation(allocation)" class="text-xs text-green-600 dark:text-green-400">(Auto-synced)</span>
-            </label>
-            <money3
-              v-bind="money3Options"
-              v-model="allocation.totalAmount"
-              @input="handleAmountChange(allocation)"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="1000000"
-              :readonly="isAutoManagedAllocation(allocation)"
-              class="w-full px-2 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-              :class="{ 'bg-gray-100 dark:bg-gray-600 cursor-not-allowed': isAutoManagedAllocation(allocation) }"
-            />
-            <!-- <p v-if="isAutoManagedAllocation(allocation)" class="text-xs text-green-600 dark:text-green-400 mt-1">
-              Amount is automatically synchronized with your sale/DEX configuration
-            </p> -->
-          </div>
-
-          <!-- Percentage -->
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Percentage <HelpTooltip>Percentage of total token supply allocated to this category. Changing this will automatically update the total amount.</HelpTooltip></label>
-            <div class="relative">
-              <input
-                v-model="allocation.percentage"
-                @input="updateAmountFromPercentage(allocation)"
-                type="number"
-                min="0"
-                max="100"
-                step="0.01"
-                placeholder="10.5"
-                class="w-full px-2 py-2 pr-6 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-              />
-              <span class="absolute right-2 top-3 text-xs text-gray-500">%</span>
+    <!-- Fixed Categories Accordion -->
+    <div class="space-y-2">
+      <!-- Sale Category -->
+      <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <button
+          @click="toggleAccordion('sale')"
+          class="w-full px-4 py-3 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/30 dark:to-blue-800/30 hover:from-blue-100 hover:to-blue-150 dark:hover:from-blue-900/50 dark:hover:to-blue-800/50 transition-colors text-left"
+          type="button"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <span class="font-medium text-blue-900 dark:text-blue-100">Fairlaunch</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-600 text-white">
+                {{ formatTokenAmount(parseFloat(distributionData.sale.totalAmount)) }}
+              </span>
             </div>
-          </div>
-
-          <!-- Recipient Type -->
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Recipient Type <HelpTooltip>Define who will receive tokens from this allocation. Choose Fixed List to specify individual addresses, or select predefined categories like Team, Advisors, etc.</HelpTooltip></label>
-            <!-- <Select :options="recipientTypeOptions"
-              v-model="allocation.recipientConfig.type"
-              @change="handleRecipientTypeChange(allocation)"
-              class="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-            >
-              <option v-for="option in recipientTypeOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-            </Select> -->
-            <Select :options="recipientTypeOptions"
-              v-model="allocation.recipientConfig.type"
-              @change="handleRecipientTypeChange(allocation)"
-              class=""
+            <ChevronDown 
+              class="h-4 w-4 text-blue-600 dark:text-blue-400 transition-transform duration-200"
+              :class="{ 'rotate-180': openAccordions.sale }"
             />
           </div>
-        </div>
-
-        <!-- Description -->
-        <div class="mb-4">
-          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Description <HelpTooltip>Detailed description of this token allocation category. This helps investors understand how tokens will be distributed and used.</HelpTooltip></label>
-          <textarea
-            v-model="allocation.description"
-            @input="validateAndEmit"
-            rows="2"
-            placeholder="Describe this allocation category and its purpose"
-            class="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
-          ></textarea>
-        </div>
-
-        <!-- Fixed Recipients (if FixedList is selected) -->
-        <div v-if="allocation.recipientConfig.type === 'FixedList'" class="mb-4">
-          <div class="flex items-center justify-between mb-2">
-            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Recipients <HelpTooltip>Specific wallet addresses that will receive tokens from this allocation. Each recipient can have a custom amount and description.</HelpTooltip></label>
-            <button
-              @click="addRecipient(allocation)"
-              type="button"
-              class="text-xs px-2 py-1 text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-            >
-              <PlusIcon class="h-3 w-3 inline mr-1" />
-              Add Recipient
-            </button>
-          </div>
-          
-          <div class="space-y-2">
-            <div v-if="!allocation.recipientConfig.recipients || allocation.recipientConfig.recipients.length === 0" 
-                class="text-center py-4 text-sm text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600">
-              <p class="mb-2">No recipients added</p>
-              <button
-                @click="addRecipient(allocation)"
-                type="button"
-                class="inline-flex items-center px-2 py-1 text-xs text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 rounded transition-colors"
-              >
-                <PlusIcon class="h-3 w-3 mr-1" />
-                Add First Recipient
-              </button>
+        </button>
+        
+        <div 
+          v-show="openAccordions.sale"
+          class="px-4 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700"
+        >
+          <div class="space-y-4">
+            <!-- Total Amount and Description in Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total amount:</label>
+                <input
+                  v-model="distributionData.sale.totalAmount"
+                  @input="updateSaleFromAmount"
+                  type="text"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description:</label>
+                <input
+                  v-model="distributionData.sale.description"
+                  @input="emitUpdate"
+                  type="text"
+                  placeholder="Tokens available for public sale"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                />
+              </div>
             </div>
-            <div
-              v-for="(recipient, rIndex) in allocation.recipientConfig.recipients"
-              :key="`recipient-${index}-${rIndex}`"
-              class="grid grid-cols-12 gap-2 items-center p-2 bg-gray-50 dark:bg-gray-700 rounded"
-            >
-              <div class="col-span-6">
-                <input
-                  v-model="recipient.address"
-                  @input="validateAndEmit"
-                  type="text"
-                  placeholder="Principal address (e.g., abc12-def34-...)"
-                  class="w-full px-2 py-1 text-xs border rounded focus:ring-1 focus:ring-yellow-500 bg-white dark:bg-gray-800"
-                  :class="{
-                    'border-gray-300 dark:border-gray-600': !recipient.address || isValidPrincipal(recipient.address),
-                    'border-red-500 dark:border-red-500': recipient.address && !isValidPrincipal(recipient.address)
-                  }"
-                />
-              </div>
-              <div class="col-span-2">
-                <input
-                  v-model="recipient.amount"
-                  @input="validateAndEmit"
-                  type="number"
-                  min="0"
-                  step="1"
-                  placeholder="Amount"
-                  class="w-full px-2 py-1 text-xs border rounded focus:ring-1 focus:ring-yellow-500 bg-white dark:bg-gray-800"
-                  :class="{
-                    'border-gray-300 dark:border-gray-600': !recipient.amount || Number(recipient.amount) > 0,
-                    'border-red-500 dark:border-red-500': recipient.amount && Number(recipient.amount) <= 0
-                  }"
-                />
-              </div>
-              <div class="col-span-3">
-                <input
-                  v-model="recipient.description"
-                  @input="validateAndEmit"
-                  type="text"
-                  placeholder="Description"
-                  class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-gray-600 rounded focus:ring-1 focus:ring-yellow-500 bg-white dark:bg-gray-800"
-                />
-              </div>
-              <div class="col-span-1">
-                <button
-                  @click="removeRecipient(allocation, rIndex)"
-                  type="button"
-                  class="p-1 text-red-500 hover:text-red-700 rounded transition-colors"
+
+            <!-- Vesting Section -->
+            <div>
+              <div class="flex items-center mb-3">
+                <label class="relative inline-flex items-center cursor-pointer mr-3">
+                  <input 
+                    v-model="saleVestingEnabled" 
+                    type="checkbox" 
+                    class="sr-only peer"
+                  >
+                  <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+                </label>
+                <label 
+                  @click="saleVestingEnabled = !saleVestingEnabled"
+                  class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
                 >
-                  <XIcon class="h-3 w-3" />
+                  Enable Vesting Schedule
+                </label>
+              </div>
+              <VestingScheduleConfig 
+                v-if="saleVestingEnabled"
+                v-model="distributionData.sale.vestingSchedule"
+                allocation-name="Sale"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Liquidity Category - Hidden (configured in MultiDexConfig) -->
+      <div v-if="false" class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <button
+          @click="toggleAccordion('liquidityPool')"
+          class="w-full px-4 py-3 bg-gradient-to-r from-orange-50 to-orange-100 dark:from-orange-900/30 dark:to-orange-800/30 hover:from-orange-100 hover:to-orange-150 dark:hover:from-orange-900/50 dark:hover:to-orange-800/50 transition-colors text-left"
+          type="button"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <span class="font-medium text-orange-900 dark:text-orange-100">Liquidity</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-600 text-white">
+                {{ formatTokenAmount(parseFloat(distributionData.liquidityPool.totalAmount)) }}
+              </span>
+            </div>
+            <ChevronDown 
+              class="h-4 w-4 text-orange-600 dark:text-orange-400 transition-transform duration-200"
+              :class="{ 'rotate-180': openAccordions.liquidityPool }"
+            />
+          </div>
+        </button>
+        
+        <div 
+          v-show="openAccordions.liquidityPool"
+          class="px-4 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700"
+        >
+          <div class="space-y-4">
+            <!-- LP Allocation Method Selection -->
+            <div class="border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800">
+              <h6 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">LP Allocation Method</h6>
+              <div class="space-y-3">
+                <label class="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    v-model="lpAllocationMethod"
+                    value="token-supply"
+                    type="radio"
+                    class="w-4 h-4 text-orange-600 border-gray-300 focus:ring-orange-500"
+                  />
+                  <div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-white">Based on Token Supply (%)</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Define percentage of total supply → Calculate ICP amount needed</div>
+                  </div>
+                </label>
+                <label class="flex items-center space-x-3 cursor-pointer">
+                  <input
+                    v-model="lpAllocationMethod"
+                    value="raised-funds"
+                    type="radio"
+                    class="w-4 h-4 text-orange-600 border-gray-300 focus:ring-orange-500"
+                  />
+                  <div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-white">Based on Raised Funds (%)</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Define percentage of raised funds → Calculate token amount</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Configuration based on selected method -->
+            <div v-if="lpAllocationMethod === 'token-supply'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Token Supply Percentage:</label>
+                <div class="flex items-center space-x-2">
+                  <input
+                    v-model.number="lpTokenPercentage"
+                    @input="updateLiquidityAllocation"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    class="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                  />
+                  <span class="text-sm text-gray-500">%</span>
+                </div>
+                <p class="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                  {{ formatTokenAmount(lpTokenSupplyAmount) }} tokens
+                </p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Estimated ICP Needed:</label>
+                <input
+                  :value="formatAmount(estimatedIcpForTokenSupply)"
+                  readonly
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 cursor-not-allowed"
+                />
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Range: {{ formatAmount(estimatedIcpMinMax.min) }} - {{ formatAmount(estimatedIcpMinMax.max) }} ICP
+                </p>
+              </div>
+            </div>
+
+            <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Raised Funds Percentage:</label>
+                <div class="flex items-center space-x-2">
+                  <input
+                    v-model.number="lpRaisedPercentage"
+                    @input="updateLiquidityAllocation"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    class="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                  />
+                  <span class="text-sm text-gray-500">%</span>
+                </div>
+                <p class="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                  {{ formatAmount(lpRaisedFundsAmount) }} ICP (simulated)
+                </p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Calculated Token Amount:</label>
+                <input
+                  :value="formatTokenAmount(lpRaisedTokenAmount)"
+                  readonly
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 cursor-not-allowed"
+                />
+                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Wait for sale ends or estimate via simulator
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description:</label>
+              <input
+                v-model="distributionData.liquidityPool.description"
+                @input="emitUpdate"
+                type="text"
+                placeholder="Auto-calculated liquidity pool allocation"
+                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+              />
+            </div>
+
+            <!-- DEX Configuration Section -->
+            <div class="border border-orange-200 dark:border-orange-700 rounded-lg p-4 bg-orange-50 dark:bg-orange-900/20">
+              <h6 class="text-sm font-medium text-orange-800 dark:text-orange-200 mb-3">DEX Configuration</h6>
+              
+              <div class="space-y-4">
+                <!-- DEX Enable Toggle -->
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div class="text-sm font-medium text-gray-900 dark:text-white">Enable DEX Listing</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Automatically list token on DEX with liquidity pool</div>
+                  </div>
+                  <label class="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      v-model="dexEnabled" 
+                      type="checkbox" 
+                      class="sr-only peer"
+                    >
+                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-orange-300 dark:peer-focus:ring-orange-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-orange-600"></div>
+                  </label>
+                </div>
+
+                <!-- DEX Configuration when enabled -->
+                <div v-if="dexEnabled" class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 border-t border-orange-300 dark:border-orange-600">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Target Token Price:</label>
+                    <div class="flex items-center space-x-2">
+                      <input
+                        v-model.number="dexTokenPrice"
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        class="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                      />
+                      <span class="text-sm text-gray-500">ICP per token</span>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">LP Lock Duration:</label>
+                    <select
+                      v-model="dexLockDuration"
+                      class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                    >
+                      <option value="0">No Lock</option>
+                      <option value="30">30 Days</option>
+                      <option value="90">90 Days</option>
+                      <option value="180">180 Days</option>
+                      <option value="365">1 Year</option>
+                    </select>
+                  </div>
+                </div>
+
+                <!-- Status and Info -->
+                <div class="text-xs text-orange-600 dark:text-orange-400 pt-2 border-t border-orange-200 dark:border-orange-700">
+                  <div v-if="dexEnabled && lpAllocationMethod === 'token-supply'">
+                    🔗 <strong>Token Supply Method:</strong> LP amount {{ formatTokenAmount(lpTokenSupplyAmount) }} tokens → Need {{ formatAmount(estimatedIcpForTokenSupply) }} ICP for liquidity
+                  </div>
+                  <div v-else-if="dexEnabled && lpAllocationMethod === 'raised-funds'">
+                    💰 <strong>Raised Funds Method:</strong> Using {{ lpRaisedPercentage }}% of raised funds ({{ formatAmount(lpRaisedFundsAmount) }} ICP) → Get {{ formatTokenAmount(lpRaisedTokenAmount) }} tokens
+                  </div>
+                  <div v-else>
+                    ⚠️ <strong>DEX Disabled:</strong> No automatic DEX listing. Tokens need to be available immediately for manual liquidity provision.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Team Category -->
+      <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <button
+          @click="toggleAccordion('team')"
+          class="w-full px-4 py-3 bg-gradient-to-r from-green-50 to-green-100 dark:from-green-900/30 dark:to-green-800/30 hover:from-green-100 hover:to-green-150 dark:hover:from-green-900/50 dark:hover:to-green-800/50 transition-colors text-left"
+          type="button"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <span class="font-medium text-green-900 dark:text-green-100">Team</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-600 text-white">
+                {{ formatTokenAmount(parseFloat(distributionData.team.totalAmount)) }}
+              </span>
+              <ChevronUp 
+                v-if="openAccordions.team"
+                class="h-4 w-4 text-green-600"
+              />
+            </div>
+            <ChevronDown 
+              class="h-4 w-4 text-green-600 dark:text-green-400 transition-transform duration-200"
+              :class="{ 'rotate-180': openAccordions.team }"
+            />
+          </div>
+        </button>
+        
+        <div 
+          v-show="openAccordions.team"
+          class="px-4 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700"
+        >
+          <div class="space-y-4">
+            <!-- Total Amount and Description -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total amount (calculated from recipients):</label>
+                <input
+                  :value="teamTotalAmount"
+                  readonly
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 cursor-not-allowed"
+                />
+                <p class="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                  Auto-calculated from team recipients below
+                </p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description:</label>
+                <input
+                  v-model="distributionData.team.description"
+                  @input="emitUpdate"
+                  type="text"
+                  placeholder="Team allocation"
+                  class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                />
+              </div>
+            </div>
+
+            <!-- Vesting Section -->
+            <div>
+              <div class="flex items-center mb-3">
+                <label class="relative inline-flex items-center cursor-pointer mr-3">
+                  <input 
+                    v-model="teamVestingEnabled" 
+                    type="checkbox" 
+                    class="sr-only peer"
+                  >
+                  <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 dark:peer-focus:ring-green-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-600"></div>
+                </label>
+                <label 
+                  @click="teamVestingEnabled = !teamVestingEnabled"
+                  class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
+                >
+                  Enable Vesting Schedule
+                </label>
+              </div>
+              <VestingScheduleConfig 
+                v-if="teamVestingEnabled"
+                v-model="distributionData.team.vestingSchedule"
+                allocation-name="Team"
+              />
+            </div>
+
+            <!-- Recipients Section -->
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center space-x-2">
+                  <h6 class="text-sm font-medium text-gray-700 dark:text-gray-300">Team Recipients</h6>
+                  <span class="text-sm text-gray-500 dark:text-gray-400">({{ distributionData.team.recipients.length }} participants)</span>
+                </div>
+                <button
+                  @click="addTeamMember"
+                  type="button"
+                  class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+                >
+                  Add Recipient
                 </button>
               </div>
+
+              <div v-if="distributionData.team.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
+                ⚠️ At least one recipient is required for team allocation
+              </div>
+
+              <!-- Recipients Table -->
+              <div v-else class="overflow-x-auto">
+                <table class="w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                  <thead class="bg-gray-50 dark:bg-gray-800">
+                    <tr>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Token Amount *
+                      </th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Principal *
+                      </th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Name/Notes
+                      </th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                        Action
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                    <tr v-for="(recipient, index) in distributionData.team.recipients" :key="`team-${index}`" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <td class="px-4 py-3">
+                        <input
+                          v-model="recipient.amount"
+                          type="text"
+                          placeholder="10,000"
+                          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                          :class="{ 'border-red-500': !isValidTokenAmount(recipient.amount || '') && recipient.amount }"
+                        />
+                        <p v-if="!isValidTokenAmount(recipient.amount || '') && recipient.amount" class="text-xs text-red-600 mt-1">
+                          Invalid token amount
+                        </p>
+                      </td>
+                      <td class="px-4 py-3">
+                        <input
+                          v-model="recipient.principal"
+                          type="text"
+                          placeholder="Principal ID"
+                          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                          :class="{ 'border-red-500': !isValidPrincipal(recipient.principal || '') && recipient.principal }"
+                        />
+                        <p v-if="!isValidPrincipal(recipient.principal || '') && recipient.principal" class="text-xs text-red-600 mt-1">
+                          Invalid principal format
+                        </p>
+                      </td>
+                      <td class="px-4 py-3">
+                        <input
+                          v-model="recipient.name"
+                          type="text"
+                          placeholder="Optional name"
+                          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                        />
+                      </td>
+                      <td class="px-4 py-3 whitespace-nowrap">
+                        <button
+                          @click="removeTeamMember(index)"
+                          type="button"
+                          class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                        >
+                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                          </svg>
+                        </button>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
-
-        <!-- Vesting Schedule -->
-        <VestingScheduleConfig
-          v-model="allocation.vestingSchedule"
-          :allocation-name="allocation.name"
-          @update:modelValue="validateAndEmit"
-        />
       </div>
-    </div>
-    <button
-        @click="addAllocation"
-        type="button"
-        class="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-yellow-700 bg-yellow-100 hover:bg-yellow-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500 dark:bg-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-800"
-      >
-        <PlusIcon class="h-4 w-4 mr-1" />
-        Add Category
-      </button>
-    <!-- Validation Errors -->
-    <div v-if="validationErrors.length > 0" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
-      <div class="flex items-start space-x-2">
-        <AlertCircleIcon class="h-4 w-4 text-red-500 mt-0.5" />
-        <div>
-          <p class="text-sm font-medium text-red-800 dark:text-red-200 mb-1">Allocation Issues</p>
-          <ul class="text-sm text-red-700 dark:text-red-300 space-y-1">
-            <li v-for="error in validationErrors" :key="error" class="flex items-center">
-              <span class="w-1.5 h-1.5 bg-red-400 rounded-full mr-2"></span>
-              {{ error }}
-            </li>
-          </ul>
+
+      <!-- Others Category -->
+      <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+        <button
+          @click="toggleAccordion('others')"
+          class="w-full px-4 py-3 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors text-left"
+          type="button"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <span class="font-medium text-gray-900 dark:text-white">Others</span>
+              <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
+                {{ distributionData.others.length }}
+              </span>
+            </div>
+            <ChevronDown 
+              class="h-4 w-4 text-gray-500 transition-transform duration-200"
+              :class="{ 'rotate-180': openAccordions.others }"
+            />
+          </div>
+        </button>
+        
+        <div 
+          v-show="openAccordions.others"
+          class="px-4 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700"
+        >
+          <!-- Add Category Buttons -->
+          <div class="flex flex-wrap gap-2 mb-4">
+            <button 
+              @click="addQuickAllocation('Marketing', 5)"
+              type="button"
+              class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-md transition-colors"
+            >
+              + Marketing
+            </button>
+            <button 
+              @click="addQuickAllocation('Advisors', 3)"
+              type="button"
+              class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded-md transition-colors"
+            >
+              + Advisors
+            </button>
+            <button 
+              @click="addQuickAllocation('Development', 10)"
+              type="button"
+              class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded-md transition-colors"
+            >
+              + Development
+            </button>
+            <button
+              @click="addOtherCategory"
+              type="button"
+              class="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs rounded-md transition-colors"
+            >
+              + Custom
+            </button>
+          </div>
+
+          <!-- Other Categories List -->
+          <div v-if="distributionData.others.length === 0" class="p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded text-sm text-gray-600 dark:text-gray-400 text-center">
+            💡 Click the buttons above to add custom allocations
+          </div>
+
+          <div v-else class="space-y-4">
+            <div
+              v-for="(category, index) in distributionData.others"
+              :key="`other-${index}`"
+              class="p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg"
+            >
+              <!-- Category Header -->
+              <div class="flex items-center justify-between mb-3">
+                <input
+                  v-model="category.name"
+                  placeholder="Category name (e.g., Marketing)"
+                  class="text-lg font-medium bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-400 flex-1"
+                />
+                <button
+                  @click="removeOtherCategory(index)"
+                  type="button"
+                  class="p-1 text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                >
+                  <X class="h-4 w-4" />
+                </button>
+              </div>
+
+              <!-- Amount and Description -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total amount (calculated from recipients):</label>
+                  <input
+                    :value="getOtherCategoryTotalAmount(index)"
+                    readonly
+                    class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-gray-100 dark:bg-gray-600 cursor-not-allowed"
+                  />
+                  <p class="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                    Auto-calculated from recipients below
+                  </p>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description:</label>
+                  <input
+                    v-model="category.description"
+                    @input="emitUpdate"
+                    type="text"
+                    placeholder="Describe this allocation"
+                    class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
+                  />
+                </div>
+              </div>
+
+              <!-- Vesting for Category -->
+              <div class="mb-3">
+                <div class="flex items-center mb-3">
+                  <label class="relative inline-flex items-center cursor-pointer mr-3">
+                    <input 
+                      v-model="category.vestingEnabled" 
+                      type="checkbox" 
+                      class="sr-only peer"
+                    >
+                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+                  </label>
+                  <label 
+                    @click="category.vestingEnabled = !category.vestingEnabled"
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
+                  >
+                    Enable Vesting Schedule
+                  </label>
+                </div>
+                <VestingScheduleConfig 
+                  v-if="category.vestingEnabled"
+                  v-model="category.vestingSchedule"
+                  :allocation-name="category.name || 'Custom'"
+                />
+              </div>
+
+              <!-- Recipients -->
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center space-x-2">
+                    <h6 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ category.name || 'Custom' }} Recipients</h6>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">({{ category.recipients.length }} participants)</span>
+                  </div>
+                  <button
+                    @click="addCategoryRecipient(index)"
+                    type="button"
+                    class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+                  >
+                    Add Recipient
+                  </button>
+                </div>
+
+                <div v-if="category.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
+                  ⚠️ At least one recipient is required for {{ category.name || 'custom' }} allocation
+                </div>
+
+                <!-- Recipients Table -->
+                <div v-else class="overflow-x-auto">
+                  <table class="w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                    <thead class="bg-gray-50 dark:bg-gray-800">
+                      <tr>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Token Amount *
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Principal *
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Name/Notes
+                        </th>
+                        <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                          Action
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                      <tr v-for="(recipient, recipientIndex) in category.recipients" :key="`other-${index}-recipient-${recipientIndex}`" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <td class="px-4 py-3">
+                          <input
+                            v-model="recipient.amount"
+                            type="text"
+                            placeholder="5,000"
+                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                            :class="{ 'border-red-500': !isValidTokenAmount(recipient.amount || '') && recipient.amount }"
+                          />
+                          <p v-if="!isValidTokenAmount(recipient.amount || '') && recipient.amount" class="text-xs text-red-600 mt-1">
+                            Invalid token amount
+                          </p>
+                        </td>
+                        <td class="px-4 py-3">
+                          <input
+                            v-model="recipient.principal"
+                            type="text"
+                            placeholder="Principal ID"
+                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                            :class="{ 'border-red-500': !isValidPrincipal(recipient.principal) && recipient.principal }"
+                          />
+                          <p v-if="!isValidPrincipal(recipient.principal) && recipient.principal" class="text-xs text-red-600 mt-1">
+                            Invalid principal format
+                          </p>
+                        </td>
+                        <td class="px-4 py-3">
+                          <input
+                            v-model="recipient.name"
+                            type="text"
+                            placeholder="Optional name"
+                            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                          />
+                        </td>
+                        <td class="px-4 py-3 whitespace-nowrap">
+                          <button
+                            @click="removeCategoryRecipient(index, recipientIndex)"
+                            type="button"
+                            class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                          >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                            </svg>
+                          </button>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
+    </div>
+
+    <!-- Total Supply and Chart Section -->
+    <div class="mt-6 text-center">
+      <div class="text-lg font-medium text-gray-900 dark:text-white mb-2">
+        Total Supply: <span class="text-blue-600 dark:text-blue-400">{{ formatTokenAmount(totalSupply) }}</span>
+      </div>
+      
+      <!-- Progress Bar -->
+      <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-4">
+        <div 
+          class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+          :style="{ width: `${Math.min(allocationPercentage, 100)}%` }"
+        ></div>
+      </div>
+      
+      <div class="text-sm text-gray-600 dark:text-gray-400">
+        Allocated: {{ allocationPercentage.toFixed(1) }}% 
+        ({{ formatTokenAmount(totalAllocated) }} / {{ formatTokenAmount(totalSupply) }})
+      </div>
+    </div>
+
+    <!-- Validation Messages -->
+    <div v-if="validationErrors.length > 0" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
+      <h6 class="text-sm font-medium text-red-900 dark:text-red-100 mb-2">Validation Errors</h6>
+      <ul class="list-disc list-inside text-sm text-red-700 dark:text-red-300 space-y-1">
+        <li v-for="error in validationErrors" :key="error">{{ error }}</li>
+      </ul>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { PlusIcon, XIcon, CoinsIcon, AlertCircleIcon } from 'lucide-vue-next'
+import { ref, computed, watch, nextTick } from 'vue'
+import { Plus, X, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import VestingScheduleConfig from './VestingScheduleConfig.vue'
-import HelpTooltip from '@/components/common/HelpTooltip.vue'
-import { stringifyWithBigInt } from '@/utils/common'
+import type { VestingSchedule } from '@/types/launchpad'
+
+interface TeamRecipient {
+  principal: string
+  percentage: number
+  amount?: string
+  name?: string
+  description?: string
+  vestingOverride?: VestingSchedule
+}
+
+interface OtherRecipient {
+  principal: string
+  percentage: number
+  amount?: string
+  name?: string
+  description?: string
+  vestingOverride?: VestingSchedule
+}
+
+interface OtherCategory {
+  id: string
+  name: string
+  percentage: number
+  totalAmount: string
+  description?: string
+  recipients: OtherRecipient[]
+  vestingSchedule?: VestingSchedule
+  vestingEnabled?: boolean
+}
+
+interface DistributionData {
+  sale: {
+    name: 'Sale'
+    percentage: number
+    totalAmount: string
+    vestingSchedule?: VestingSchedule
+    description?: string
+  }
+  team: {
+    name: 'Team'
+    percentage: number
+    totalAmount: string
+    vestingSchedule?: VestingSchedule
+    recipients: TeamRecipient[]
+    description?: string
+  }
+  liquidityPool: {
+    name: 'Liquidity Pool'
+    percentage: number
+    totalAmount: string
+    autoCalculated: boolean
+    description?: string
+  }
+  others: OtherCategory[]
+}
+
 interface Props {
-  modelValue?: any[]
-  totalSupply?: number
+  modelValue?: DistributionData
+  totalSupply: number
   totalSaleAmount?: number
   totalLiquidityToken?: number
-  saleTokenSymbol?: string
+  dexEnabled?: boolean
+  simulatedRaisedAmount?: number // For raised funds based calculation
+  softCap?: number
+  hardCap?: number
+  dexConfig?: any // DEX configuration object
+  // LP Allocation props (controlled from MultiDexConfig)
+  lpAllocationMethodProp?: 'token-supply' | 'raised-funds'
+  lpTokenPercentageProp?: number
+  lpRaisedPercentageProp?: number
 }
 
 interface Emits {
-  (e: 'update:modelValue', value: any[]): void
-  (e: 'validation-changed', validation: { valid: boolean; errors: string[] }): void
-}
-const money3Options = {
-  masked: false,
-  prefix: '',
-  suffix: '',
-  thousands: ',',
-  decimal: '.',
-  precision: 0,
-  disableNegative: false,
-  disabled: false,
-  min: null,
-  max: null,
-  allowBlank: false,
-  minimumNumberOfCharacters: 0,
-  shouldRound: true,
-  focusOnRight: false,
+  (e: 'update:modelValue', value: DistributionData): void
+  (e: 'update:dexConfig', config: {
+    enabled: boolean
+    tokenPrice: number
+    lockDuration: number
+    liquidityPercentage?: number
+    liquidityAmount?: number
+  }): void
 }
 
-const props = withDefaults(defineProps<Props>(), {
-  totalSupply: 100000000,
-  totalSaleAmount: 0,
-  totalLiquidityToken: 0,
-  saleTokenSymbol: 'TOKEN'
-})
+const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
 // Local state
-const allocations = ref<any[]>([])
-const isUpdatingFromParent = ref(false)
+const distributionData = ref<DistributionData>({
+  sale: {
+    name: 'Sale',
+    percentage: 61,
+    totalAmount: '250000',
+    description: 'Tokens available for public sale'
+  },
+  team: {
+    name: 'Team',
+    percentage: 7,
+    totalAmount: '30000',
+    recipients: [],
+    description: 'Team allocation'
+  },
+  liquidityPool: {
+    name: 'Liquidity Pool',
+    percentage: 31,
+    totalAmount: '127500',
+    autoCalculated: true,
+    description: 'Auto-calculated from DEX configuration'
+  },
+  others: []
+})
+
+// Accordion state - Sale expanded by default, others collapsed
+const openAccordions = ref({
+  sale: true,
+  team: false,
+  liquidityPool: false,
+  others: false
+})
+
+// Vesting toggle states
+const saleVestingEnabled = ref(false)
+const teamVestingEnabled = ref(true) // Team should have vesting by default
+
+// Liquidity Pool allocation method (synced with MultiDexConfig)
+const lpAllocationMethod = ref<'token-supply' | 'raised-funds'>(props.lpAllocationMethodProp || 'token-supply')
+const lpTokenPercentage = ref(props.lpTokenPercentageProp || 30) // Default 30% of token supply
+const lpRaisedPercentage = ref(props.lpRaisedPercentageProp || 60) // Default 60% of raised funds
+
+// DEX configuration
+const dexEnabled = ref(false)
+const dexTokenPrice = ref(0.001) // Default token price in ICP
+const dexLockDuration = ref(90) // Default 90 days LP lock
+
+// Computed total amounts from recipients
+const teamTotalAmount = computed(() => {
+  return distributionData.value.team.recipients.reduce((sum, recipient) => {
+    return sum + (parseFloat(recipient.amount || '0') || 0)
+  }, 0).toString()
+})
+
+const getOtherCategoryTotalAmount = (categoryIndex: number) => {
+  const category = distributionData.value.others[categoryIndex]
+  if (!category) return '0'
+  return category.recipients.reduce((sum, recipient) => {
+    return sum + (parseFloat(recipient.amount || '0') || 0)
+  }, 0).toString()
+}
+
+// LP Allocation calculations
+const lpTokenSupplyAmount = computed(() => {
+  return (props.totalSupply * lpTokenPercentage.value) / 100
+})
+
+const lpRaisedFundsAmount = computed(() => {
+  return ((props.simulatedRaisedAmount || 0) * lpRaisedPercentage.value) / 100
+})
+
+const lpRaisedTokenAmount = computed(() => {
+  // This would be calculated based on the token price or ratio
+  // For now, we'll use a simple calculation - in real scenario, this would come from
+  // the sale price calculation
+  const tokenPrice = (props.simulatedRaisedAmount || 0) / (props.totalSaleAmount || 1)
+  return lpRaisedFundsAmount.value / tokenPrice
+})
+
+const estimatedIcpForTokenSupply = computed(() => {
+  // Estimate ICP needed based on simulated raised amount and sale allocation
+  const currentSimulated = props.simulatedRaisedAmount || 0
+  if (currentSimulated === 0) return 0
+  
+  const tokenPrice = currentSimulated / (props.totalSaleAmount || 1)
+  return lpTokenSupplyAmount.value * tokenPrice
+})
+
+const estimatedIcpMinMax = computed(() => {
+  const softCapTokenPrice = (props.softCap || 0) / (props.totalSaleAmount || 1)
+  const hardCapTokenPrice = (props.hardCap || 0) / (props.totalSaleAmount || 1)
+  
+  return {
+    min: lpTokenSupplyAmount.value * softCapTokenPrice,
+    max: lpTokenSupplyAmount.value * hardCapTokenPrice
+  }
+})
+
+// Format helpers
+const formatAmount = (amount: number): string => {
+  return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
+}
+
+// Initialize from props
+watch(() => props.modelValue, (newValue) => {
+  if (newValue) {
+    distributionData.value = { ...newValue }
+  }
+}, { immediate: true })
+
+// Sync LP allocation props from MultiDexConfig
+watch(() => props.lpAllocationMethodProp, (newMethod) => {
+  if (newMethod) {
+    lpAllocationMethod.value = newMethod
+  }
+})
+
+watch(() => props.lpTokenPercentageProp, (newPercentage) => {
+  if (newPercentage !== undefined) {
+    lpTokenPercentage.value = newPercentage
+  }
+})
+
+watch(() => props.lpRaisedPercentageProp, (newPercentage) => {
+  if (newPercentage !== undefined) {
+    lpRaisedPercentage.value = newPercentage
+  }
+})
 
 // Computed properties
 const totalAllocated = computed(() => {
-  const allocationSum = allocations.value.reduce((sum, allocation) => {
-    return sum + (Number(allocation.totalAmount) || 0)
-  }, 0)
-  // Add Total Initial Liquidity for DEX to the total allocation
-  return allocationSum + (props.totalLiquidityToken || 0)
+  const saleAmount = parseFloat(distributionData.value.sale.totalAmount) || 0
+  const teamAmount = parseFloat(distributionData.value.team.totalAmount) || 0
+  // Use computed LP amount from allocation method
+  const lpAmount = lpAllocationMethod.value === 'token-supply' 
+    ? lpTokenSupplyAmount.value 
+    : lpRaisedTokenAmount.value
+  const othersAmount = distributionData.value.others.reduce((sum, category) => 
+    sum + (parseFloat(category.totalAmount) || 0), 0
+  )
+  return saleAmount + teamAmount + lpAmount + othersAmount
 })
 
-// Recipient type options
-const recipientTypeOptions = [
-  { label: 'Sale Participants', value: 'SaleParticipants' },
-  { label: 'Team Allocation', value: 'TeamAllocation' },
-  { label: 'Advisors', value: 'Advisors' },
-  { label: 'Liquidity Pool', value: 'LiquidityPool' },
-  { label: 'Treasury Reserve', value: 'TreasuryReserve' },
-  { label: 'Marketing', value: 'Marketing' },
-  { label: 'Staking', value: 'Staking' },
-  { label: 'Airdrop', value: 'Airdrop' },
-  { label: 'Fixed List', value: 'FixedList' },
-]
-
 const allocationPercentage = computed(() => {
-  if (props.totalSupply <= 0) return 0
-  return (totalAllocated.value / props.totalSupply) * 100
+  return props.totalSupply > 0 ? (totalAllocated.value / props.totalSupply) * 100 : 0
 })
 
 const remainingTokens = computed(() => {
@@ -379,532 +1024,196 @@ const remainingTokens = computed(() => {
 const validationErrors = computed(() => {
   const errors: string[] = []
   
-  // Check if total allocation exceeds supply
-  if (totalAllocated.value > props.totalSupply) {
-    errors.push(`Total allocation (${formatTokenAmount(totalAllocated.value)}) exceeds total supply`)
+  if (allocationPercentage.value > 100) {
+    errors.push('Total allocation exceeds 100% of token supply')
   }
-  
-  // Check for empty names
-  const emptyNames = allocations.value.filter(a => !a.name?.trim())
-  if (emptyNames.length > 0) {
-    errors.push(`${emptyNames.length} allocation(s) missing name`)
-  }
-  
-  // Check for duplicate names
-  const names = allocations.value.map(a => a.name?.trim().toLowerCase()).filter(name => name)
-  const duplicateNames = names.filter((name, index) => names.indexOf(name) !== index)
-  if (duplicateNames.length > 0) {
-    errors.push(`Duplicate allocation names found`)
-  }
-  
-  // Check for zero amounts
-  const zeroAmounts = allocations.value.filter(a => !a.totalAmount || Number(a.totalAmount) <= 0)
-  if (zeroAmounts.length > 0) {
-    errors.push(`${zeroAmounts.length} allocation(s) have zero or invalid amounts`)
-  }
-
-  // Check fixed recipients validation
-  allocations.value.forEach((allocation, index) => {
-    if (allocation.recipientConfig?.type === 'FixedList') {
-      if (!allocation.recipientConfig.recipients || allocation.recipientConfig.recipients.length === 0) {
-        errors.push(`${allocation.name || 'Allocation ' + (index + 1)} requires at least one recipient`)
-      } else {
-        // Check for empty addresses
-        const emptyAddresses = allocation.recipientConfig.recipients.filter((r: any) => !r.address?.trim())
-        if (emptyAddresses.length > 0) {
-          errors.push(`${allocation.name} has ${emptyAddresses.length} recipient(s) without address`)
-        }
-        
-        // Check for zero amounts
-        const zeroAmounts = allocation.recipientConfig.recipients.filter((r: any) => !r.amount || Number(r.amount) <= 0)
-        if (zeroAmounts.length > 0) {
-          errors.push(`${allocation.name} has ${zeroAmounts.length} recipient(s) with zero allocation`)
-        }
-        
-        // Basic Principal ID format validation
-        allocation.recipientConfig.recipients.forEach((recipient: any, rIndex: number) => {
-          if (recipient.address && recipient.address.trim()) {
-            const address = recipient.address.trim()
-            // Basic check for Principal ID format (contains hyphens and ends with -cai)
-            if (!address.includes('-') || !address.match(/^[a-z0-9\-]+$/)) {
-              errors.push(`${allocation.name} recipient ${rIndex + 1} has invalid Principal ID format`)
-            }
-          }
-        })
-      }
-    }
-  })
   
   return errors
 })
 
-// Helper functions - defined early to prevent initialization errors
-const formatTokenAmount = (amount: number): string => {
-  return new Intl.NumberFormat().format(amount)
-}
-
-// Helper function to determine default recipient type based on allocation name
-const getDefaultRecipientType = (allocationName: string): string => {
-  const name = allocationName.toLowerCase().trim()
-
-  if (name.includes('team')) return 'TeamAllocation'
-  if (name.includes('advisor')) return 'Advisors'
-  if (name.includes('liquidity') || name.includes('pool')) return 'LiquidityPool'
-  if (name.includes('treasury') || name.includes('reserve')) return 'TreasuryReserve'
-  if (name.includes('marketing')) return 'Marketing'
-  if (name.includes('staking')) return 'Staking'
-  if (name.includes('airdrop')) return 'Airdrop'
-  if (name.includes('sale') || name.includes('public')) return 'SaleParticipants'
-
-  return 'SaleParticipants' // Default fallback
-}
-
-// Check if allocation should be auto-managed
-const isAutoManagedAllocation = (allocation: any): boolean => {
-  // Check if explicitly marked as required
-  if (allocation.isRequired) return true
-
-  // Only consider specific recipient types for auto-management
-  if (allocation.recipientConfig?.type === 'SaleParticipants') return true
-  if (allocation.recipientConfig?.type === 'LiquidityPool') return true
-
-  // Check by exact name matches only for critical allocations
-  if (allocation.name === 'Public Sale' && allocation.recipientConfig?.type === 'SaleParticipants') return true
-  if (allocation.name === 'DEX Liquidity' && allocation.recipientConfig?.type === 'LiquidityPool') return true
-
-  return false
-}
-
-const getCategoryColor = (name: string): string => {
-  const colors = [
-    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6',
-    '#06B6D4', '#84CC16', '#F97316', '#EC4899', '#6366F1'
-  ]
-  const hash = name?.split('').reduce((a, b) => a + b.charCodeAt(0), 0) || 0
-  return colors[hash % colors.length]
-}
-
-// Validate Principal ID format
-const isValidPrincipal = (address: string): boolean => {
-  if (!address || !address.trim()) return false
-  const trimmed = address.trim()
-  // Basic Principal ID format check: lowercase alphanumeric with hyphens
-  return /^[a-z0-9\-]+$/.test(trimmed) && trimmed.includes('-')
-}
-
-// Helper functions for data conversion
-const convertRecipientConfig = (config: any) => {
-  switch (config.type) {
-    case 'FixedList':
-      return { 
-        'FixedList': config.recipients?.map((r: any) => ({
-          address: r.address,
-          amount: BigInt(r.amount || 0),
-          description: r.description ? [r.description] : [],
-          vestingOverride: []
-        })) || []
-      }
-    case 'SaleParticipants':
-      return { 'SaleParticipants': null }
-    case 'TeamAllocation':
-      return { 'TeamAllocation': null }
-    case 'Advisors':
-      return { 'Advisors': null }
-    case 'LiquidityPool':
-      return { 'LiquidityPool': null }
-    case 'TreasuryReserve':
-      return { 'TreasuryReserve': null }
-    case 'Marketing':
-      return { 'Marketing': null }
-    case 'Staking':
-      return { 'Staking': null }
-    case 'Airdrop':
-      return { 'Airdrop': null }
-    default:
-      return { 'SaleParticipants': null }
-  }
-}
-
-const convertFromRecipientConfig = (recipients: any) => {
-  // Handle null or undefined recipients
-  if (!recipients || typeof recipients !== 'object') {
-    return {
-      type: 'SaleParticipants',
-      recipients: []
-    }
-  }
-  
-  if ('FixedList' in recipients) {
-    return {
-      type: 'FixedList',
-      recipients: recipients.FixedList.map((r: any) => ({
-        address: r.address.toText(),
-        amount: Number(r.amount),
-        description: r.description?.[0] || ''
-      }))
-    }
-  }
-  
-  const typeMap: Record<string, string> = {
-    'SaleParticipants': 'SaleParticipants',
-    'TeamAllocation': 'TeamAllocation',
-    'Advisors': 'Advisors',
-    'LiquidityPool': 'LiquidityPool',
-    'TreasuryReserve': 'TreasuryReserve',
-    'Marketing': 'Marketing',
-    'Staking': 'Staking',
-    'Airdrop': 'Airdrop'
-  }
-  
-  const keys = Object.keys(recipients)
-  if (keys.length === 0) {
-    return {
-      type: 'SaleParticipants',
-      recipients: []
-    }
-  }
-  
-  const key = keys[0]
-  return {
-    type: typeMap[key] || 'SaleParticipants',
-    recipients: []
-  }
-}
-
-const convertToDistributionCategory = (allocation: any) => {
-  return {
-    name: allocation.name,
-    description: allocation.description ? [allocation.description] : [],
-    totalAmount: Number(allocation.totalAmount || 0),
-    percentage: Number(allocation.percentage || 0),
-    recipients: convertRecipientConfig(allocation.recipientConfig),
-    vestingSchedule: allocation.vestingSchedule ? [allocation.vestingSchedule] : []
-    // Note: isRequired is UI-only and not sent to backend
-  }
-}
-
-// Helper function to ensure Sale allocation exists and is updated
-const ensureSaleAllocation = (saleAmount: number) => {
-  // Find any sale-related allocation (handle template variations)
-  const saleAllocationIndex = allocations.value.findIndex(a => 
-    a.name === 'Sale Participants' || 
-    a.name === 'Sale' || 
-    a.name === 'Public Sale' ||
-    a.name === 'Community Sale' ||
-    a.name === 'Private Sale' ||
-    a.recipientConfig?.type === 'SaleParticipants'
-  )
-  
-  const saleAllocation = {
-    name: 'Sale Participants',
-    description: `Token allocation for public sale participants. Total sale amount: ${formatTokenAmount(saleAmount)} ${props.saleTokenSymbol}`,
-    totalAmount: saleAmount,
-    percentage: props.totalSupply > 0 ? (saleAmount / props.totalSupply) * 100 : 0,
-    recipientConfig: {
-      type: 'SaleParticipants',
-      recipients: []
-    },
-    vestingSchedule: null,
-    isRequired: true // Mark as required so it cannot be deleted
-  }
-
-  if (saleAllocationIndex >= 0) {
-    // Update existing sale allocation while preserving user settings like vesting
-    const existing = allocations.value[saleAllocationIndex]
-    allocations.value[saleAllocationIndex] = {
-      ...existing,
-      name: 'Sale Participants',
-      totalAmount: saleAmount,
-      percentage: props.totalSupply > 0 ? (saleAmount / props.totalSupply) * 100 : 0,
-      description: `Token allocation for public sale participants. Total sale amount: ${formatTokenAmount(saleAmount)} ${props.saleTokenSymbol}`,
-      recipientConfig: {
-        type: 'SaleParticipants',
-        recipients: []
-      },
-      isRequired: true
-    }
-  } else {
-    // Add sale allocation at the beginning
-    allocations.value.unshift(saleAllocation)
-  }
-}
-
-// Helper function to remove Sale allocation if totalSaleAmount is 0
-const removeSaleAllocation = () => {
-  const saleAllocationIndex = allocations.value.findIndex(a => 
-    a.name === 'Sale Participants' || 
-    a.name === 'Sale' || 
-    a.name === 'Public Sale' ||
-    a.recipientConfig?.type === 'SaleParticipants'
-  )
-  if (saleAllocationIndex >= 0) {
-    allocations.value.splice(saleAllocationIndex, 1)
-  }
-}
-
-// Helper function to ensure DEX Liquidity allocation exists and is updated
-const ensureDEXLiquidityAllocation = (liquidityAmount: number) => {
-  const dexAllocationIndex = allocations.value.findIndex(a => 
-    a.name === 'DEX Liquidity' || 
-    a.name === 'Liquidity' || 
-    a.name === 'Liquidity Pool' ||
-    a.recipientConfig?.type === 'LiquidityPool'
-  )
-  
-  if (dexAllocationIndex >= 0) {
-    // Update existing DEX allocation
-    const existing = allocations.value[dexAllocationIndex]
-    allocations.value[dexAllocationIndex] = {
-      ...existing,
-      name: 'DEX Liquidity',
-      totalAmount: liquidityAmount,
-      percentage: props.totalSupply > 0 ? (liquidityAmount / props.totalSupply) * 100 : 0,
-      description: `Token allocation for DEX liquidity pools. Total liquidity: ${formatTokenAmount(liquidityAmount)} ${props.saleTokenSymbol}`,
-      recipientConfig: {
-        type: 'LiquidityPool',
-        recipients: existing.recipientConfig?.recipients || []
-      },
-      isRequired: true
-    }
-  } else if (liquidityAmount > 0) {
-    // Add DEX liquidity allocation
-    const dexAllocation = {
-      name: 'DEX Liquidity',
-      description: `Token allocation for DEX liquidity pools. Total liquidity: ${formatTokenAmount(liquidityAmount)} ${props.saleTokenSymbol}`,
-      totalAmount: liquidityAmount,
-      percentage: props.totalSupply > 0 ? (liquidityAmount / props.totalSupply) * 100 : 0,
-      recipientConfig: {
-        type: 'LiquidityPool',
-        recipients: []
-      },
-      vestingSchedule: null,
-      isRequired: true
-    }
-    // Add after Sale allocation
-    const insertIndex = allocations.value.findIndex(a => !a.isRequired) 
-    if (insertIndex >= 0) {
-      allocations.value.splice(insertIndex, 0, dexAllocation)
-    } else {
-      allocations.value.push(dexAllocation)
-    }
-  }
-}
-
-// Helper function to remove DEX Liquidity allocation if amount is 0
-const removeDEXLiquidityAllocation = () => {
-  const dexAllocationIndex = allocations.value.findIndex(a => 
-    a.name === 'DEX Liquidity' || 
-    a.name === 'Liquidity' || 
-    a.name === 'Liquidity Pool' ||
-    a.recipientConfig?.type === 'LiquidityPool'
-  )
-  if (dexAllocationIndex >= 0) {
-    allocations.value.splice(dexAllocationIndex, 1)
-  }
-}
-
-// Watch for totalSaleAmount changes and auto-manage Sale allocation
-watch(() => props.totalSaleAmount, (newSaleAmount) => {
-  if (newSaleAmount && newSaleAmount > 0) {
-    ensureSaleAllocation(newSaleAmount)
-  } else {
-    removeSaleAllocation()
-  }
-}, { immediate: true })
-
-// Watch for totalLiquidityToken changes and auto-manage DEX Liquidity allocation
-watch(() => props.totalLiquidityToken, (newLiquidityAmount) => {
-  if (newLiquidityAmount && newLiquidityAmount > 0) {
-    ensureDEXLiquidityAllocation(newLiquidityAmount)
-  } else {
-    removeDEXLiquidityAllocation()
-  }
-}, { immediate: true })
-
-// Function to recalculate all percentages based on current totalSupply
-const recalculatePercentages = () => {
-  if (props.totalSupply > 0) {
-    allocations.value.forEach(allocation => {
-      allocation.percentage = (Number(allocation.totalAmount) / props.totalSupply) * 100
-    })
-  }
-}
-
-// Watch for totalSupply changes and recalculate percentages (important for templates)
-watch(() => props.totalSupply, (newTotalSupply) => {
-  if (newTotalSupply && newTotalSupply > 0) {
-    recalculatePercentages()
-  }
-}, { immediate: false }) // Don't trigger immediately to avoid conflicts with template loading
-
-// Watch for validation changes
-watch(validationErrors, (errors) => {
-  if (!isUpdatingFromParent.value) {
-    emit('validation-changed', {
-      valid: errors.length === 0,
-      errors
-    })
-  }
-}, { immediate: true })
-
-// Watch for allocation name changes to auto-update recipient type
-watch(allocations, (newAllocations, oldAllocations) => {
-  if (!isUpdatingFromParent.value && oldAllocations) {
-    newAllocations.forEach((allocation, index) => {
-      const oldAllocation = oldAllocations[index]
-      if (oldAllocation && allocation.name !== oldAllocation.name && allocation.name.trim()) {
-        // Name changed, update recipient type if it's still the default
-        const currentType = allocation.recipientConfig.type
-        const oldDefaultType = getDefaultRecipientType(oldAllocation.name || '')
-        const newDefaultType = getDefaultRecipientType(allocation.name)
-        
-        console.log('Auto-updating recipient type:', {
-          name: allocation.name,
-          oldType: currentType,
-          newType: newDefaultType,
-          oldName: oldAllocation.name
-        })
-        
-        // Only auto-update if the current type matches what would be the old default
-        if (currentType === oldDefaultType || currentType === 'SaleParticipants') {
-          allocation.recipientConfig.type = newDefaultType
-        }
-      }
-    })
-  }
-}, { deep: true })
-
-// Watch for changes and emit to parent
-watch(allocations, () => {
-  if (!isUpdatingFromParent.value) {
-    const distributionCategories = allocations.value.map(allocation => ({
-      name: allocation.name,
-      description: allocation.description ? [allocation.description] : [],
-      totalAmount: BigInt(allocation.totalAmount || 0),
-      percentage: Number(allocation.percentage || 0),
-      recipients: convertRecipientConfig(allocation.recipientConfig),
-      vestingSchedule: allocation.vestingSchedule ? [allocation.vestingSchedule] : []
-    }))
-    
-    emit('update:modelValue', distributionCategories)
-  }
-}, { deep: true })
-
-// Initialize from props
-watch(() => props.modelValue, (newValue) => {
-  if (stringifyWithBigInt(newValue) === stringifyWithBigInt(allocations.value.map(a => convertToDistributionCategory(a)))) {
-    return
-  }
-  
-  isUpdatingFromParent.value = true
-  
-  if (newValue && newValue.length > 0) {
-    allocations.value = newValue.map(category => {
-      const recipientConfig = convertFromRecipientConfig(category.recipients)
-      
-      // Auto-correct recipient type based on name if it's still default
-      if (recipientConfig.type === 'SaleParticipants' && category.name) {
-        const suggestedType = getDefaultRecipientType(category.name)
-        if (suggestedType !== 'SaleParticipants') {
-          recipientConfig.type = suggestedType
-          console.log(`Auto-corrected recipient type for "${category.name}" from SaleParticipants to ${suggestedType}`)
-        }
-      }
-      
-      return {
-        name: category.name,
-        description: category.description?.[0] || '',
-        totalAmount: Number(category.totalAmount),
-        percentage: category.percentage,
-        recipientConfig,
-        vestingSchedule: category.vestingSchedule?.[0] || null
-      }
-    })
-  } else {
-    allocations.value = []
-  }
-  
-  setTimeout(() => {
-    isUpdatingFromParent.value = false
-  }, 10)
-}, { immediate: true })
-
-
 // Methods
-const addAllocation = () => {
-  allocations.value.push({
-    name: '',
-    description: '',
-    totalAmount: 0,
-    percentage: 0,
-    recipientConfig: {
-      type: 'SaleParticipants',
-      recipients: []
-    },
-    vestingSchedule: null
-  })
+const formatTokenAmount = (amount: number): string => {
+  return new Intl.NumberFormat('en-US').format(amount)
 }
 
-const removeAllocation = (index: number) => {
-  allocations.value.splice(index, 1)
+const toggleAccordion = (section: keyof typeof openAccordions.value) => {
+  openAccordions.value[section] = !openAccordions.value[section]
 }
 
-const addRecipient = (allocation: any) => {
-  if (!allocation.recipientConfig.recipients) {
-    allocation.recipientConfig.recipients = []
-  }
-  allocation.recipientConfig.recipients.push({
-    address: '',
-    amount: 0,
-    description: ''
-  })
+const updateSaleFromAmount = () => {
+  const amount = parseFloat(distributionData.value.sale.totalAmount) || 0
+  distributionData.value.sale.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
+  emitUpdate()
 }
 
-const removeRecipient = (allocation: any, index: number) => {
-  allocation.recipientConfig.recipients.splice(index, 1)
+const updateTeamFromAmount = () => {
+  const amount = parseFloat(distributionData.value.team.totalAmount) || 0
+  distributionData.value.team.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
+  emitUpdate()
 }
 
-const updateAmountFromPercentage = (allocation: any) => {
-  if (allocation.percentage && props.totalSupply) {
-    allocation.totalAmount = Math.floor((Number(allocation.percentage) / 100) * props.totalSupply)
-  }
-  validateAndEmit()
+const updateOtherFromAmount = (index: number) => {
+  const category = distributionData.value.others[index]
+  const amount = parseFloat(category.totalAmount) || 0
+  category.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
+  emitUpdate()
 }
 
-const handleRecipientTypeChange = (allocation: any) => {
-  if (allocation.recipientConfig.type === 'FixedList') {
-    // Initialize recipients array if it doesn't exist
-    if (!allocation.recipientConfig.recipients) {
-      allocation.recipientConfig.recipients = []
-    }
-    // Add a default recipient if array is empty
-    if (allocation.recipientConfig.recipients.length === 0) {
-      allocation.recipientConfig.recipients.push({
-        address: '',
-        amount: 0,
-        description: ''
-      })
-    }
+const updateLiquidityAllocation = () => {
+  let amount = 0
+  
+  if (lpAllocationMethod.value === 'token-supply') {
+    // Based on token supply percentage
+    amount = lpTokenSupplyAmount.value
+    distributionData.value.liquidityPool.totalAmount = amount.toString()
+    distributionData.value.liquidityPool.percentage = lpTokenPercentage.value
   } else {
-    // Clear recipients for non-FixedList types
-    allocation.recipientConfig.recipients = []
+    // Based on raised funds percentage
+    amount = lpRaisedTokenAmount.value
+    distributionData.value.liquidityPool.totalAmount = amount.toString()
+    distributionData.value.liquidityPool.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
   }
-  validateAndEmit()
+  
+  distributionData.value.liquidityPool.autoCalculated = true
+  emitUpdate()
 }
 
-const validateAndEmit = () => {
-  // Force reactivity update
-  allocations.value = [...allocations.value]
-}
-
-// Handle amount change with special logic for required allocations
-const handleAmountChange = (allocation: any) => {
-  if (allocation.isRequired) {
-    // Prevent editing of required allocations
-    return
+const updateLiquidityFromAmount = () => {
+  if (!props.dexEnabled) {
+    const amount = parseFloat(distributionData.value.liquidityPool.totalAmount) || 0
+    distributionData.value.liquidityPool.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
+    emitUpdate()
   }
-  validateAndEmit()
 }
 
-// Token Allocation Chart Data
+const addTeamMember = () => {
+  distributionData.value.team.recipients.push({
+    principal: '',
+    percentage: 0,
+    amount: '',
+    name: ''
+  })
+  emitUpdate()
+}
+
+const removeTeamMember = (index: number) => {
+  distributionData.value.team.recipients.splice(index, 1)
+  emitUpdate()
+}
+
+const addQuickAllocation = (name: string, percentage: number) => {
+  const id = `other-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  const amount = ((props.totalSupply * percentage) / 100).toString()
+  distributionData.value.others.push({
+    id,
+    name,
+    percentage,
+    totalAmount: amount,
+    description: `${name} allocation`,
+    recipients: [],
+    vestingEnabled: false
+  })
+  emitUpdate()
+}
+
+const addOtherCategory = () => {
+  const id = `other-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+  distributionData.value.others.push({
+    id,
+    name: '',
+    percentage: 0,
+    totalAmount: '0',
+    description: '',
+    recipients: [],
+    vestingEnabled: false
+  })
+  emitUpdate()
+}
+
+const removeOtherCategory = (index: number) => {
+  distributionData.value.others.splice(index, 1)
+  emitUpdate()
+}
+
+const addCategoryRecipient = (categoryIndex: number) => {
+  distributionData.value.others[categoryIndex].recipients.push({
+    principal: '',
+    percentage: 0,
+    amount: '',
+    name: ''
+  })
+  emitUpdate()
+}
+
+const removeCategoryRecipient = (categoryIndex: number, recipientIndex: number) => {
+  distributionData.value.others[categoryIndex].recipients.splice(recipientIndex, 1)
+  emitUpdate()
+}
+
+const emitUpdate = () => {
+  emit('update:modelValue', distributionData.value)
+}
+
+const emitDexConfig = () => {
+  emit('update:dexConfig', {
+    enabled: dexEnabled.value,
+    tokenPrice: dexTokenPrice.value,
+    lockDuration: dexLockDuration.value,
+    liquidityPercentage: lpAllocationMethod.value === 'token-supply' ? lpTokenPercentage.value : undefined,
+    liquidityAmount: lpAllocationMethod.value === 'token-supply' ? lpTokenSupplyAmount.value : lpRaisedTokenAmount.value
+  })
+}
+
+// Validation functions
+const isValidPrincipal = (principal: string): boolean => {
+  if (!principal || typeof principal !== 'string') return false
+  // Basic principal validation: should have dashes and reasonable length
+  return principal.length >= 10 && principal.includes('-') && /^[a-z0-9-]+$/.test(principal)
+}
+
+const isValidTokenAmount = (amount: string): boolean => {
+  if (!amount || typeof amount !== 'string') return false
+  // Remove commas and check if it's a valid number
+  const cleanAmount = amount.replace(/,/g, '')
+  const numAmount = parseFloat(cleanAmount)
+  return !isNaN(numAmount) && numAmount > 0
+}
+
+// Watch for changes in recipients to update total amounts
+watch(teamTotalAmount, (newAmount) => {
+  distributionData.value.team.totalAmount = newAmount
+  updateTeamFromAmount()
+})
+
+watch(() => distributionData.value.others, () => {
+  // Update total amounts for all other categories when recipients change
+  distributionData.value.others.forEach((category, index) => {
+    category.totalAmount = getOtherCategoryTotalAmount(index)
+    updateOtherFromAmount(index)
+  })
+}, { deep: true })
+
+// Watch for LP allocation method changes (avoid recursive updates)
+watch(lpAllocationMethod, () => {
+  updateLiquidityAllocation()
+  nextTick(() => emitDexConfig())
+})
+
+watch([lpTokenPercentage, lpRaisedPercentage], () => {
+  updateLiquidityAllocation()
+  nextTick(() => emitDexConfig())
+})
+
+// Watch for DEX config changes
+watch([dexEnabled, dexTokenPrice, dexLockDuration], () => {
+  nextTick(() => emitDexConfig())
+}, { deep: true })
+
+// Watch for external changes (reactive to simulation and props)
+watch(() => [props.simulatedRaisedAmount, props.totalLiquidityToken, props.totalSaleAmount], () => {
+  updateLiquidityAllocation()
+}, { immediate: true })
+
+// Initialize
+updateLiquidityAllocation()
 </script>

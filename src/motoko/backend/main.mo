@@ -456,7 +456,17 @@ persistent actor Backend {
                             let result = await deployerActor.createMultisigWallet(call.args.config, call.args.creator, call.args.initialCycles);
                             switch (result) {
                                 case (#ok(res)) { #ok(res.canisterId) };
-                                case (#err(msg)) { #err(msg) };
+                                case (#err(error)) { 
+                                    let errorMsg = switch (error) {
+                                        case (#InsufficientCycles) "Insufficient cycles for deployment";
+                                        case (#InvalidConfiguration(msg)) "Invalid configuration: " # msg;
+                                        case (#DeploymentFailed(msg)) "Deployment failed: " # msg;
+                                        case (#Unauthorized) "Unauthorized access";
+                                        case (#RateLimited) "Rate limit exceeded";
+                                        case (#SystemError(msg)) "System error: " # msg;
+                                    };
+                                    #err(errorMsg)
+                                };
                             };
                         };
                     };

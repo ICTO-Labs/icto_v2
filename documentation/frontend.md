@@ -12,7 +12,7 @@ The frontend is built using a stack of modern web technologies:
 - **TypeScript**: A statically typed superscript of JavaScript that adds type safety to the codebase, reducing bugs and improving developer experience.
 - **Tailwind CSS**: A utility-first CSS framework that allows for rapid development of custom user interfaces. It is used for all styling within the application.
 - **Vite**: A modern frontend build tool that provides a faster and leaner development experience compared to older tools like Webpack.
-
+- **Icons**: lucide-vue-next
 ## Folder Structure and Naming Convention
 
 The frontend source code is located in the `src/frontend/src/` directory. The structure is organized by feature and functionality:
@@ -49,7 +49,6 @@ The main layout is defined in the `App.vue` component, which includes the primar
 Communication with the Internet Computer backend is managed through the **`@dfinity/agent-js`** library. This library provides the tools to create an "actor" that can call the public functions of a canister.
 
 - **Actor Creation**: An actor is created for each backend canister that the frontend needs to interact with. This is typically done in a dedicated service file (e.g., `src/api/services/backend.ts`).
-- **CBOR Handling**: The `@dfinity/agent-js` library automatically handles the serialization and deserialization of data between the frontend (JavaScript objects) and the backend (Candid). This process is transparent to the frontend developer.
 - **Asynchronous Calls**: All calls to the backend are asynchronous and return a `Promise`. The frontend uses `async/await` to handle these calls gracefully.
 
 ## Authentication

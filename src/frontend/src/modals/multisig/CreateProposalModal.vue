@@ -1,9 +1,9 @@
 <template>
-    <BaseModal 
+    <BaseModal
         title="Create New Proposal"
-        :is-open="modalStore.isOpen('createProposal')" 
+        :is-open="modalStore.isOpen('createProposal')"
         @close="modalStore.close('createProposal')"
-        width="max-w-2xl"
+        width="max-w-4xl"
         :loading="loading"
     >
         <template #body>

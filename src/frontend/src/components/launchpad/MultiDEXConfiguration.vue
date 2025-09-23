@@ -123,26 +123,95 @@
     
     <!-- Global Settings -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <!-- Liquidity Allocation Percentage -->
-      <div>
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-          Liquidity Allocation*
-          <HelpTooltip>Percentage of raised funds (after platform fees) that will be used for DEX liquidity. This creates a transparent commitment to liquidity provision regardless of final raise amount.</HelpTooltip>
+      <!-- LP Allocation Method -->
+      <div class="col-span-1 md:col-span-2">
+        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+          Liquidity Pool Allocation Method*
+          <HelpTooltip>Choose how to calculate liquidity pool token allocation: based on token supply percentage or raised funds percentage.</HelpTooltip>
         </label>
-        <div class="relative">
-          <input
-            type="number"
-            :value="dexConfig.liquidityPercentage || 20"
-            placeholder="20"
-            step="1"
-            min="5"
-            max="50"
-            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-16"
-            @input="updateDexConfig('liquidityPercentage', ($event.target as HTMLInputElement).value)"
-          />
-          <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">%</span>
+        
+        <div class="space-y-3 mb-4">
+          <label class="flex items-center space-x-3 cursor-pointer p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+            <input
+              type="radio"
+              :checked="lpAllocationMethod === 'token-supply'"
+              @change="updateLpAllocationMethod('token-supply')"
+              class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+            />
+            <div>
+              <div class="text-sm font-medium text-gray-900 dark:text-white">Based on Token Supply (%)</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">Define percentage of total token supply → Calculate ICP amount needed for liquidity</div>
+            </div>
+          </label>
+          
+          <label class="flex items-center space-x-3 cursor-pointer p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+            <input
+              type="radio"
+              :checked="lpAllocationMethod === 'raised-funds'"
+              @change="updateLpAllocationMethod('raised-funds')"
+              class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+            />
+            <div>
+              <div class="text-sm font-medium text-gray-900 dark:text-white">Based on Raised Funds (%)</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">Define percentage of raised funds → Calculate token amount for liquidity</div>
+            </div>
+          </label>
         </div>
-        <p class="text-xs text-gray-500 mt-1">Percentage of raised funds allocated for liquidity</p>
+
+        <!-- Method-specific Configuration -->
+        <div v-if="lpAllocationMethod === 'token-supply'" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Supply Percentage*</label>
+            <div class="relative">
+              <input
+                type="number"
+                :value="lpTokenPercentage"
+                @input="updateLpTokenPercentage(($event.target as HTMLInputElement).value)"
+                placeholder="30"
+                step="0.1"
+                min="1"
+                max="50"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-16"
+              />
+              <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">%</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">{{ formatTokenAmount(calculatedTokenAmount) }} tokens</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Estimated ICP Needed</label>
+            <div class="px-3 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+              {{ formatAmount(estimatedIcpNeeded) }} ICP
+            </div>
+            <p class="text-xs text-gray-500 mt-1">Based on current simulation</p>
+          </div>
+        </div>
+
+        <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Raised Funds Percentage*</label>
+            <div class="relative">
+              <input
+                type="number"
+                :value="lpRaisedPercentage"
+                @input="updateLpRaisedPercentage(($event.target as HTMLInputElement).value)"
+                placeholder="60"
+                step="0.1"
+                min="5"
+                max="80"
+                class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-16"
+              />
+              <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">%</span>
+            </div>
+            <p class="text-xs text-gray-500 mt-1">{{ formatAmount(calculatedIcpAmount) }} ICP (simulated)</p>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Calculated Token Amount</label>
+            <div class="px-3 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+              {{ formatTokenAmount(calculatedTokenFromRaised) }} tokens
+            </div>
+            <p class="text-xs text-gray-500 mt-1">Based on token price from sale</p>
+          </div>
+        </div>
       </div>
 
       <!-- Dynamic Price Info -->
@@ -439,6 +508,10 @@ interface Props {
   raisedFundsAfterFees: {
     availableForLiquidity: number
   }
+  // New props for LP allocation
+  totalSupply?: number
+  totalSaleAmount?: number
+  simulatedRaisedAmount?: number
 }
 
 const props = defineProps<Props>()
@@ -468,6 +541,11 @@ const receiveLPWhenUnlocked = ref(false)
 // DEX selection state
 const selectedDexToAdd = ref('')
 
+// LP Allocation method state
+const lpAllocationMethod = ref<'token-supply' | 'raised-funds'>('token-supply')
+const lpTokenPercentage = ref(30) // Default 30% of token supply
+const lpRaisedPercentage = ref(60) // Default 60% of raised funds
+
 // All available DEX platforms (including disabled ones)
 const allDexPlatforms = [
   { id: 'icpswap', name: 'ICPSwap', description: 'Leading DEX on Internet Computer', logo: 'https://app.icpswap.com/static/media/logo-dark.7b8c12091e650c40c5e9f561c57473ba.svg' },
@@ -475,6 +553,58 @@ const allDexPlatforms = [
   { id: 'kongswap', name: 'Kong Swap', description: 'Community-driven DEX', logo: '🦍' },
   { id: 'icdex', name: 'ICDex', description: 'Order book DEX', logo: '📊' }
 ]
+
+// LP Allocation computed properties
+const calculatedTokenAmount = computed(() => {
+  return ((props.totalSupply || 0) * lpTokenPercentage.value) / 100
+})
+
+const calculatedIcpAmount = computed(() => {
+  return ((props.simulatedRaisedAmount || 0) * lpRaisedPercentage.value) / 100
+})
+
+const calculatedTokenFromRaised = computed(() => {
+  const tokenPrice = (props.simulatedRaisedAmount || 0) / (props.totalSaleAmount || 1)
+  return calculatedIcpAmount.value / tokenPrice
+})
+
+const estimatedIcpNeeded = computed(() => {
+  const currentSimulated = props.simulatedRaisedAmount || 0
+  if (currentSimulated === 0) return 0
+  
+  const tokenPrice = currentSimulated / (props.totalSaleAmount || 1)
+  return calculatedTokenAmount.value * tokenPrice
+})
+
+// Format helpers
+const formatTokenAmount = (amount: number): string => {
+  return new Intl.NumberFormat('en-US').format(amount)
+}
+
+const formatAmount = (amount: number): string => {
+  return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
+}
+
+// LP Allocation methods
+const updateLpAllocationMethod = (method: 'token-supply' | 'raised-funds') => {
+  lpAllocationMethod.value = method
+  emitLpConfigUpdate()
+}
+
+const updateLpTokenPercentage = (value: string) => {
+  lpTokenPercentage.value = Number(value) || 0
+  emitLpConfigUpdate()
+}
+
+const updateLpRaisedPercentage = (value: string) => {
+  lpRaisedPercentage.value = Number(value) || 0
+  emitLpConfigUpdate()
+}
+
+const emitLpConfigUpdate = () => {
+  // This should emit to parent component to sync with TokenAllocation
+  // TODO: Add proper emit when interface is defined
+}
 
 // Update dex config
 const updateDexConfig = (key: string, value: any) => {

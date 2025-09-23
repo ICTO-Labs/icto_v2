@@ -1,10 +1,9 @@
 <template>
-    <BaseModal 
+    <BaseModal
         title="Create New Multisig Wallet"
-        :is-open="modalStore.isOpen('createMultisig')" 
+        :show="modalStore.isOpen('createMultisig')"
         @close="modalStore.close('createMultisig')"
         width="max-w-2xl"
-        :loading="loading"
     >
         <template #body>
             <div class="flex flex-col gap-6 p-2">
@@ -58,17 +57,11 @@
                                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                     Required Signatures
                                 </label>
-                                <select
+                                <Select
                                     v-model="form.threshold"
-                                    class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                    :options="Array.from({ length: maxThreshold }, (_, i) => i + 1 + ' of ' + totalSigners)"
                                 >
-                                    <option v-for="i in maxThreshold" :key="i" :value="i">
-                                        {{ i }} of {{ totalSigners }} signatures
-                                    </option>
-                                </select>
-                            </div>
-                            <div class="text-2xl font-bold text-gray-400 dark:text-gray-500">
-                                {{ form.threshold }}/{{ totalSigners }}
+                                </Select>
                             </div>
                         </div>
                     </div>
@@ -126,6 +119,7 @@
                                     v-model="signer.principal"
                                     type="text"
                                     class="w-full px-3 py-1.5 text-xs font-mono border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                    :class="{ 'border-red-500': signer.principal.trim() && !isPrincipalValid(signer.principal) }"
                                     placeholder="Principal ID..."
                                 />
                                 <input
@@ -257,10 +251,12 @@
 
 <script setup lang="ts">
 import { ref, computed, reactive } from 'vue'
+import { Principal } from '@dfinity/principal'
 import { useModalStore } from '@/stores/modal'
 import { useMultisigStore } from '@/stores/multisig'
 import { useAuthStore } from '@/stores/auth'
-import { 
+import type { MultisigWallet } from '@/types/multisig'
+import {
     InfoIcon,
     UserIcon,
     PlusIcon,
@@ -295,8 +291,7 @@ const form = reactive({
 
 // Computed
 const currentUserPrincipal = computed(() => {
-    // TODO: Get from auth store
-    return 'rdmx6-jaaaa-aaaah-qcaiq-cai'
+    return authStore.principal?.toString() || ''
 })
 
 const totalSigners = computed(() => {
@@ -308,12 +303,37 @@ const maxThreshold = computed(() => {
 })
 
 const isFormValid = computed(() => {
+    // Check if user is connected
+    if (!currentUserPrincipal.value) return false
+
+    // Check basic form validation
     if (!form.name.trim()) return false
     if (form.threshold < 1 || form.threshold > totalSigners.value) return false
-    
-    // Check that all signers have at least a principal
-    return form.signers.every(signer => signer.principal.trim())
+
+    // Check that all signers have valid principals
+    return form.signers.every(signer => {
+        const principal = signer.principal.trim()
+        if (!principal) return false
+
+        // Basic validation for principal format
+        try {
+            Principal.fromText(principal)
+            return true
+        } catch {
+            return false
+        }
+    })
 })
+
+// Helper functions
+const isPrincipalValid = (principalText: string): boolean => {
+    try {
+        Principal.fromText(principalText.trim())
+        return true
+    } catch {
+        return false
+    }
+}
 
 // Methods
 const addSigner = () => {
@@ -344,63 +364,73 @@ const resetForm = () => {
 
 const handleCreate = async () => {
     if (!isFormValid.value) return
-    
+
+    // Check if user is connected
+    if (!currentUserPrincipal.value) {
+        console.error('User not connected')
+        return
+    }
+
     loading.value = true
     try {
-        const walletData = {
-            name: form.name.trim(),
-            description: form.description.trim() || undefined,
-            threshold: form.threshold,
-            totalSigners: totalSigners.value,
-            signers: [
-                currentUserPrincipal.value, // Current user as owner
-                ...form.signers.map(s => s.principal.trim())
-            ],
-            signerDetails: [
-                {
-                    principal: currentUserPrincipal.value,
-                    name: 'You', // TODO: Get from auth store
-                    role: 'owner' as const,
-                    addedAt: new Date(),
-                    isOnline: true
-                },
-                ...form.signers.map(signer => ({
-                    principal: signer.principal.trim(),
-                    name: signer.name.trim() || 'Unknown',
-                    email: signer.email.trim() || undefined,
-                    role: 'signer' as const,
-                    addedAt: new Date(),
-                    isOnline: false
-                }))
-            ],
-            balance: {
-                icp: 0,
-                tokens: [],
-                totalUsdValue: 0
+        // Create wallet data in the new format structure
+        const walletData: Partial<MultisigWallet> = {
+            config: {
+                name: form.name.trim(),
+                description: form.description.trim() || undefined,
+                threshold: form.threshold,
+                signers: [Principal.fromText(currentUserPrincipal.value)], // Required by WalletConfig
+                allowRecovery: false,
+                allowObservers: false,
+                requiresConsensusForChanges: true,
+                requiresTimelock: false,
+                timelockDuration: undefined,
+                dailyLimit: undefined,
+                emergencyContactDelay: undefined,
+                recoveryThreshold: 0,
+                maxProposalLifetime: BigInt(24 * 3600 * 1000000000) // 24 hours in nanoseconds
             },
-            createdAt: new Date(),
-            lastActivity: new Date(),
-            status: 'pending_setup' as const,
-            canisterId: `multisig-${Date.now()}`, // TODO: Generate proper canister ID
-            settings: {
-                enableCycleOps: form.enableCycleOps,
-                allowTokenOperations: form.allowTokenOperations
-            }
+            signers: [
+                // Current user as first signer (owner)
+                {
+                    principal: Principal.fromText(currentUserPrincipal.value),
+                    name: 'You',
+                    role: 'Owner',
+                    addedAt: BigInt(Date.now() * 1000000), // Convert to nanoseconds
+                    addedBy: Principal.fromText(currentUserPrincipal.value),
+                    isActive: true,
+                    requiresTwoFactor: false,
+                    delegatedVoting: false
+                },
+                // Additional signers
+                ...form.signers.map(signer => ({
+                    principal: Principal.fromText(signer.principal.trim()),
+                    name: signer.name.trim() || 'Unknown Signer',
+                    role: 'Signer' as const,
+                    addedAt: BigInt(Date.now() * 1000000),
+                    addedBy: Principal.fromText(currentUserPrincipal.value),
+                    isActive: true,
+                    requiresTwoFactor: false,
+                    delegatedVoting: false
+                }))
+            ]
         }
-        
-        // Create wallet
-        await multisigStore.createWallet(walletData)
-        
-        // Close modal and reset form
-        modalStore.close('createMultisig')
-        resetForm()
-        
-        // TODO: Show success notification and navigate to new wallet
-        console.log('Multisig wallet created successfully')
-        
+
+        console.log('Creating wallet with data:', walletData)
+
+        // Create wallet - the backend will generate the canister ID
+        const result = await multisigStore.createWallet(walletData)
+
+        if (result) {
+            // Close modal and reset form
+            modalStore.close('createMultisig')
+            resetForm()
+            console.log('Multisig wallet created successfully')
+        }
+
     } catch (error) {
         console.error('Error creating multisig wallet:', error)
-        // TODO: Show error notification
+        // TODO: Show error notification with toast
     } finally {
         loading.value = false
     }

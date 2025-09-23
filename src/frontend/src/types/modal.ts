@@ -114,10 +114,6 @@ export interface ModalState {
             wallet: MultisigWallet
         }
     }
-    createMultisig: {
-        isOpen: boolean
-        data?: any
-    }
     manageSigners: {
         isOpen: boolean
         data?: {

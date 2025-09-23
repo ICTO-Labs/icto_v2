@@ -64,88 +64,15 @@
 
         <!-- Grid View -->
         <div v-else-if="viewMode === 'grid'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div
+            <MultisigWalletCard
                 v-for="wallet in filteredWallets"
                 :key="wallet.id"
-                class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 hover:shadow-md transition-shadow cursor-pointer"
-                @click="navigateToWallet(wallet.id)"
-            >
-                <div class="p-6">
-                    <div class="flex items-center justify-between mb-4">
-                        <div class="flex items-center space-x-3">
-                            <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                                <WalletIcon class="h-5 w-5 text-white" />
-                            </div>
-                            <div>
-                                <h3 class="text-lg font-medium text-gray-900 dark:text-white">{{ wallet.name }}</h3>
-                                <p class="text-sm text-gray-500 dark:text-gray-400">
-                                    {{ wallet.threshold }}-of-{{ wallet.totalSigners }} Multisig
-                                </p>
-                            </div>
-                        </div>
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                            :class="{
-                                'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': wallet.status === 'active',
-                                'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': wallet.status === 'pending_setup',
-                                'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': wallet.status === 'frozen'
-                            }"
-                        >
-                            {{ wallet.status.replace('_', ' ').toUpperCase() }}
-                        </span>
-                    </div>
-
-                    <div class="space-y-3">
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm text-gray-500 dark:text-gray-400">Total Balance</span>
-                            <span class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ formatCurrency(wallet.balance.totalUsdValue || 0) }}
-                            </span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm text-gray-500 dark:text-gray-400">ICP Balance</span>
-                            <span class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ wallet.balance.icp.toFixed(4) }} ICP
-                            </span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm text-gray-500 dark:text-gray-400">Tokens</span>
-                            <span class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ wallet.balance.tokens.length }} types
-                            </span>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm text-gray-500 dark:text-gray-400">Active Signers</span>
-                            <span class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ wallet.signerDetails.filter(s => s.isOnline).length }}/{{ wallet.totalSigners }}
-                            </span>
-                        </div>
-                    </div>
-
-                    <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                        <div class="flex items-center justify-between">
-                            <span class="text-xs text-gray-500 dark:text-gray-400">
-                                Last activity {{ formatTimeAgo(wallet.lastActivity.getTime()) }}
-                            </span>
-                            <div class="flex items-center space-x-1">
-                                <div
-                                    v-for="signer in wallet.signerDetails.slice(0, 3)"
-                                    :key="signer.principal"
-                                    class="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-xs text-white font-medium"
-                                    :title="signer.name"
-                                >
-                                    {{ signer.name.charAt(0).toUpperCase() }}
-                                </div>
-                                <div
-                                    v-if="wallet.signerDetails.length > 3"
-                                    class="w-6 h-6 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center text-xs text-gray-600 dark:text-gray-300 font-medium"
-                                >
-                                    +{{ wallet.signerDetails.length - 3 }}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+                :wallet="wallet"
+                @select="navigateToWallet(wallet.id)"
+                @view-details="navigateToWallet(wallet.id)"
+                @create-proposal="handleCreateProposal(wallet)"
+                @manage="handleManageWallet(wallet)"
+            />
         </div>
 
         <!-- List View -->
@@ -190,38 +117,38 @@
                                         <WalletIcon class="h-5 w-5 text-white" />
                                     </div>
                                     <div class="ml-4">
-                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ wallet.name }}</div>
+                                        <div class="text-sm font-medium text-gray-900 dark:text-white">{{ wallet.config.name }}</div>
                                         <div class="text-sm text-gray-500 dark:text-gray-400">{{ wallet.canisterId }}</div>
                                     </div>
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-900 dark:text-white">{{ wallet.threshold }}-of-{{ wallet.totalSigners }}</div>
+                                <div class="text-sm text-gray-900 dark:text-white">{{ wallet.config.threshold }}-of-{{ wallet.signers.length }}</div>
                                 <div class="text-sm text-gray-500 dark:text-gray-400">Multisig</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-900 dark:text-white">{{ formatCurrency(wallet.balance.totalUsdValue || 0) }}</div>
-                                <div class="text-sm text-gray-500 dark:text-gray-400">{{ wallet.balance.icp.toFixed(4) }} ICP</div>
+                                <div class="text-sm text-gray-900 dark:text-white">{{ formatCurrency(Number(wallet.balances.icp) / 100000000) }}</div>
+                                <div class="text-sm text-gray-500 dark:text-gray-400">{{ (Number(wallet.balances.icp) / 100000000).toFixed(4) }} ICP</div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="flex items-center space-x-1">
                                     <div
-                                        v-for="signer in wallet.signerDetails.slice(0, 3)"
-                                        :key="signer.principal"
+                                        v-for="signer in wallet.signers.slice(0, 3)"
+                                        :key="signer.principal.toString()"
                                         class="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-xs text-white font-medium"
                                         :title="signer.name"
                                     >
-                                        {{ signer.name.charAt(0).toUpperCase() }}
+                                        {{ (signer.name || 'S').charAt(0).toUpperCase() }}
                                     </div>
                                     <div
-                                        v-if="wallet.signerDetails.length > 3"
+                                        v-if="wallet.signers.length > 3"
                                         class="w-6 h-6 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center text-xs text-gray-600 dark:text-gray-300 font-medium"
                                     >
-                                        +{{ wallet.signerDetails.length - 3 }}
+                                        +{{ wallet.signers.length - 3 }}
                                     </div>
                                 </div>
                                 <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                                    {{ wallet.signerDetails.filter(s => s.isOnline).length }} online
+                                    {{ wallet.signers.length }} signers
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
@@ -236,7 +163,7 @@
                                 </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                {{ formatTimeAgo(wallet.lastActivity.getTime()) }}
+                                {{ formatTimeAgo(Number(wallet.lastActivity) / 1000000) }}
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 <button
@@ -257,15 +184,17 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { Principal } from '@dfinity/principal'
 import type { MultisigWallet } from '@/types/multisig'
+import MultisigWalletCard from '@/components/multisig/MultisigWalletCard.vue'
 import { formatCurrency } from '@/utils/numberFormat'
 import { formatTimeAgo } from '@/utils/dateFormat'
-import { 
-    SearchIcon, 
-    GridIcon, 
-    ListIcon, 
-    WalletIcon, 
-    PlusIcon 
+import {
+    SearchIcon,
+    GridIcon,
+    ListIcon,
+    WalletIcon,
+    PlusIcon
 } from 'lucide-vue-next'
 
 // Props
@@ -279,6 +208,9 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
     refresh: []
     'create-wallet': []
+    'create-proposal': [wallet: any]
+    'execute-proposals': [wallet: any]
+    'manage-wallet': [wallet: any]
 }>()
 
 // Router
@@ -295,10 +227,10 @@ const filteredWallets = computed(() => {
 
     if (searchQuery.value) {
         const query = searchQuery.value.toLowerCase()
-        filtered = filtered.filter(wallet => 
-            wallet.name.toLowerCase().includes(query) ||
-            wallet.description?.toLowerCase().includes(query) ||
-            wallet.canisterId.toLowerCase().includes(query)
+        filtered = filtered.filter(wallet =>
+            wallet.config.name.toLowerCase().includes(query) ||
+            wallet.config.description?.toLowerCase().includes(query) ||
+            wallet.canisterId.toString().toLowerCase().includes(query)
         )
     }
 
@@ -306,11 +238,24 @@ const filteredWallets = computed(() => {
         filtered = filtered.filter(wallet => wallet.status === statusFilter.value)
     }
 
-    return filtered.sort((a, b) => b.lastActivity.getTime() - a.lastActivity.getTime())
+    return filtered.sort((a, b) => Number(b.lastActivity) - Number(a.lastActivity))
 })
 
 // Methods
 const navigateToWallet = (walletId: string) => {
     router.push(`/multisig/${walletId}`)
+}
+
+// Event handlers
+const handleCreateProposal = (wallet: MultisigWallet) => {
+    emit('create-proposal', wallet)
+}
+
+const handleExecuteProposals = (wallet: MultisigWallet) => {
+    emit('execute-proposals', wallet)
+}
+
+const handleManageWallet = (wallet: MultisigWallet) => {
+    emit('manage-wallet', wallet)
 }
 </script>

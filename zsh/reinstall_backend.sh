@@ -16,6 +16,8 @@ INVOICE_ID=$(dfx canister id invoice_storage)
 TEMPLATE_ID=$(dfx canister id template_factory)
 DISTRIBUTION_ID=$(dfx canister id distribution_factory)
 DAO_ID=$(dfx canister id dao_factory)
+MULTISIG_ID=$(dfx canister id multisig_factory)
+LAUNCHPAD_ID=$(dfx canister id launchpad_factory)
 
 echo "Backend: $BACKEND_ID"
 echo "Token Factory: $TOKEN_ID"
@@ -24,7 +26,8 @@ echo "Invoice Storage: $INVOICE_ID"
 echo "Template Factory: $TEMPLATE_ID"
 echo "Distribution Factory: $DISTRIBUTION_ID"
 echo "DAO Factory: $DAO_ID"
-
+echo "Multisig Factory: $MULTISIG_ID"
+echo "Launchpad Factory: $LAUNCHPAD_ID"
 dfx canister call backend setCanisterIds "(record {
     tokenFactory = opt principal \"$TOKEN_ID\";
     auditStorage = opt principal \"$AUDIT_ID\";
@@ -32,6 +35,8 @@ dfx canister call backend setCanisterIds "(record {
     templateFactory = opt principal \"$TEMPLATE_ID\";
     distributionFactory = opt principal \"$DISTRIBUTION_ID\";
     daoFactory = opt principal \"$DAO_ID\";
+    multisigFactory = opt principal \"$MULTISIG_ID\";
+    launchpadFactory = opt principal \"$LAUNCHPAD_ID\";
 })"
 
 echo "Canister ids added to the backend successfully"
@@ -55,11 +60,15 @@ dfx canister call template_factory addToWhitelist "(principal \"$BACKEND_ID\")"
 ## Add backend to the whitelist of the distribution factory
 echo "Adding backend to the whitelist of the distribution factory: $DISTRIBUTION_ID"
 dfx canister call distribution_factory addToWhitelist "(principal \"$BACKEND_ID\")"
-
+## Add backend to the whitelist of the multisig factory
+echo "Adding backend to the whitelist of the multisig factory: $MULTISIG_ID"
+dfx canister call multisig_factory addToWhitelist "(principal \"$BACKEND_ID\")"
 ## Add backend to the whitelist of the dao factory
 echo "Adding backend to the whitelist of the dao factory: $DAO_ID"
 dfx canister call dao_factory addToWhitelist "(principal \"$BACKEND_ID\")"
-
+## Add backend to the whitelist of the launchpad factory
+echo "Adding backend to the whitelist of the launchpad factory: $LAUNCHPAD_ID"
+dfx canister call launchpad_factory addToWhitelist "(principal \"$BACKEND_ID\")"
 echo "================================================"
 echo "Canister ids added to the backend"
 echo "================================================"

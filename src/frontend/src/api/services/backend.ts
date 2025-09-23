@@ -84,6 +84,10 @@ export class backendService {
         }
     }
 
+    public static async getMultisigDeploymentFee(): Promise<bigint> {
+        return this.getDeploymentFee('multisig_factory');
+    }
+
     public static async getBackendCanisterId(): Promise<string> {
         // This should return the backend canister principal
         // Get from environment variable or default

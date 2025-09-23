@@ -79,8 +79,8 @@ persistent actor MultisigFactory {
     );
 
     // Access control
-    private transient var admins: [Principal] = [];
-    private transient var whitelistedBackends: [Principal] = [];
+    private var admins: [Principal] = [];
+    private var whitelistedBackends: [Principal] = [];
 
     // Constants
     private let MIN_CYCLES_FOR_WALLET = 1_000_000_000_000; // 1T cycles
@@ -139,6 +139,10 @@ persistent actor MultisigFactory {
         #ok()
     };
 
+    public query func getWhitelisted(): async [Principal] {
+        whitelistedBackends
+    };
+
     public shared(msg) func removeWhitelistedBackend(backend: Principal): async Result.Result<(), Text> {
         if (not isAuthorized(msg.caller)) {
             return #err("Unauthorized: Only admins can manage whitelisted backends");
@@ -170,7 +174,7 @@ persistent actor MultisigFactory {
             case null msg.caller;
         };
 
-        Debug.print("MultisigFactory: Creating wallet for " # Principal.toText(actualCreator));
+        Debug.print("MultisigFactory: Creating wallet for " # Principal.toText(actualCreator) # " with config " # debug_show(config));
 
         // Validate configuration
         switch (validateWalletConfig(config)) {
@@ -179,6 +183,7 @@ persistent actor MultisigFactory {
             };
             case (#ok()) {};
         };
+        Debug.print("MultisigFactory: Configuration validated");
 
         // Check rate limits
         let userWalletCount = countWalletsForUser(actualCreator);
@@ -192,13 +197,14 @@ persistent actor MultisigFactory {
             case null MIN_CYCLES_FOR_WALLET;
         };
 
-        if (Cycles.available() < requiredCycles) {
+        Debug.print("MultisigFactory: Checking cycles balance " # debug_show(Cycles.balance()) # " required " # debug_show(requiredCycles));
+        if (Cycles.balance() < requiredCycles) {
             return #err(#InsufficientCycles);
         };
 
         // Generate wallet ID
         let walletId = generateWalletId(config, actualCreator);
-
+        Debug.print("MultisigFactory: Generated wallet ID " # walletId);
         try {
             // Add cycles for deployment
             Cycles.add(requiredCycles);
@@ -210,7 +216,7 @@ persistent actor MultisigFactory {
                 creator = actualCreator;
                 factory = Principal.fromActor(MultisigFactory);
             });
-
+            Debug.print("MultisigFactory: Created MultisigContract actor");
             let canisterId = Principal.fromActor(multisigWallet);
 
             // Register the wallet
@@ -223,7 +229,7 @@ persistent actor MultisigFactory {
                 status = #Active;
                 version = 1;
             };
-
+            Debug.print("MultisigFactory: Registered wallet");
             wallets.put(walletId, registry);
             totalDeployed += 1;
 
@@ -344,10 +350,12 @@ persistent actor MultisigFactory {
     };
 
     private func countWalletsForUser(user: Principal): Nat {
+        Debug.print("MultisigFactory: Counting wallets for user " # Principal.toText(user));
         let userWallets = Array.filter<WalletRegistry>(
             Iter.toArray(wallets.vals()),
             func(wallet) = wallet.creator == user
         );
+        Debug.print("MultisigFactory: Found " # debug_show(userWallets.size()) # " wallets for user " # Principal.toText(user));
         userWallets.size()
     };
 

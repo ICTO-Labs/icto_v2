@@ -5,7 +5,7 @@ export const formatTimeAgo = (timestamp: number): string => {
     }
     
     const now = Date.now()
-    const secondsAgo = Math.floor((now - timestamp) / 1000)
+    const secondsAgo = Math.floor((now - Number(timestamp)) / 1000)
 
     if (secondsAgo < 60) {
         return 'just now'

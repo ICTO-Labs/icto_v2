@@ -1,5 +1,8 @@
 <template>
     <admin-layout>
+        <!-- Breadcrumb -->
+        <Breadcrumb :items="breadcrumbItems" />
+
         <div class="gap-4 md:gap-6">
             <!-- Header Metrics -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
@@ -95,36 +98,32 @@
                         />
                     </template>
                     <template #fallback>
-                        <div class="flex justify-center items-center py-12">
-                            <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-500"></div>
-                        </div>
+                        <LoadingSkeleton type="list" :count="3" item-type="wallet-card" />
                     </template>
                 </Suspense>
             </div>
         </div>
-        
-        <!-- Multisig Modals -->
-        <MultisigModals />
     </admin-layout>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
-import { useModalStore } from '@/stores/modal'
+import { useRouter } from 'vue-router'
 import { useMultisigStore } from '@/stores/multisig'
 import { formatCurrency, formatNumber } from '@/utils/numberFormat'
 import { PlusIcon, RefreshCcwIcon, SlidersIcon } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import MetricCard from '@/components/common/MetricCard.vue'
-import MultisigModals from '@/components/multisig/MultisigModals.vue'
+import LoadingSkeleton from '@/components/multisig/LoadingSkeleton.vue'
+import Breadcrumb from '@/components/common/Breadcrumb.vue'
 
 // Lazy load tab components
-const MultisigWalletList = defineAsyncComponent(() => import('./tabs/MultisigWalletList.vue'))
-const MultisigProposalList = defineAsyncComponent(() => import('./tabs/MultisigProposalList.vue'))
-const MultisigActivityList = defineAsyncComponent(() => import('./tabs/MultisigActivityList.vue'))
+const WalletList = defineAsyncComponent(() => import('./tabs/WalletList.vue'))
+const ProposalList = defineAsyncComponent(() => import('./tabs/ProposalList.vue'))
+const ActivityList = defineAsyncComponent(() => import('./tabs/ActivityList.vue'))
 
-// Stores
-const modalStore = useModalStore()
+// Router and Stores
+const router = useRouter()
 const multisigStore = useMultisigStore()
 
 // Reactive state
@@ -137,25 +136,25 @@ const tabs = computed(() => [
         id: 'wallets',
         name: 'My Wallets',
         count: multisigStore.wallets.length,
-        component: MultisigWalletList
+        component: WalletList
     },
     {
         id: 'proposals',
         name: 'Proposals',
         count: multisigStore.pendingProposals.length,
-        component: MultisigProposalList
+        component: ProposalList
     },
     {
         id: 'activity',
         name: 'Activity',
-        component: MultisigActivityList
+        component: ActivityList
     }
 ])
 
 // Current tab component
 const currentTabComponent = computed(() => {
     const tab = tabs.value.find(t => t.id === currentTab.value)
-    return tab?.component || MultisigWalletList
+    return tab?.component || WalletList
 })
 
 const currentTabProps = computed(() => {
@@ -170,6 +169,11 @@ const currentTabProps = computed(() => {
             return {}
     }
 })
+
+// Breadcrumb
+const breadcrumbItems = computed(() => [
+    { label: 'Multisig Wallets' }
+])
 
 // Metrics
 const metrics = computed(() => ({
@@ -188,6 +192,13 @@ const refreshData = async () => {
     isLoading.value = true
     try {
         await multisigStore.refreshData()
+        // Load proposals for each wallet
+        for (const wallet of multisigStore.wallets) {
+            const walletId = wallet.canisterId?.toString() || wallet.id
+            if (walletId) {
+                await multisigStore.fetchProposals(walletId)
+            }
+        }
     } catch (error) {
         console.error('Failed to refresh data:', error)
     } finally {
@@ -196,7 +207,7 @@ const refreshData = async () => {
 }
 
 const openCreateWalletModal = () => {
-    modalStore.open('createMultisig')
+    router.push('/multisig/create')
 }
 
 const openFilterModal = () => {

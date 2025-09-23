@@ -35,3 +35,7 @@ export const formatTokenAmountLabel = (amount: string | number, symbol: string):
     }
     return Math.floor(num).toString() + ' ' + symbol
 }
+
+export const formatAmount = (amount: number): string => {
+    return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
+  }

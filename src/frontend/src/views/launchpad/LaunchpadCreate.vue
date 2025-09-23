@@ -1447,7 +1447,74 @@ const uniqueIds = {
 
 // Form data
 const formData = ref({
-  distribution: [] as any[],
+  distribution: {
+    // Sale allocation - no recipients needed (investors assigned after launch)
+    sale: {
+      name: 'Sale',
+      percentage: 60, // Default 60%
+      totalAmount: '',
+      description: 'Public/Private sale allocation for investors'
+    },
+
+    // Team allocation - fixed category with recipients
+    team: {
+      name: 'Team',
+      percentage: 15, // Default 15%
+      totalAmount: '',
+      recipients: [] as {
+        principal: string
+        percentage: number
+        name?: string
+        description?: string
+        vestingEnabled: boolean
+        vestingSchedule?: {
+          cliffDays: number
+          durationDays: number
+          releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
+          immediateRelease: number
+        }
+      }[],
+      description: 'Team and founder allocation'
+    },
+
+    // LP allocation - auto-calculated from DEX config
+    liquidityPool: {
+      name: 'Liquidity Pool',
+      percentage: 0, // Auto-calculated from dexConfig
+      totalAmount: '',
+      autoCalculated: true,
+      description: 'DEX liquidity provision'
+    },
+
+    // Others - dynamic allocations (marketing, advisors, etc.)
+    others: [] as {
+      id: string
+      name: string
+      percentage: number
+      totalAmount: string
+      vestingEnabled: boolean
+      vestingSchedule?: {
+        cliffDays: number
+        durationDays: number
+        releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
+        immediateRelease: number
+      }
+      recipients: {
+        principal: string
+        percentage: number
+        name?: string
+        description?: string
+        vestingEnabled: boolean
+        vestingSchedule?: {
+          cliffDays: number
+          durationDays: number
+          releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly'
+          immediateRelease: number
+        }
+      }[]
+      description?: string
+    }[]
+  },
   projectInfo: {
     name: '',
     description: '',
@@ -1894,9 +1961,17 @@ const overviewTokenChartData = computed(() => {
   
   const colors = CHART_COLORS
   
-  const labels = formData.value.distribution.map(a => a.name || 'Unnamed')
-  const data = formData.value.distribution.map(a => Number(a.percentage || 0))
-  const values = formData.value.distribution.map(a => Number(a.totalAmount || 0))
+  // Collect all allocations into arrays for chart
+  const allAllocations = [
+    formData.value.distribution.sale,
+    formData.value.distribution.team,
+    formData.value.distribution.liquidityPool,
+    ...formData.value.distribution.others
+  ]
+
+  const labels = allAllocations.map(a => a.name || 'Unnamed')
+  const data = allAllocations.map(a => Number(a.percentage || 0))
+  const values = allAllocations.map(a => Number(a.totalAmount || 0))
   
   // Add unallocated portion if exists
   const totalAllocated = data.reduce((sum, value) => sum + value, 0)
@@ -2384,7 +2459,16 @@ const autoRaisedFundsTreasury = computed(() => {
 
 const allocationChartSeries = computed(() => {
   if (!formData.value.distribution) return []
-  return formData.value.distribution.map((allocation: any) => Number(allocation.totalAmount) || 0)
+
+  // Collect all allocations for chart
+  const allAllocations = [
+    formData.value.distribution.sale,
+    formData.value.distribution.team,
+    formData.value.distribution.liquidityPool,
+    ...formData.value.distribution.others
+  ]
+
+  return allAllocations.map((allocation: any) => Number(allocation.totalAmount) || 0)
 })
 
 const allocationChartOptions = computed(() => ({
@@ -2392,7 +2476,16 @@ const allocationChartOptions = computed(() => ({
     type: 'pie',
     fontFamily: 'Outfit, sans-serif',
   },
-  labels: formData.value.distribution?.map((allocation: any) => allocation.name) || [],
+  labels: (() => {
+    if (!formData.value.distribution) return []
+    const allAllocations = [
+      formData.value.distribution.sale,
+      formData.value.distribution.team,
+      formData.value.distribution.liquidityPool,
+      ...formData.value.distribution.others
+    ]
+    return allAllocations.map((allocation: any) => allocation.name) || []
+  })(),
   colors: [
     '#3B82F6', // Blue
     '#10B981', // Green
@@ -2573,39 +2666,7 @@ watch(() => formData.value.raisedFundsAllocation, (newAllocation) => {
   }
 }, { deep: true, immediate: true })
 
-// Dynamic allocation system - no need for fixed watchers
-// Individual allocation amounts are managed by the dynamic system
-
-// Watch Total Sale Amount và auto-sync với Distribution allocation
-watch(() => formData.value.saleParams.totalSaleAmount, (newAmount) => {
-  if (newAmount && Number(newAmount) > 0) {
-    // Tìm Sale allocation trong distribution
-    let saleAllocation = formData.value.distribution.find((item: any) => 
-      item.name === 'Sale' || item.name === 'Public Sale' || item.category === 'sale'
-    )
-    
-    // Nếu chưa có Sale allocation, tạo mới
-    if (!saleAllocation) {
-      saleAllocation = {
-        name: 'Sale',
-        percentage: 0,
-        totalAmount: newAmount,
-        recipients: { type: 'SaleParticipants' },
-        description: 'Public token sale allocation'
-      }
-      formData.value.distribution.push(saleAllocation)
-    } else {
-      // Cập nhật amount
-      saleAllocation.totalAmount = newAmount
-    }
-    
-    // Tính lại percentage dựa trên total supply
-    const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
-    if (totalSupply > 0) {
-      saleAllocation.percentage = (Number(newAmount) / totalSupply) * 100
-    }
-  }
-})
+// Fixed Allocation Watchers - Auto-sync with sale allocation and DEX liquidity
 
 // Computed for total allocation percentages
 const totalAllocationPercentage = computed(() => {
@@ -2641,89 +2702,61 @@ const canLaunch = computed(() => {
   return canProceed.value && acceptTerms.value
 })
 
+// Helper function to get all allocations as array for compatibility
+const getAllAllocationsAsArray = () => {
+  if (!formData.value.distribution) return []
+  return [
+    formData.value.distribution.sale,
+    formData.value.distribution.team,
+    formData.value.distribution.liquidityPool,
+    ...formData.value.distribution.others
+  ]
+}
+
 // Fixed Allocation System - Auto-manage Sale and DEX Liquidity allocations
 const ensureSaleAllocation = (saleAmount: number) => {
   if (saleAmount <= 0) return
-  
-  // Find existing Sale allocation
-  const saleAllocationIndex = formData.value.distribution.findIndex(a => 
-    a.name === 'Sale Participants' || 
-    a.name === 'Sale' || 
-    a.name === 'Public Sale' ||
-    a.name === 'Community Sale' ||
-    a.name === 'Private Sale' ||
-    a.recipientConfig?.type === 'SaleParticipants'
-  )
-  
+
   const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
   const percentage = totalSupply > 0 ? (saleAmount / totalSupply) * 100 : 0
-  
-  const saleAllocation = {
-    name: 'Public Sale',
-    percentage: percentage,
-    totalAmount: saleAmount.toString(),
-    recipientConfig: {
-      type: 'SaleParticipants',
-      recipients: []
-    },
-    vestingSchedule: null,
-    isRequired: true
-  }
-  
-  if (saleAllocationIndex >= 0) {
-    // Update existing
-    formData.value.distribution[saleAllocationIndex] = saleAllocation
-  } else {
-    // Add new at the beginning
-    formData.value.distribution.unshift(saleAllocation)
-  }
+
+  // Update sale allocation in fixed structure
+  formData.value.distribution.sale.totalAmount = saleAmount.toString()
+  formData.value.distribution.sale.percentage = percentage
 }
 
 const ensureDEXLiquidityAllocation = (liquidityAmount: number) => {
   if (liquidityAmount <= 0) return
-  
-  // Find existing DEX Liquidity allocation
-  const liquidityAllocationIndex = formData.value.distribution.findIndex(a => 
-    a.name === 'DEX Liquidity' || 
-    a.name === 'Liquidity Pool' ||
-    a.name === 'LP Tokens' ||
-    a.recipientConfig?.type === 'LiquidityPool'
-  )
-  
+
   const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
   const percentage = totalSupply > 0 ? (liquidityAmount / totalSupply) * 100 : 0
-  
-  const liquidityAllocation = {
-    name: 'DEX Liquidity',
-    percentage: percentage,
-    totalAmount: liquidityAmount.toString(),
-    recipientConfig: {
-      type: 'LiquidityPool',
-      recipients: []
-    },
-    vestingSchedule: null,
-    isRequired: true
-  }
-  
-  if (liquidityAllocationIndex >= 0) {
-    // Update existing
-    formData.value.distribution[liquidityAllocationIndex] = liquidityAllocation
-  } else {
-    // Add new after Sale allocation
-    const saleIndex = formData.value.distribution.findIndex(a => a.recipientConfig?.type === 'SaleParticipants')
-    const insertIndex = saleIndex >= 0 ? saleIndex + 1 : 1
-    formData.value.distribution.splice(insertIndex, 0, liquidityAllocation)
-  }
+
+  // Update liquidity pool allocation in fixed structure
+  formData.value.distribution.liquidityPool.totalAmount = liquidityAmount.toString()
+  formData.value.distribution.liquidityPool.percentage = percentage
 }
 
 const recalculatePercentages = () => {
   const totalSupply = Number(formData.value.saleToken.totalSupply) || 0
   if (totalSupply > 0) {
-    formData.value.distribution.forEach(allocation => {
+    // Sale allocation
+    formData.value.distribution.sale.percentage = (Number(formData.value.distribution.sale.totalAmount) / totalSupply) * 100
+
+    // Team allocation
+    formData.value.distribution.team.percentage = (Number(formData.value.distribution.team.totalAmount) / totalSupply) * 100
+
+    // LP allocation
+    formData.value.distribution.liquidityPool.percentage = (Number(formData.value.distribution.liquidityPool.totalAmount) / totalSupply) * 100
+
+    // Others allocations
+    formData.value.distribution.others.forEach(allocation => {
       allocation.percentage = (Number(allocation.totalAmount) / totalSupply) * 100
     })
   }
 }
+
+// Prevent circular updates
+let isUpdatingLiquidity = false
 
 // Fixed Allocation Watchers - Auto-sync with sale allocation and DEX liquidity
 watch(() => formData.value.saleParams.totalSaleAmount, (newAmount) => {
@@ -2733,29 +2766,27 @@ watch(() => formData.value.saleParams.totalSaleAmount, (newAmount) => {
 }, { immediate: true })
 
 watch(() => formData.value.dexConfig.totalLiquidityToken, (newAmount) => {
-  if (newAmount && Number(newAmount) > 0) {
-    ensureDEXLiquidityAllocation(Number(newAmount))
-  }
+  if (isUpdatingLiquidity || !newAmount || Number(newAmount) <= 0) return
+
+  isUpdatingLiquidity = true
+  ensureDEXLiquidityAllocation(Number(newAmount))
+  nextTick(() => {
+    isUpdatingLiquidity = false
+  })
 }, { immediate: true })
 
 // Bi-directional sync: When DEX Liquidity allocation changes, update dexConfig.totalLiquidityToken
-watch(() => formData.value.distribution, (newDistribution) => {
-  if (!newDistribution) return
-  
-  // Find DEX Liquidity allocation
-  const dexAllocation = newDistribution.find(a => 
-    a.name === 'DEX Liquidity' || 
-    a.name === 'Liquidity Pool' ||
-    a.name === 'LP Tokens' ||
-    a.recipientConfig?.type === 'LiquidityPool'
-  )
-  
-  if (dexAllocation) {
-    const newAmount = Number(dexAllocation.totalAmount) || 0
-    // Only update if different to avoid infinite loop
-    if (newAmount !== Number(formData.value.dexConfig.totalLiquidityToken)) {
-      formData.value.dexConfig.totalLiquidityToken = newAmount.toString()
-    }
+watch(() => formData.value.distribution?.liquidityPool?.totalAmount, (newAmount) => {
+  if (isUpdatingLiquidity || !newAmount) return
+
+  const amount = Number(newAmount) || 0
+  // Only update if different to avoid infinite loop
+  if (amount !== Number(formData.value.dexConfig.totalLiquidityToken)) {
+    isUpdatingLiquidity = true
+    formData.value.dexConfig.totalLiquidityToken = amount.toString()
+    nextTick(() => {
+      isUpdatingLiquidity = false
+    })
   }
 }, { deep: true })
 
@@ -2897,24 +2928,21 @@ const loadTemplate = (template: LaunchpadTemplate | null) => {
       })
     }
 
-    // Distribution mapping - convert template structure to current form structure
-    if (templateData.distribution && Array.isArray(templateData.distribution)) {
-      formData.value.distribution = templateData.distribution.map((item: any) => ({
-        name: item.category || item.name, // Convert category to name for form compatibility
-        percentage: item.percentage || 0,
-        totalAmount: item.totalAmount || '0',
-        vestingSchedule: item.vestingSchedule || null,
-        recipientConfig: {
-          type: item.category === 'Public Sale' ? 'SaleParticipants' :
-                item.category === 'Team' ? 'TeamAllocation' :
-                item.category === 'Liquidity' ? 'LiquidityPool' :
-                item.category === 'Development' ? 'TreasuryReserve' :
-                item.category === 'Marketing' ? 'Marketing' :
-                'FixedList',
-          recipients: item.recipients || []
-        },
-        description: item.description || `${item.category || item.name} allocation from template`
-      }))
+    // Distribution mapping - convert template fixed allocation structure
+    if (templateData.distribution) {
+      // Template now uses fixed allocation structure
+      if (templateData.distribution.sale) {
+        Object.assign(formData.value.distribution.sale, templateData.distribution.sale)
+      }
+      if (templateData.distribution.team) {
+        Object.assign(formData.value.distribution.team, templateData.distribution.team)
+      }
+      if (templateData.distribution.liquidityPool) {
+        Object.assign(formData.value.distribution.liquidityPool, templateData.distribution.liquidityPool)
+      }
+      if (templateData.distribution.others && Array.isArray(templateData.distribution.others)) {
+        formData.value.distribution.others = [...templateData.distribution.others]
+      }
     }
     
     // Force recalculation of allocations after template load
@@ -3425,6 +3453,7 @@ const handlePayment = async () => {
             showSuccessModal.value = true
             isPaying.value = false
             progress.setLoading(false)
+            progress.close()
 
             // Navigate to launchpad detail after short delay
             setTimeout(() => {
@@ -3443,9 +3472,15 @@ const handlePayment = async () => {
   }
 
   // Start the deployment process
+  progress.open({
+    steps,
+    title: 'Deploying Launchpad',
+    subtitle: 'Please wait while we process your deployment'
+  })
+
   try {
     progress.setLoading(true)
-    progress.setSteps(steps)
+    progress.setStep(0)
     await runSteps()
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'

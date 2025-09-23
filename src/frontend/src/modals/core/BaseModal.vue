@@ -10,7 +10,7 @@
         leave-from="opacity-100"
         leave-to="opacity-0"
       >
-        <div class="fixed inset-0 bg-black/25 dark:bg-black/50 modal-base-modal z-55" />
+        <div class="fixed inset-0 bg-black/30 dark:bg-black/50 modal-base-modal z-55" />
       </TransitionChild>
 
       <div class="fixed inset-0 overflow-y-auto z-60">

@@ -219,6 +219,7 @@ const getComplexityClass = (complexity: LaunchpadTemplate['complexity']) => {
 }
 
 const formatNumber = (value: string | number) => {
+  if(!value) return '0'
   const num = typeof value === 'string' ? parseFloat(value) : value
   return num.toLocaleString('en-US')
 }

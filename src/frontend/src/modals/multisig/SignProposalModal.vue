@@ -155,7 +155,7 @@
                                 </div>
                                 <div>
                                     <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ signature.signerName || signature.signer.slice(0, 20) }}...
+                                        {{ signature.signerName || (signature.signer ? signature.signer.toString().slice(0, 20) : 'Unknown') }}...
                                     </p>
                                     <p class="text-xs text-gray-500 dark:text-gray-400">
                                         Signed {{ formatTimeAgo(signature.signedAt.getTime()) }}
@@ -221,6 +221,8 @@
 import { ref, computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import { useMultisigStore } from '@/stores/multisig'
+import { useAuthStore } from '@/stores/auth'
+import { multisigService } from '@/api/services/multisig'
 import { formatDate, formatTimeAgo } from '@/utils/dateFormat'
 import { 
     ArrowRightIcon,
@@ -237,6 +239,7 @@ import CopyIcon from '@/icons/CopyIcon.vue'
 // Stores
 const modalStore = useModalStore()
 const multisigStore = useMultisigStore()
+const authStore = useAuthStore()
 
 // Reactive state
 const loading = ref(false)
@@ -246,34 +249,56 @@ const signatureNote = ref('')
 const modalData = computed(() => modalStore.getModalData('signProposal'))
 const proposal = computed(() => modalData.value?.proposal)
 const wallet = computed(() => modalData.value?.wallet)
+const canisterId = computed(() => modalData.value?.canisterId)
 
 // Methods
 const handleSign = async () => {
-    if (!proposal.value) return
+    if (!proposal.value || !canisterId.value || !authStore.principal) return
     
     loading.value = true
     try {
-        // TODO: Implement actual signing logic
-        await new Promise(resolve => setTimeout(resolve, 2000)) // Simulate API call
+        // Call actual multisig service to sign proposal
+        const result = await multisigService.signProposal(
+            canisterId.value,
+            proposal.value.id,
+            new Uint8Array(32), // Mock signature hash - TODO: implement real signature
+            signatureNote.value || undefined
+        )
         
-        // Add signature to proposal (mock)
-        const newSignature = {
-            signer: 'current-user-principal', // TODO: Get from auth store
-            signerName: 'Current User', // TODO: Get from auth store
-            signedAt: new Date(),
-            signature: 'mock-signature-hash',
-            note: signatureNote.value || undefined
+        if (result.success) {
+            // Update local proposal state
+            if (!proposal.value.signatures) {
+                proposal.value.signatures = []
+            }
+            
+            const newSignature = {
+                signer: authStore.principal.toString(),
+                signerName: 'You',
+                signedAt: new Date(),
+                signature: result.data?.signature || 'signed',
+                note: signatureNote.value || undefined
+            }
+            
+            proposal.value.signatures.push(newSignature)
+            proposal.value.currentSignatures = (proposal.value.currentSignatures || 0) + 1
+            
+            // Close modal and show success
+            modalStore.close('signProposal')
+            
+            // Show success notification
+            console.log('Proposal signed successfully')
+            
+            // Emit event to parent to refresh proposal data
+            console.log('Emitting proposal-signed event:', { 
+                proposalId: proposal.value.id, 
+                canisterId: canisterId.value 
+            })
+            window.dispatchEvent(new CustomEvent('proposal-signed', {
+                detail: { proposalId: proposal.value.id, canisterId: canisterId.value }
+            }))
+        } else {
+            throw new Error(result.error || 'Failed to sign proposal')
         }
-        
-        // Update proposal in store
-        proposal.value.signatures.push(newSignature)
-        proposal.value.currentSignatures += 1
-        
-        // Close modal and show success
-        modalStore.close('signProposal')
-        
-        // TODO: Show success notification
-        console.log('Proposal signed successfully')
         
     } catch (error) {
         console.error('Error signing proposal:', error)

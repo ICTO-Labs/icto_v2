@@ -15,6 +15,15 @@ module {
         initialCycles: ?Nat;
     };
 
+    public type CreateWalletError = {
+        #InsufficientCycles;
+        #InvalidConfiguration: Text;
+        #DeploymentFailed: Text;
+        #Unauthorized;
+        #RateLimited;
+        #SystemError: Text;
+    };
+
     // ============== FACTORY ACTOR INTERFACE ==============
 
     public type MultisigFactoryActor = actor {
@@ -26,7 +35,7 @@ module {
         ) -> async Result.Result<{
             walletId: MultisigTypes.WalletId;
             canisterId: Principal;
-        }, Text>;
+        }, CreateWalletError>;
 
         // Query functions
         getWallet : (MultisigTypes.WalletId) -> async ?MultisigFactoryTypes.WalletRegistry;

@@ -48,3 +48,11 @@ CLAUDE.md
 GEMINI.md
 QWEN.md
 .bmad-core/
+.gemini/
+.qwen/
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

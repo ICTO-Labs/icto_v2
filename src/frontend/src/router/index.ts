@@ -116,23 +116,41 @@ const router = createRouter({
     {
       path: '/multisig',
       name: 'Multisig',
-      component: () => import('../views/Multisig/MultisigIndex.vue'),
+      component: () => import('../views/Multisig/WalletDashboard.vue'),
       meta: {
         title: 'Multisig Wallets',
       },
     },
     {
+      path: '/multisig/create',
+      name: 'MultisigCreate',
+      component: () => import('../views/Multisig/WalletCreate.vue'),
+      meta: {
+        title: 'Create Multisig Wallet',
+      },
+    },
+    {
       path: '/multisig/:id',
-      component: () => import('../views/Multisig/MultisigDetail.vue'),
-      meta: { 
+      name: 'WalletDetail',
+      component: () => import('../views/Multisig/WalletDetail.vue'),
+      meta: {
         title: 'Multisig Wallet Detail',
       }
     },
     {
+      path: '/multisig/:id/proposals',
+      name: 'MultisigProposals',
+      component: () => import('../views/Multisig/WalletProposals.vue'),
+      meta: {
+        title: 'Multisig Proposals',
+      }
+    },
+    {
       path: '/multisig/:id/proposal/:proposalId',
+      name: 'MultisigProposalDetail',
       component: () => import('../views/Multisig/ProposalDetail.vue'),
-      meta: { 
-        title: 'Proposal Detail',
+      meta: {
+        title: 'Multisig Proposal Detail',
       }
     },
     {
@@ -303,16 +321,6 @@ const router = createRouter({
       component: () => import('../views/Distribution/DistributionManage.vue'),
       meta: {
         title: 'Manage Distribution',
-        requiresAuth: true,
-        adminOnly: true
-      },
-    },
-    {
-      path: '/distribution/:id/governance',
-      name: 'DistributionGovernance',
-      component: () => import('../views/Distribution/DistributionGovernance.vue'),
-      meta: {
-        title: 'Distribution Governance',
         requiresAuth: true,
         adminOnly: true
       },

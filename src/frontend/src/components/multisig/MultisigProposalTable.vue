@@ -92,7 +92,7 @@
                                         {{ proposal.title }}
                                     </div>
                                     <div class="text-sm text-gray-500 dark:text-gray-400">
-                                        by {{ proposal.proposerName || proposal.proposer.slice(0, 8) }}...
+                                        by {{ proposal.proposerName || (proposal.proposer ? proposal.proposer.toString().slice(0, 8) : 'Unknown') }}...
                                     </div>
                                 </div>
                             </div>
@@ -114,7 +114,7 @@
 
                         <!-- Amount -->
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                            <div v-if="proposal.transactionData.amount">
+                            <div v-if="proposal?.transactionData?.amount">
                                 {{ proposal.transactionData.amount }} {{ proposal.transactionData.token || 'ICP' }}
                             </div>
                             <div v-else class="text-gray-400">-</div>
@@ -132,11 +132,11 @@
                                             'bg-red-600': proposal.status === 'rejected',
                                             'bg-gray-600': proposal.status === 'expired'
                                         }"
-                                        :style="{ width: `${Math.min((proposal.currentSignatures / proposal.requiredSignatures) * 100, 100)}%` }"
+                                        :style="{ width: `${Math.min(((proposal.currentSignatures || 0) / (proposal.requiredSignatures || 1)) * 100, 100)}%` }"
                                     ></div>
                                 </div>
                                 <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                                    {{ proposal.currentSignatures }}/{{ proposal.requiredSignatures }}
+                                    {{ proposal.currentSignatures || 0 }}/{{ proposal.requiredSignatures || 0 }}
                                 </span>
                             </div>
                         </td>
@@ -151,20 +151,21 @@
                                     'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300': proposal.status === 'expired'
                                 }"
                             >
-                                {{ proposal.status.toUpperCase() }}
+                                <span v-if="proposal?.status">{{ proposal?.status }}</span>
+                                <span v-else>Unknown</span>
                             </span>
                         </td>
 
                         <!-- Expires -->
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                            {{ formatTimeAgo(proposal.expiresAt.getTime()) }}
+                            <span>{{ safeFormatTimeAgo(proposal?.expiresAt) }}</span>
                         </td>
 
                         <!-- Actions -->
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <div class="flex items-center justify-end space-x-2">
                                 <button
-                                    v-if="proposal.status === 'pending' && canSign(proposal)"
+                                    v-if="proposal?.status === 'pending' && canSign(proposal)"
                                     @click="$emit('sign-proposal', proposal)"
                                     class="inline-flex items-center px-2 py-1 border border-transparent text-xs font-medium rounded text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
                                 >
@@ -200,7 +201,6 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import type { TransactionProposal } from '@/types/multisig'
 import { formatTimeAgo } from '@/utils/dateFormat'
 import { 
     FileTextIcon,
@@ -215,7 +215,7 @@ import {
 
 // Props
 interface Props {
-    proposals: TransactionProposal[]
+    proposals: any[]
     title?: string
     showCreateButton?: boolean
     hasMore?: boolean
@@ -231,8 +231,8 @@ const props = withDefaults(defineProps<Props>(), {
 // Emits
 const emit = defineEmits<{
     'create-proposal': []
-    'sign-proposal': [proposal: TransactionProposal]
-    'view-proposal': [proposal: TransactionProposal]
+    'sign-proposal': [proposal: any]
+    'view-proposal': [proposal: any]
     'load-more': []
 }>()
 
@@ -241,22 +241,85 @@ const statusFilter = ref('')
 
 // Computed
 const filteredProposals = computed(() => {
-    let filtered = props.proposals
+    let filtered = props.proposals || []
 
     if (statusFilter.value) {
-        filtered = filtered.filter(proposal => proposal.status === statusFilter.value)
+        filtered = filtered.filter(proposal => proposal?.status === statusFilter.value)
     }
 
-    return filtered.sort((a, b) => b.proposedAt.getTime() - a.proposedAt.getTime())
+    return filtered.sort((a, b) => {
+        // Safe date comparison with fallbacks
+        const getTimestamp = (proposal: any) => {
+            if (!proposal) return 0
+
+            const proposedAt = proposal.proposedAt || proposal.createdAt || proposal.timestamp
+            if (!proposedAt) return 0
+
+            if (proposedAt instanceof Date) {
+                return proposedAt.getTime()
+            }
+
+            if (typeof proposedAt === 'bigint') {
+                return Number(proposedAt) / 1000000 // Convert nanoseconds to milliseconds
+            }
+
+            if (typeof proposedAt === 'number') {
+                return proposedAt > 1e12 ? proposedAt / 1000000 : proposedAt // Handle nanoseconds vs milliseconds
+            }
+
+            if (typeof proposedAt === 'string') {
+                const parsed = new Date(proposedAt)
+                return isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+            }
+
+            return 0
+        }
+
+        return getTimestamp(b) - getTimestamp(a)
+    })
 })
 
 // Methods
 const formatProposalType = (type: string) => {
+    if(!type) return ''
     return type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
 }
 
-const canSign = (proposal: TransactionProposal) => {
+const canSign = (proposal: any) => {
     // TODO: Check if current user is a signer and hasn't signed yet
-    return proposal.currentSignatures < proposal.requiredSignatures
+    if (!proposal) return false
+
+    const currentSigs = proposal.currentSignatures || proposal.currentApprovals || 0
+    const requiredSigs = proposal.requiredSignatures || proposal.requiredApprovals || 2
+
+    return currentSigs < requiredSigs
+}
+
+const safeFormatTimeAgo = (timestamp: any): string => {
+    if (!timestamp) return 'Unknown'
+
+    try {
+        let timeValue: number
+
+        if (timestamp instanceof Date) {
+            timeValue = timestamp.getTime()
+        } else if (typeof timestamp === 'bigint') {
+            timeValue = Number(timestamp) / 1000000 // Convert nanoseconds to milliseconds
+        } else if (typeof timestamp === 'number') {
+            timeValue = timestamp > 1e12 ? timestamp / 1000000 : timestamp
+        } else if (typeof timestamp === 'string') {
+            const parsed = new Date(timestamp)
+            timeValue = parsed.getTime()
+        } else {
+            return 'Unknown'
+        }
+
+        if (isNaN(timeValue)) return 'Unknown'
+
+        return formatTimeAgo(timeValue)
+    } catch (error) {
+        console.error('Error formatting time:', error)
+        return 'Unknown'
+    }
 }
 </script>

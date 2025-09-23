@@ -4,22 +4,25 @@
  */
 import { ref, computed } from 'vue'
 import { toast } from 'vue-sonner'
-import launchpadService from '@/services/LaunchpadService'
+import { LaunchpadService } from '@/api/services/launchpad'
+import { TypeConverter } from '@/utils/TypeConverter'
+import { validateLaunchpadConfig } from '@/types/launchpad'
 import type { LaunchpadFormData, CreateLaunchpadResult } from '@/types/launchpad'
 
 export function useLaunchpadService() {
   const isCreating = ref(false)
   const isLoading = ref(false)
+  const launchpadService = LaunchpadService.getInstance()
 
   /**
    * Create a new launchpad
    */
   const createLaunchpad = async (formData: LaunchpadFormData): Promise<CreateLaunchpadResult | null> => {
     isCreating.value = true
-    
+
     try {
       // Validate configuration before submission
-      const validation = launchpadService.validateLaunchpadConfig(formData)
+      const validation = validateLaunchpadConfig(formData)
       if (!validation.isValid) {
         toast.error('Validation Failed', {
           description: validation.errors.join(', ')
@@ -28,24 +31,30 @@ export function useLaunchpadService() {
       }
 
       console.log('Creating launchpad with validated data:', formData)
-      
-      // Call the service layer
-      const result = await launchpadService.createLaunchpad(formData)
-      
-      console.log('Launchpad created successfully:', result)
-      
-      // Show success message
-      toast.success('Launchpad Created!', {
-        description: `Your project has been successfully launched. ID: ${result.launchpadId}`
-      })
 
-      // Start real-time status tracking
-      launchpadService.subscribeToStatusUpdates(result.launchpadId, (status) => {
-        console.log(`Status update for ${result.launchpadId}:`, status)
-      })
-      
-      return result
-      
+      // Convert frontend data to backend format
+      const launchpadConfig = TypeConverter.formDataToLaunchpadConfig(formData)
+
+      // Call the backend service (this will trigger approval popup)
+      const result = await launchpadService.createLaunchpad(launchpadConfig)
+
+      console.log('Launchpad created successfully:', result)
+
+      if (result.success) {
+        // Show success message
+        toast.success('Launchpad Created!', {
+          description: `Your project has been successfully launched. Canister ID: ${result.launchpadCanisterId}`
+        })
+
+        return {
+          success: true,
+          launchpadId: result.launchpadCanisterId || '',
+          canisterId: result.launchpadCanisterId
+        }
+      } else {
+        throw new Error(result.error || 'Failed to create launchpad')
+      }
+
     } catch (error) {
       console.error('Error creating launchpad:', error)
       toast.error('Launch Failed', {
@@ -63,7 +72,7 @@ export function useLaunchpadService() {
   const getLaunchpads = async (filter?: any) => {
     isLoading.value = true
     try {
-      return await launchpadService.getAllLaunchpads(filter)
+      return await launchpadService.getLaunchpads(filter)
     } catch (error) {
       console.error('Error fetching launchpads:', error)
       toast.error('Failed to load launchpads')
@@ -76,10 +85,10 @@ export function useLaunchpadService() {
   /**
    * Get launchpad by ID
    */
-  const getLaunchpad = async (launchpadId: string) => {
+  const getLaunchpad = async (canisterId: string) => {
     isLoading.value = true
     try {
-      return await launchpadService.getLaunchpad(launchpadId)
+      return await launchpadService.getLaunchpad(canisterId)
     } catch (error) {
       console.error('Error fetching launchpad:', error)
       toast.error('Failed to load launchpad details')
@@ -89,32 +98,16 @@ export function useLaunchpadService() {
     }
   }
 
-  /**
-   * Subscribe to status updates
-   */
-  const subscribeToStatus = (launchpadId: string, callback: (status: any) => void) => {
-    launchpadService.subscribeToStatusUpdates(launchpadId, callback)
-  }
-
-  /**
-   * Unsubscribe from status updates
-   */
-  const unsubscribeFromStatus = (launchpadId: string) => {
-    launchpadService.unsubscribeFromStatusUpdates(launchpadId)
-  }
-
   return {
     // State
     isCreating: computed(() => isCreating.value),
     isLoading: computed(() => isLoading.value),
-    
+
     // Actions
     createLaunchpad,
     getLaunchpads,
     getLaunchpad,
-    subscribeToStatus,
-    unsubscribeFromStatus,
-    
+
     // Service instance for advanced usage
     service: launchpadService
   }

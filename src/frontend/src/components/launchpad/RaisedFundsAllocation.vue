@@ -1,5 +1,51 @@
 <template>
   <div class="space-y-6">
+    <!-- Allocation Progress Summary -->
+    <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg border border-blue-200 dark:border-blue-700 p-4">
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Raised Funds Allocation Progress</h3>
+      
+      <div class="space-y-2">
+        <!-- DEX Liquidity (if enabled) -->
+        <div v-if="dexConfig.autoList" class="flex justify-between text-sm">
+          <span class="text-gray-600 dark:text-gray-400">DEX Liquidity ({{ dexLiquidityPercentage.toFixed(1) }}%):</span>
+          <span class="font-medium text-blue-600">{{ formatAmount(calculatedDexLiquidity) }} ICP</span>
+        </div>
+
+        <div class="flex justify-between text-sm">
+          <span class="text-gray-600 dark:text-gray-400">Team ({{ teamPercentage.toFixed(1) }}%):</span>
+          <span class="font-medium">{{ formatAmount(teamAmount) }} ICP</span>
+        </div>
+        <div v-for="allocation in validCustomAllocations" :key="allocation.id" class="flex justify-between text-sm">
+          <span class="text-gray-600 dark:text-gray-400">{{ allocation.name }} ({{ allocation.percentage.toFixed(1) }}%):</span>
+          <span class="font-medium">{{ formatAmount(calculateAllocationAmount(allocation.percentage)) }} ICP</span>
+        </div>
+        <div class="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
+          <div class="flex justify-between text-sm font-semibold">
+            <span>Total Allocated ({{ totalAllocationPercentageWithDex.toFixed(1) }}%):</span>
+            <span>{{ formatAmount(totalAllocationAmountWithDex) }} ICP</span>
+          </div>
+          <div class="flex justify-between text-sm">
+            <span class="text-gray-600 dark:text-gray-400">Remaining to Treasury ({{ remainingPercentageWithDex.toFixed(1) }}%):</span>
+            <span class="font-medium text-green-600">{{ formatAmount(remainingAmountWithDex) }} ICP</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Progress Bar -->
+      <div class="mt-4">
+        <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+          <span>Allocation Progress</span>
+          <span>{{ totalAllocationPercentageWithDex.toFixed(1) }}% of raised funds</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2">
+          <div 
+            class="bg-blue-600 h-2 rounded-full transition-all duration-300"
+            :style="{ width: `${Math.min(totalAllocationPercentageWithDex, 100)}%` }"
+          ></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Raised Funds Slider -->
     <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
       <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Raised Funds Simulation</h3>
@@ -171,28 +217,111 @@
       <!-- Global Settings -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
         <!-- Liquidity Allocation Percentage -->
+        <!-- LP Allocation Method Selection -->
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Liquidity Allocation*
-            <HelpTooltip>Percentage of raised funds (after platform fees) that will be used for DEX liquidity. This creates a transparent commitment to liquidity provision regardless of final raise amount.</HelpTooltip>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+            Liquidity Pool Allocation Method* (Current: {{ lpAllocationMethod }})
+            <HelpTooltip>Choose how to calculate liquidity pool token allocation: based on token supply percentage or raised funds percentage.</HelpTooltip>
           </label>
-          <div class="relative">
-            <input
-              type="number"
-              :value="dexConfig.liquidityPercentage || 20"
-              placeholder="20"
-              step="1"
-              min="5"
-              :max="maxDexLiquidityPercentage"
-              class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-16"
-              @input="updateDexConfig('liquidityPercentage', $event.target.value)"
-            />
-            <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">%</span>
+          
+          <div class="space-y-3 mb-4">
+            <label class="flex items-center space-x-3 cursor-pointer p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <input
+                type="radio"
+                v-model="lpAllocationMethod"
+                value="token-supply"
+                class="w-4 h-4 text-orange-600 border-gray-300 focus:ring-orange-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">Based on Token Supply (%)</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">Define percentage of total token supply → Calculate ICP amount needed for liquidity</div>
+              </div>
+            </label>
+            
+            <label class="flex items-center space-x-3 cursor-pointer p-3 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+              <input
+                type="radio"
+                v-model="lpAllocationMethod"
+                value="raised-funds"
+                class="w-4 h-4 text-orange-600 border-gray-300 focus:ring-orange-500"
+              />
+              <div>
+                <div class="text-sm font-medium text-gray-900 dark:text-white">Based on Raised Funds (%)</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">Define percentage of raised funds → Calculate token amount for liquidity</div>
+              </div>
+            </label>
           </div>
-          <p class="text-xs text-gray-500 mt-1">Percentage of raised funds allocated for liquidity</p>
-          <p v-if="maxDexLiquidityPercentage < 100" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
-            Max available: {{ maxDexLiquidityPercentage.toFixed(1) }}% ({{ props.platformFeeRate }}% platform fee + {{ teamPercentage }}% team + {{ totalCustomPercentage.toFixed(1) }}% custom allocations)
-          </p>
+
+          <!-- Method-specific Configuration -->
+          <div v-if="lpAllocationMethod === 'token-supply'" class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Token Supply Percentage*</label>
+              <div class="relative">
+                <input
+                  type="number"
+                  v-model.number="lpTokenPercentage"
+                  @input="updateLpTokenPercentage"
+                  placeholder="30"
+                  step="0.1"
+                  min="1"
+                  max="50"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent pr-16"
+                />
+                <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">%</span>
+              </div>
+              <p class="text-xs text-gray-500 mt-1">{{ formatTokenAmount(calculatedTokenAmount) }} tokens</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Estimated ICP Needed</label>
+              <div class="px-3 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+                {{ formatAmount(estimatedIcpNeeded) }} ICP
+              </div>
+              <p class="text-xs text-gray-500 mt-1">Based on current simulation</p>
+            </div>
+          </div>
+
+          <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Raised Funds Percentage*</label>
+              <div class="relative">
+                <input
+                  type="number"
+                  v-model.number="lpRaisedPercentage"
+                  @input="updateLpRaisedPercentage"
+                  placeholder="60"
+                  step="0.1"
+                  min="5"
+                  max="80"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent pr-16"
+                />
+                <span class="absolute inset-y-0 right-0 flex items-center pr-3 text-sm text-gray-500">%</span>
+              </div>
+              <p class="text-xs text-gray-500 mt-1">{{ formatAmount(calculatedIcpAmount) }} ICP (simulated)</p>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Calculated Token Amount</label>
+              <div class="px-3 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+                {{ formatTokenAmount(calculatedTokenFromRaised) }} tokens
+              </div>
+              <p class="text-xs text-gray-500 mt-1">Based on token price from sale</p>
+            </div>
+          </div>
+
+          <!-- Status Summary -->
+          <div class="p-3 bg-orange-100 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-700 rounded">
+            <div class="text-xs text-orange-700 dark:text-orange-300">
+              <div v-if="lpAllocationMethod === 'token-supply'">
+                🔗 <strong>Token Supply Method:</strong> {{ formatTokenAmount(calculatedTokenAmount) }} tokens ({{ lpTokenPercentage }}%) → Need {{ formatAmount(estimatedIcpNeeded) }} ICP for liquidity
+              </div>
+              <div v-else>
+                💰 <strong>Raised Funds Method:</strong> {{ lpRaisedPercentage }}% of raised funds ({{ formatAmount(calculatedIcpAmount) }} ICP) → Get {{ formatTokenAmount(calculatedTokenFromRaised) }} tokens
+              </div>
+              <!-- Debug info -->
+              <div class="mt-2 pt-2 border-t border-orange-300 text-xs">
+                <strong>Debug:</strong> Method={{ lpAllocationMethod }}, TokenPct={{ lpTokenPercentage }}, RaisedPct={{ lpRaisedPercentage }}
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Dynamic Price Info -->
@@ -436,233 +565,394 @@
       </div>
     </div>
 
-    <!-- Team Allocation -->
-    <div class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Team Allocation</h3>
-      
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <!-- Team Percentage Input -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Team Allocation Percentage <HelpTooltip size="sm">Percentage of raised funds allocated to the team for compensation and operations. Consider vesting schedules for team allocations to build trust.</HelpTooltip>
-          </label>
-          <NumberInput
-            v-model="teamPercentage"
-            placeholder="0"
-            suffix="%"
-            :min="0"
-            :max="maxTeamPercentage"
-            class="w-full"
-          />
-          <p v-if="maxTeamPercentage < 100" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
-            Max available: {{ maxTeamPercentage.toFixed(1) }}% ({{ dexLiquidityPercentage.toFixed(1) }}% for DEX + {{ totalCustomPercentage.toFixed(1) }}% for custom allocations)
-          </p>
-        </div>
-        
-        <!-- Team Amount Display (Readonly) -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Team Amount (Calculated)
-          </label>
-          <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
-            {{ formatAmount(teamAmount) }} ICP
+    <!-- Team Allocation - Accordion Style -->
+    <div class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+      <button
+        @click="toggleRaisedFundsAccordion('team')"
+        class="w-full px-4 py-3 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 hover:from-green-100 hover:to-emerald-100 dark:hover:from-green-900/50 dark:hover:to-emerald-900/50 transition-colors text-left"
+        type="button"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <span class="font-medium text-green-900 dark:text-green-100">Team</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-600 text-white">
+              {{ teamPercentage.toFixed(1) }}% ({{ formatAmount(teamAmount) }} ICP)
+            </span>
           </div>
+          <ChevronDown
+            class="h-4 w-4 text-green-600 dark:text-green-400 transition-transform duration-200"
+            :class="{ 'rotate-180': openRaisedFundsAccordions.team }"
+          />
         </div>
-      </div>
-
-      <!-- Team Recipients Configuration -->
-      <div v-if="teamPercentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <div class="flex justify-between items-center mb-3">
-          <h4 class="font-medium text-gray-900 dark:text-white required">Team Recipients <HelpTooltip>Configure principals who will receive team allocation and their distribution terms.</HelpTooltip></h4>
-          <button 
-            @click="addTeamRecipient"
-            type="button"
-            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
-          >
-            Add Recipient
-          </button>
-        </div>
-        
-        <div v-if="teamRecipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
-          ⚠️ At least one recipient is required for non-zero team allocation
-        </div>
-        
-        <div v-for="(recipient, index) in teamRecipients" :key="index" class="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name (Optional)</label>
-              <input
-                v-model="recipient.name"
-                type="text"
-                placeholder="Team member name"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal * </label>
-              <input
-                v-model="recipient.principal"
-                type="text"
-                placeholder="Principal ID"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Percentage</label>
-              <div class="flex items-center space-x-2">
-                <div class="flex-1">
-                  <NumberInput
-                    v-model="recipient.percentage"
-                    placeholder="0"
-                    suffix="%"
-                    :min="0"
-                    :max="100"
-                    class="w-full h-10"
-                  />
-                </div>
-                <button 
-                  @click="removeTeamRecipient(index)"
-                  type="button"
-                  class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors h-10 flex-shrink-0"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
+      </button>
+      <div
+        v-show="openRaisedFundsAccordions.team"
+        class="px-4 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700"
+      >
+        <!-- Team Percentage Input -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Team Allocation Percentage <HelpTooltip size="sm">Percentage of raised funds allocated to the team for compensation and operations. Consider vesting schedules for team allocations to build trust.</HelpTooltip>
+            </label>
+            <NumberInput
+              v-model="teamPercentage"
+              placeholder="0"
+              suffix="%"
+              :min="0"
+              :max="maxTeamPercentage"
+              class="w-full"
+            />
+            <p v-if="maxTeamPercentage < 100" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Max available: {{ maxTeamPercentage.toFixed(1) }}% ({{ dexLiquidityPercentage.toFixed(1) }}% for DEX + {{ totalCustomPercentage.toFixed(1) }}% for custom allocations)
+            </p>
           </div>
           
-          <!-- Vesting Configuration -->
-          <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
+          <!-- Team Amount Display (Readonly) -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Team Amount (Calculated)
+            </label>
+            <div class="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+              {{ formatAmount(teamAmount) }} ICP
+            </div>
+          </div>
+        </div>
+
+          <!-- Team Vesting Configuration -->
+          <div v-if="teamPercentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
+            <div class="flex items-center mb-3">
+              <label class="relative inline-flex items-center cursor-pointer mr-3">
+                <input 
+                  v-model="teamVestingEnabled" 
+                  type="checkbox" 
+                  class="sr-only peer"
+                >
+                <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 dark:peer-focus:ring-green-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-600"></div>
+              </label>
+              <label 
+                @click="teamVestingEnabled = !teamVestingEnabled"
+                class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
+              >
+                Enable Vesting Schedule
+              </label>
+            </div>
             <VestingScheduleConfig
-              v-model="recipient.vestingSchedule"
-              :allocation-name="`Team Member ${index + 1}`"
+              v-if="teamVestingEnabled"
+              v-model="teamVestingSchedule"
+              allocation-name="Team Allocation"
             />
+          </div>
+
+        <!-- Team Recipients Configuration -->
+        <div v-if="teamPercentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex justify-between items-center mb-3">
+            <div class="flex items-center space-x-2">
+              <h4 class="font-medium text-gray-900 dark:text-white required">Team Recipients</h4>
+              <span class="text-sm text-gray-500 dark:text-gray-400">({{ teamRecipients.length }} participants)</span>
+              <HelpTooltip>Configure principals who will receive team allocation. Each recipient will have the same vesting schedule configured above.</HelpTooltip>
+            </div>
+            <button 
+              @click="addTeamRecipient"
+              type="button"
+              class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+            >
+              Add Recipient
+            </button>
+          </div>
+          
+          <div v-if="teamRecipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
+            ⚠️ At least one recipient is required for non-zero team allocation
+          </div>
+          
+          <!-- Team Recipients Table -->
+          <div v-else class="overflow-x-auto">
+            <table class="w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+              <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Calculated Amount
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Share %
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Principal *
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Name/Notes
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                <tr v-for="(recipient, index) in teamRecipients" :key="index" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {{ formatAmount(getRecipientAmount(recipient.percentage, teamAmount)) }} ICP
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <NumberInput
+                      v-model="recipient.percentage"
+                      placeholder="0"
+                      suffix="%"
+                      :min="0"
+                      :max="100"
+                      class="w-20"
+                      :class="{ 'border-red-500': teamRecipientsTotalPercentage > 100 }"
+                    />
+                  </td>
+                  <td class="px-4 py-3">
+                    <input
+                      v-model="recipient.principal"
+                      type="text"
+                      placeholder="Principal ID"
+                      class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                      :class="{ 'border-red-500': !isValidPrincipal(recipient.principal) && recipient.principal }"
+                    />
+                    <p v-if="!isValidPrincipal(recipient.principal) && recipient.principal" class="text-xs text-red-600 mt-1">
+                      Invalid principal format
+                    </p>
+                  </td>
+                  <td class="px-4 py-3">
+                    <input
+                      v-model="recipient.name"
+                      type="text"
+                      placeholder="Optional name"
+                      class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                    />
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <button 
+                      @click="removeTeamRecipient(index)"
+                      type="button"
+                      class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Team Recipients Validation -->
+          <div v-if="teamRecipientsTotalPercentage > 100" class="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-800 dark:text-red-200">
+            ⚠️ Team recipients total exceeds 100% (currently {{ teamRecipientsTotalPercentage.toFixed(1) }}%)
+          </div>
+          <div v-else-if="teamRecipientsTotalPercentage < 100 && teamRecipients.length > 0" class="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-sm text-amber-800 dark:text-amber-200">
+            💡 Team recipients total is {{ teamRecipientsTotalPercentage.toFixed(1) }}% ({{ (100 - teamRecipientsTotalPercentage).toFixed(1) }}% unallocated)
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Custom Allocations -->
+    <!-- Custom Allocations - Accordion Style -->
     <div 
       v-for="(allocation, index) in customAllocations" 
       :key="allocation.id"
-      class="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4"
+      class="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
     >
-      <div class="flex justify-between items-center mb-4">
-        <div class="flex items-center space-x-2">
-          <input
-            v-model="allocation.name"
-            type="text"
-            placeholder="Allocation name (e.g., Development Fund)"
-            class="text-lg font-semibold bg-transparent border-none outline-none text-gray-900 dark:text-white placeholder-gray-400"
-          />
-        </div>
-        <button 
-          @click="removeCustomAllocation(index)"
-          type="button"
-          class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
-        >
-          Remove
-        </button>
-      </div>
-      
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-        <!-- Allocation Percentage Input -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {{ allocation.name || 'Custom' }} Allocation Percentage <HelpTooltip>Percentage of raised funds allocated to this category.</HelpTooltip>
-          </label>
-          <NumberInput
-            v-model="allocation.percentage"
-            placeholder="0"
-            suffix="%"
-            :min="0"
-            :max="getMaxCustomAllocationPercentage(allocation.id)"
-            class="w-full"
-          />
-          <p v-if="getMaxCustomAllocationPercentage(allocation.id) < 100" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
-            Max available: {{ getMaxCustomAllocationPercentage(allocation.id).toFixed(1) }}%
-          </p>
-        </div>
-        
-        <!-- Allocation Amount Display (Readonly) -->
-        <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            {{ allocation.name || 'Custom' }} Amount (Calculated)
-          </label>
-          <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
-            {{ formatAmount(calculateAllocationAmount(allocation.percentage)) }} ICP
+      <button
+        @click="toggleRaisedFundsAccordion(allocation.id)"
+        class="w-full px-4 py-3 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-900/30 dark:to-indigo-900/30 hover:from-purple-100 hover:to-indigo-100 dark:hover:from-purple-900/50 dark:hover:to-indigo-900/50 transition-colors text-left"
+        type="button"
+      >
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-3">
+            <input
+              v-model="allocation.name"
+              type="text"
+              placeholder="Allocation name (e.g., Development Fund)"
+              class="font-medium bg-transparent border-none outline-none text-purple-900 dark:text-purple-100 placeholder-purple-600 dark:placeholder-purple-400"
+              @click.stop
+            />
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-600 text-white">
+              {{ allocation.percentage.toFixed(1) }}% ({{ formatAmount(calculateAllocationAmount(allocation.percentage)) }} ICP)
+            </span>
+          </div>
+          <div class="flex items-center space-x-2">
+            <button 
+              @click.stop="removeCustomAllocation(index)"
+              type="button"
+              class="px-2 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors"
+            >
+              Remove
+            </button>
+            <ChevronDown
+              class="h-4 w-4 text-purple-600 dark:text-purple-400 transition-transform duration-200"
+              :class="{ 'rotate-180': openRaisedFundsAccordions[allocation.id] }"
+            />
           </div>
         </div>
-      </div>
-
-      <!-- Custom Allocation Recipients Configuration -->
-      <div v-if="allocation.percentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <div class="flex justify-between items-center mb-3">
-          <h4 class="font-medium text-gray-900 dark:text-white">{{ allocation.name || 'Custom' }} Recipients <HelpTooltip>Configure principals who will receive this allocation.</HelpTooltip></h4>
-          <button 
-            @click="addCustomAllocationRecipient(allocation.id)"
-            type="button"
-            class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
-          >
-            Add Recipient
-          </button>
-        </div>
-        
-        <div v-if="allocation.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
-          ⚠️ At least one recipient is required for non-zero {{ allocation.name || 'custom' }} allocation
-        </div>
-        
-        <div v-for="(recipient, recipientIndex) in allocation.recipients" :key="recipientIndex" class="mb-4 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-3">
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Name (Optional)</label>
-              <input
-                v-model="recipient.name"
-                type="text"
-                placeholder="Recipient name"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Principal ID</label>
-              <input
-                v-model="recipient.principal"
-                type="text"
-                placeholder="Principal ID"
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 h-10"
-              />
-            </div>
-            <div>
-              <label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Percentage</label>
-              <div class="flex items-center space-x-2">
-                <div class="flex-1">
-                  <NumberInput
-                    v-model="recipient.percentage"
-                    placeholder="0"
-                    suffix="%"
-                    :min="0"
-                    :max="100"
-                    class="w-full h-10"
-                  />
-                </div>
-                <button 
-                  @click="removeCustomAllocationRecipient(allocation.id, recipientIndex)"
-                  type="button"
-                  class="px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors h-10 flex-shrink-0"
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
+      </button>
+      <div
+        v-show="openRaisedFundsAccordions[allocation.id]"
+        class="px-4 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700"
+      >
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <!-- Allocation Percentage Input -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {{ allocation.name || 'Custom' }} Allocation Percentage <HelpTooltip>Percentage of raised funds allocated to this category.</HelpTooltip>
+            </label>
+            <NumberInput
+              v-model="allocation.percentage"
+              placeholder="0"
+              suffix="%"
+              :min="0"
+              :max="getMaxCustomAllocationPercentage(allocation.id)"
+              class="w-full"
+            />
+            <p v-if="getMaxCustomAllocationPercentage(allocation.id) < 100" class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+              Max available: {{ getMaxCustomAllocationPercentage(allocation.id).toFixed(1) }}%
+            </p>
           </div>
           
-          <!-- Vesting Configuration -->
-          <div class="border-t border-gray-200 dark:border-gray-700 pt-3">
-            <VestingScheduleConfig
-              v-model="recipient.vestingSchedule"
-              :allocation-name="`${allocation.name || 'Custom'} Recipient ${recipientIndex + 1}`"
-            />
+          <!-- Allocation Amount Display (Readonly) -->
+          <div>
+            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              {{ allocation.name || 'Custom' }} Amount (Calculated)
+            </label>
+            <div class="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md text-gray-900 dark:text-gray-100">
+              {{ formatAmount(calculateAllocationAmount(allocation.percentage)) }} ICP
+            </div>
+          </div>
+        </div>
+
+        <!-- Custom Allocation Vesting Configuration -->
+        <div v-if="allocation.percentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex items-center mb-3">
+            <label class="relative inline-flex items-center cursor-pointer mr-3">
+              <input 
+                v-model="allocation.vestingEnabled" 
+                type="checkbox" 
+                class="sr-only peer"
+              >
+              <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+            </label>
+            <label 
+              @click="allocation.vestingEnabled = !allocation.vestingEnabled"
+              class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
+            >
+              Enable Vesting Schedule
+            </label>
+          </div>
+          <VestingScheduleConfig
+            v-if="allocation.vestingEnabled"
+            v-model="allocation.vestingSchedule"
+            :allocation-name="allocation.name || 'Custom Allocation'"
+          />
+        </div>
+
+        <!-- Custom Allocation Recipients Configuration -->
+        <div v-if="allocation.percentage > 0" class="border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div class="flex justify-between items-center mb-3">
+            <div class="flex items-center space-x-2">
+              <h4 class="font-medium text-gray-900 dark:text-white">{{ allocation.name || 'Custom' }} Recipients</h4>
+              <span class="text-sm text-gray-500 dark:text-gray-400">({{ allocation.recipients.length }} participants)</span>
+              <HelpTooltip>Configure principals who will receive this allocation. Each recipient will have the same vesting schedule configured above.</HelpTooltip>
+            </div>
+            <button 
+              @click="addCustomAllocationRecipient(allocation.id)"
+              type="button"
+              class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
+            >
+              Add Recipient
+            </button>
+          </div>
+          
+          <div v-if="allocation.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
+            ⚠️ At least one recipient is required for non-zero {{ allocation.name || 'custom' }} allocation
+          </div>
+          
+          <!-- Custom Allocation Recipients Table -->
+          <div v-else class="overflow-x-auto">
+            <table class="w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+              <thead class="bg-gray-50 dark:bg-gray-800">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Calculated Amount
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Share %
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Principal *
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Name/Notes
+                  </th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+                <tr v-for="(recipient, recipientIndex) in allocation.recipients" :key="recipientIndex" class="hover:bg-gray-50 dark:hover:bg-gray-800">
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <div class="text-sm font-medium text-gray-900 dark:text-gray-100">
+                      {{ formatAmount(getRecipientAmount(recipient.percentage, calculateAllocationAmount(allocation.percentage))) }} ICP
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <NumberInput
+                      v-model="recipient.percentage"
+                      placeholder="0"
+                      suffix="%"
+                      :min="0"
+                      :max="100"
+                      class="w-20"
+                      :class="{ 'border-red-500': getCustomAllocationRecipientsTotalPercentage(allocation.id) > 100 }"
+                    />
+                  </td>
+                  <td class="px-4 py-3">
+                    <input
+                      v-model="recipient.principal"
+                      type="text"
+                      placeholder="Principal ID"
+                      class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                      :class="{ 'border-red-500': !isValidPrincipal(recipient.principal) && recipient.principal }"
+                    />
+                    <p v-if="!isValidPrincipal(recipient.principal) && recipient.principal" class="text-xs text-red-600 mt-1">
+                      Invalid principal format
+                    </p>
+                  </td>
+                  <td class="px-4 py-3">
+                    <input
+                      v-model="recipient.name"
+                      type="text"
+                      placeholder="Optional name"
+                      class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
+                    />
+                  </td>
+                  <td class="px-4 py-3 whitespace-nowrap">
+                    <button 
+                      @click="removeCustomAllocationRecipient(allocation.id, recipientIndex)"
+                      type="button"
+                      class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
+                    >
+                      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Custom Allocation Recipients Validation -->
+          <div v-if="getCustomAllocationRecipientsTotalPercentage(allocation.id) > 100" class="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-800 dark:text-red-200">
+            ⚠️ {{ allocation.name || 'Custom' }} recipients total exceeds 100% (currently {{ getCustomAllocationRecipientsTotalPercentage(allocation.id).toFixed(1) }}%)
+          </div>
+          <div v-else-if="getCustomAllocationRecipientsTotalPercentage(allocation.id) < 100 && allocation.recipients.length > 0" class="mt-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded text-sm text-amber-800 dark:text-amber-200">
+            💡 {{ allocation.name || 'Custom' }} recipients total is {{ getCustomAllocationRecipientsTotalPercentage(allocation.id).toFixed(1) }}% ({{ (100 - getCustomAllocationRecipientsTotalPercentage(allocation.id)).toFixed(1) }}% unallocated)
           </div>
         </div>
       </div>
@@ -704,58 +994,12 @@
     </div>
 
 
-
-    <!-- Summary -->
-    <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg border border-blue-200 dark:border-blue-700 p-4">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Allocation Summary</h3>
-      
-      <div class="space-y-2">
-        <!-- DEX Liquidity (if enabled) -->
-        <div v-if="dexConfig.autoList" class="flex justify-between text-sm">
-          <span class="text-gray-600 dark:text-gray-400">DEX Liquidity ({{ dexLiquidityPercentage.toFixed(1) }}%):</span>
-          <span class="font-medium text-blue-600">{{ formatAmount(calculatedDexLiquidity) }} ICP</span>
-        </div>
-
-        <div class="flex justify-between text-sm">
-          <span class="text-gray-600 dark:text-gray-400">Team ({{ teamPercentage }}%):</span>
-          <span class="font-medium">{{ formatAmount(teamAmount) }} ICP</span>
-        </div>
-        <div v-for="allocation in validCustomAllocations" :key="allocation.id" class="flex justify-between text-sm">
-          <span class="text-gray-600 dark:text-gray-400">{{ allocation.name }} ({{ allocation.percentage }}%):</span>
-          <span class="font-medium">{{ formatAmount(calculateAllocationAmount(allocation.percentage)) }} ICP</span>
-        </div>
-        <div class="border-t border-gray-200 dark:border-gray-700 pt-2 mt-2">
-          <div class="flex justify-between text-sm font-semibold">
-            <span>Total Allocated ({{ totalAllocationPercentageWithDex.toFixed(1) }}%):</span>
-            <span>{{ formatAmount(totalAllocationAmountWithDex) }} ICP</span>
-          </div>
-          <div class="flex justify-between text-sm">
-            <span class="text-gray-600 dark:text-gray-400">Remaining to Treasury ({{ remainingPercentageWithDex.toFixed(1) }}%):</span>
-            <span class="font-medium text-green-600">{{ formatAmount(remainingAmountWithDex) }} ICP</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Progress Bar -->
-      <div class="mt-4">
-        <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
-          <span>Allocation Progress</span>
-          <span>{{ totalAllocationPercentageWithDex.toFixed(1) }}% of raised funds</span>
-        </div>
-        <div class="w-full bg-gray-200 rounded-full h-2">
-          <div 
-            class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-            :style="{ width: `${Math.min(totalAllocationPercentageWithDex, 100)}%` }"
-          ></div>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
-import { AlertTriangleIcon } from 'lucide-vue-next'
+import { ref, computed, watch, nextTick } from 'vue'
+import { AlertTriangleIcon, ChevronDown } from 'lucide-vue-next'
 import NumberInput from '@/components/common/NumberInput.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import VestingScheduleConfig from './VestingScheduleConfig.vue'
@@ -796,10 +1040,22 @@ const props = defineProps({
   modelValue: {
     type: Object,
     required: true
+  },
+  totalSupply: {
+    type: String,
+    required: true
+  },
+  totalSaleAmount: {
+    type: String,
+    required: true
+  },
+  simulatedRaisedAmount: {
+    type: String,
+    default: '0'
   }
 })
 
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'update:dexConfig'])
 
 // Auth store for principal access
 const authStore = useAuthStore()
@@ -814,6 +1070,11 @@ const lpLockEnabled = ref(true)
 // DEX selection state
 const selectedDexToAdd = ref('')
 
+// Accordion state for raised funds allocation sections
+const openRaisedFundsAccordions = ref({
+  team: true  // Team section open by default
+})
+
 // All available DEX platforms (including disabled ones)
 const allDexPlatforms = [
   { id: 'icpswap', name: 'ICPSwap', description: 'Leading DEX on Internet Computer', logo: 'https://app.icpswap.com/static/media/logo-dark.7b8c12091e650c40c5e9f561c57473ba.svg' },
@@ -824,6 +1085,12 @@ const allDexPlatforms = [
 
 // Available DEXs array (originally from props in MultiDEXConfiguration)
 const availableDexs = ref([])
+
+
+// LP Allocation Method State
+const lpAllocationMethod = ref('token-supply')
+const lpTokenPercentage = ref(30)
+const lpRaisedPercentage = ref(60)
 
 // Token symbols from props
 const saleTokenSymbol = computed(() => props.tokenSymbol)
@@ -861,15 +1128,60 @@ const stepSize = computed(() => {
 // Raised funds simulation - initialize with a default value first
 const currentRaisedAmount = ref(1000)
 
+// LP Allocation Calculated Values
+const calculatedTokenAmount = computed(() => {
+  const totalSupplyValue = parseFloat(props.totalSupply) || 0
+  const result = (totalSupplyValue * lpTokenPercentage.value) / 100
+  console.log('calculatedTokenAmount:', {
+    totalSupply: props.totalSupply,
+    totalSupplyValue,
+    lpTokenPercentage: lpTokenPercentage.value,
+    result
+  })
+  return result
+})
+
+const calculatedIcpAmount = computed(() => {
+  const simulatedValue = parseFloat(props.simulatedRaisedAmount) || 0
+  const result = (simulatedValue * lpRaisedPercentage.value) / 100
+  console.log('calculatedIcpAmount:', {
+    simulatedRaisedAmount: props.simulatedRaisedAmount,
+    simulatedValue,
+    lpRaisedPercentage: lpRaisedPercentage.value,
+    result
+  })
+  return result
+})
+
+const calculatedTokenFromRaised = computed(() => {
+  const icpAmount = calculatedIcpAmount.value
+  const tokenPrice = dynamicListingPrice.value
+  return tokenPrice > 0 ? icpAmount / tokenPrice : 0
+})
+
+const estimatedIcpNeeded = computed(() => {
+  const tokenAmount = calculatedTokenAmount.value
+  const tokenPrice = dynamicListingPrice.value
+  return tokenAmount * tokenPrice
+})
+
 // Percentage inputs
 const teamPercentage = ref(30)
 
 // Recipients arrays
 const teamRecipients = ref([])
 
+// Team vesting schedule (category level)
+const teamVestingSchedule = ref(null)
+const teamVestingEnabled = ref(true) // Team should have vesting by default
+
 // Custom allocations system
 const customAllocations = ref([])
 let allocationIdCounter = 0
+
+// Flag to prevent recursive updates
+let isUpdatingFromProps = false
+let updateTimeout = null
 
 // DEX Configuration
 const dexConfig = ref({
@@ -993,21 +1305,69 @@ const formatAmount = (amount) => {
   })
 }
 
+// Format token amount for display
+const formatTokenAmount = (amount) => {
+  const numAmount = Number(amount)
+  if (isNaN(numAmount)) return '0'
+  if (numAmount >= 1000000) {
+    return (numAmount / 1000000).toFixed(2) + 'M'
+  } else if (numAmount >= 1000) {
+    return (numAmount / 1000).toFixed(2) + 'K'
+  }
+  return numAmount.toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0
+  })
+}
+
+// DEX Configuration Functions
+
+const updateLpTokenPercentage = () => {
+  console.log('Token percentage updated to:', lpTokenPercentage.value)
+  nextTick(() => {
+    emitDexConfig()
+  })
+}
+
+const updateLpRaisedPercentage = () => {
+  console.log('Raised percentage updated to:', lpRaisedPercentage.value)
+  nextTick(() => {
+    emitDexConfig()
+  })
+}
+
+const emitDexConfig = () => {
+  // Skip if we're updating from props to prevent recursive loop
+  if (isUpdatingFromProps) return
+  
+  console.log('Emitting DEX config:', {
+    lpAllocationMethod: lpAllocationMethod.value,
+    lpTokenPercentage: lpTokenPercentage.value,
+    lpRaisedPercentage: lpRaisedPercentage.value
+  })
+  
+  emit('update:dexConfig', {
+    lpAllocationMethod: lpAllocationMethod.value,
+    lpTokenPercentage: lpTokenPercentage.value,
+    lpRaisedPercentage: lpRaisedPercentage.value
+  })
+}
+
 // Recipient management functions
 const createDefaultRecipient = () => ({
   principal: '',
   percentage: 0,
-  name: '',
-  vestingEnabled: false,
-  vestingSchedule: null // VestingScheduleConfig expects null or VestingSchedule object
+  name: ''
 })
 
-// Custom allocation management
+// Custom allocation management  
 const createCustomAllocation = (name = '', percentage = 0) => ({
   id: generateAllocationId(),
   name,
   percentage,
-  recipients: []
+  recipients: [],
+  vestingSchedule: null, // Category-level vesting
+  vestingEnabled: false // Default to disabled
 })
 
 const addTeamRecipient = () => {
@@ -1020,11 +1380,17 @@ const removeTeamRecipient = (index) => {
 
 // Custom allocation management
 const addCustomAllocation = () => {
-  customAllocations.value.push(createCustomAllocation())
+  const newAllocation = createCustomAllocation()
+  customAllocations.value.push(newAllocation)
+  // Auto-expand new allocation accordion
+  openRaisedFundsAccordions.value[newAllocation.id] = true
 }
 
 const addQuickAllocation = (name, percentage) => {
-  customAllocations.value.push(createCustomAllocation(name, percentage))
+  const newAllocation = createCustomAllocation(name, percentage)
+  customAllocations.value.push(newAllocation)
+  // Auto-expand new allocation accordion
+  openRaisedFundsAccordions.value[newAllocation.id] = true
 }
 
 const removeCustomAllocation = (index) => {
@@ -1087,39 +1453,52 @@ watch(customAllocations, (newAllocations) => {
   })
 }, { deep: true, immediate: false })
 
-// Watch for changes and emit to parent
-watch([teamPercentage, currentRaisedAmount, teamRecipients, customAllocations, dexConfig, availableDexs], () => {
-  const allocationData = {
-    teamAllocation: teamAmount.value.toString(),
-    teamAllocationPercentage: teamPercentage.value,
-    simulatedRaisedAmount: currentRaisedAmount.value,
-    teamRecipients: teamRecipients.value,
-    customAllocations: customAllocations.value.map(allocation => ({
-      id: allocation.id,
-      name: allocation.name,
-      percentage: allocation.percentage,
-      amount: calculateAllocationAmount(allocation.percentage).toString(),
-      recipients: allocation.recipients
-    })),
-    totalAllocationPercentage: totalAllocationPercentage.value,
-    totalAllocationAmount: totalAllocationAmount.value.toString(),
-    remainingPercentage: remainingPercentage.value,
-    remainingAmount: remainingAmount.value.toString(),
-    // DEX Configuration
-    dexConfig: {
-      autoList: dexConfig.value.autoList,
-      platform: dexConfig.value.platform,
-      liquidityPercentage: dexConfig.value.liquidityPercentage,
-      liquidityLockDays: dexConfig.value.liquidityLockDays,
-      lpTokenRecipient: dexConfig.value.lpTokenRecipient,
-      totalLiquidityToken: '', // Will be calculated in parent
-      calculatedLiquidityAmount: calculatedDexLiquidity.value.toString()
-    },
-    // Available DEX platforms with calculations
-    availableDexs: availableDexs.value
+// Watch for changes and emit to parent (with debouncing)
+watch([teamPercentage, currentRaisedAmount, teamRecipients, teamVestingSchedule, customAllocations, dexConfig, availableDexs], () => {
+  // Skip if we're updating from props to prevent recursive loop
+  if (isUpdatingFromProps) return
+  
+  // Clear previous timeout
+  if (updateTimeout) {
+    clearTimeout(updateTimeout)
   }
+  
+  // Debounce updates to prevent excessive emissions
+  updateTimeout = setTimeout(() => {
+    const allocationData = {
+      teamAllocation: teamAmount.value.toString(),
+      teamAllocationPercentage: teamPercentage.value,
+      simulatedRaisedAmount: currentRaisedAmount.value,
+      teamRecipients: teamRecipients.value,
+      teamVestingSchedule: teamVestingSchedule.value,
+      customAllocations: customAllocations.value.map(allocation => ({
+        id: allocation.id,
+        name: allocation.name,
+        percentage: allocation.percentage,
+        amount: calculateAllocationAmount(allocation.percentage).toString(),
+        recipients: allocation.recipients,
+        vestingSchedule: allocation.vestingSchedule
+      })),
+      totalAllocationPercentage: totalAllocationPercentage.value,
+      totalAllocationAmount: totalAllocationAmount.value.toString(),
+      remainingPercentage: remainingPercentage.value,
+      remainingAmount: remainingAmount.value.toString(),
+      // DEX Configuration
+      dexConfig: {
+        autoList: dexConfig.value.autoList,
+        platform: dexConfig.value.platform,
+        liquidityPercentage: dexConfig.value.liquidityPercentage,
+        liquidityLockDays: dexConfig.value.liquidityLockDays,
+        lpTokenRecipient: dexConfig.value.lpTokenRecipient,
+        totalLiquidityToken: '', // Will be calculated in parent
+        calculatedLiquidityAmount: calculatedDexLiquidity.value.toString()
+      },
+      // Available DEX platforms with calculations
+      availableDexs: availableDexs.value
+    }
 
-  emit('update:modelValue', allocationData)
+    emit('update:modelValue', allocationData)
+  }, 100) // 100ms debounce
 }, { deep: true })
 
 // Watch modelValue to restore state when component remounts
@@ -1127,6 +1506,9 @@ watch(
   () => props.modelValue,
   (newValue) => {
     if (newValue && typeof newValue === 'object') {
+      // Set flag to prevent recursive updates
+      isUpdatingFromProps = true
+      
       // Restore DEX config
       if (newValue.dexConfig) {
         dexConfig.value = {
@@ -1148,13 +1530,19 @@ watch(
         teamRecipients.value = [...newValue.teamRecipients]
       }
 
+      // Restore team vesting schedule
+      if (newValue.teamVestingSchedule !== undefined) {
+        teamVestingSchedule.value = newValue.teamVestingSchedule
+      }
+
       // Restore custom allocations
       if (newValue.customAllocations && Array.isArray(newValue.customAllocations)) {
         customAllocations.value = newValue.customAllocations.map(alloc => ({
           id: alloc.id,
           name: alloc.name,
           percentage: alloc.percentage,
-          recipients: [...(alloc.recipients || [])]
+          recipients: [...(alloc.recipients || [])],
+          vestingSchedule: alloc.vestingSchedule || null
         }))
       }
 
@@ -1167,6 +1555,11 @@ watch(
       if (newValue.simulatedRaisedAmount) {
         currentRaisedAmount.value = newValue.simulatedRaisedAmount
       }
+      
+      // Reset flag after all updates complete
+      nextTick(() => {
+        isUpdatingFromProps = false
+      })
     }
   },
   { immediate: true, deep: true }
@@ -1185,6 +1578,35 @@ watch([softCapNumber, hardCapNumber], ([newSoftCap, newHardCap]) => {
 // Debug prop values
 watch(() => [props.softCap, props.hardCap], ([softCap, hardCap]) => {
   console.log('Props changed:', { softCap, hardCap, softCapNumber: softCapNumber.value, hardCapNumber: hardCapNumber.value })
+}, { immediate: true })
+
+// DEX Configuration Watchers
+watch(lpAllocationMethod, (newMethod) => {
+  console.log('LP Allocation Method changed to:', newMethod)
+  nextTick(() => {
+    emitDexConfig()
+  })
+})
+
+watch([lpTokenPercentage, lpRaisedPercentage], ([newTokenPercentage, newRaisedPercentage]) => {
+  console.log('LP percentages changed:', { token: newTokenPercentage, raised: newRaisedPercentage })
+  nextTick(() => {
+    emitDexConfig()
+  })
+})
+
+// Debug watcher để kiểm tra calculated values
+watch([lpAllocationMethod, lpTokenPercentage, lpRaisedPercentage, calculatedTokenAmount, calculatedIcpAmount, calculatedTokenFromRaised, estimatedIcpNeeded], 
+  ([method, tokenPct, raisedPct, tokenAmt, icpAmt, tokenFromRaised, icpNeeded]) => {
+  console.log('LP calculations updated:', {
+    method,
+    tokenPct,
+    raisedPct,
+    tokenAmt,
+    icpAmt,
+    tokenFromRaised,
+    icpNeeded
+  })
 }, { immediate: true })
 
 // ===== DEX CONFIGURATION FUNCTIONS FROM MULTIDEXCONFIGURATION =====
@@ -1397,6 +1819,35 @@ const copylpTokenRecipient = () => {
 // Format number helper
 const formatNumber = (value) => {
   return InputMask.formatTokenAmount(value, 2)
+}
+
+// Accordion toggle function for raised funds sections
+const toggleRaisedFundsAccordion = (section) => {
+  openRaisedFundsAccordions.value[section] = !openRaisedFundsAccordions.value[section]
+}
+
+// Validation functions
+const isValidPrincipal = (principal) => {
+  if (!principal || typeof principal !== 'string') return false
+  // Basic principal validation: should have dashes and reasonable length
+  return principal.length >= 10 && principal.includes('-') && /^[a-z0-9-]+$/.test(principal)
+}
+
+// Calculate team recipients total percentage
+const teamRecipientsTotalPercentage = computed(() => {
+  return teamRecipients.value.reduce((sum, recipient) => sum + (recipient.percentage || 0), 0)
+})
+
+// Calculate custom allocation recipients total percentage
+const getCustomAllocationRecipientsTotalPercentage = (allocationId) => {
+  const allocation = customAllocations.value.find(a => a.id === allocationId)
+  if (!allocation) return 0
+  return allocation.recipients.reduce((sum, recipient) => sum + (recipient.percentage || 0), 0)
+}
+
+// Calculate recipient amount based on percentage of category total
+const getRecipientAmount = (percentage, categoryTotal) => {
+  return (categoryTotal * (percentage || 0)) / 100
 }
 </script>
 

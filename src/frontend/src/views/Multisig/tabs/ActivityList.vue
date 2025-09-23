@@ -33,7 +33,7 @@
                 >
                     <option value="">All Wallets</option>
                     <option v-for="wallet in uniqueWallets" :key="wallet.id" :value="wallet.id">
-                        {{ wallet.name }}
+                        {{ wallet.config.name }}
                     </option>
                 </select>
             </div>

@@ -35,124 +35,207 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
     ],
     data: {
       // Project Information
-      projectName: '',
-      description: '',
-      website: '',
-      twitter: '',
-      telegram: '',
-      
+      projectInfo: {
+        name: '',
+        description: '',
+        logo: '',
+        website: '',
+        telegram: '',
+        twitter: '',
+        discord: '',
+        github: '',
+        isAudited: false,
+        auditReport: '',
+        isKYCed: false,
+        kycProvider: '',
+        tags: [],
+        category: 'DeFi',
+        blockIdRequired: 0
+      },
+
       // Sale Token Configuration
-      saleTokenName: '',
-      saleTokenSymbol: '',
-      saleTokenDecimals: 8,
-      saleTokenTotalSupply: '1000000',
-      saleTokenTransferFee: '0.0001',
-      
+      saleToken: {
+        symbol: '',
+        name: '',
+        decimals: 8,
+        totalSupply: '1000000',
+        transferFee: '0.0001',
+        logo: '',
+        description: '',
+        website: '',
+        standard: 'ICRC-2'
+      },
+
       // Purchase Token Configuration
-      purchaseToken: 'ICP',
-      
+      purchaseToken: {
+        canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai', // ICP Ledger
+        symbol: 'ICP',
+        name: 'Internet Computer',
+        decimals: 8,
+        totalSupply: '0',
+        transferFee: '0.0001',
+        standard: 'ICRC-2'
+      },
+
       // Sale Parameters
-      saleType: 'PublicSale',
-      allocationMethod: 'FirstComeFirstServe',
-      tokenPrice: '0.1',
-      softCap: '1000',
-      hardCap: '10000',
-      minContribution: '10',
-      maxContribution: '1000',
-      totalSaleAmount: '100000',
-      requiresWhitelist: false,
-      requiresKYC: false,
-      
-      // Timeline (30 days from now)
-      saleStart: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
-      saleEnd: new Date(Date.now() + 37 * 24 * 60 * 60 * 1000), // 37 days from now
-      claimStart: new Date(Date.now() + 38 * 24 * 60 * 60 * 1000), // 38 days from now
-      
-      // Vesting Schedule
-      vestingEnabled: true,
-      tgePercentage: 30,
-      cliffDuration: 30, // 30 days
-      vestingDuration: 180, // 6 months
-      vestingInterval: 30, // monthly
-      
-      // Token Distribution
-      distribution: [
-        {
-          category: 'Public Sale',
+      saleParams: {
+        saleType: 'FairLaunch',
+        allocationMethod: 'FirstComeFirstServe',
+        totalSaleAmount: '100000',
+        softCap: '1000',
+        hardCap: '10000',
+        tokenPrice: '0.1',
+        minContribution: '10',
+        maxContribution: '1000',
+        requiresWhitelist: false,
+        requiresKYC: false,
+        blockIdRequired: 0,
+        restrictedRegions: [],
+        whitelistMode: 'Closed',
+        whitelistEntries: []
+      },
+
+      // Timeline
+      timeline: {
+        createdAt: new Date().toISOString(),
+        saleStart: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        saleEnd: new Date(Date.now() + 37 * 24 * 60 * 60 * 1000).toISOString(),
+        claimStart: new Date(Date.now() + 38 * 24 * 60 * 60 * 1000).toISOString()
+      },
+
+      // Token Distribution - Fixed Allocation Structure
+      distribution: {
+        sale: {
+          name: 'Public Sale',
           percentage: 40,
           totalAmount: '400000',
-          recipients: []
+          vestingSchedule: {
+            initialUnlock: 30,
+            cliff: BigInt(30 * 24 * 60 * 60 * 1_000_000_000), // 30 days
+            duration: BigInt(180 * 24 * 60 * 60 * 1_000_000_000), // 180 days
+            frequency: { Monthly: null }
+          },
+          description: 'Public sale allocation for investors'
         },
-        {
-          category: 'Team',
+        team: {
+          name: 'Team',
           percentage: 20,
           totalAmount: '200000',
-          recipients: []
+          vestingSchedule: {
+            initialUnlock: 0,
+            cliff: BigInt(180 * 24 * 60 * 60 * 1_000_000_000), // 180 days
+            duration: BigInt(720 * 24 * 60 * 60 * 1_000_000_000), // 720 days
+            frequency: { Monthly: null }
+          },
+          recipients: [],
+          description: 'Team and founder allocation'
         },
-        {
-          category: 'Development',
+        liquidityPool: {
+          name: 'Liquidity',
           percentage: 15,
           totalAmount: '150000',
-          recipients: []
+          autoCalculated: true,
+          description: 'DEX liquidity provision'
         },
-        {
-          category: 'Marketing',
-          percentage: 10,
-          totalAmount: '100000',
-          recipients: []
-        },
-        {
-          category: 'Liquidity',
-          percentage: 15,
-          totalAmount: '150000',
-          recipients: []
-        }
-      ],
-      
+        others: [
+          {
+            id: 'development',
+            name: 'Development',
+            percentage: 15,
+            totalAmount: '150000',
+            vestingEnabled: true,
+            vestingSchedule: {
+              cliffDays: 90,
+              durationDays: 360,
+              releaseFrequency: 'monthly',
+              immediateRelease: 25
+            },
+            recipients: [],
+            description: 'Development fund allocation'
+          },
+          {
+            id: 'marketing',
+            name: 'Marketing',
+            percentage: 10,
+            totalAmount: '100000',
+            vestingEnabled: true,
+            vestingSchedule: {
+              cliffDays: 30,
+              durationDays: 180,
+              releaseFrequency: 'monthly',
+              immediateRelease: 50
+            },
+            recipients: [],
+            description: 'Marketing and growth allocation'
+          }
+        ]
+      },
+
       // DEX Configuration
       dexConfig: {
-        platform: 'ICPSwap',
         enabled: true,
+        platform: 'ICPSwap',
         listingPrice: '0.12',
         totalLiquidityToken: '50000',
+        initialLiquidityToken: '50000',
+        initialLiquidityPurchase: '6000',
         liquidityLockDays: 180,
         autoList: true,
-        slippageTolerance: 5
+        slippageTolerance: 5,
+        fees: {
+          listingFee: '0',
+          transactionFee: 0.3
+        }
       },
-      
-      // Multi-DEX Support
-      multiDexEnabled: false,
-      multiDexConfig: {},
-      
+
       // Raised Funds Allocation
       raisedFundsAllocation: {
         teamAllocation: 30,
         developmentFund: 25,
         marketingFund: 15,
-        teamRecipients: []
+        liquidityFund: 30,
+        reserveFund: 0,
+        teamRecipients: [],
+        developmentRecipients: [],
+        marketingRecipients: [],
+        customAllocations: []
       },
-      
+
       // Affiliate Program
-      affiliateEnabled: false,
-      affiliateCommissionRate: 0,
-      
+      affiliateConfig: {
+        enabled: false,
+        commissionRate: 0,
+        maxTiers: 1,
+        tierRates: [0],
+        minPurchaseForCommission: '0',
+        paymentToken: 'ryjl3-tyaaa-aaaaa-aaaba-cai'
+      },
+
       // Governance Configuration
-      governanceEnabled: false,
-      
+      governanceConfig: {
+        enabled: false,
+        votingToken: '',
+        proposalThreshold: '0',
+        quorumPercentage: 10,
+        votingPeriod: '7',
+        timelockDuration: '2',
+        emergencyContacts: [],
+        initialGovernors: [],
+        autoActivateDAO: false
+      },
+
       // Security & Admin
+      whitelist: [],
+      blacklist: [],
       adminList: [],
       emergencyContacts: [],
       pausable: true,
       cancellable: true,
-      enableAuditLog: true,
       platformFeeRate: 2.5,
-      
-      // Whitelist Management
-      whitelist: [],
-      whitelistTiers: []
+      successFeeRate: 1
     }
   },
-  
+
   {
     id: 'defi-project',
     name: 'DeFi Project',
@@ -174,183 +257,222 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
       'Whitelist tiers'
     ],
     data: {
-      // Project Information
-      projectName: '',
-      description: '',
-      website: '',
-      twitter: '',
-      telegram: '',
-      discord: '',
-      whitepaper: '',
-      
-      // Sale Token Configuration
-      saleTokenName: '',
-      saleTokenSymbol: '',
-      saleTokenDecimals: 8,
-      saleTokenTotalSupply: '100000000',
-      saleTokenTransferFee: '0.0001',
-      
-      // Purchase Token Configuration
-      purchaseToken: 'ICP',
-      
-      // Sale Parameters
-      saleType: 'PublicSale',
-      allocationMethod: 'Proportional',
-      tokenPrice: '0.05',
-      softCap: '10000',
-      hardCap: '50000',
-      minContribution: '50',
-      maxContribution: '5000',
-      totalSaleAmount: '1000000',
-      requiresWhitelist: true,
-      requiresKYC: true,
-      
-      // Timeline
-      whitelistStart: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000), // 3 days
-      saleStart: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
-      saleEnd: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000), // 21 days
-      claimStart: new Date(Date.now() + 22 * 24 * 60 * 60 * 1000), // 22 days
-      
-      // Vesting Schedule
-      vestingEnabled: true,
-      tgePercentage: 20,
-      cliffDuration: 60, // 2 months
-      vestingDuration: 365, // 12 months
-      vestingInterval: 30, // monthly
-      
-      // Token Distribution
-      distribution: [
-        {
-          category: 'Public Sale',
-          percentage: 30,
-          totalAmount: '30000000',
-          recipients: []
+      projectInfo: {
+        name: '',
+        description: '',
+        logo: '',
+        website: '',
+        whitepaper: '',
+        telegram: '',
+        twitter: '',
+        discord: '',
+        github: '',
+        isAudited: true,
+        auditReport: '',
+        isKYCed: true,
+        kycProvider: '',
+        tags: ['DeFi', 'DEX', 'Governance'],
+        category: 'DeFi',
+        blockIdRequired: 0
+      },
+
+      saleToken: {
+        symbol: '',
+        name: '',
+        decimals: 8,
+        totalSupply: '100000000',
+        transferFee: '0.0001',
+        standard: 'ICRC-2'
+      },
+
+      purchaseToken: {
+        canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai',
+        symbol: 'ICP',
+        name: 'Internet Computer',
+        decimals: 8,
+        totalSupply: '0',
+        transferFee: '0.0001',
+        standard: 'ICRC-2'
+      },
+
+      saleParams: {
+        saleType: 'IDO',
+        allocationMethod: 'ProRata',
+        totalSaleAmount: '1000000',
+        softCap: '10000',
+        hardCap: '50000',
+        tokenPrice: '0.05',
+        minContribution: '50',
+        maxContribution: '5000',
+        requiresWhitelist: true,
+        requiresKYC: true,
+        blockIdRequired: 0,
+        restrictedRegions: [],
+        whitelistMode: 'OpenRegistration',
+        whitelistEntries: []
+      },
+
+      timeline: {
+        createdAt: new Date().toISOString(),
+        whitelistStart: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        saleStart: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        saleEnd: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString(),
+        claimStart: new Date(Date.now() + 22 * 24 * 60 * 60 * 1000).toISOString()
+      },
+
+      // Token Distribution - Fixed Allocation Structure
+      distribution: {
+        sale: {
+          name: 'IDO Sale',
+          percentage: 45, // Combined public + private
+          totalAmount: '45000000',
+          vestingSchedule: {
+            initialUnlock: 15,
+            cliff: BigInt(60 * 24 * 60 * 60 * 1_000_000_000), // 60 days
+            duration: BigInt(365 * 24 * 60 * 60 * 1_000_000_000), // 365 days
+            frequency: { Monthly: null }
+          },
+          description: 'IDO sale allocation for investors'
         },
-        {
-          category: 'Private Sale',
-          percentage: 15,
-          totalAmount: '15000000',
-          recipients: []
-        },
-        {
-          category: 'Team',
+        team: {
+          name: 'Team',
           percentage: 20,
           totalAmount: '20000000',
-          recipients: []
+          vestingSchedule: {
+            initialUnlock: 0,
+            cliff: BigInt(365 * 24 * 60 * 60 * 1_000_000_000), // 365 days
+            duration: BigInt(1095 * 24 * 60 * 60 * 1_000_000_000), // 3 years
+            frequency: { Monthly: null }
+          },
+          recipients: [],
+          description: 'Team and founder allocation'
         },
-        {
-          category: 'Development',
-          percentage: 15,
-          totalAmount: '15000000',
-          recipients: []
-        },
-        {
-          category: 'Liquidity',
+        liquidityPool: {
+          name: 'Liquidity',
           percentage: 10,
           totalAmount: '10000000',
-          recipients: []
+          autoCalculated: true,
+          description: 'Multi-DEX liquidity provision'
         },
-        {
-          category: 'Treasury',
-          percentage: 10,
-          totalAmount: '10000000',
-          recipients: []
-        }
-      ],
-      
-      // DEX Configuration
+        others: [
+          {
+            id: 'development',
+            name: 'Development',
+            percentage: 15,
+            totalAmount: '15000000',
+            vestingEnabled: true,
+            vestingSchedule: {
+              cliffDays: 180,
+              durationDays: 730,
+              releaseFrequency: 'monthly',
+              immediateRelease: 15
+            },
+            recipients: [],
+            description: 'Development and ecosystem fund'
+          },
+          {
+            id: 'treasury',
+            name: 'Treasury',
+            percentage: 10,
+            totalAmount: '10000000',
+            vestingEnabled: false,
+            recipients: [],
+            description: 'DAO treasury reserve'
+          }
+        ]
+      },
+
       dexConfig: {
-        platform: 'ICPSwap',
         enabled: true,
+        platform: 'ICPSwap',
         listingPrice: '0.06',
         totalLiquidityToken: '200000',
+        initialLiquidityToken: '200000',
+        initialLiquidityPurchase: '12000',
         liquidityLockDays: 365,
         autoList: true,
-        slippageTolerance: 3
-      },
-      
-      // Multi-DEX Support
-      multiDexEnabled: true,
-      multiDexConfig: {
-        ICPSwap: {
-          enabled: true,
-          listingPrice: '0.06',
-          liquidityAllocation: '40',
-          lockDays: 365,
-          autoList: true
-        },
-        Sonic: {
-          enabled: true,
-          listingPrice: '0.06',
-          liquidityAllocation: '35',
-          lockDays: 365,
-          autoList: true
-        },
-        KongSwap: {
-          enabled: true,
-          listingPrice: '0.06',
-          liquidityAllocation: '25',
-          lockDays: 365,
-          autoList: false
+        slippageTolerance: 3,
+        fees: {
+          listingFee: '0',
+          transactionFee: 0.3
         }
       },
-      
-      // Raised Funds Allocation
+
+      multiDexConfig: {
+        platforms: [
+          {
+            id: 'icpswap',
+            name: 'ICPSwap',
+            enabled: true,
+            allocationPercentage: 40,
+            calculatedTokenLiquidity: '80000',
+            calculatedPurchaseLiquidity: '4800',
+            fees: { listing: '0', transaction: 0.3 }
+          },
+          {
+            id: 'sonic',
+            name: 'Sonic',
+            enabled: true,
+            allocationPercentage: 35,
+            calculatedTokenLiquidity: '70000',
+            calculatedPurchaseLiquidity: '4200',
+            fees: { listing: '0', transaction: 0.25 }
+          },
+          {
+            id: 'kongswap',
+            name: 'KongSwap',
+            enabled: true,
+            allocationPercentage: 25,
+            calculatedTokenLiquidity: '50000',
+            calculatedPurchaseLiquidity: '3000',
+            fees: { listing: '0', transaction: 0.3 }
+          }
+        ],
+        totalLiquidityAllocation: '200000',
+        distributionStrategy: 'Weighted'
+      },
+
       raisedFundsAllocation: {
         teamAllocation: 25,
         developmentFund: 40,
         marketingFund: 20,
-        teamRecipients: []
+        liquidityFund: 15,
+        reserveFund: 0,
+        teamRecipients: [],
+        developmentRecipients: [],
+        marketingRecipients: [],
+        customAllocations: []
       },
-      
-      // Affiliate Program
-      affiliateEnabled: true,
-      affiliateCommissionRate: 5,
+
       affiliateConfig: {
-        maxCommission: 10,
-        tierStructure: [
-          { tier: 1, minReferrals: 1, commissionRate: 3 },
-          { tier: 2, minReferrals: 10, commissionRate: 5 },
-          { tier: 3, minReferrals: 50, commissionRate: 7 }
-        ]
+        enabled: true,
+        commissionRate: 5,
+        maxTiers: 3,
+        tierRates: [3, 5, 7],
+        minPurchaseForCommission: '100',
+        paymentToken: 'ryjl3-tyaaa-aaaaa-aaaba-cai'
       },
-      
-      // Governance Configuration
-      governanceEnabled: true,
+
       governanceConfig: {
+        enabled: true,
+        votingToken: '',
         proposalThreshold: '100000',
         quorumPercentage: 10,
-        votingPeriod: 7,
-        timelockDuration: 2,
-        enableDelegation: true
+        votingPeriod: '7',
+        timelockDuration: '2',
+        emergencyContacts: [],
+        initialGovernors: [],
+        autoActivateDAO: false
       },
-      
-      // Security & Admin
+
+      whitelist: [],
+      blacklist: [],
       adminList: [],
       emergencyContacts: [],
       pausable: true,
       cancellable: true,
-      enableAuditLog: true,
       platformFeeRate: 2.5,
-      
-      // Whitelist Management
-      whitelist: [],
-      whitelistTiers: [
-        {
-          tier: 1,
-          name: 'Gold Tier',
-          allocation: '2000',
-          maxContribution: '2000',
-          participants: []
-        },
-        {
-          tier: 2,
-          name: 'Silver Tier',
-          allocation: '1000',
-          maxContribution: '1000',
-          participants: []
-        }
-      ]
+      successFeeRate: 1
     }
   },
 
@@ -374,523 +496,172 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
       'BlockID verification'
     ],
     data: {
-      // Project Information
-      projectName: '',
-      description: '',
-      website: '',
-      twitter: '',
-      telegram: '',
-      discord: '',
-      
-      // Sale Token Configuration
-      saleTokenName: '',
-      saleTokenSymbol: '',
-      saleTokenDecimals: 8,
-      saleTokenTotalSupply: '10000000',
-      saleTokenTransferFee: '0.0001',
-      
-      // Purchase Token Configuration
-      purchaseToken: 'ICP',
-      
-      // Sale Parameters
-      saleType: 'FairLaunch',
-      allocationMethod: 'Lottery',
-      tokenPrice: '0.02',
-      softCap: '5000',
-      hardCap: '25000',
-      minContribution: '5',
-      maxContribution: '500', // Anti-whale protection
-      totalSaleAmount: '500000',
-      requiresWhitelist: true,
-      requiresKYC: false, // BlockID instead
-      
-      // Timeline
-      whitelistStart: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
-      saleStart: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000),
-      saleEnd: new Date(Date.now() + 17 * 24 * 60 * 60 * 1000),
-      claimStart: new Date(Date.now() + 18 * 24 * 60 * 60 * 1000),
-      
-      // Vesting Schedule
-      vestingEnabled: true,
-      tgePercentage: 25,
-      cliffDuration: 30,
-      vestingDuration: 270, // 9 months
-      vestingInterval: 30,
-      
-      // Token Distribution
-      distribution: [
-        {
-          category: 'Community Sale',
+      projectInfo: {
+        name: '',
+        description: '',
+        logo: '',
+        website: '',
+        telegram: '',
+        twitter: '',
+        discord: '',
+        github: '',
+        isAudited: false,
+        auditReport: '',
+        isKYCed: false,
+        kycProvider: '',
+        tags: ['Community', 'Governance', 'Fair Launch'],
+        category: 'SocialFi',
+        blockIdRequired: 50
+      },
+
+      saleToken: {
+        symbol: '',
+        name: '',
+        decimals: 8,
+        totalSupply: '10000000',
+        transferFee: '0.0001',
+        standard: 'ICRC-2'
+      },
+
+      purchaseToken: {
+        canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai',
+        symbol: 'ICP',
+        name: 'Internet Computer',
+        decimals: 8,
+        totalSupply: '0',
+        transferFee: '0.0001',
+        standard: 'ICRC-2'
+      },
+
+      saleParams: {
+        saleType: 'FairLaunch',
+        allocationMethod: 'Lottery',
+        totalSaleAmount: '500000',
+        softCap: '5000',
+        hardCap: '25000',
+        tokenPrice: '0.02',
+        minContribution: '5',
+        maxContribution: '500',
+        requiresWhitelist: true,
+        requiresKYC: false,
+        blockIdRequired: 50,
+        restrictedRegions: [],
+        whitelistMode: 'OpenRegistration',
+        whitelistEntries: []
+      },
+
+      timeline: {
+        createdAt: new Date().toISOString(),
+        whitelistStart: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString(),
+        saleStart: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        saleEnd: new Date(Date.now() + 17 * 24 * 60 * 60 * 1000).toISOString(),
+        claimStart: new Date(Date.now() + 18 * 24 * 60 * 60 * 1000).toISOString()
+      },
+
+      // Token Distribution - Fixed Allocation Structure
+      distribution: {
+        sale: {
+          name: 'Community Sale',
           percentage: 50,
           totalAmount: '5000000',
-          recipients: []
+          vestingSchedule: {
+            initialUnlock: 25,
+            cliff: BigInt(30 * 24 * 60 * 60 * 1_000_000_000), // 30 days
+            duration: BigInt(270 * 24 * 60 * 60 * 1_000_000_000), // 270 days
+            frequency: { Monthly: null }
+          },
+          description: 'Fair launch community sale'
         },
-        {
-          category: 'Community Treasury',
-          percentage: 25,
-          totalAmount: '2500000',
-          recipients: []
-        },
-        {
-          category: 'Team',
+        team: {
+          name: 'Team',
           percentage: 15,
           totalAmount: '1500000',
-          recipients: []
+          vestingSchedule: {
+            initialUnlock: 0,
+            cliff: BigInt(180 * 24 * 60 * 60 * 1_000_000_000), // 180 days
+            duration: BigInt(540 * 24 * 60 * 60 * 1_000_000_000), // 540 days
+            frequency: { Monthly: null }
+          },
+          recipients: [],
+          description: 'Team allocation with long vesting'
         },
-        {
-          category: 'Development',
+        liquidityPool: {
+          name: 'Liquidity',
           percentage: 10,
           totalAmount: '1000000',
-          recipients: []
-        }
-      ],
-      
-      // DEX Configuration
+          autoCalculated: true,
+          description: 'Community-owned liquidity'
+        },
+        others: [
+          {
+            id: 'treasury',
+            name: 'Community Treasury',
+            percentage: 25,
+            totalAmount: '2500000',
+            vestingEnabled: false,
+            recipients: [],
+            description: 'Community-governed treasury'
+          }
+        ]
+      },
+
       dexConfig: {
-        platform: 'Sonic',
         enabled: true,
+        platform: 'Sonic',
         listingPrice: '0.025',
         totalLiquidityToken: '100000',
+        initialLiquidityToken: '100000',
+        initialLiquidityPurchase: '2500',
         liquidityLockDays: 180,
         autoList: true,
-        slippageTolerance: 5
+        slippageTolerance: 5,
+        fees: {
+          listingFee: '0',
+          transactionFee: 0.25
+        }
       },
-      
-      // Multi-DEX Support
-      multiDexEnabled: false,
-      multiDexConfig: {},
-      
-      // Raised Funds Allocation
+
       raisedFundsAllocation: {
         teamAllocation: 20,
         developmentFund: 50,
         marketingFund: 30,
-        teamRecipients: []
+        liquidityFund: 0,
+        reserveFund: 0,
+        teamRecipients: [],
+        developmentRecipients: [],
+        marketingRecipients: [],
+        customAllocations: []
       },
-      
-      // Affiliate Program
-      affiliateEnabled: true,
-      affiliateCommissionRate: 3,
-      
-      // Governance Configuration
-      governanceEnabled: true,
+
+      affiliateConfig: {
+        enabled: true,
+        commissionRate: 3,
+        maxTiers: 1,
+        tierRates: [3],
+        minPurchaseForCommission: '10',
+        paymentToken: 'ryjl3-tyaaa-aaaaa-aaaba-cai'
+      },
+
       governanceConfig: {
+        enabled: true,
+        votingToken: '',
         proposalThreshold: '50000',
         quorumPercentage: 5,
-        votingPeriod: 5,
-        timelockDuration: 1,
-        enableDelegation: true
+        votingPeriod: '5',
+        timelockDuration: '1',
+        emergencyContacts: [],
+        initialGovernors: [],
+        autoActivateDAO: false
       },
-      
-      // Security & Admin
-      adminList: [],
-      emergencyContacts: [],
-      pausable: true,
-      cancellable: true,
-      enableAuditLog: true,
-      platformFeeRate: 2.5,
-      
-      // Whitelist Management
-      whitelist: [],
-      whitelistTiers: []
-    }
-  },
 
-  {
-    id: 'enterprise-token',
-    name: 'Enterprise Solution',
-    description: 'Enterprise-grade token launch with maximum security, compliance, and advanced features.',
-    complexity: 'enterprise',
-    icon: '🏢',
-    badge: 'Premium',
-    recommendedFor: [
-      'Enterprise companies',
-      'Regulated industries',
-      'Large-scale projects',
-      'Institutional investors'
-    ],
-    features: [
-      'Full compliance suite',
-      'Institutional-grade security',
-      'Multi-signature controls',
-      'Advanced analytics',
-      'Priority support',
-      'Custom integrations'
-    ],
-    data: {
-      // Project Information
-      projectName: '',
-      description: '',
-      website: '',
-      twitter: '',
-      telegram: '',
-      discord: '',
-      whitepaper: '',
-      
-      // Sale Token Configuration
-      saleTokenName: '',
-      saleTokenSymbol: '',
-      saleTokenDecimals: 8,
-      saleTokenTotalSupply: '1000000000',
-      saleTokenTransferFee: '0.0001',
-      
-      // Purchase Token Configuration
-      purchaseToken: 'ICP',
-      
-      // Sale Parameters
-      saleType: 'PrivateSale',
-      allocationMethod: 'Proportional',
-      tokenPrice: '0.10',
-      softCap: '100000',
-      hardCap: '500000',
-      minContribution: '1000',
-      maxContribution: '50000',
-      totalSaleAmount: '5000000',
-      requiresWhitelist: true,
-      requiresKYC: true,
-      
-      // Timeline
-      whitelistStart: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-      saleStart: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000),
-      saleEnd: new Date(Date.now() + 35 * 24 * 60 * 60 * 1000),
-      claimStart: new Date(Date.now() + 42 * 24 * 60 * 60 * 1000),
-      
-      // Vesting Schedule
-      vestingEnabled: true,
-      tgePercentage: 10,
-      cliffDuration: 90, // 3 months
-      vestingDuration: 730, // 24 months
-      vestingInterval: 30,
-      
-      // Token Distribution
-      distribution: [
-        {
-          category: 'Private Sale',
-          percentage: 15,
-          totalAmount: '150000000',
-          recipients: []
-        },
-        {
-          category: 'Public Sale',
-          percentage: 10,
-          totalAmount: '100000000',
-          recipients: []
-        },
-        {
-          category: 'Team',
-          percentage: 20,
-          totalAmount: '200000000',
-          recipients: []
-        },
-        {
-          category: 'Advisors',
-          percentage: 5,
-          totalAmount: '50000000',
-          recipients: []
-        },
-        {
-          category: 'Development',
-          percentage: 25,
-          totalAmount: '250000000',
-          recipients: []
-        },
-        {
-          category: 'Marketing',
-          percentage: 10,
-          totalAmount: '100000000',
-          recipients: []
-        },
-        {
-          category: 'Liquidity',
-          percentage: 10,
-          totalAmount: '100000000',
-          recipients: []
-        },
-        {
-          category: 'Reserve',
-          percentage: 5,
-          totalAmount: '50000000',
-          recipients: []
-        }
-      ],
-      
-      // DEX Configuration
-      dexConfig: {
-        platform: 'ICPSwap',
-        enabled: true,
-        listingPrice: '0.15',
-        totalLiquidityToken: '1000000',
-        liquidityLockDays: 730,
-        autoList: true,
-        slippageTolerance: 2
-      },
-      
-      // Multi-DEX Support
-      multiDexEnabled: true,
-      multiDexConfig: {
-        ICPSwap: {
-          enabled: true,
-          listingPrice: '0.15',
-          liquidityAllocation: '50',
-          lockDays: 730,
-          autoList: true
-        },
-        Sonic: {
-          enabled: true,
-          listingPrice: '0.15',
-          liquidityAllocation: '30',
-          lockDays: 730,
-          autoList: true
-        },
-        KongSwap: {
-          enabled: true,
-          listingPrice: '0.15',
-          liquidityAllocation: '20',
-          lockDays: 730,
-          autoList: true
-        }
-      },
-      
-      // Raised Funds Allocation
-      raisedFundsAllocation: {
-        teamAllocation: 15,
-        developmentFund: 50,
-        marketingFund: 25,
-        teamRecipients: []
-      },
-      
-      // Affiliate Program
-      affiliateEnabled: true,
-      affiliateCommissionRate: 2,
-      affiliateConfig: {
-        maxCommission: 5,
-        tierStructure: [
-          { tier: 1, minReferrals: 5, commissionRate: 1 },
-          { tier: 2, minReferrals: 25, commissionRate: 2 },
-          { tier: 3, minReferrals: 100, commissionRate: 3 }
-        ]
-      },
-      
-      // Governance Configuration
-      governanceEnabled: true,
-      governanceConfig: {
-        proposalThreshold: '1000000',
-        quorumPercentage: 15,
-        votingPeriod: 14,
-        timelockDuration: 7,
-        enableDelegation: true
-      },
-      
-      // Security & Admin
+      whitelist: [],
+      blacklist: [],
       adminList: [],
       emergencyContacts: [],
       pausable: true,
       cancellable: true,
-      enableAuditLog: true,
       platformFeeRate: 2.5,
-      
-      // Whitelist Management
-      whitelist: [],
-      whitelistTiers: [
-        {
-          tier: 1,
-          name: 'Institutional',
-          allocation: '25000',
-          maxContribution: '50000',
-          participants: []
-        },
-        {
-          tier: 2,
-          name: 'Premium',
-          allocation: '10000',
-          maxContribution: '25000',
-          participants: []
-        },
-        {
-          tier: 3,
-          name: 'Standard',
-          allocation: '5000',
-          maxContribution: '10000',
-          participants: []
-        }
-      ]
-    }
-  },
-
-  {
-    id: 'gaming-token',
-    name: 'Gaming Token',
-    description: 'Gaming-focused token with play-to-earn mechanics and community rewards.',
-    complexity: 'intermediate',
-    icon: '🎮',
-    recommendedFor: [
-      'Gaming projects',
-      'NFT games',
-      'Metaverse platforms',
-      'Play-to-earn projects'
-    ],
-    features: [
-      'Gaming-optimized tokenomics',
-      'Reward pools',
-      'Community governance',
-      'Anti-bot protection',
-      'Seasonal campaigns'
-    ],
-    data: {
-      // Project Information
-      projectName: '',
-      description: '',
-      website: '',
-      twitter: '',
-      telegram: '',
-      discord: '',
-      
-      // Sale Token Configuration
-      saleTokenName: '',
-      saleTokenSymbol: '',
-      saleTokenDecimals: 8,
-      saleTokenTotalSupply: '50000000',
-      saleTokenTransferFee: '0.0001',
-      
-      // Purchase Token Configuration
-      purchaseToken: 'ICP',
-      
-      // Sale Parameters
-      saleType: 'PublicSale',
-      allocationMethod: 'FirstComeFirstServe',
-      tokenPrice: '0.08',
-      softCap: '8000',
-      hardCap: '40000',
-      minContribution: '20',
-      maxContribution: '2000',
-      totalSaleAmount: '500000',
-      requiresWhitelist: true,
-      requiresKYC: false,
-      
-      // Timeline
-      whitelistStart: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      saleStart: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
-      saleEnd: new Date(Date.now() + 28 * 24 * 60 * 60 * 1000),
-      claimStart: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-      
-      // Vesting Schedule
-      vestingEnabled: true,
-      tgePercentage: 40,
-      cliffDuration: 14, // 2 weeks
-      vestingDuration: 120, // 4 months
-      vestingInterval: 14, // bi-weekly
-      
-      // Token Distribution
-      distribution: [
-        {
-          category: 'Public Sale',
-          percentage: 25,
-          totalAmount: '12500000',
-          recipients: []
-        },
-        {
-          category: 'Game Rewards',
-          percentage: 30,
-          totalAmount: '15000000',
-          recipients: []
-        },
-        {
-          category: 'Team',
-          percentage: 15,
-          totalAmount: '7500000',
-          recipients: []
-        },
-        {
-          category: 'Development',
-          percentage: 15,
-          totalAmount: '7500000',
-          recipients: []
-        },
-        {
-          category: 'Marketing',
-          percentage: 10,
-          totalAmount: '5000000',
-          recipients: []
-        },
-        {
-          category: 'Liquidity',
-          percentage: 5,
-          totalAmount: '2500000',
-          recipients: []
-        }
-      ],
-      
-      // DEX Configuration
-      dexConfig: {
-        platform: 'KongSwap',
-        enabled: true,
-        listingPrice: '0.10',
-        totalLiquidityToken: '75000',
-        liquidityLockDays: 90,
-        autoList: true,
-        slippageTolerance: 8
-      },
-      
-      // Multi-DEX Support
-      multiDexEnabled: false,
-      multiDexConfig: {},
-      
-      // Raised Funds Allocation
-      raisedFundsAllocation: {
-        teamAllocation: 25,
-        developmentFund: 45,
-        marketingFund: 30,
-        teamRecipients: []
-      },
-      
-      // Affiliate Program
-      affiliateEnabled: true,
-      affiliateCommissionRate: 8,
-      affiliateConfig: {
-        maxCommission: 15,
-        tierStructure: [
-          { tier: 1, minReferrals: 3, commissionRate: 5 },
-          { tier: 2, minReferrals: 15, commissionRate: 8 },
-          { tier: 3, minReferrals: 50, commissionRate: 12 }
-        ]
-      },
-      
-      // Governance Configuration
-      governanceEnabled: true,
-      governanceConfig: {
-        proposalThreshold: '25000',
-        quorumPercentage: 8,
-        votingPeriod: 3,
-        timelockDuration: 1,
-        enableDelegation: true
-      },
-      
-      // Security & Admin
-      adminList: [],
-      emergencyContacts: [],
-      pausable: true,
-      cancellable: true,
-      enableAuditLog: true,
-      platformFeeRate: 2.5,
-      
-      // Whitelist Management
-      whitelist: [],
-      whitelistTiers: [
-        {
-          tier: 1,
-          name: 'Early Gamers',
-          allocation: '1500',
-          maxContribution: '1500',
-          participants: []
-        },
-        {
-          tier: 2,
-          name: 'Community',
-          allocation: '750',
-          maxContribution: '750',
-          participants: []
-        }
-      ]
+      successFeeRate: 1
     }
   }
 ]
