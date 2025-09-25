@@ -1,64 +1,122 @@
 <template>
   <div class="flex flex-col gap-6 p-2">
-    <!-- Proposal Type Selection -->
-    <div class="space-y-3">
-      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-        Proposal Type
-      </label>
-      <div class="grid grid-cols-2 gap-3">
+    <!-- Step Indicator -->
+    <div class="flex items-center justify-center space-x-4 mb-4">
+      <div class="flex items-center">
+        <div class="flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium"
+             :class="currentStep === 1 ? 'bg-blue-600 text-white' : 'bg-green-600 text-white'">
+          1
+        </div>
+        <span class="ml-2 text-sm font-medium" :class="currentStep === 1 ? 'text-blue-600' : 'text-green-600'">
+          Choose Type
+        </span>
+      </div>
+      <div class="w-12 h-0.5" :class="currentStep === 2 ? 'bg-blue-600' : 'bg-gray-300'"></div>
+      <div class="flex items-center">
+        <div class="flex items-center justify-center w-8 h-8 rounded-full text-sm font-medium"
+             :class="currentStep === 2 ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-500'">
+          2
+        </div>
+        <span class="ml-2 text-sm font-medium" :class="currentStep === 2 ? 'text-blue-600' : 'text-gray-500'">
+          Details
+        </span>
+      </div>
+    </div>
+
+    <!-- Step 1: Proposal Type Selection -->
+    <div v-if="currentStep === 1" class="space-y-6">
+      <div class="text-center">
+        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          Select Proposal Type
+        </h3>
+        <p class="text-sm text-gray-500 dark:text-gray-400">
+          Choose the type of proposal you want to create
+        </p>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4">
         <button
           v-for="type in proposalTypes"
           :key="type.value"
-          @click="formData.type = type.value"
-          :class="[
-            formData.type === type.value
-              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400'
-              : 'border-gray-300 dark:border-gray-600 hover:border-gray-400',
-            'flex items-center p-4 border-2 rounded-lg transition-colors'
-          ]"
+          @click="selectProposalType(type.value)"
+          class="flex items-center p-4 border-2 border-gray-200 dark:border-gray-700 rounded-xl hover:border-blue-300 dark:hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all group"
         >
-          <component :is="type.icon" class="h-5 w-5 mr-3" :class="type.iconColor" />
-          <div class="text-left">
-            <div class="text-sm font-medium text-gray-900 dark:text-white">
+          <div class="flex items-center justify-center w-12 h-12 rounded-lg mr-4"
+               :class="type.bgColor">
+            <component :is="type.icon" class="h-6 w-6" :class="type.iconColor" />
+          </div>
+          <div class="flex-1 text-left">
+            <div class="text-base font-medium text-gray-900 dark:text-white group-hover:text-blue-600 dark:group-hover:text-blue-400">
               {{ type.label }}
             </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">
+            <div class="text-sm text-gray-500 dark:text-gray-400 mt-1">
               {{ type.description }}
             </div>
           </div>
+          <ArrowRightIcon class="h-5 w-5 text-gray-400 group-hover:text-blue-500" />
         </button>
       </div>
     </div>
 
-    <!-- Basic Info -->
-    <div class="space-y-4">
-      <div class="space-y-2">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Title
-        </label>
-        <input
-          v-model="formData.title"
-          type="text"
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          placeholder="Enter proposal title..."
-        />
+    <!-- Step 2: Proposal Details -->
+    <div v-else-if="currentStep === 2" class="space-y-6">
+      <div class="mb-6">
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center space-x-3">
+            <div class="flex items-center justify-center w-10 h-10 rounded-lg"
+                 :class="selectedType?.bgColor">
+              <component :is="selectedType?.icon" class="h-5 w-5" :class="selectedType?.iconColor" />
+            </div>
+            <div class="text-left">
+              <h3 class="text-lg font-medium text-gray-900 dark:text-white">
+                {{ selectedType?.label }}
+              </h3>
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                {{ selectedType?.description }}
+              </p>
+            </div>
+          </div>
+          <button
+            @click="goBackToTypeSelection"
+            class="flex items-center px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 transition-colors"
+          >
+            <ArrowLeftIcon class="h-4 w-4 mr-2" />
+            Back
+          </button>
+        </div>
       </div>
 
-      <div class="space-y-2">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Description
-        </label>
-        <textarea
-          v-model="formData.description"
-          rows="3"
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          placeholder="Describe the purpose of this proposal..."
-        />
-      </div>
-    </div>
+      <!-- Basic Info -->
+      <div class="space-y-4">
+        <div class="space-y-2">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Title
+          </label>
+          <input
+            v-model="formData.title"
+            type="text"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            placeholder="Enter proposal title..."
+          />
+        </div>
 
-    <!-- Transfer Fields -->
-    <div v-if="formData.type === 'transfer'" class="space-y-6">
+        <div class="space-y-2">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Description
+          </label>
+          <textarea
+            v-model="formData.description"
+            rows="3"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            placeholder="Describe the purpose of this proposal..."
+          />
+        </div>
+      </div>
+
+      <!-- Type-specific Forms -->
+      <div class="space-y-6" :key="formData.type">
+        <!-- Transfer Fields -->
+        <div v-if="formData.type === 'transfer'" class="space-y-6">
       <!-- Asset Selection -->
       <div class="space-y-3">
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -300,43 +358,126 @@
       </div>
     </div>
 
-    <!-- Summary -->
-    <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
-      <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-2">Proposal Summary</h4>
-      <div class="text-sm text-gray-600 dark:text-gray-400">
-        <p><strong>Type:</strong> {{ getTypeLabel(formData.type) }}</p>
-        <p><strong>Required Signatures:</strong> {{ wallet?.config?.threshold || wallet?.threshold }}/{{ wallet?.signers?.length || wallet?.totalSigners }}</p>
-        <p v-if="formData.type === 'transfer' && formData.amount && formData.recipient">
-          <strong>Transfer:</strong> {{ formData.amount }} ICP to {{ formatPrincipal(formData.recipient) }}
+    <!-- Observer Management Fields -->
+    <div v-else-if="formData.type === 'add_observer' || formData.type === 'remove_observer'" class="space-y-4">
+      <div class="space-y-2">
+        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          {{ formData.type === 'add_observer' ? 'Observer' : 'Observer to Remove' }} Address
+        </label>
+        <input
+          v-model="formData.targetObserver"
+          type="text"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono text-sm"
+          placeholder="Enter observer principal ID..."
+        />
+      </div>
+
+      <div class="space-y-2" v-if="formData.type === 'add_observer'">
+        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          Observer Name (Optional)
+        </label>
+        <input
+          v-model="formData.observerName"
+          type="text"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          placeholder="Enter observer name..."
+        />
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          Observers can view wallet information but cannot create or sign proposals
         </p>
       </div>
     </div>
 
-    <!-- Warning -->
-    <div class="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-900/20">
-      <AlertTriangle class="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
-      <p class="text-sm text-yellow-700 dark:text-yellow-400">
-        Once created, this proposal will require {{ wallet?.config?.threshold || wallet?.threshold }} signatures to execute.
-        Please review all details carefully before creating.
-      </p>
-    </div>
+    <!-- Visibility Change Fields -->
+    <div v-else-if="formData.type === 'change_visibility'" class="space-y-4">
+      <div class="space-y-3">
+        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          New Visibility Setting
+        </label>
+        <div class="grid grid-cols-1 gap-3">
+          <button
+            @click="formData.newVisibility = true"
+            :class="[
+              formData.newVisibility === true
+                ? 'border-green-500 bg-green-50 dark:bg-green-900/20 dark:border-green-400'
+                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400',
+              'flex items-center p-3 border-2 rounded-lg transition-colors'
+            ]"
+          >
+            <Globe class="h-4 w-4 mr-2 text-green-500" />
+            <div class="text-left">
+              <div class="text-sm font-medium text-gray-900 dark:text-white">Public</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">Anyone can view this wallet</div>
+            </div>
+          </button>
+          <button
+            @click="formData.newVisibility = false"
+            :class="[
+              formData.newVisibility === false
+                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400'
+                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400',
+              'flex items-center p-3 border-2 rounded-lg transition-colors'
+            ]"
+          >
+            <Eye class="h-4 w-4 mr-2 text-blue-500" />
+            <div class="text-left">
+              <div class="text-sm font-medium text-gray-900 dark:text-white">Private</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">Only signers and observers can view</div>
+            </div>
+          </button>
+        </div>
+      </div>
 
-    <!-- Actions -->
-    <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-      <button
-        @click="$emit('cancel')"
-        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
-      >
-        Cancel
-      </button>
-      <button
-        @click="handleSubmit"
-        :disabled="!isFormValid || loading || balanceLoading"
-        class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-      >
-        <span v-if="loading || balanceLoading" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
-        {{ loading ? 'Creating...' : balanceLoading ? 'Loading...' : 'Create Proposal' }}
-      </button>
+      <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+        <div class="flex items-center space-x-2">
+          <Globe class="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          <span class="text-sm font-medium text-blue-800 dark:text-blue-200">Current Setting</span>
+        </div>
+        <p class="text-sm text-blue-700 dark:text-blue-300 mt-1">
+          This wallet is currently {{ props.wallet?.config?.isPublic ? 'Public' : 'Private' }}
+        </p>
+      </div>
+      </div>
+
+      <!-- Summary -->
+      <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-2">Proposal Summary</h4>
+        <div class="text-sm text-gray-600 dark:text-gray-400">
+          <p><strong>Type:</strong> {{ getTypeLabel(formData.type) }}</p>
+          <p><strong>Required Signatures:</strong> {{ wallet?.config?.threshold || wallet?.threshold }}/{{ wallet?.signers?.length || wallet?.totalSigners }}</p>
+          <p v-if="formData.type === 'transfer' && formData.amount && formData.recipient">
+            <strong>Transfer:</strong> {{ formData.amount }} ICP to {{ formatPrincipal(formData.recipient) }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Warning -->
+      <div class="flex items-start gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-900/50 dark:bg-yellow-900/20">
+        <AlertTriangle class="h-5 w-5 text-yellow-500 dark:text-yellow-400" />
+        <p class="text-sm text-yellow-700 dark:text-yellow-400">
+          Once created, this proposal will require {{ wallet?.config?.threshold || wallet?.threshold }} signatures to execute.
+          Please review all details carefully before creating.
+        </p>
+      </div>
+
+      <!-- Actions -->
+      <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <button
+          @click="$emit('cancel')"
+          class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
+        >
+          Cancel
+        </button>
+        <button
+          @click="handleSubmit"
+          :disabled="!isFormValid || loading || balanceLoading"
+          class="px-4 py-2 text-sm font-medium text-white bg-blue-600 border border-transparent rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+        >
+          <span v-if="loading || balanceLoading" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></span>
+          {{ loading ? 'Creating...' : balanceLoading ? 'Loading...' : 'Create Proposal' }}
+        </button>
+      </div>
+    </div>
     </div>
   </div>
 </template>
@@ -350,7 +491,11 @@ import {
   Vote,
   UserPlus,
   UserMinus,
-  AlertTriangle
+  AlertTriangle,
+  Globe,
+  Eye,
+  ArrowRightIcon,
+  ArrowLeftIcon
 } from 'lucide-vue-next'
 import { formatPrincipal } from '@/utils/multisig'
 
@@ -365,9 +510,12 @@ const emit = defineEmits<{
   cancel: []
 }>()
 
+// Step management
+const currentStep = ref(1)
+
 // Form data
 const formData = reactive({
-  type: 'transfer',
+  type: '',
   assetType: 'ICP', // 'ICP' or 'ICRC'
   title: '',
   description: '',
@@ -378,7 +526,11 @@ const formData = reactive({
   proposalId: '',
   vote: '',
   targetSigner: '',
-  newThreshold: ''
+  newThreshold: '',
+  // New fields for observer and visibility proposals
+  targetObserver: '',
+  observerName: '',
+  newVisibility: true // true = public, false = private
 })
 
 // Reactive state for balance and validation
@@ -398,33 +550,66 @@ const estimatedFee = ref(BigInt(10000)) // Default ICP fee
 const proposalTypes = computed(() => [
   {
     value: 'transfer',
-    label: 'ICP Transfer',
-    description: 'Send ICP to another address',
+    label: 'Token Transfer',
+    description: 'Send ICP or ICRC tokens to another address',
     icon: Coins,
-    iconColor: 'text-green-500'
+    iconColor: 'text-green-500',
+    bgColor: 'bg-green-100 dark:bg-green-900/20'
   },
   {
     value: 'governance_vote',
     label: 'Governance Vote',
     description: 'Vote on a governance proposal',
     icon: Vote,
-    iconColor: 'text-purple-500'
+    iconColor: 'text-purple-500',
+    bgColor: 'bg-purple-100 dark:bg-purple-900/20'
   },
   {
     value: 'add_signer',
     label: 'Add Signer',
     description: 'Add a new signer to the wallet',
     icon: UserPlus,
-    iconColor: 'text-blue-500'
+    iconColor: 'text-blue-500',
+    bgColor: 'bg-blue-100 dark:bg-blue-900/20'
   },
   {
     value: 'remove_signer',
     label: 'Remove Signer',
     description: 'Remove a signer from the wallet',
     icon: UserMinus,
-    iconColor: 'text-red-500'
+    iconColor: 'text-red-500',
+    bgColor: 'bg-red-100 dark:bg-red-900/20'
+  },
+  {
+    value: 'add_observer',
+    label: 'Add Observer',
+    description: 'Add an observer to the wallet',
+    icon: Eye,
+    iconColor: 'text-indigo-500',
+    bgColor: 'bg-indigo-100 dark:bg-indigo-900/20'
+  },
+  {
+    value: 'remove_observer',
+    label: 'Remove Observer',
+    description: 'Remove an observer from the wallet',
+    icon: UserMinus,
+    iconColor: 'text-orange-500',
+    bgColor: 'bg-orange-100 dark:bg-orange-900/20'
+  },
+  {
+    value: 'change_visibility',
+    label: 'Change Visibility',
+    description: 'Change wallet visibility (public/private)',
+    icon: Globe,
+    iconColor: 'text-teal-500',
+    bgColor: 'bg-teal-100 dark:bg-teal-900/20'
   }
 ])
+
+// Selected type for step 2
+const selectedType = computed(() => {
+  return proposalTypes.value.find(t => t.value === formData.type)
+})
 
 // Computed properties
 const currentAssetSymbol = computed(() => {
@@ -476,12 +661,25 @@ const isFormValid = computed(() => {
     case 'remove_signer':
       return formData.targetSigner && formData.targetSigner.trim() &&
              (formData.type === 'add_signer' || formData.newThreshold)
+    case 'add_observer':
+    case 'remove_observer':
+      return formData.targetObserver && formData.targetObserver.trim()
+    case 'change_visibility':
+      return formData.newVisibility !== undefined
     default:
       return false
   }
 })
 
 // Methods
+const selectProposalType = (type: string) => {
+  formData.type = type
+  currentStep.value = 2
+}
+
+const goBackToTypeSelection = () => {
+  currentStep.value = 1
+}
 const formatBalance = (balance: bigint, decimals: number = 8): string => {
   const divisor = BigInt(10 ** decimals)
   const wholePart = balance / divisor
@@ -714,7 +912,11 @@ const handleSubmit = async () => {
       proposalId: formData.proposalId?.trim(),
       vote: formData.vote || undefined,
       targetSigner: formData.targetSigner?.trim(),
-      newThreshold: formData.newThreshold ? parseInt(formData.newThreshold) : undefined
+      newThreshold: formData.newThreshold ? parseInt(formData.newThreshold) : undefined,
+      // New fields for observer and visibility proposals
+      targetObserver: formData.targetObserver?.trim(),
+      observerName: formData.observerName?.trim() || undefined,
+      newVisibility: formData.newVisibility
     }
 
     emit('submit', proposalData)

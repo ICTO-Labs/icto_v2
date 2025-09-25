@@ -31,7 +31,7 @@ class MultisigService {
   }
 
   private async getContractActor(canisterId: string) {
-    return await multisigContractActor({ canisterId, anon: true });
+    return await multisigContractActor({ canisterId, anon: false });
   }
 
   private convertFormDataToConfig(formData: any): any {
@@ -46,7 +46,13 @@ class MultisigService {
       name: formData.name || 'Unnamed Wallet',
       description: description ? [description] : [], // opt Text: present = [value], absent = []
       threshold: formData.threshold || 2,
-      signers: (formData.signers || []).map((s: any) => Principal.fromText(s.principal)),
+      signers: (formData.signers || []).map((s: any) => ({
+        principal: Principal.fromText(s.principal),
+        name: s.name ? [s.name] : [], // opt text: present = [value], absent = []
+        role: s.role === 'Observer' ? { Observer: null } :
+              s.role === 'Owner' ? { Owner: null } :
+              { Signer: null } // Default to Signer
+      })),
       requiresTimelock: Boolean(formData.requiresTimelock),
       timelockDuration: formData.timelockDuration
         ? [BigInt(formData.timelockDuration * 3600 * 1000000000)]
@@ -57,7 +63,8 @@ class MultisigService {
       recoveryThreshold: [], // opt Nat - empty for now
       maxProposalLifetime: BigInt((formData.maxProposalLifetime || 24) * 3600 * 1000000000), // Int (not optional)
       requiresConsensusForChanges: Boolean(formData.requiresConsensusForChanges),
-      allowObservers: Boolean(formData.allowObservers)
+      allowObservers: Boolean(formData.allowObservers),
+      isPublic: Boolean(formData.isPublic || false) // Default to private
     };
 
     console.log('Converted config:', config);
@@ -102,10 +109,17 @@ class MultisigService {
       const result = await actor.deployMultisig(config, []);
 
       if ('Ok' in result) {
-        toast.success('Multisig wallet created successfully');
+        console.log('Backend deployment result:', result.Ok);
+
+        // Backend should return canister ID as Principal
+        const canisterId = result.Ok as Principal;
+
         return {
           success: true,
-          data: result.Ok as any
+          data: {
+            canisterId: canisterId,
+            walletId: canisterId.toString()
+          }
         };
       } else {
         this.handleError(result);
@@ -202,7 +216,7 @@ class MultisigService {
   async createTransferProposal(
     canisterId: string,
     recipient: string,
-    amount: bigint,
+    amount: number,
     asset: any,
     title: string,
     description: string,
@@ -211,9 +225,14 @@ class MultisigService {
     try {
       const actor = await this.getContractActor(canisterId);
       const _memo = memo ? [memo] : []
+      
+      // Convert amount to e8s (multiply by 100,000,000 for ICP)
+      const amountE8s = Math.floor(amount * 100_000_000);
+      const amountBigInt = BigInt(amountE8s);
+      
       const result = await actor.createTransferProposal(
         Principal.fromText(recipient),
-        amount,
+        amountBigInt,
         asset,
         _memo as [] | [Uint8Array],
         title,
@@ -224,7 +243,7 @@ class MultisigService {
         toast.success('Transfer proposal created successfully');
         return {
           success: true,
-          data: result.ok 
+          data: result.ok
         };
       } else {
         this.handleError(result);
@@ -233,6 +252,37 @@ class MultisigService {
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to create proposal'
+      };
+    }
+  }
+
+  async createWalletModificationProposal(
+    canisterId: string,
+    modificationType: any,
+    title: string,
+    description: string
+  ): Promise<ApiResponse<any>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+      const result = await actor.createWalletModificationProposal(
+        modificationType,
+        title,
+        description
+      );
+
+      if ('ok' in result) {
+        toast.success('Wallet modification proposal created successfully');
+        return {
+          success: true,
+          data: result.ok
+        };
+      } else {
+        this.handleError(result);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create wallet modification proposal'
       };
     }
   }
@@ -347,11 +397,46 @@ class MultisigService {
         offset ? [BigInt(offset)] : []
       );
 
-      console.log('getProposals successful, data:', proposals);
+      console.log('getProposals successful, raw data:', proposals);
+
+      // Process proposals to add computed fields
+      const processedProposals = proposals.map((proposal: any) => {
+        // Calculate current signatures count
+        const currentSignatures = proposal.approvals ?
+          Object.keys(proposal.approvals).length :
+          (proposal.signatures ? proposal.signatures.length : 0);
+
+        // Get wallet info to determine required signatures (threshold)
+        const walletInfoPromise = this.getWalletInfo(canisterId);
+
+        return {
+          ...proposal,
+          currentSignatures,
+          // Will be updated with actual threshold from wallet info
+          requiredSignatures: 2, // Default fallback
+          // Add computed status
+          status: proposal.status || 'pending'
+        };
+      });
+
+      // Get wallet info to set correct required signatures
+      try {
+        const walletInfoResponse = await this.getWalletInfo(canisterId);
+        if (walletInfoResponse.success && walletInfoResponse.data) {
+          const threshold = walletInfoResponse.data.config?.threshold || 2;
+          processedProposals.forEach(proposal => {
+            proposal.requiredSignatures = threshold;
+          });
+        }
+      } catch (walletInfoError) {
+        console.warn('Could not fetch wallet info for threshold:', walletInfoError);
+      }
+
+      console.log('getProposals processed data:', processedProposals);
 
       return {
         success: true,
-        data: proposals
+        data: processedProposals
       };
     } catch (error) {
       console.error('getProposals error:', error);
@@ -500,6 +585,19 @@ class MultisigService {
         error: error instanceof Error ? error.message : 'Failed to fetch user wallets'
       };
     }
+  }
+
+  // Additional proposal methods (createTransferProposal already exists above)
+
+  private formatProposalError(error: any): string {
+    if (typeof error === 'object' && error !== null) {
+      if ('Unauthorized' in error) return 'You are not authorized to create proposals';
+      if ('InvalidProposal' in error) return `Invalid proposal: ${error.InvalidProposal}`;
+      if ('InsufficientBalance' in error) return 'Insufficient balance';
+      if ('SecurityViolation' in error) return `Security violation: ${error.SecurityViolation}`;
+      if ('RateLimited' in error) return 'Rate limited - please wait before creating another proposal';
+    }
+    return 'Failed to create proposal';
   }
 
   // Format helpers

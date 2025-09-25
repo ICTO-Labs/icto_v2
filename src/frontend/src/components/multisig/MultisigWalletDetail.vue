@@ -163,7 +163,7 @@
                 </div>
                 <div>
                   <p class="text-sm font-medium text-gray-900 dark:text-white">
-                    {{ signer.name || 'Unnamed Signer' }}
+                    {{ signer.name ? signer.name[0] : 'Unnamed Signer' }}
                   </p>
                   <p class="text-xs text-gray-500 dark:text-gray-400">
                     {{ formatPrincipal(signer.principal) }}
@@ -173,12 +173,12 @@
               <div class="flex items-center space-x-2">
                 <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium"
                   :class="{
-                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': signer.role === 'Owner',
-                    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': signer.role === 'Signer',
-                    'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300': signer.role === 'Observer'
+                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': keyToText(signer.role) === 'Owner',
+                    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': keyToText(signer.role) === 'Signer',
+                    'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300': keyToText(signer.role) === 'Observer'
                   }"
                 >
-                  {{ signer.role }}
+                  {{ keyToText(signer.role) }}
                 </span>
                 <div class="w-2 h-2 rounded-full bg-green-500"></div>
               </div>
@@ -273,9 +273,9 @@
           <FileText class="mx-auto h-12 w-12 text-gray-400 mb-4" />
           <p class="text-gray-600 dark:text-gray-400">No proposals found</p>
         </div>
-        <div v-else class="space-y-4">
-          <MultisigProposalCard
-            v-for="proposal in filteredProposals.slice(0, 5)"
+        <div v-else class="space-y-3">
+          <MultisigProposalCompact
+            v-for="proposal in filteredProposals.slice(0, 8)"
             :key="proposal.id"
             :proposal="proposal"
             :wallet="wallet"
@@ -345,6 +345,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Principal } from '@dfinity/principal'
 import {
   ArrowLeft,
   Plus,
@@ -361,6 +362,7 @@ import { useMultisig } from '@/composables/useMultisig'
 import { multisigService } from '@/api/services/multisig'
 import { toast } from 'vue-sonner'
 import MultisigProposalCard from './MultisigProposalCard.vue'
+import MultisigProposalCompact from './MultisigProposalCompact.vue'
 import CreateProposalForm from './CreateProposalForm.vue'
 import ManageSignersForm from './ManageSignersForm.vue'
 import LoadingSkeleton from './LoadingSkeleton.vue'
@@ -371,7 +373,7 @@ import {
   getSecurityScoreText,
   canSignerManage
 } from '@/utils/multisig'
-
+import { keyToText } from '@/utils/common'
 interface Props {
   wallet: any
 }
@@ -560,11 +562,167 @@ const handleCreateProposal = async (proposalData: any) => {
           description: result.error || 'An unexpected error occurred'
         })
       }
-    } else {
-      // For other proposal types, show not implemented yet
-      toast.info('Coming Soon', {
+    } else if (proposalData.type === 'add_signer') {
+      // Create add signer proposal
+      const modificationType = {
+        AddSigner: {
+          signer: Principal.fromText(proposalData.targetSigner),
+          role: { Signer: null } // Default role
+        }
+      }
+
+      const result = await multisigService.createWalletModificationProposal(
+        walletId,
+        modificationType,
+        proposalData.title,
+        proposalData.description
+      )
+
+      if (result.success) {
+        toast.success('Add signer proposal created successfully!', {
+          id: toastId,
+          description: 'Your proposal has been submitted for approval'
+        })
+        createProposalVisible.value = false
+        await loadProposals()
+        emit('updated', props.wallet)
+      } else {
+        toast.error('Failed to create add signer proposal', {
+          id: toastId,
+          description: result.error || 'An unexpected error occurred'
+        })
+      }
+    } else if (proposalData.type === 'remove_signer') {
+      // Create remove signer proposal
+      const modificationType = {
+        RemoveSigner: {
+          signer: Principal.fromText(proposalData.targetSigner)
+        }
+      }
+
+      const result = await multisigService.createWalletModificationProposal(
+        walletId,
+        modificationType,
+        proposalData.title,
+        proposalData.description
+      )
+
+      if (result.success) {
+        toast.success('Remove signer proposal created successfully!', {
+          id: toastId,
+          description: 'Your proposal has been submitted for approval'
+        })
+        createProposalVisible.value = false
+        await loadProposals()
+        emit('updated', props.wallet)
+      } else {
+        toast.error('Failed to create remove signer proposal', {
+          id: toastId,
+          description: result.error || 'An unexpected error occurred'
+        })
+      }
+    } else if (proposalData.type === 'add_observer') {
+      // Create add observer proposal
+      const modificationType = {
+        AddObserver: {
+          observer: Principal.fromText(proposalData.targetObserver),
+          name: proposalData.observerName ? [proposalData.observerName] : [] // Optional name as array
+        }
+      }
+
+      const result = await multisigService.createWalletModificationProposal(
+        walletId,
+        modificationType,
+        proposalData.title,
+        proposalData.description
+      )
+
+      if (result.success) {
+        toast.success('Add observer proposal created successfully!', {
+          id: toastId,
+          description: 'Your proposal has been submitted for approval'
+        })
+        createProposalVisible.value = false
+        await loadProposals()
+        emit('updated', props.wallet)
+      } else {
+        toast.error('Failed to create add observer proposal', {
+          id: toastId,
+          description: result.error || 'An unexpected error occurred'
+        })
+      }
+    } else if (proposalData.type === 'remove_observer') {
+      // Create remove observer proposal
+      const modificationType = {
+        RemoveObserver: {
+          observer: Principal.fromText(proposalData.targetObserver)
+        }
+      }
+
+      const result = await multisigService.createWalletModificationProposal(
+        walletId,
+        modificationType,
+        proposalData.title,
+        proposalData.description
+      )
+
+      if (result.success) {
+        toast.success('Remove observer proposal created successfully!', {
+          id: toastId,
+          description: 'Your proposal has been submitted for approval'
+        })
+        createProposalVisible.value = false
+        await loadProposals()
+        emit('updated', props.wallet)
+      } else {
+        toast.error('Failed to create remove observer proposal', {
+          id: toastId,
+          description: result.error || 'An unexpected error occurred'
+        })
+      }
+    } else if (proposalData.type === 'change_visibility') {
+      // Create change visibility proposal
+      const modificationType = {
+        ChangeVisibility: {
+          isPublic: proposalData.newVisibility === true
+        }
+      }
+
+      const result = await multisigService.createWalletModificationProposal(
+        walletId,
+        modificationType,
+        proposalData.title,
+        proposalData.description
+      )
+
+      if (result.success) {
+        const visibilityText = proposalData.newVisibility === true ? 'public' : 'private'
+        toast.success(`Change visibility to ${visibilityText} proposal created successfully!`, {
+          id: toastId,
+          description: 'Your proposal has been submitted for approval'
+        })
+        createProposalVisible.value = false
+        await loadProposals()
+        emit('updated', props.wallet)
+      } else {
+        toast.error('Failed to create change visibility proposal', {
+          id: toastId,
+          description: result.error || 'An unexpected error occurred'
+        })
+      }
+    } else if (proposalData.type === 'governance_vote') {
+      // For governance votes - this would require integration with SNS/governance system
+      // For now, show a more specific message
+      toast.info('Governance Integration Required', {
         id: toastId,
-        description: `${proposalData.type} proposals will be available soon`
+        description: 'Governance voting requires SNS integration which will be available soon'
+      })
+      createProposalVisible.value = false
+    } else {
+      // For any other unknown proposal types
+      toast.warning('Unknown Proposal Type', {
+        id: toastId,
+        description: `Proposal type "${proposalData.type}" is not supported`
       })
       createProposalVisible.value = false
     }

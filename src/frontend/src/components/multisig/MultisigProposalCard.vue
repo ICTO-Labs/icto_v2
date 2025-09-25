@@ -234,17 +234,17 @@ const isTransferType = computed(() => {
 })
 
 const currentSignatures = computed(() => {
-  return props.proposal?.currentSignatures ||
+  return Number(props.proposal?.currentSignatures ||
          props.proposal?.currentApprovals ||
          props.proposal?.signatures?.length ||
-         0
+         0)
 })
 
 const requiredSignatures = computed(() => {
-  return props.proposal?.requiredSignatures ||
+  return Number(props.proposal?.requiredSignatures ||
          props.proposal?.requiredApprovals ||
          props.wallet?.threshold ||
-         2
+         2)
 })
 
 const proposalTimestamp = computed(() => {

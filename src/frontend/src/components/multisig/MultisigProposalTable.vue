@@ -12,7 +12,9 @@
                     >
                         <option value="">All Status</option>
                         <option value="pending">Pending</option>
+                        <option value="approved">Ready to Execute</option>
                         <option value="executed">Executed</option>
+                        <option value="failed">Failed</option>
                         <option value="rejected">Rejected</option>
                         <option value="expired">Expired</option>
                     </select>
@@ -127,12 +129,12 @@
                                     <div 
                                         class="h-2 rounded-full transition-all duration-300"
                                         :class="{
-                                            'bg-blue-600': proposal.status === 'pending',
-                                            'bg-green-600': proposal.status === 'executed',
-                                            'bg-red-600': proposal.status === 'rejected',
-                                            'bg-gray-600': proposal.status === 'expired'
+                                            'bg-blue-600': normalizeStatus(proposal.status) === 'pending',
+                                            'bg-green-600': normalizeStatus(proposal.status) === 'executed' || normalizeStatus(proposal.status) === 'approved',
+                                            'bg-red-600': normalizeStatus(proposal.status) === 'rejected' || normalizeStatus(proposal.status) === 'failed',
+                                            'bg-gray-600': normalizeStatus(proposal.status) === 'expired'
                                         }"
-                                        :style="{ width: `${Math.min(((proposal.currentSignatures || 0) / (proposal.requiredSignatures || 1)) * 100, 100)}%` }"
+                                        :style="{ width: `${Math.min((Number(proposal.currentSignatures || 0) / Number(proposal.requiredSignatures || 1)) * 100, 100)}%` }"
                                     ></div>
                                 </div>
                                 <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
@@ -145,13 +147,14 @@
                         <td class="px-6 py-4 whitespace-nowrap">
                             <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
                                 :class="{
-                                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': proposal.status === 'pending',
-                                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': proposal.status === 'executed',
-                                    'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': proposal.status === 'rejected',
-                                    'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300': proposal.status === 'expired'
+                                    'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300': normalizeStatus(proposal.status) === 'pending',
+                                    'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': normalizeStatus(proposal.status) === 'approved',
+                                    'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': normalizeStatus(proposal.status) === 'executed',
+                                    'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': normalizeStatus(proposal.status) === 'rejected' || normalizeStatus(proposal.status) === 'failed',
+                                    'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300': normalizeStatus(proposal.status) === 'expired'
                                 }"
                             >
-                                <span v-if="proposal?.status">{{ proposal?.status }}</span>
+                                <span v-if="proposal?.status">{{ getStatusDisplay(proposal.status, Number(proposal.currentSignatures || 0), Number(proposal.requiredSignatures || 0)) }}</span>
                                 <span v-else>Unknown</span>
                             </span>
                         </td>
@@ -289,10 +292,59 @@ const canSign = (proposal: any) => {
     // TODO: Check if current user is a signer and hasn't signed yet
     if (!proposal) return false
 
-    const currentSigs = proposal.currentSignatures || proposal.currentApprovals || 0
-    const requiredSigs = proposal.requiredSignatures || proposal.requiredApprovals || 2
+    const currentSigs = Number(proposal.currentSignatures || proposal.currentApprovals || 0)
+    const requiredSigs = Number(proposal.requiredSignatures || proposal.requiredApprovals || 2)
 
     return currentSigs < requiredSigs
+}
+
+// Helper function to normalize status
+const normalizeStatus = (status: any): string => {
+    if (!status) return 'unknown'
+
+    if (typeof status === 'string') {
+        return status.toLowerCase()
+    }
+
+    if (typeof status === 'object') {
+        // Handle Motoko variant objects
+        if ('Pending' in status) return 'pending'
+        if ('Approved' in status) return 'approved'
+        if ('Executed' in status) return 'executed'
+        if ('Failed' in status) return 'failed'
+        if ('Rejected' in status) return 'rejected'
+        if ('Expired' in status) return 'expired'
+    }
+
+    return String(status).toLowerCase()
+}
+
+const getStatusDisplay = (status: any, currentSigs: number, requiredSigs: number) => {
+    const statusStr = normalizeStatus(status)
+
+    if (statusStr === 'pending') {
+        return `Pending (${currentSigs || 0}/${requiredSigs || 0})`
+    }
+    if (statusStr === 'approved') {
+        if ((currentSigs || 0) >= (requiredSigs || 0)) {
+            return 'Ready to Execute'
+        } else {
+            return `Pending (${currentSigs || 0}/${requiredSigs || 0})`
+        }
+    }
+    if (statusStr === 'executed') {
+        return 'Executed'
+    }
+    if (statusStr === 'failed') {
+        return 'Execution Failed'
+    }
+    if (statusStr === 'rejected') {
+        return 'Rejected'
+    }
+    if (statusStr === 'expired') {
+        return 'Expired'
+    }
+    return statusStr ? statusStr.charAt(0).toUpperCase() + statusStr.slice(1) : 'Unknown'
 }
 
 const safeFormatTimeAgo = (timestamp: any): string => {

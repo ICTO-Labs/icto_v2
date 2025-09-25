@@ -15,11 +15,10 @@ import Nat8 "mo:base/Nat8";
 import Int "mo:base/Int";
 import Float "mo:base/Float";
 import Buffer "mo:base/Buffer";
-import Random "mo:base/Random";
 import Blob "mo:base/Blob";
 import Error "mo:base/Error";
-import Timer "mo:base/Timer";
-import Cycles "mo:base/ExperimentalCycles";
+import Nat64 "mo:base/Nat64";
+import Nat32 "mo:base/Nat32";
 
 import MultisigTypes "../shared/types/MultisigTypes";
 import ICRC "../shared/types/ICRC";
@@ -45,29 +44,28 @@ persistent actor class MultisigContract(initArgs: {
         private var factory = initArgs.factory;
         private var createdAt = Time.now();
 
-        // Core wallet state
-        private transient var status: MultisigTypes.WalletStatus = #Setup;
-        private transient var version: Nat = 1;
-        // Actor principal will be computed at runtime when needed
-        private transient var lastActivity = Time.now();
+        // Core wallet state - STABLE for upgrades (implicitly stable in persistent actor)
+        private var status: MultisigTypes.WalletStatus = #Setup;
+        private var version: Nat = 1;
+        private var lastActivity = Time.now();
 
-        // Signers and permissions
-        private transient var signersEntries: [SignerEntry] = [];
-        private transient var observersArray: [Principal] = [];
+        // Signers and permissions - STABLE for upgrades
+        private var signersEntries: [SignerEntry] = [];
+        private var observersArray: [Principal] = [];
 
-        // Proposals and execution
-        private transient var nextProposalId: Nat = 1;
-        private transient var proposalsEntries: [ProposalEntry] = [];
-        private transient var totalProposals: Nat = 0;
-        private transient var executedProposals: Nat = 0;
-        private transient var failedProposals: Nat = 0;
+        // Proposals and execution - STABLE for upgrades
+        private var nextProposalId: Nat = 1;
+        private var proposalsEntries: [ProposalEntry] = [];
+        private var totalProposals: Nat = 0;
+        private var executedProposals: Nat = 0;
+        private var failedProposals: Nat = 0;
 
-        // Asset tracking
-        private transient var icpBalance: Nat = 0;
-        private transient var tokensArray: [MultisigTypes.TokenBalance] = [];
-        private transient var nftsArray: [MultisigTypes.NFTBalance] = [];
+        // Asset tracking - STABLE for upgrades
+        private var icpBalance: Nat = 0;
+        private var tokensArray: [MultisigTypes.TokenBalance] = [];
+        private var nftsArray: [MultisigTypes.NFTBalance] = [];
 
-        // Security and monitoring
+        // Security and monitoring - STABLE for upgrades
         private var securityFlags: MultisigTypes.SecurityFlags = {
             suspiciousActivity = false;
             rateLimit = false;
@@ -81,9 +79,9 @@ persistent actor class MultisigContract(initArgs: {
             securityScore = 1.0;
         };
 
-        // Events and audit trail
-        private transient var eventsEntries: [EventEntry] = [];
-        private transient var nextEventId: Nat = 1;
+        // Events and audit trail - STABLE for upgrades
+        private var eventsEntries: [EventEntry] = [];
+        private var nextEventId: Nat = 1;
 
         // Runtime state
         private transient var signers = HashMap.fromIter<Principal, MultisigTypes.SignerInfo>(
@@ -126,11 +124,11 @@ persistent actor class MultisigContract(initArgs: {
 
         private func initializeWallet() {
             // Initialize signers from config
-            for (signerPrincipal in walletConfig.signers.vals()) {
+            for (signerConfig in walletConfig.signers.vals()) {
                 let signerInfo: MultisigTypes.SignerInfo = {
-                    principal = signerPrincipal;
-                    name = null;
-                    role = if (signerPrincipal == creator) #Owner else #Signer;
+                    principal = signerConfig.principal;
+                    name = signerConfig.name;
+                    role = if (signerConfig.principal == creator) #Owner else signerConfig.role;
                     addedAt = Time.now();
                     addedBy = creator;
                     lastSeen = null;
@@ -142,7 +140,7 @@ persistent actor class MultisigContract(initArgs: {
                     delegatedTo = null;
                     delegationExpiry = null;
                 };
-                signers.put(signerPrincipal, signerInfo);
+                signers.put(signerConfig.principal, signerInfo);
             };
 
             // Create initialization event
@@ -189,10 +187,24 @@ persistent actor class MultisigContract(initArgs: {
         };
 
         private func isObserver(caller: Principal): Bool {
+            // Check if caller is in observers buffer (deprecated)
             for (observer in observers.vals()) {
                 if (observer == caller) return true;
             };
-            false;
+            // Check if caller is a signer with Observer role
+            switch (signers.get(caller)) {
+                case (?signer) signer.isActive and signer.role == #Observer;
+                case null false;
+            };
+        };
+
+        private func canViewWallet(caller: Principal): Bool {
+            // Public wallet: anyone can view
+            if (walletConfig.isPublic) {
+                return true;
+            };
+            // Private wallet: creator, signers and observers can view
+            caller == creator or isSigner(caller) or isObserver(caller)
         };
 
         private func canCreateProposal(caller: Principal): Result.Result<(), Text> {
@@ -365,11 +377,17 @@ persistent actor class MultisigContract(initArgs: {
                     let newApprovals = Array.append(proposal.approvals, [approval]);
                     let currentApprovals = newApprovals.size();
 
+                    let readyForExecution = currentApprovals >= walletConfig.threshold and
+                                          (switch (proposal.earliestExecution) {
+                                              case (?earliest) Time.now() >= earliest;
+                                              case null true;
+                                          });
+
                     let updatedProposal = {
                         proposal with
                         approvals = newApprovals;
                         currentApprovals = currentApprovals;
-                        status = if (currentApprovals >= walletConfig.threshold) #Approved else #Pending;
+                        status = if (readyForExecution) #Approved else #Pending;
                     };
 
                     proposals.put(proposalId, updatedProposal);
@@ -385,21 +403,77 @@ persistent actor class MultisigContract(initArgs: {
                     updateLastActivity();
                     lastProposalTimes.put(caller, Time.now());
 
-                    let readyForExecution = currentApprovals >= walletConfig.threshold and
-                                          (switch (proposal.earliestExecution) {
-                                              case (?earliest) Time.now() >= earliest;
-                                              case null true;
-                                          });
-
                     Debug.print("MultisigContract: Proposal " # proposalId # " signed by " # Principal.toText(caller) # " (" # debug_show(currentApprovals) # "/" # debug_show(walletConfig.threshold) # ")");
 
-                    #ok({
-                        proposalId = proposalId;
-                        signatureId = generateSignatureId();
-                        currentApprovals = currentApprovals;
-                        requiredApprovals = walletConfig.threshold;
-                        readyForExecution = readyForExecution;
-                    })
+                    // Auto-execute if ready and not blocked by reentrancy protection
+                    if (readyForExecution and not isExecuting) {
+                        Debug.print("MultisigContract: Auto-executing proposal " # proposalId);
+
+                        // Execute the proposal automatically
+                        isExecuting := true;
+                        try {
+                            let executionResult = await executeProposalActions(updatedProposal, caller);
+
+                            // Update proposal status after execution
+                            let executedProposal = {
+                                updatedProposal with
+                                status = if (executionResult.success) #Executed else #Failed;
+                                executedAt = ?Time.now();
+                                executedBy = ?caller;
+                            };
+
+                            proposals.put(proposalId, executedProposal);
+
+                            // Create execution event
+                            let executionEvent = createEvent(
+                                #ProposalExecuted,
+                                caller,
+                                ?("Proposal " # proposalId # " auto-executed")
+                            );
+                            events.put(executionEvent.id, executionEvent);
+
+                            updateLastActivity();
+                            isExecuting := false;
+
+                            Debug.print("MultisigContract: Auto-execution completed for proposal " # proposalId # " - Success: " # debug_show(executionResult.success));
+
+                            #ok({
+                                proposalId = proposalId;
+                                signatureId = generateSignatureId();
+                                currentApprovals = currentApprovals;
+                                requiredApprovals = walletConfig.threshold;
+                                readyForExecution = false; // Already executed
+                            })
+                        } catch (error) {
+                            isExecuting := false;
+                            Debug.print("MultisigContract: Auto-execution failed for proposal " # proposalId # " - Error: " # Error.message(error));
+
+                            // Mark as failed
+                            let failedProposal = {
+                                updatedProposal with
+                                status = #Failed;
+                                executedAt = ?Time.now();
+                                executedBy = ?caller;
+                            };
+                            proposals.put(proposalId, failedProposal);
+
+                            #ok({
+                                proposalId = proposalId;
+                                signatureId = generateSignatureId();
+                                currentApprovals = currentApprovals;
+                                requiredApprovals = walletConfig.threshold;
+                                readyForExecution = false;
+                            })
+                        };
+                    } else {
+                        #ok({
+                            proposalId = proposalId;
+                            signatureId = generateSignatureId();
+                            currentApprovals = currentApprovals;
+                            requiredApprovals = walletConfig.threshold;
+                            readyForExecution = readyForExecution;
+                        })
+                    }
                 };
                 case null #err(#ProposalNotFound);
             }
@@ -534,7 +608,7 @@ persistent actor class MultisigContract(initArgs: {
             for (actionIndex in proposal.actions.keys()) {
                 let action = proposal.actions[actionIndex];
                 try {
-                    let result = await executeAction(action, actionIndex, caller);
+                    let result = await executeAction(action, actionIndex, proposal.proposer);
                     actionResults.add(result);
 
                     if (not result.success) {
@@ -547,15 +621,31 @@ persistent actor class MultisigContract(initArgs: {
                     };
 
                 } catch (e) {
+                    let errorMsg = Error.message(e);
+                    Debug.print("MultisigContract: Action " # Nat.toText(actionIndex) # " failed with error: " # errorMsg);
+                    
                     let errorResult: MultisigTypes.ActionResult = {
                         actionIndex = actionIndex;
                         success = false;
-                        error = ?Error.message(e);
+                        error = ?errorMsg;
                         gasUsed = null;
                         result = null;
                     };
                     actionResults.add(errorResult);
                     overallSuccess := false;
+                };
+            };
+
+            // Log final execution result
+            Debug.print("MultisigContract: Execution completed - Success: " # debug_show(overallSuccess) # 
+                       ", Actions: " # Nat.toText(actionResults.size()) # 
+                       ", Gas used: " # Nat.toText(totalGasUsed));
+            
+            // Log individual action results for debugging
+            for (i in actionResults.vals()) {
+                if (not i.success) {
+                    let error = switch (i.error) { case (?err) err; case null "Unknown error" };
+                    Debug.print("MultisigContract: Action " # Nat.toText(i.actionIndex) # " failed: " # error);
                 };
             };
 
@@ -571,7 +661,7 @@ persistent actor class MultisigContract(initArgs: {
             }
         };
 
-        private func executeAction(action: MultisigTypes.ProposalAction, actionIndex: Nat, caller: Principal): async MultisigTypes.ActionResult {
+        private func executeAction(action: MultisigTypes.ProposalAction, actionIndex: Nat, proposer: Principal): async MultisigTypes.ActionResult {
             switch (action.actionType) {
                 case (#Transfer(transferData)) {
                     await executeTransfer(transferData, actionIndex)
@@ -583,13 +673,13 @@ persistent actor class MultisigContract(initArgs: {
                     await executeBatchTransfer(batchData, actionIndex)
                 };
                 case (#WalletModification(modData)) {
-                    await executeWalletModification(modData, actionIndex)
+                    await executeWalletModification(modData, actionIndex, proposer)
                 };
                 case (#ContractCall(callData)) {
                     await executeContractCall(callData, actionIndex)
                 };
                 case (#EmergencyAction(emergencyData)) {
-                    await executeEmergencyAction(emergencyData, actionIndex, caller)
+                    await executeEmergencyAction(emergencyData, actionIndex, proposer)
                 };
                 case (#SystemUpdate(updateData)) {
                     await executeSystemUpdate(updateData, actionIndex)
@@ -603,6 +693,10 @@ persistent actor class MultisigContract(initArgs: {
             transferData: { recipient: Principal; amount: Nat; asset: MultisigTypes.AssetType; memo: ?Blob },
             actionIndex: Nat
         ): async MultisigTypes.ActionResult {
+            
+            Debug.print("MultisigContract: Executing transfer - Recipient: " # Principal.toText(transferData.recipient) # 
+                       ", Amount: " # Nat.toText(transferData.amount) # 
+                       ", Asset: " # debug_show(transferData.asset));
 
             // Check daily limits
             switch (checkDailyLimit(transferData.asset, transferData.amount)) {
@@ -621,40 +715,74 @@ persistent actor class MultisigContract(initArgs: {
             // Execute based on asset type
             switch (transferData.asset) {
                 case (#ICP) {
+                    Debug.print("MultisigContract: Processing ICP transfer...");
+                    
+                    // Update balance first to get real balance
+                    let currentBalance = await* getICPBalance();
+                    icpBalance := currentBalance;
+                    Debug.print("MultisigContract: Current ICP balance: " # Nat.toText(icpBalance));
+                    
                     if (transferData.amount > icpBalance) {
+                        Debug.print("MultisigContract: Insufficient ICP balance");
                         return {
                             actionIndex = actionIndex;
                             success = false;
-                            error = ?"Insufficient ICP balance";
+                            error = ?("Insufficient ICP balance: " # Nat.toText(icpBalance) # " available, " # Nat.toText(transferData.amount) # " requested");
                             gasUsed = null;
                             result = null;
                         };
                     };
 
-                    // TODO: Implement actual ICP transfer
-                    // This would call the ICP ledger canister
-                    icpBalance -= transferData.amount;
-
-                    {
-                        actionIndex = actionIndex;
-                        success = true;
-                        error = null;
-                        gasUsed = ?100_000; // Estimated gas
-                        result = ?"ICP transfer completed";
-                    }
+                    Debug.print("MultisigContract: Executing ICP transfer...");
+                    // Execute actual ICP transfer
+                    switch (await* executeICPTransfer(transferData.recipient, transferData.amount, transferData.memo)) {
+                        case (#ok(txIndex)) {
+                            Debug.print("MultisigContract: ICP transfer successful, txIndex: " # Nat.toText(txIndex));
+                            {
+                                actionIndex = actionIndex;
+                                success = true;
+                                error = null;
+                                gasUsed = ?100_000; // Estimated gas
+                                result = ?("ICP transfer completed. Transaction index: " # Nat.toText(txIndex));
+                            }
+                        };
+                        case (#err(error)) {
+                            Debug.print("MultisigContract: ICP transfer failed: " # error);
+                            {
+                                actionIndex = actionIndex;
+                                success = false;
+                                error = ?error;
+                                gasUsed = null;
+                                result = null;
+                            }
+                        };
+                    };
                 };
                 case (#Token(tokenCanister)) {
-                    // TODO: Implement token transfer
-                    {
-                        actionIndex = actionIndex;
-                        success = false;
-                        error = ?"Token transfers not yet implemented";
-                        gasUsed = null;
-                        result = null;
-                    }
+                    // Execute ICRC1 token transfer
+                    switch (await* executeICRCTransfer(tokenCanister, transferData.recipient, transferData.amount, transferData.memo)) {
+                        case (#ok(txIndex)) {
+                            {
+                                actionIndex = actionIndex;
+                                success = true;
+                                error = null;
+                                gasUsed = ?150_000; // Estimated gas for token transfer
+                                result = ?("Token transfer completed. Transaction index: " # Nat.toText(txIndex));
+                            }
+                        };
+                        case (#err(error)) {
+                            {
+                                actionIndex = actionIndex;
+                                success = false;
+                                error = ?error;
+                                gasUsed = null;
+                                result = null;
+                            }
+                        };
+                    };
                 };
                 case (#NFT(_)) {
-                    // TODO: Implement NFT transfer
+                    // TODO: Implement NFT transfer - this is more complex as NFT standards vary
                     {
                         actionIndex = actionIndex;
                         success = false;
@@ -696,17 +824,18 @@ persistent actor class MultisigContract(initArgs: {
 
         private func executeWalletModification(
             modData: { modificationType: MultisigTypes.WalletModificationType },
-            actionIndex: Nat
+            actionIndex: Nat,
+            proposer: Principal
         ): async MultisigTypes.ActionResult {
 
             switch (modData.modificationType) {
                 case (#AddSigner(signerData)) {
                     let newSigner: MultisigTypes.SignerInfo = {
                         principal = signerData.signer;
-                        name = null;
+                        name = signerData.name;
                         role = signerData.role;
                         addedAt = Time.now();
-                        addedBy = Principal.fromText("2vxsx-fae"); // TODO: Get actual caller
+                        addedBy = proposer;
                         lastSeen = null;
                         isActive = true;
                         requiresTwoFactor = false;
@@ -751,6 +880,98 @@ persistent actor class MultisigContract(initArgs: {
                         result = ?"Threshold changed successfully";
                     }
                 };
+                case (#UpdateSignerRole(roleData)) {
+                    // Update signer role
+                    switch (signers.get(roleData.signer)) {
+                        case (?signer) {
+                            let updatedSigner = { signer with role = roleData.newRole };
+                            signers.put(roleData.signer, updatedSigner);
+
+                            {
+                                actionIndex = actionIndex;
+                                success = true;
+                                error = null;
+                                gasUsed = ?40_000;
+                                result = ?"Signer role updated successfully";
+                            }
+                        };
+                        case null {
+                            {
+                                actionIndex = actionIndex;
+                                success = false;
+                                error = ?"Signer not found";
+                                gasUsed = null;
+                                result = null;
+                            }
+                        };
+                    };
+                };
+                case (#AddObserver(observerData)) {
+                    // Add observer as a signer with Observer role
+                    let newObserver: MultisigTypes.SignerInfo = {
+                        principal = observerData.observer;
+                        name = observerData.name; // Use provided name
+                        role = #Observer;
+                        addedAt = Time.now();
+                        addedBy = proposer;
+                        lastSeen = null;
+                        isActive = true;
+                        requiresTwoFactor = false;
+                        ipWhitelist = null;
+                        sessionTimeout = null;
+                        delegatedVoting = false;
+                        delegatedTo = null;
+                        delegationExpiry = null;
+                    };
+
+                    signers.put(observerData.observer, newObserver);
+
+                    {
+                        actionIndex = actionIndex;
+                        success = true;
+                        error = null;
+                        gasUsed = ?50_000;
+                        result = ?"Observer added successfully";
+                    }
+                };
+                case (#RemoveObserver(observerData)) {
+                    // Remove observer by deleting from signers
+                    signers.delete(observerData.observer);
+
+                    {
+                        actionIndex = actionIndex;
+                        success = true;
+                        error = null;
+                        gasUsed = ?30_000;
+                        result = ?"Observer removed successfully";
+                    }
+                };
+                case (#ChangeVisibility(visibilityData)) {
+                    // Change wallet visibility (public/private)
+                    walletConfig := {
+                        walletConfig with isPublic = visibilityData.isPublic
+                    };
+
+                    {
+                        actionIndex = actionIndex;
+                        success = true;
+                        error = null;
+                        gasUsed = ?20_000;
+                        result = if (visibilityData.isPublic) ?"Wallet is now public" else ?"Wallet is now private";
+                    }
+                };
+                case (#UpdateWalletConfig(configData)) {
+                    // Update entire wallet config
+                    walletConfig := configData.config;
+
+                    {
+                        actionIndex = actionIndex;
+                        success = true;
+                        error = null;
+                        gasUsed = ?100_000;
+                        result = ?"Wallet configuration updated successfully";
+                    }
+                };
                 case (_) {
                     {
                         actionIndex = actionIndex;
@@ -780,11 +1001,11 @@ persistent actor class MultisigContract(initArgs: {
         private func executeEmergencyAction(
             emergencyData: { actionType: MultisigTypes.EmergencyActionType },
             actionIndex: Nat,
-            caller: Principal
+            proposer: Principal
         ): async MultisigTypes.ActionResult {
 
             // Security check: Only owners can execute emergency actions
-            if (not isOwner(caller)) {
+            if (not isOwner(proposer)) {
                 return {
                     actionIndex = actionIndex;
                     success = false;
@@ -797,7 +1018,7 @@ persistent actor class MultisigContract(initArgs: {
             switch (emergencyData.actionType) {
                 case (#FreezeWallet) {
                     status := #Frozen;
-                    let event = createEvent(#EmergencyAction, caller, ?"Wallet frozen by owner");
+                    let event = createEvent(#EmergencyAction, proposer, ?"Wallet frozen by owner");
                     events.put(event.id, event);
 
                     {
@@ -810,7 +1031,7 @@ persistent actor class MultisigContract(initArgs: {
                 };
                 case (#UnfreezeWallet) {
                     status := #Active;
-                    let event = createEvent(#EmergencyAction, caller, ?"Wallet unfrozen by owner");
+                    let event = createEvent(#EmergencyAction, proposer, ?"Wallet unfrozen by owner");
                     events.put(event.id, event);
 
                     {
@@ -1009,7 +1230,35 @@ persistent actor class MultisigContract(initArgs: {
 
         // ============== QUERY FUNCTIONS ==============
 
-        public query func getWalletInfo(): async MultisigTypes.MultisigWallet {
+        // Public function to update balances (callable by signers)
+        public shared({caller}) func updateWalletBalances(): async Result.Result<(), Text> {
+            if (not isSigner(caller) and caller != factory) {
+                return #err("Only signers can update balances");
+            };
+
+            try {
+                await* updateBalances();
+                #ok()
+            } catch (error) {
+                #err("Failed to update balances: " # Error.message(error))
+            }
+        };
+
+        public shared({caller}) func getWalletInfo(): async MultisigTypes.MultisigWallet {
+            // Check if caller has permission to view this wallet
+            if (not canViewWallet(caller)) {
+                Debug.trap("Access denied: You don't have permission to view this wallet");
+            };
+
+            // Update balances for accurate information (only for authorized callers)
+            if (isSigner(caller) or caller == factory) {
+                try {
+                    ignore await* updateBalances();
+                } catch (error) {
+                    Debug.print("Failed to update balances in getWalletInfo: " # Error.message(error));
+                };
+            };
+
             {
                 id = walletId;
                 canisterId = Principal.fromText(walletId); // Use wallet ID as canister identifier
@@ -1083,11 +1332,74 @@ persistent actor class MultisigContract(initArgs: {
 
         // ============== ICRC TRANSFER FUNCTIONALITY ==============
 
-        // ICRC1 Token Actor Interface
-        private type ICRC1Actor = actor {
-            icrc1_transfer : (ICRC.TransferArgs) -> async ICRC.TransferResult;
-            icrc1_balance_of : (ICRC.Account) -> async ICRC.Balance;
-            icrc1_fee : () -> async ICRC.Balance;
+        // Use ICRC standard ledger interface
+        private type ICRCLedger = ICRC.ICRCLedger;
+
+        // Constants for ICP ledger
+        private var ICP_LEDGER_CANISTER_ID = Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai");
+
+        // Execute ICP transfer using ICRC standard (following DistributionContract pattern)
+        private func executeICPTransfer(
+            to: Principal,
+            amount: Nat,
+            memo: ?Blob
+        ): async* Result.Result<Nat, Text> {
+            let icpLedger : ICRCLedger = actor(Principal.toText(ICP_LEDGER_CANISTER_ID));
+            
+            // Get transfer fee
+            let transferFee = await icpLedger.icrc1_fee();
+            Debug.print("MultisigContract: Transfer fee from ledger: " # Nat.toText(transferFee));
+            Debug.print("MultisigContract: Transfer amount requested: " # Nat.toText(amount));
+            
+            // Check amount is sufficient (following DistributionContract pattern)
+            let transferAmount = if (amount > transferFee) {
+                Nat.sub(amount, transferFee)
+            } else { 0 };
+            
+            Debug.print("MultisigContract: Calculated transfer amount after fee: " # Nat.toText(transferAmount));
+            
+            if (transferAmount == 0) {
+                Debug.print("MultisigContract: Transfer amount is 0 after fee deduction");
+                let minAmount = transferFee + 1; // Minimum + 1 for actual transfer
+                return #err("Amount too small to cover transfer fee. Minimum required: " # Nat.toText(minAmount) # " e8s (fee: " # Nat.toText(transferFee) # " e8s), provided: " # Nat.toText(amount) # " e8s");
+            };
+            
+            // Prepare transfer arguments (following DistributionContract pattern)
+            let transferArgs: ICRC.TransferArgs = {
+                to = {
+                    owner = to;
+                    subaccount = null;
+                };
+                fee = ?transferFee;
+                amount = transferAmount;
+                memo = memo;
+                from_subaccount = null;
+                created_at_time = null;
+            };
+            
+            // Execute transfer
+            let transferResult = await icpLedger.icrc1_transfer(transferArgs);
+            
+            switch (transferResult) {
+                case (#Ok(txIndex)) {
+                    // Update local balance
+                    icpBalance := Nat.sub(icpBalance, amount);
+                    #ok(txIndex)
+                };
+                case (#Err(err)) {
+                    let errorMsg = switch (err) {
+                        case (#InsufficientFunds { balance }) "Insufficient funds: balance " # Nat.toText(balance);
+                        case (#BadFee { expected_fee }) "Bad fee: expected " # Nat.toText(expected_fee);
+                        case (#TooOld) "Transaction too old";
+                        case (#CreatedInFuture { ledger_time = _ }) "Transaction created in future";
+                        case (#Duplicate { duplicate_of }) "Duplicate transaction: " # Nat.toText(duplicate_of);
+                        case (#TemporarilyUnavailable) "Service temporarily unavailable";
+                        case (#GenericError { error_code; message }) "Error " # Nat.toText(error_code) # ": " # message;
+                        case (#BadBurn { min_burn_amount }) "Bad burn: minimum " # Nat.toText(min_burn_amount);
+                    };
+                    #err(errorMsg)
+                };
+            }
         };
 
         // Execute ICRC1 transfer for token assets
@@ -1098,7 +1410,7 @@ persistent actor class MultisigContract(initArgs: {
             memo: ?Blob
         ): async* Result.Result<Nat, Text> {
             try {
-                let tokenCanister : ICRC1Actor = actor(Principal.toText(tokenCanisterId));
+                let tokenCanister : ICRCLedger = actor(Principal.toText(tokenCanisterId));
 
                 // Get the transfer fee
                 let transferFee = await tokenCanister.icrc1_fee();
@@ -1150,23 +1462,6 @@ persistent actor class MultisigContract(initArgs: {
             }
         };
 
-        // Get ICRC1 token balance for this wallet
-        private func getICRCBalance(tokenCanisterId: Principal): async* Nat {
-            try {
-                let tokenCanister : ICRC1Actor = actor(Principal.toText(tokenCanisterId));
-
-                let account: ICRC.Account = {
-                    owner = Principal.fromText(walletId); // Use wallet ID as principal identifier
-                    subaccount = null;
-                };
-
-                let balance = await tokenCanister.icrc1_balance_of(account);
-                balance
-            } catch (error) {
-                Debug.print("Failed to get ICRC balance: " # Error.message(error));
-                0
-            }
-        };
 
         // Create a transfer proposal
         public shared({caller}) func createTransferProposal(
@@ -1179,9 +1474,8 @@ persistent actor class MultisigContract(initArgs: {
         ): async MultisigTypes.ProposalResult {
 
             // Check if caller is authorized signer
-            switch (signers.get(caller)) {
-                case null return #err(#Unauthorized);
-                case (?_) {};
+            if (not isSigner(caller)) {
+                return #err(#Unauthorized);
             };
 
             // Validate transfer parameters
@@ -1279,12 +1573,185 @@ persistent actor class MultisigContract(initArgs: {
             }
         };
 
-        // Note: signProposal is already implemented above
+        // Create wallet modification proposal (add/remove signer, change threshold)
+        public shared({caller}) func createWalletModificationProposal(
+            modificationType: MultisigTypes.WalletModificationType,
+            title: Text,
+            description: Text
+        ): async MultisigTypes.ProposalResult {
+
+            // Check if caller is authorized signer
+            if (not isSigner(caller)) {
+                return #err(#Unauthorized);
+            };
+
+            // Validate modification type
+            switch (modificationType) {
+                case (#AddSigner(signerData)) {
+                    if (Principal.isAnonymous(signerData.signer)) {
+                        return #err(#InvalidProposal("Invalid signer address"));
+                    };
+                    // Check if signer already exists
+                    switch (signers.get(signerData.signer)) {
+                        case (?_) return #err(#InvalidProposal("Signer already exists"));
+                        case null {};
+                    };
+                };
+                case (#RemoveSigner(signerData)) {
+                    if (Principal.isAnonymous(signerData.signer)) {
+                        return #err(#InvalidProposal("Invalid signer address"));
+                    };
+                    // Check if signer exists
+                    switch (signers.get(signerData.signer)) {
+                        case null return #err(#InvalidProposal("Signer does not exist"));
+                        case (?_) {};
+                    };
+                    // Check if removing would leave too few signers
+                    if (signers.size() <= 1) {
+                        return #err(#InvalidProposal("Cannot remove last signer"));
+                    };
+                };
+                case (#ChangeThreshold(thresholdData)) {
+                    if (thresholdData.newThreshold == 0) {
+                        return #err(#InvalidProposal("Threshold must be greater than 0"));
+                    };
+                    if (thresholdData.newThreshold > signers.size()) {
+                        return #err(#InvalidProposal("Threshold cannot exceed number of signers"));
+                    };
+                };
+                case (_) {
+                    return #err(#InvalidProposal("Modification type not supported"));
+                };
+            };
+
+            // Create wallet modification proposal
+            let proposalId = generateProposalId();
+            let proposalType = #WalletModification({
+                modificationType = modificationType;
+            });
+
+            let riskLevel = #Medium; // Wallet modifications are always medium risk
+            let requiredApprovals = calculateRequiredApprovals(riskLevel);
+
+            let proposal: MultisigTypes.Proposal = {
+                id = proposalId;
+                walletId = walletId;
+                proposalType = proposalType;
+                title = title;
+                description = description;
+                actions = [{
+                    actionType = #WalletModification({
+                        modificationType = modificationType;
+                    });
+                    estimatedCost = ?50000; // Estimate cycles cost
+                    riskAssessment = {
+                        level = riskLevel;
+                        factors = [#StructuralChange];
+                        score = 0.4;
+                        autoApproved = false;
+                    };
+                }];
+                proposer = caller;
+                proposedAt = Time.now();
+                earliestExecution = null;
+                expiresAt = Time.now() + walletConfig.maxProposalLifetime;
+                requiredApprovals = requiredApprovals;
+                currentApprovals = 0;
+                approvals = [];
+                rejections = [];
+                status = #Pending;
+                executedAt = null;
+                executedBy = null;
+                executionResult = null;
+                risk = riskLevel;
+                requiresConsensus = true; // Wallet modifications require consensus
+                emergencyOverride = false;
+                dependsOn = [];
+                executionOrder = null;
+            };
+
+            // Store proposal
+            proposals.put(proposalId, proposal);
+            totalProposals += 1;
+
+            // Create event
+            let event = createEvent(
+                #ProposalCreated,
+                caller,
+                ?("Wallet modification proposal created: " # title)
+            );
+            events.put(event.id, event);
+
+            updateLastActivity();
+
+            #ok({
+                proposalId = proposalId;
+                status = #Pending;
+                requiredApprovals = proposal.requiredApprovals;
+                currentApprovals = 0;
+            })
+        };
+
+        public shared({caller}) func resetICPLedger(): async Result.Result<(), Text> {
+            if (not isSigner(caller) and caller != factory) {
+                return #err("Only signers can reset ICP ledger");
+            };
+            
+            ICP_LEDGER_CANISTER_ID := Principal.fromText("ryjl3-tyaaa-aaaaa-aaaba-cai");
+            #ok()
+        };
 
         // Note: executeProposal is already implemented above
         // ICRC transfer logic will be integrated into existing executeAction function
 
         // ============== HELPER FUNCTIONS ==============
+
+        // No longer needed - ICRC1 uses Principal directly instead of account identifiers
+
+        // Get real ICP balance from ledger using ICRC standard
+        private func getICPBalance(): async* Nat {
+            try {
+                let icpLedger : ICRCLedger = actor(Principal.toText(ICP_LEDGER_CANISTER_ID));
+                
+                let account: ICRC.Account = {
+                    owner = Principal.fromText(walletId);
+                    subaccount = null;
+                };
+                
+                let balance = await icpLedger.icrc1_balance_of(account);
+                balance
+            } catch (error) {
+                Debug.print("Failed to get ICP balance: " # Error.message(error));
+                0
+            }
+        };
+
+        // Get ICRC1 token balance for this wallet
+        private func getICRCBalance(tokenCanisterId: Principal): async* Nat {
+            try {
+                let tokenCanister : ICRCLedger = actor(Principal.toText(tokenCanisterId));
+
+                let account: ICRC.Account = {
+                    owner = Principal.fromText(walletId);
+                    subaccount = null;
+                };
+
+                let balance = await tokenCanister.icrc1_balance_of(account);
+                balance
+            } catch (error) {
+                Debug.print("Failed to get ICRC balance: " # Error.message(error));
+                0
+            }
+        };
+
+        // Update balances from real sources
+        private func updateBalances(): async* () {
+            // Update ICP balance
+            icpBalance := await* getICPBalance();
+            
+            // Update token balances (simplified - in real implementation would iterate through all tokens)
+            // This is a placeholder for token balance updates
+        };
 
         private func generateProposalId(): MultisigTypes.ProposalId {
             let id = nextProposalId;
@@ -1337,16 +1804,42 @@ persistent actor class MultisigContract(initArgs: {
         };
 
         system func postupgrade(){
-            signersEntries := [];
-            proposalsEntries := [];
-            eventsEntries := [];
+            // Do NOT clear stable variables - they are already restored automatically
+            // signersEntries, proposalsEntries, eventsEntries are now stable and preserved
+            
+            // Reconstruct transient HashMaps from stable arrays
+            signers := HashMap.fromIter<Principal, MultisigTypes.SignerInfo>(
+                signersEntries.vals(),
+                signersEntries.size(),
+                Principal.equal,
+                Principal.hash
+            );
 
-            // Initialize wallet if this is first deployment
+            proposals := HashMap.fromIter<MultisigTypes.ProposalId, MultisigTypes.Proposal>(
+                proposalsEntries.vals(),
+                proposalsEntries.size(),
+                Text.equal,
+                Text.hash
+            );
+
+            events := HashMap.fromIter<Text, MultisigTypes.WalletEvent>(
+                eventsEntries.vals(),
+                eventsEntries.size(),
+                Text.equal,
+                Text.hash
+            );
+
+            observers := Buffer.fromArray<Principal>(observersArray);
+
+            // Initialize wallet if this is first deployment (no signers)
             if (signers.size() == 0) {
                 initializeWallet();
             };
 
-            Debug.print("MultisigContract: Post-upgrade completed for wallet " # walletId);
+            Debug.print("MultisigContract: Post-upgrade completed for wallet " # walletId # " with " # 
+                       debug_show(signers.size()) # " signers, " # 
+                       debug_show(proposals.size()) # " proposals, " # 
+                       debug_show(events.size()) # " events");
         };
 
         // Initialize wallet on contract deployment

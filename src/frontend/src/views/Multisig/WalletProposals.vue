@@ -33,7 +33,7 @@
                             Refresh
                         </button>
                         <button
-                            @click="openCreateProposalModal"
+                            @click="createProposalVisible = true"
                             class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
                         >
                             <PlusIcon class="h-4 w-4 mr-2" />
@@ -98,11 +98,37 @@
                     :proposals="proposals"
                     :has-more="hasMore"
                     :loading="loadingMore"
-                    @create-proposal="openCreateProposalModal"
+                    @create-proposal="createProposalVisible = true"
                     @view-proposal="viewProposal"
                     @sign-proposal="openSignModal"
                     @load-more="loadMore"
                 />
+            </div>
+        </div>
+
+        <!-- Create Proposal Modal -->
+        <div v-if="createProposalVisible" class="fixed inset-0 z-[99] overflow-y-auto">
+            <div class="flex items-center justify-center pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                <!-- Backdrop -->
+                <div class="fixed inset-0 bg-black/30 bg-opacity-50 transition-opacity" @click="createProposalVisible = false"></div>
+
+                <!-- Modal -->
+                <div class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle relative">
+                    <div class="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white">Create New Proposal</h3>
+                            <button @click="createProposalVisible = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                                <XIcon class="w-6 h-6" />
+                            </button>
+                        </div>
+                        <CreateProposalForm
+                            v-if="createProposalVisible"
+                            :wallet="wallet"
+                            @submit="handleCreateProposal"
+                            @cancel="createProposalVisible = false"
+                        />
+                    </div>
+                </div>
             </div>
         </div>
     </admin-layout>
@@ -111,20 +137,23 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { Principal } from '@dfinity/principal'
 import { useMultisigStore } from '@/stores/multisig'
 import { useModalStore } from '@/stores/modal'
 import { multisigService } from '@/api/services/multisig'
 import type { TransactionProposal } from '@/types/multisig'
-import { 
+import {
     ArrowLeftIcon,
     RefreshCcwIcon,
-    PlusIcon
+    PlusIcon,
+    XIcon
 } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import MetricCard from '@/components/common/MetricCard.vue'
 import MultisigProposalTable from '@/components/multisig/MultisigProposalTable.vue'
 import LoadingSkeleton from '@/components/multisig/LoadingSkeleton.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
+import CreateProposalForm from '@/components/multisig/CreateProposalForm.vue'
 
 // Stores and router
 const route = useRoute()
@@ -138,6 +167,7 @@ const loadingMore = ref(false)
 const error = ref('')
 const hasMore = ref(true)
 const page = ref(1)
+const createProposalVisible = ref(false)
 
 // Computed
 const walletId = computed(() => route.params.id as string)
@@ -211,11 +241,70 @@ const refreshData = async () => {
     await loadProposals()
 }
 
-const openCreateProposalModal = () => {
-    modalStore.open('createProposal', {
-        walletId: walletId.value,
-        wallet: wallet.value
-    })
+const handleCreateProposal = async (proposalData: any) => {
+    try {
+        const walletId = wallet.value.canisterId?.toString() || walletId.value
+
+        if (proposalData.type === 'transfer') {
+            let _memo: Uint8Array | undefined = undefined
+            if (proposalData.memo) {
+                _memo = new TextEncoder().encode(proposalData.memo)
+            }
+            const result = await multisigService.createTransferProposal(
+                walletId,
+                proposalData.recipient,
+                BigInt(proposalData.amount),
+                proposalData.asset || { ICP: null },
+                proposalData.title,
+                proposalData.description,
+                _memo
+            )
+
+            if (result.success) {
+                createProposalVisible.value = false
+                await refreshData()
+            }
+        } else if (proposalData.type === 'add_signer') {
+            const modificationType = {
+                AddSigner: {
+                    signer: Principal.fromText(proposalData.targetSigner),
+                    role: { Signer: null } // Default role
+                }
+            }
+
+            const result = await multisigService.createWalletModificationProposal(
+                walletId,
+                modificationType,
+                proposalData.title,
+                proposalData.description
+            )
+
+            if (result.success) {
+                createProposalVisible.value = false
+                await refreshData()
+            }
+        } else if (proposalData.type === 'remove_signer') {
+            const modificationType = {
+                RemoveSigner: {
+                    signer: Principal.fromText(proposalData.targetSigner)
+                }
+            }
+
+            const result = await multisigService.createWalletModificationProposal(
+                walletId,
+                modificationType,
+                proposalData.title,
+                proposalData.description
+            )
+
+            if (result.success) {
+                createProposalVisible.value = false
+                await refreshData()
+            }
+        }
+    } catch (error) {
+        console.error('Error creating proposal:', error)
+    }
 }
 
 const viewProposal = (proposal: TransactionProposal) => {

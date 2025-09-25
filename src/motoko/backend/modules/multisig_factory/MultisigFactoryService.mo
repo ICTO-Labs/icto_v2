@@ -105,8 +105,8 @@ module MultisigFactoryService {
         let signersArray = config.signers;
         for (i in signersArray.keys()) {
             for (j in signersArray.keys()) {
-                if (i != j and signersArray[i] == signersArray[j]) {
-                    return #err("Duplicate signer found: " # Principal.toText(signersArray[i]));
+                if (i != j and signersArray[i].principal == signersArray[j].principal) {
+                    return #err("Duplicate signer found: " # Principal.toText(signersArray[i].principal));
                 };
             };
         };
@@ -151,7 +151,7 @@ module MultisigFactoryService {
         // 3. Check if caller is in signers list
         var callerIsSigner = false;
         for (signer in config.signers.vals()) {
-            if (signer == caller) {
+            if (signer.principal == caller) {
                 callerIsSigner := true;
             };
         };

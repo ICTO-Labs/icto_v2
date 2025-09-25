@@ -11,12 +11,19 @@ module {
     public type SignatureId = Text;
     public type TransactionId = Text;
 
+    // Initial signer configuration for wallet creation
+    public type SignerConfig = {
+        principal: Principal;
+        name: ?Text;
+        role: SignerRole;
+    };
+
     // Wallet configuration for creation
     public type WalletConfig = {
         name: Text;
         description: ?Text;
         threshold: Nat; // M of N signatures required
-        signers: [Principal]; // Initial signers list
+        signers: [SignerConfig]; // Initial signers list with names and roles
         // Security settings
         requiresTimelock: Bool;
         timelockDuration: ?Int; // Nanoseconds
@@ -29,6 +36,7 @@ module {
         // Governance
         requiresConsensusForChanges: Bool; // Requires all signers for structural changes
         allowObservers: Bool;
+        isPublic: Bool; // Public: anyone can view, Private: only signers/observers can view
     };
 
     // Complete wallet state
@@ -250,12 +258,13 @@ module {
     };
 
     public type WalletModificationType = {
-        #AddSigner: { signer: Principal; role: SignerRole };
+        #AddSigner: { signer: Principal; name: ?Text; role: SignerRole };
         #RemoveSigner: { signer: Principal };
         #ChangeThreshold: { newThreshold: Nat };
         #UpdateSignerRole: { signer: Principal; newRole: SignerRole };
-        #AddObserver: { observer: Principal };
+        #AddObserver: { observer: Principal; name: ?Text };
         #RemoveObserver: { observer: Principal };
+        #ChangeVisibility: { isPublic: Bool }; // Change wallet visibility
         #UpdateWalletConfig: { config: WalletConfig };
     };
 
@@ -365,7 +374,7 @@ module {
         success: Bool;
         error: ?Text;
         gasUsed: ?Nat;
-        result: ?Blob; // Serialized result data
+        result: ?Text; // Result message or data
     };
 
     public type BalanceChange = {

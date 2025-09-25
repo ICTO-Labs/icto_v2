@@ -255,6 +255,15 @@
             />
           </div>
 
+          <div class="rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+            <BaseSwitch
+              v-model="formData.isPublic"
+              label="Public Wallet"
+              description="Anyone can view this wallet (private: only signers and observers can view)"
+              labelPosition="right"
+            />
+          </div>
+
           <div>
             <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-400">
               Maximum Proposal Lifetime

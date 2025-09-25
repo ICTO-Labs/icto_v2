@@ -19,6 +19,7 @@ import Float "mo:base/Float";
 
 import MultisigTypes "../shared/types/MultisigTypes";
 import MultisigContract "./MultisigContract";
+import ICManagement "../shared/utils/IC";
 
 persistent actor MultisigFactory {
 
@@ -475,5 +476,27 @@ persistent actor MultisigFactory {
 
         Debug.print("MultisigFactory: Emergency pause activated");
         #ok()
+    };
+
+    // Add controller to MultisigFactory contract (Debug)
+    public shared({caller}) func addController(contractId: Principal, newCtrl: Principal) : async Result.Result<(), Text> {
+        if (not isAuthorized(caller)) {
+            return #err("Only admins can add controllers");
+        };
+        let controllers : [Principal] = [newCtrl, Principal.fromActor(MultisigFactory)];
+        let ic : ICManagement.Self = actor ("aaaaa-aa");
+
+        await ic.update_settings({
+            canister_id = contractId;
+            settings = {
+                controllers = ?controllers;
+                compute_allocation = null;
+                memory_allocation = null;
+                freezing_threshold = null;
+                reserved_cycles_limit = null;
+            };
+            sender_canister_version = null;
+        });
+        #ok();
     };
 }

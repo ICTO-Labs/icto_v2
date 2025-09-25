@@ -39,7 +39,7 @@
                         <div class="flex justify-between">
                             <span class="text-sm text-gray-500 dark:text-gray-400">Proposer:</span>
                             <span class="text-sm font-medium text-gray-900 dark:text-white">
-                                {{ proposal?.proposerName || proposal?.proposer?.slice(0, 20) }}...
+                                {{ proposal?.proposerName ?  proposal?.proposerName[0] : proposal?.proposer?.slice(0, 20) }}
                             </span>
                         </div>
                         <div class="flex justify-between">
@@ -289,13 +289,22 @@ const handleSign = async () => {
             console.log('Proposal signed successfully')
             
             // Emit event to parent to refresh proposal data
-            console.log('Emitting proposal-signed event:', { 
-                proposalId: proposal.value.id, 
-                canisterId: canisterId.value 
+            console.log('Emitting proposal-signed event:', {
+                proposalId: proposal.value.id,
+                canisterId: canisterId.value
             })
+
+            // Immediate refresh for signature update
             window.dispatchEvent(new CustomEvent('proposal-signed', {
                 detail: { proposalId: proposal.value.id, canisterId: canisterId.value }
             }))
+
+            // Delayed refresh to catch auto-execution
+            setTimeout(() => {
+                window.dispatchEvent(new CustomEvent('proposal-signed', {
+                    detail: { proposalId: proposal.value.id, canisterId: canisterId.value }
+                }))
+            }, 2000) // Wait 2 seconds for auto-execution to complete
         } else {
             throw new Error(result.error || 'Failed to sign proposal')
         }

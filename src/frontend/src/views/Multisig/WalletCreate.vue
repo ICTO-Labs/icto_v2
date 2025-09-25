@@ -73,9 +73,13 @@
                                     </div>
                                     <div class="flex-1">
                                         <div class="flex items-center space-x-2">
-                                            <span class="text-sm font-medium text-gray-900 dark:text-white">
-                                                You (Owner)
-                                            </span>
+                                            <input
+                                                v-model="form.ownerName"
+                                                type="text"
+                                                placeholder="Enter your name"
+                                                maxlength="50"
+                                                class="text-sm font-medium bg-transparent border-0 border-b border-gray-200 focus:border-brand-500 focus:ring-0 text-gray-900 dark:text-white dark:border-gray-600 dark:focus:border-brand-400 p-1 min-w-0 flex-1"
+                                            />
                                             <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
                                                 Owner
                                             </span>
@@ -98,12 +102,22 @@
                                         <UserIcon class="h-5 w-5 text-white" />
                                     </div>
                                     <div class="flex-1 space-y-2">
-                                        <input
-                                            v-model="signer.name"
-                                            type="text"
-                                            class="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                                            placeholder="Signer name..."
-                                        />
+                                        <div class="flex space-x-2">
+                                            <input
+                                                v-model="signer.name"
+                                                type="text"
+                                                class="flex-1 px-3 py-1.5 text-sm border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                                                placeholder="Signer name..."
+                                            />
+                                            <Select
+                                                v-model="signer.role"
+                                                :options="[
+                                                    { value: 'Signer', label: 'Signer' },
+                                                    { value: 'Observer', label: 'Observer' }
+                                                ]"
+                                                class="w-32"
+                                            />
+                                        </div>
                                         <input
                                             v-model="signer.principal"
                                             type="text"
@@ -122,6 +136,10 @@
                                             class="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                                             placeholder="Email (optional)..."
                                         />
+                                        <div v-if="signer.role === 'Observer'" class="flex items-center text-xs text-blue-600 dark:text-blue-400">
+                                            <EyeIcon class="h-3 w-3 mr-1" />
+                                            Observer can view but cannot create or sign proposals
+                                        </div>
                                     </div>
                                     <button
                                         @click="removeSigner(index)"
@@ -146,10 +164,10 @@
                             <label class="block text-sm font-medium text-danger-700 dark:text-gray-300">
                                 Signature Threshold *
                             </label>
-                            <Select 
+                            <Select
                                 v-model="form.threshold"
                                 size="lg"
-                                :options="Array.from({ length: maxThreshold }, (_, i) => ({ value: i + 1, label: i + 1 + ' of ' + totalSigners }))"
+                                :options="Array.from({ length: maxThreshold }, (_, i) => ({ value: i + 1, label: i + 1 + ' of ' + signerCount }))"
                             >
                             </Select>
                         </div>
@@ -166,11 +184,11 @@
                                             type="checkbox"
                                             class="sr-only"
                                         />
-                                        <div 
+                                        <div
                                             class="w-11 h-6 rounded-full transition-colors duration-200 ease-in-out"
                                             :class="form.enableCycleOps ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'"
                                         >
-                                            <div 
+                                            <div
                                                 class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ease-in-out"
                                                 :class="form.enableCycleOps ? 'transform translate-x-5' : 'transform translate-x-0'"
                                             ></div>
@@ -193,11 +211,11 @@
                                             type="checkbox"
                                             class="sr-only"
                                         />
-                                        <div 
+                                        <div
                                             class="w-11 h-6 rounded-full transition-colors duration-200 ease-in-out"
                                             :class="form.allowTokenOperations ? 'bg-blue-600' : 'bg-gray-200 dark:bg-gray-700'"
                                         >
-                                            <div 
+                                            <div
                                                 class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ease-in-out"
                                                 :class="form.allowTokenOperations ? 'transform translate-x-5' : 'transform translate-x-0'"
                                             ></div>
@@ -212,24 +230,59 @@
                                         </p>
                                     </div>
                                 </label>
+
+                                <label class="flex items-center cursor-pointer">
+                                    <div class="relative">
+                                        <input
+                                            v-model="form.isPublic"
+                                            type="checkbox"
+                                            class="sr-only"
+                                        />
+                                        <div
+                                            class="w-11 h-6 rounded-full transition-colors duration-200 ease-in-out"
+                                            :class="form.isPublic ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'"
+                                        >
+                                            <div
+                                                class="absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform duration-200 ease-in-out"
+                                                :class="form.isPublic ? 'transform translate-x-5' : 'transform translate-x-0'"
+                                            ></div>
+                                        </div>
+                                    </div>
+                                    <div class="ml-3">
+                                        <span class="text-sm font-medium text-gray-900 dark:text-white">
+                                            Public Wallet
+                                        </span>
+                                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                                            {{ form.isPublic ? 'Anyone can view this wallet' : 'Only signers and observers can view' }}
+                                        </p>
+                                    </div>
+                                </label>
                             </div>
                         </div>
 
                         <!-- Summary -->
                         <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
                             <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Wallet Summary</h4>
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-600 dark:text-gray-400">
+                            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm text-gray-600 dark:text-gray-400">
                                 <div>
                                     <span class="block text-gray-500 dark:text-gray-400">Name:</span>
                                     <span class="font-medium text-gray-900 dark:text-white">{{ form.name || 'Unnamed Wallet' }}</span>
                                 </div>
                                 <div>
                                     <span class="block text-gray-500 dark:text-gray-400">Threshold:</span>
-                                    <span class="font-medium text-gray-900 dark:text-white">{{ form.threshold }}/{{ totalSigners }}</span>
+                                    <span class="font-medium text-gray-900 dark:text-white">{{ form.threshold }}/{{ signerCount }}</span>
                                 </div>
                                 <div>
-                                    <span class="block text-gray-500 dark:text-gray-400">Total Signers:</span>
-                                    <span class="font-medium text-gray-900 dark:text-white">{{ totalSigners }}</span>
+                                    <span class="block text-gray-500 dark:text-gray-400">Participants:</span>
+                                    <span class="font-medium text-gray-900 dark:text-white">
+                                        {{ signerCount }} signers{{ observerCount > 0 ? `, ${observerCount} observers` : '' }}
+                                    </span>
+                                </div>
+                                <div>
+                                    <span class="block text-gray-500 dark:text-gray-400">Visibility:</span>
+                                    <span class="font-medium" :class="form.isPublic ? 'text-green-600 dark:text-green-400' : 'text-gray-900 dark:text-white'">
+                                        {{ form.isPublic ? 'Public' : 'Private' }}
+                                    </span>
                                 </div>
                                 <div>
                                     <span class="block text-gray-500 dark:text-gray-400">Creation Fee:</span>
@@ -293,7 +346,8 @@ import {
     UserIcon,
     PlusIcon,
     TrashIcon,
-    WalletIcon
+    WalletIcon,
+    EyeIcon
 } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
@@ -328,17 +382,20 @@ interface SignerForm {
     name: string
     principal: string
     email: string
+    role: string // 'Signer' or 'Observer'
 }
 
 const form = reactive({
     name: '',
     description: '',
+    ownerName: '', // Add owner name field
     threshold: 2,
     signers: [] as SignerForm[],
     enableCycleOps: true,
     allowTokenOperations: true,
     allowRecovery: false,
     allowObservers: false,
+    isPublic: false, // Wallet visibility: public or private
     requiresConsensusForChanges: true,
     requiresTimelock: false,
     maxProposalLifetime: 24 // hours
@@ -358,8 +415,19 @@ const totalSigners = computed(() => {
     return form.signers.length + 1 // +1 for current user
 })
 
+const signerCount = computed(() => {
+    // Count actual signers (excluding observers) + owner
+    return form.signers.filter(s => s.role === 'Signer').length + 1 // +1 for owner
+})
+
+const observerCount = computed(() => {
+    // Count observers
+    return form.signers.filter(s => s.role === 'Observer').length
+})
+
 const maxThreshold = computed(() => {
-    return Math.max(1, totalSigners.value)
+    // Threshold should be based on signers only, not observers
+    return Math.max(1, signerCount.value)
 })
 
 const isFormValid = computed(() => {
@@ -368,7 +436,8 @@ const isFormValid = computed(() => {
 
     // Check basic form validation
     if (!form.name.trim()) return false
-    if (form.threshold < 1 || form.threshold > totalSigners.value) return false
+    if (!form.ownerName.trim()) return false
+    if (form.threshold < 1 || form.threshold > signerCount.value) return false
 
     // Check that all signers have valid principals
     const isValidSigners = form.signers.every(signer => {
@@ -426,7 +495,8 @@ const addSigner = () => {
     form.signers.push({
         name: '',
         principal: '',
-        email: ''
+        email: '',
+        role: 'Signer' // Default to Signer role
     })
 }
 
@@ -442,6 +512,7 @@ const removeSigner = (index: number) => {
 const resetForm = () => {
     form.name = ''
     form.description = ''
+    form.ownerName = ''
     form.threshold = 2
     form.signers = []
     form.enableCycleOps = true
@@ -624,13 +695,19 @@ const handlePayment = async () => {
                         break
 
                     case 5: // Finalize
-                        progress.setLoading(false)
-                        progress.close()
+                        if (deployResult.value?.success && deployResult.value.canisterId) {
+                            progress.setLoading(false)
+                            progress.close()
 
-                        toast.success('🎉 Multisig wallet deployed successfully!')
-                        resetForm()
-                        await multisigStore.loadWallets()
-                        router.push('/multisig')
+                            toast.success('🎉 Multisig wallet deployed successfully!')
+                            resetForm()
+                            await multisigStore.loadWallets()
+
+                            // Navigate to wallet detail page
+                            router.push(`/multisig/${deployResult.value.canisterId}`)
+                        } else {
+                            throw new Error('Wallet creation completed but no canister ID received')
+                        }
                         break
                 }
 
@@ -684,14 +761,14 @@ const createWallet = async () => {
                 // Current user as owner
                 {
                     principal: currentUserPrincipal.value,
-                    name: 'You',
+                    name: form.ownerName.trim(),
                     role: 'Owner' as const
                 },
                 // Additional signers
                 ...form.signers.map(signer => ({
                     principal: signer.principal.trim(),
                     name: signer.name.trim() || 'Unknown Signer',
-                    role: 'Signer' as const
+                    role: signer.role || 'Signer' as const
                 }))
             ],
             allowRecovery: form.allowRecovery,
@@ -701,7 +778,8 @@ const createWallet = async () => {
             timelockDuration: form.requiresTimelock ? form.maxProposalLifetime : undefined,
             maxProposalLifetime: form.maxProposalLifetime,
             enableCycleOps: form.enableCycleOps,
-            allowTokenOperations: form.allowTokenOperations
+            allowTokenOperations: form.allowTokenOperations,
+            isPublic: form.isPublic
         }
 
         console.log('Creating wallet with form data:', formData)
@@ -710,12 +788,13 @@ const createWallet = async () => {
         const result = await multisigService.createWallet(formData)
 
         if (result.success && result.data) {
-            toast.success('Multisig wallet created successfully!')
-            resetForm()
-            // Update store with new wallet
-            await multisigStore.loadWallets()
-            // Navigate to multisig list
-            router.push('/multisig')
+            // Store result for step 5 to handle
+            const canisterId = result.data.canisterId?.toString() || result.data.walletId
+            deployResult.value = {
+                success: true,
+                canisterId: canisterId
+            }
+            console.log('Wallet created successfully, canister ID:', canisterId)
         } else {
             const errorMsg = typeof result.error === 'string' ? result.error : 'Failed to create wallet'
             throw new Error(errorMsg)
