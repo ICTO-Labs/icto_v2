@@ -162,7 +162,7 @@ const currentTabProps = computed(() => {
         case 'wallets':
             return { wallets: multisigStore.wallets }
         case 'proposals':
-            return { proposals: multisigStore.proposals }
+            return { proposals: multisigStore.recentProposals }
         case 'activity':
             return { activities: multisigStore.activities }
         default:
@@ -192,13 +192,14 @@ const refreshData = async () => {
     isLoading.value = true
     try {
         await multisigStore.refreshData()
-        // Load proposals for each wallet
-        for (const wallet of multisigStore.wallets) {
+
+        // Load proposals for all wallets in parallel instead of sequential
+        const proposalPromises = multisigStore.wallets.map(wallet => {
             const walletId = wallet.canisterId?.toString() || wallet.id
-            if (walletId) {
-                await multisigStore.fetchProposals(walletId)
-            }
-        }
+            return walletId ? multisigStore.fetchProposals(walletId) : Promise.resolve([])
+        })
+
+        await Promise.all(proposalPromises)
     } catch (error) {
         console.error('Failed to refresh data:', error)
     } finally {

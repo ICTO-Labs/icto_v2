@@ -73,31 +73,34 @@
                 <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                     <MetricCard
                         title="Total Proposals"
-                        :value="stats.totalProposals"
+                        :value="proposalCounts.total"
                         icon="FileTextIcon"
                     />
                     <MetricCard
                         title="Pending"
-                        :value="stats.pendingProposals"
+                        :value="proposalCounts.pending"
                         icon="ClockIcon"
                     />
                     <MetricCard
                         title="Executed"
-                        :value="stats.executedProposals"
+                        :value="proposalCounts.executed"
                         icon="CheckCircleIcon"
                     />
                     <MetricCard
                         title="Rejected"
-                        :value="stats.rejectedProposals"
+                        :value="proposalCounts.rejected"
                         icon="XCircleIcon"
                     />
                 </div>
 
                 <!-- Proposals Table -->
-                <MultisigProposalTable
+                <UnifiedProposalTable
                     :proposals="proposals"
+                    :title="`${wallet?.config?.name || 'Wallet'} Proposals`"
                     :has-more="hasMore"
                     :loading="loadingMore"
+                    :show-header="false"
+                    :show-create-button="false"
                     @create-proposal="createProposalVisible = true"
                     @view-proposal="viewProposal"
                     @sign-proposal="openSignModal"
@@ -150,7 +153,7 @@ import {
 } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import MetricCard from '@/components/common/MetricCard.vue'
-import MultisigProposalTable from '@/components/multisig/MultisigProposalTable.vue'
+import UnifiedProposalTable from '@/components/multisig/UnifiedProposalTable.vue'
 import LoadingSkeleton from '@/components/multisig/LoadingSkeleton.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import CreateProposalForm from '@/components/multisig/CreateProposalForm.vue'
@@ -180,13 +183,13 @@ const proposals = computed(() => {
     return result
 })
 
-const stats = computed(() => {
+const proposalCounts = computed(() => {
     const allProposals = proposals.value
     return {
-        totalProposals: allProposals.length,
-        pendingProposals: allProposals.filter(p => p.status === 'pending').length,
-        executedProposals: allProposals.filter(p => p.status === 'executed').length,
-        rejectedProposals: allProposals.filter(p => p.status === 'rejected').length
+        total: allProposals.length,
+        pending: multisigStore.pendingProposals.filter(p => p.walletId === walletId.value).length,
+        executed: multisigStore.executedProposals.filter(p => p.walletId === walletId.value).length,
+        rejected: multisigStore.rejectedProposals.filter(p => p.walletId === walletId.value).length
     }
 })
 
@@ -205,10 +208,8 @@ const loadProposals = async () => {
     error.value = ''
 
     try {
-        await multisigStore.loadWallet(walletId.value)
-
-        // Use store method to fetch proposals (it handles API calls)
-        await multisigStore.fetchProposals(walletId.value)
+        // Use optimized method that loads wallet and proposals in parallel
+        await multisigStore.loadWalletWithProposals(walletId.value)
 
         page.value = 1
         hasMore.value = false // For now, assume no pagination

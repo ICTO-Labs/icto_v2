@@ -2,22 +2,18 @@
 import { ref, computed, watch, readonly } from 'vue';
 import { Principal } from '@dfinity/principal';
 import type {
+  MultisigFormData,
+  ApiResponse
+} from '@/types/multisig';
+
+// Import from contract declarations
+import type {
   MultisigWallet,
   Proposal,
-  MultisigFormData,
-  WalletFilter,
-  ProposalFilter,
-  EventFilter,
-  WalletStatistics,
-  ProposalStatistics,
   WalletEvent,
-  ApiResponse,
-  MultisigCanister,
   AssetType,
-  RiskLevel,
-  ProposalId,
-  WalletId
-} from '@/types/multisig';
+  ProposalId
+} from '@/declarations/multisig_contract/multisig_contract.did';
 import { multisigService } from '@/api/services/multisig';
 import { useAuthStore } from '@/stores/auth';
 import {
@@ -28,7 +24,8 @@ import {
   isProposalExecutable,
   canUserSignProposal,
   validateWalletConfig,
-  validateTransferAmount
+  validateTransferAmount,
+  isValidPrincipal
 } from '@/utils/multisig';
 
 /**
@@ -36,10 +33,10 @@ import {
  */
 export function useMultisig() {
   // Reactive state
-  const wallets = ref<MultisigWallet[]>([]);
-  const currentWallet = ref<MultisigWallet | null>(null);
-  const proposals = ref<Proposal[]>([]);
-  const events = ref<WalletEvent[]>([]);
+  const wallets = ref<any[]>([]);
+  const currentWallet = ref<any | null>(null);
+  const proposals = ref<any[]>([]);
+  const events = ref<any[]>([]);
   const loading = ref(false);
   const error = ref<string | null>(null);
 
@@ -53,7 +50,7 @@ export function useMultisig() {
     if (!authStore.principal) return [];
 
     return wallets.value.filter(wallet =>
-      wallet.signers.some(signer =>
+      wallet.signers.some((signer: any) =>
         signer.principal.toString() === authStore.principal?.toString()
       )
     );
@@ -81,12 +78,12 @@ export function useMultisig() {
   };
 
   // Wallet management
-  const fetchWallets = async (filter?: WalletFilter) => {
+  const fetchWallets = async (filter?: any) => {
     setLoading(true);
     clearError();
 
     try {
-      const response = await multisigService.getWallets(filter);
+      const response = await multisigService.getWallets();
       if (response.success && response.data) {
         wallets.value = response.data;
       } else {
@@ -148,7 +145,7 @@ export function useMultisig() {
   // Proposal management
   const fetchProposals = async (
     canisterId: string,
-    filter?: ProposalFilter,
+    filter?: any,
     limit?: number,
     offset?: number
   ) => {
@@ -173,7 +170,7 @@ export function useMultisig() {
     canisterId: string,
     recipient: string,
     amount: bigint,
-    asset: AssetType,
+    asset: any,
     title: string,
     description: string,
     memo?: Uint8Array
@@ -210,7 +207,7 @@ export function useMultisig() {
 
   const signProposal = async (
     canisterId: string,
-    proposalId: ProposalId,
+    proposalId: any,
     signature: Uint8Array,
     note?: string
   ): Promise<boolean> => {
@@ -235,7 +232,7 @@ export function useMultisig() {
     }
   };
 
-  const executeProposal = async (canisterId: string, proposalId: ProposalId): Promise<boolean> => {
+  const executeProposal = async (canisterId: string, proposalId: any): Promise<boolean> => {
     setLoading(true);
     clearError();
 
@@ -263,7 +260,7 @@ export function useMultisig() {
   // Events
   const fetchEvents = async (
     canisterId: string,
-    filter?: EventFilter,
+    filter?: any,
     limit?: number,
     offset?: number
   ) => {
@@ -284,6 +281,154 @@ export function useMultisig() {
     }
   };
 
+  // ============== AUDIT MONITORING METHODS ==============
+
+  // Quick wallet visibility check (optimized for UI)
+  const walletVisibility = ref<Map<string, any>>(new Map());
+
+  const checkWalletVisibility = async (canisterId: string, retryCount = 0) => {
+    try {
+      const response = await multisigService.getWalletVisibility(canisterId);
+      if (response.success) {
+        walletVisibility.value.set(canisterId, response.data);
+        return response.data;
+      } else {
+        console.warn('Wallet visibility check failed:', response.error);
+        
+        // Retry once if wallet not found (might be loading)
+        if (response.error?.includes('not found') && retryCount === 0) {
+          console.log('🔄 Retrying visibility check after 1s...');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          return checkWalletVisibility(canisterId, 1);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to check wallet visibility:', err);
+      
+      // Retry once on network error
+      if (retryCount === 0) {
+        console.log('🔄 Retrying visibility check after 1s...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        return checkWalletVisibility(canisterId, 1);
+      }
+    }
+    return { isOwner: false, isSigner: false, isObserver: false, isAuthorized: false };
+  };
+
+  // Audit logging
+  const auditData = ref<any>(null);
+  const securityStatus = ref<any>(null);
+  const activityReport = ref<any>(null);
+
+  const fetchAuditLog = async (
+    canisterId: string,
+    startTime?: number,
+    endTime?: number,
+    eventTypes?: string[],
+    limit?: number
+  ) => {
+    setLoading(true);
+    clearError();
+
+    try {
+      const response = await multisigService.getAuditLog(canisterId, startTime, endTime, eventTypes, limit);
+      if (response.success && response.data) {
+        auditData.value = response.data;
+      } else {
+        setError(response.error || 'Failed to fetch audit log');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch audit log');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchSecurityStatus = async (canisterId: string) => {
+    setLoading(true);
+    clearError();
+
+    try {
+      const response = await multisigService.getSecurityStatus(canisterId);
+      if (response.success && response.data) {
+        securityStatus.value = response.data;
+      } else {
+        setError(response.error || 'Failed to fetch security status');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch security status');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchActivityReport = async (
+    canisterId: string,
+    startTime: number,
+    endTime: number
+  ) => {
+    setLoading(true);
+    clearError();
+
+    try {
+      const response = await multisigService.getActivityReport(canisterId, startTime, endTime);
+      if (response.success && response.data) {
+        activityReport.value = response.data;
+      } else {
+        setError(response.error || 'Failed to fetch activity report');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch activity report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Emergency controls
+  const emergencyPause = async (canisterId: string): Promise<boolean> => {
+    setLoading(true);
+    clearError();
+
+    try {
+      const response = await multisigService.emergencyPause(canisterId);
+      if (response.success) {
+        // Refresh security status
+        await fetchSecurityStatus(canisterId);
+        return true;
+      } else {
+        setError(response.error || 'Failed to activate emergency pause');
+        return false;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to activate emergency pause');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const emergencyUnpause = async (canisterId: string): Promise<boolean> => {
+    setLoading(true);
+    clearError();
+
+    try {
+      const response = await multisigService.emergencyUnpause(canisterId);
+      if (response.success) {
+        // Refresh security status
+        await fetchSecurityStatus(canisterId);
+        return true;
+      } else {
+        setError(response.error || 'Failed to deactivate emergency pause');
+        return false;
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to deactivate emergency pause');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return {
     // State
     wallets: readonly(wallets),
@@ -292,6 +437,12 @@ export function useMultisig() {
     events: readonly(events),
     loading: readonly(loading),
     error: readonly(error),
+
+    // Audit state
+    walletVisibility: readonly(walletVisibility),
+    auditData: readonly(auditData),
+    securityStatus: readonly(securityStatus),
+    activityReport: readonly(activityReport),
 
     // Computed
     activeWallets,
@@ -309,6 +460,14 @@ export function useMultisig() {
     executeProposal,
     fetchEvents,
     clearError,
+
+    // Audit methods
+    checkWalletVisibility,
+    fetchAuditLog,
+    fetchSecurityStatus,
+    fetchActivityReport,
+    emergencyPause,
+    emergencyUnpause,
 
     // Utilities
     formatTokenAmount,
@@ -432,7 +591,7 @@ export function useWalletForm() {
 /**
  * Transfer proposal form composable
  */
-export function useTransferForm(wallet?: MultisigWallet) {
+export function useTransferForm(wallet?: any) {
   const formData = ref({
     recipient: '',
     amount: '',
@@ -445,7 +604,7 @@ export function useTransferForm(wallet?: MultisigWallet) {
 
   const validationErrors = ref<string[]>([]);
 
-  const selectedAsset = computed((): AssetType => {
+  const selectedAsset = computed((): any => {
     if (formData.value.asset === 'ICP') {
       return { ICP: null };
     } else if (formData.value.customToken) {
@@ -464,7 +623,7 @@ export function useTransferForm(wallet?: MultisigWallet) {
 
     if ('Token' in selectedAsset.value) {
       const token = wallet.balances.tokens.find(
-        t => t.canisterId.toString() === selectedAsset.value.Token.toString()
+        (t: any) => t.canisterId.toString() === selectedAsset.value.Token.toString()
       );
       return token?.balance || 0n;
     }
@@ -528,8 +687,8 @@ export function useTransferForm(wallet?: MultisigWallet) {
  * Statistics composable
  */
 export function useMultisigStats() {
-  const walletStats = ref<WalletStatistics | null>(null);
-  const proposalStats = ref<ProposalStatistics | null>(null);
+  const walletStats = ref<any | null>(null);
+  const proposalStats = ref<any | null>(null);
   const loading = ref(false);
   const error = ref<string | null>(null);
 

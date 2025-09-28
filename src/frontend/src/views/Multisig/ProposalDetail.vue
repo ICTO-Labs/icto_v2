@@ -106,101 +106,171 @@
                         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Transaction Details</h3>
                             
-                            <div v-if="(proposal.type || '') === 'icp_transfer'" class="space-y-4">
+                            <!-- Transfer Proposals (ICP & Token) -->
+                            <div v-if="getProposalTypeKey(proposal) === 'transfer'" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Amount</label>
                                         <p class="text-lg font-semibold text-gray-900 dark:text-white">
-                                            {{ formatCurrency(Number(proposal.transactionData?.amount || 0) / 100000000) }} ICP
+                                            {{ getFormattedTransferAmount(proposal) }}
                                         </p>
                                     </div>
                                     <div>
                                         <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Fee</label>
                                         <p class="text-sm text-gray-600 dark:text-gray-400">
-                                            {{ formatCurrency(Number(proposal.transactionData?.fee || 10000) / 100000000) }} ICP
+                                            {{ getTransferFee(proposal) }}
                                         </p>
                                     </div>
                                 </div>
                                 <div>
                                     <label class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Recipient</label>
                                     <div class="flex items-center space-x-2">
-                                        <span class="font-mono text-sm text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded">
-                                            {{ proposal.transactionData?.to }}
+                                        <span class="font-mono text-xs text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded break-all">
+                                            {{ getFormattedRecipient(proposal) }}
                                         </span>
-                                        <CopyIcon :data="proposal.transactionData?.to || ''" class="w-4 h-4" />
+                                        <CopyIcon :data="getFormattedRecipient(proposal) || ''" class="w-4 h-4 flex-shrink-0" />
                                     </div>
                                 </div>
-                                <div v-if="proposal.transactionData?.memo">
+                                <div v-if="getTransferMemo(proposal)">
                                     <label class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Memo</label>
                                     <p class="text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-3 rounded">
-                                        {{ proposal.transactionData.memo ? proposal.transactionData.memo[0] : '-' }}
+                                        {{ getTransferMemo(proposal) }}
                                     </p>
                                 </div>
                             </div>
 
-                            <div v-else-if="(proposal.type || '') === 'token_transfer'" class="space-y-4">
-                                <div class="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Amount</label>
-                                        <p class="text-lg font-semibold text-gray-900 dark:text-white">
-                                            {{ formatNumber(proposal.transactionData?.amount || 0) }} {{ proposal.transactionData?.symbol }}
-                                        </p>
-                                    </div>
-                                    <div>
-                                        <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Token</label>
-                                        <p class="text-sm text-gray-600 dark:text-gray-400">
-                                            {{ proposal.transactionData?.tokenCanister }}
-                                        </p>
-                                    </div>
-                                </div>
-                                <div>
-                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Recipient</label>
-                                    <div class="flex items-center space-x-2">
-                                        <span class="font-mono text-sm text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded">
-                                            {{ proposal.transactionData?.to }}
-                                        </span>
-                                        <CopyIcon :data="proposal.transactionData?.to || ''" />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div v-else-if="(proposal.type || '') === 'add_signer'" class="space-y-4">
+                            <!-- Add Signer Proposal -->
+                            <div v-else-if="getProposalTypeKey(proposal) === 'add_signer'" class="space-y-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">New Signer</label>
                                     <div class="flex items-center space-x-2">
-                                        <span class="font-mono text-sm text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded">
-                                            {{ proposal.transactionData?.targetSigner }}
+                                        <span class="font-mono text-xs text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded break-all">
+                                            {{ getFormattedTarget(proposal) }}
                                         </span>
-                                        <CopyIcon :data="proposal.transactionData?.targetSigner || ''" />
+                                        <CopyIcon :data="getFormattedTarget(proposal) || ''" class="w-4 h-4 flex-shrink-0" />
                                     </div>
                                 </div>
-                                <div v-if="proposal.transactionData?.newThreshold">
-                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">New Threshold</label>
+                                <div v-if="getSignerNameUtil(proposal)">
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Signer Name</label>
                                     <p class="text-sm text-gray-600 dark:text-gray-400">
-                                        {{ proposal.transactionData?.newThreshold || 0 }}/{{ (wallet.signers?.length || 0) + 1 }} signatures required
+                                        {{ getSignerNameUtil(proposal) }}
+                                    </p>
+                                </div>
+                                <div v-if="getSignerRole(proposal)">
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Role</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        {{ getSignerRole(proposal) }}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Impact</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        Will increase wallet signers to {{ (wallet.signers?.length || 0) + 1 }} total
                                     </p>
                                 </div>
                             </div>
 
-                            <div v-else-if="(proposal.type || '') === 'remove_signer'" class="space-y-4">
+                            <!-- Remove Signer Proposal -->
+                            <div v-else-if="getProposalTypeKey(proposal) === 'remove_signer'" class="space-y-4">
                                 <div>
                                     <label class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Signer to Remove</label>
                                     <div class="flex items-center space-x-2">
-                                        <span class="font-mono text-sm text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded">
-                                            {{ proposal.transactionData?.targetSigner }}
+                                        <span class="font-mono text-xs text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded break-all">
+                                            {{ getFormattedTarget(proposal) }}
                                         </span>
-                                        <CopyIcon :data="proposal.transactionData?.targetSigner || ''" />
+                                        <CopyIcon :data="getFormattedTarget(proposal) || ''" class="w-4 h-4 flex-shrink-0" />
                                     </div>
                                 </div>
-                                <div v-if="proposal.transactionData?.newThreshold">
-                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">New Threshold</label>
+                                <div v-if="getSignerNameUtil(proposal)">
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Signer Name</label>
                                     <p class="text-sm text-gray-600 dark:text-gray-400">
-                                        {{ proposal.transactionData?.newThreshold || 0 }}/{{ Math.max((wallet.signers?.length || 0) - 1, 0) }} signatures required
+                                        {{ getSignerNameUtil(proposal) }}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Impact</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        Will reduce wallet signers to {{ Math.max((wallet.signers?.length || 0) - 1, 0) }} total
                                     </p>
                                 </div>
                             </div>
 
-                            <div v-else-if="(proposal.type || '') === 'threshold_changed'" class="space-y-4">
+                            <!-- Add Observer Proposal -->
+                            <div v-else-if="getProposalTypeKey(proposal) === 'add_observer'" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">New Observer</label>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="font-mono text-xs text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded break-all">
+                                            {{ getFormattedTarget(proposal) }}
+                                        </span>
+                                        <CopyIcon :data="getFormattedTarget(proposal) || ''" class="w-4 h-4 flex-shrink-0" />
+                                    </div>
+                                </div>
+                                <div v-if="getSignerNameUtil(proposal)">
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Observer Name</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        {{ getSignerNameUtil(proposal) }}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Impact</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        Observer can view wallet activity but cannot sign proposals
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Remove Observer Proposal -->
+                            <div v-else-if="getProposalTypeKey(proposal) === 'remove_observer'" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Observer to Remove</label>
+                                    <div class="flex items-center space-x-2">
+                                        <span class="font-mono text-xs text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded break-all">
+                                            {{ getFormattedTarget(proposal) }}
+                                        </span>
+                                        <CopyIcon :data="getFormattedTarget(proposal) || ''" class="w-4 h-4 flex-shrink-0" />
+                                    </div>
+                                </div>
+                                <div v-if="getSignerNameUtil(proposal)">
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Observer Name</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        {{ getSignerNameUtil(proposal) }}
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Impact</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        Observer will lose view access to wallet activity
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Change Visibility Proposal -->
+                            <div v-else-if="getProposalTypeKey(proposal) === 'change_visibility'" class="space-y-4">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Current Visibility</label>
+                                        <p class="text-sm text-gray-600 dark:text-gray-400">
+                                            {{ wallet.config?.isPublic ? 'Public' : 'Private' }}
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">New Visibility</label>
+                                        <p class="text-lg font-semibold text-gray-900 dark:text-white">
+                                            {{ getVisibilityChange(proposal) ? 'Public' : 'Private' }}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Impact</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        {{ getVisibilityChange(proposal) ? 'Wallet will be visible to all users' : 'Wallet will be private and only accessible to signers' }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Change Threshold Proposal -->
+                            <div v-else-if="getProposalTypeKey(proposal) === 'threshold_changed'" class="space-y-4">
                                 <div class="grid grid-cols-2 gap-4">
                                     <div>
                                         <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Current Threshold</label>
@@ -211,9 +281,31 @@
                                     <div>
                                         <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">New Threshold</label>
                                         <p class="text-lg font-semibold text-gray-900 dark:text-white">
-                                            {{ proposal.transactionData?.newThreshold || 0 }}/{{ wallet.signers?.length || 0 }}
+                                            {{ getThresholdChange(proposal).newThreshold || 0 }}/{{ wallet.signers?.length || 0 }}
                                         </p>
                                     </div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Impact</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        {{ (getThresholdChange(proposal).newThreshold || 0) > (wallet.config?.threshold || 0) ? 'More signatures required for proposal execution' : 'Fewer signatures required for proposal execution' }}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <!-- Governance Vote Proposal -->
+                            <div v-else-if="getProposalTypeKey(proposal) === 'governance_vote'" class="space-y-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Governance Action</label>
+                                    <p class="text-lg font-semibold text-gray-900 dark:text-white">
+                                        Governance Vote
+                                    </p>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-500 dark:text-gray-400">Impact</label>
+                                    <p class="text-sm text-gray-600 dark:text-gray-400">
+                                        This proposal will participate in governance voting
+                                    </p>
                                 </div>
                             </div>
 
@@ -225,30 +317,74 @@
                         </div>
 
                         <!-- Timeline -->
-                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Timeline</h3>
-                            
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-6">Timeline</h3>
+
                             <div class="flow-root">
-                                <ul class="-mb-8">
+                                <ul class="space-y-6">
                                     <!-- Proposal Created -->
                                     <li>
-                                        <div class="relative pb-8">
-                                            <div v-if="(proposal.signatures || []).length > 0 || (proposal.status || '') === 'executed' || (proposal.status || '') === 'failed'" class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200 dark:bg-gray-600"></div>
-                                            <div class="relative flex space-x-3">
-                                                <div>
-                                                    <span class="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center ring-8 ring-white dark:ring-gray-800">
-                                                        <PlusIcon class="h-4 w-4 text-white" />
-                                                    </span>
+                                        <div class="relative">
+                                            <div v-if="(proposal.signatures || []).length > 0 || (proposal.status || '') === 'executed' || (proposal.status || '') === 'failed'" class="absolute top-10 left-6 -ml-px h-full w-0.5 bg-gradient-to-b from-blue-200 to-transparent dark:from-blue-800"></div>
+                                            <div class="relative flex items-start space-x-4">
+                                                <div class="flex-shrink-0">
+                                                    <div class="h-12 w-12 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center ring-4 ring-white dark:ring-gray-800 shadow-lg">
+                                                        <PlusIcon class="h-5 w-5 text-white" />
+                                                    </div>
                                                 </div>
-                                                <div class="flex-1 min-w-0">
-                                                    <div>
-                                                        <div class="text-sm">
-                                                            <span class="font-medium text-gray-900 dark:text-white">{{ proposal.proposerName ? proposal.proposerName[0] : 'Unknown Proposer' }}</span>
-                                                            <span class="text-gray-500 dark:text-gray-400"> created this proposal</span>
+                                                <div class="flex-1 min-w-0 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4">
+                                                    <div class="flex items-center justify-between mb-2">
+                                                        <div class="text-sm font-medium text-gray-900 dark:text-white">
+                                                            Proposal Created
                                                         </div>
-                                                        <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                                                            {{ proposal.proposedAt ? formatDate(proposal.proposedAt) : 'Unknown date' }}
-                                                        </p>
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                                                            {{ formatProposalType(proposal.type || '') }}
+                                                        </span>
+                                                    </div>
+                                                    <div class="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                                                        <span class="font-medium">{{ proposal.proposerName ? proposal.proposerName[0] : proposal.proposer || 'Unknown Proposer' }}</span>
+                                                        created this proposal
+                                                    </div>
+                                                    <div class="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                                                        <span>{{ proposal.proposedAt ? formatDateTime(proposal.proposedAt) : 'Unknown date' }}</span>
+                                                        <span>{{ proposal.proposedAt ? formatTimeAgo(proposal.proposedAt.getTime()) : '' }}</span>
+                                                    </div>
+                                                    <!-- Proposal details summary -->
+                                                    <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+                                                        <div class="text-xs text-gray-600 dark:text-gray-400">
+                                                            <div v-if="getProposalTypeKey(proposal) === 'transfer'" class="flex items-center space-x-2">
+                                                                <CoinsIcon class="h-4 w-4" />
+                                                                <span>{{ getFormattedTransferAmount(proposal) }} → <span class="font-mono text-xs">{{ getFormattedRecipient(proposal) }}</span></span>
+                                                            </div>
+                                                            <div v-else-if="getProposalTypeKey(proposal) === 'add_signer'" class="flex items-center space-x-2">
+                                                                <UserPlusIcon class="h-4 w-4" />
+                                                                <span>Add <span class="font-medium text-gray-900 dark:text-white">{{ getSignerNameUtil(proposal) || '' }}</span> <span class="font-mono text-xs">{{ getFormattedTarget(proposal) }}</span></span>
+                                                            </div>
+                                                            <div v-else-if="getProposalTypeKey(proposal) === 'remove_signer'" class="flex items-center space-x-2">
+                                                                <UserMinusIcon class="h-4 w-4" />
+                                                                <span>Remove <span class="font-mono text-xs">{{ getFormattedTarget(proposal) }}</span></span>
+                                                            </div>
+                                                            <div v-else-if="getProposalTypeKey(proposal) === 'add_observer'" class="flex items-center space-x-2">
+                                                                <UserPlusIcon class="h-4 w-4" />
+                                                                <span>Add Observer <span class="font-medium text-gray-900 dark:text-white">{{ getSignerNameUtil(proposal) || '' }}</span> <span class="font-mono text-xs">{{ getFormattedTarget(proposal) }}</span></span>
+                                                            </div>
+                                                            <div v-else-if="getProposalTypeKey(proposal) === 'remove_observer'" class="flex items-center space-x-2">
+                                                                <UserMinusIcon class="h-4 w-4" />
+                                                                <span>Remove Observer <span class="font-mono text-xs">{{ getFormattedTarget(proposal) }}</span></span>
+                                                            </div>
+                                                            <div v-else-if="getProposalTypeKey(proposal) === 'change_visibility'" class="flex items-center space-x-2">
+                                                                <SettingsIcon class="h-4 w-4" />
+                                                                <span>Change visibility to {{ getVisibilityChange(proposal) ? 'Public' : 'Private' }}</span>
+                                                            </div>
+                                                            <div v-else-if="getProposalTypeKey(proposal) === 'threshold_changed'" class="flex items-center space-x-2">
+                                                                <LockIcon class="h-4 w-4" />
+                                                                <span>Change threshold to {{ getThresholdChange(proposal).newThreshold || 0 }}</span>
+                                                            </div>
+                                                            <div v-else-if="getProposalTypeKey(proposal) === 'governance_vote'" class="flex items-center space-x-2">
+                                                                <VoteIcon class="h-4 w-4" />
+                                                                <span>Governance Vote</span>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -257,27 +393,38 @@
 
                                     <!-- Signatures -->
                                     <li v-for="(signature, index) in (proposal.signatures || [])" :key="signature.signer">
-                                        <div class="relative pb-8">
-                                            <div v-if="index < (proposal.signatures || []).length - 1 || (proposal.status || '') === 'executed' || (proposal.status || '') === 'failed'" class="absolute top-4 left-4 -ml-px h-full w-0.5 bg-gray-200 dark:bg-gray-600"></div>
-                                            <div class="relative flex space-x-3">
-                                                <div>
-                                                    <span class="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center ring-8 ring-white dark:ring-gray-800">
-                                                        <CheckIcon class="h-4 w-4 text-white" />
-                                                    </span>
-                                                </div>
-                                                <div class="flex-1 min-w-0">
-                                                    <div>
-                                                        <div class="text-sm">
-                                                            <span class="font-medium text-gray-900 dark:text-white">{{ signature.signerName ? signature.signerName[0] : 'Unknown Signer' }}</span>
-                                                            <span class="text-gray-500 dark:text-gray-400"> signed this proposal</span>
-                                                        </div>
-                                                        <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                                                            {{ formatDate(signature.signedAt) }}
-                                                        </p>
-                                                        <p v-if="signature.note" class="mt-2 text-sm text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-700 p-2 rounded">
-                                                            {{ signature.note }}
-                                                        </p>
+                                        <div class="relative">
+                                            <div v-if="index < (proposal.signatures || []).length - 1 || (proposal.status || '') === 'executed' || (proposal.status || '') === 'failed'" class="absolute top-10 left-6 -ml-px h-full w-0.5 bg-gradient-to-b from-green-200 to-transparent dark:from-green-800"></div>
+                                            <div class="relative flex items-start space-x-4">
+                                                <div class="flex-shrink-0">
+                                                    <div class="h-12 w-12 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center ring-4 ring-white dark:ring-gray-800 shadow-lg">
+                                                        <CheckIcon class="h-5 w-5 text-white" />
                                                     </div>
+                                                </div>
+                                                <div class="flex-1 min-w-0 bg-green-30 dark:bg-green-900/50 rounded-lg p-4 border border-green-200 dark:border-green-800">
+                                                    <div class="flex items-center justify-between mb-2">
+                                                        <div class="text-sm  text-green-900 dark:text-green-100">
+                                                            <span class="font-medium">{{ signature.signerName ? signature.signerName[0] : signature.signer || 'Unknown Signer' }}</span>
+                                                            signed this proposal (Signature #{{index + 1}})
+                                                        </div>
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                                                            Approved
+                                                        </span>
+                                                    </div>
+                                                    <div class="flex items-center justify-between text-xs text-green-600 dark:text-green-400 mb-2">
+                                                        <span>{{ formatDateTime(signature.signedAt) }}</span>
+                                                        <span>{{ formatTimeAgo(signature.signedAt.getTime()) }}</span>
+                                                    </div>
+                                                    <div v-if="signature.note" class="mt-2 pt-2 border-t border-green-200 dark:border-green-700">
+                                                        <div class="text-xs text-green-600 dark:text-green-400 font-medium mb-1">Note:</div>
+                                                        <div class="text-sm text-green-700 dark:text-green-200 ">
+                                                            "{{ signature.note }}"
+                                                        </div>
+                                                    </div>
+                                                    <div class="text-xs mt-2 text-green-600 dark:text-green-400 font-mono bg-green-100 dark:bg-green-900/30 p-2 rounded border">
+                                                        Signer: {{ signature.signerName ? signature.signer: signature.signer || 'Unknown Signer' }}
+                                                    </div>
+
                                                 </div>
                                             </div>
                                         </div>
@@ -286,23 +433,47 @@
                                     <!-- Execution -->
                                     <li v-if="normalizeStatus(proposal.status) === 'executed'">
                                         <div class="relative">
-                                            <div class="relative flex space-x-3">
-                                                <div>
-                                                    <span class="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center ring-8 ring-white dark:ring-gray-800">
-                                                        <CheckIcon class="h-4 w-4 text-white" />
-                                                    </span>
+                                            <div class="relative flex items-start space-x-4">
+                                                <div class="flex-shrink-0">
+                                                    <div class="h-12 w-12 rounded-full bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center ring-4 ring-white dark:ring-gray-800 shadow-lg">
+                                                        <CheckIcon class="h-5 w-5 text-white" />
+                                                    </div>
                                                 </div>
-                                                <div class="flex-1 min-w-0">
-                                                    <div>
-                                                        <div class="text-sm">
-                                                            <span class="font-medium text-gray-900 dark:text-white">Proposal executed successfully</span>
+                                                <div class="flex-1 min-w-0 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg p-4 border border-emerald-200 dark:border-emerald-800">
+                                                    <div class="flex items-center justify-between mb-2">
+                                                        <div class="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+                                                            🎉 Proposal Executed Successfully
                                                         </div>
-                                                        <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                                                            {{ proposal.executedAt ? formatDate(proposal.executedAt) : 'Recently' }}
-                                                        </p>
-                                                        <p v-if="proposal.executedBy" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                                            Executed by {{ getSignerName(proposal.executedBy.toString(), wallet?.signers) ? getSignerName(proposal.executedBy.toString(), wallet?.signers)[0] : 'Unknown Signer' }}
-                                                        </p>
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-300">
+                                                            Completed
+                                                        </span>
+                                                    </div>
+                                                    <div class="text-sm text-emerald-700 dark:text-emerald-200 mb-2">
+                                                        The proposal has been successfully executed
+                                                    </div>
+                                                    <div class="flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400 mb-2">
+                                                        <span>{{ proposal.executedAt ? formatDateTime(proposal.executedAt) : 'Recently' }}</span>
+                                                        <span>{{ proposal.executedAt ? formatTimeAgo(proposal.executedAt.getTime()) : '' }}</span>
+                                                    </div>
+                                                    <div v-if="proposal.executedBy" class="text-xs text-emerald-600 dark:text-emerald-400 font-mono bg-emerald-100 dark:bg-emerald-900/30 p-2 rounded border mb-3">
+                                                        Executed by: {{ (proposal.executedBy.toString()) }}
+                                                    </div>
+                                                    <!-- Show transaction result details -->
+                                                    <div v-if="proposal.type === 'icp_transfer' && proposal.transactionData" class="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-700">
+                                                        <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-2">🔗 Transaction Details:</div>
+                                                        <div class="space-y-1 text-xs text-emerald-700 dark:text-emerald-200">
+                                                            <div>✅ {{ formatCurrency(Number(proposal.transactionData.amount || 0) / 100000000) }} ICP transferred</div>
+                                                            <div>📨 To: <span class="font-mono text-xs">{{ proposal.transactionData.to }}</span></div>
+                                                            <div v-if="proposal.transactionData.memo">📝 Memo: {{ proposal.transactionData.memo }}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div v-else-if="proposal.type === 'add_signer' && proposal.transactionData" class="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-700">
+                                                        <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-2 flex items-center space-x-2"><UserPlusIcon class="h-4 w-4 mr-2" /> Signer Management:</div>
+                                                        <div class="space-y-1 text-xs text-emerald-700 dark:text-emerald-200">
+                                                            <div class="flex items-center space-x-2"><CheckIcon class="h-4 w-4 mr-2" /> New signer added successfully</div>
+                                                            <div class="flex items-center space-x-2"><UserPlusIcon class="h-4 w-4 mr-2" /> Signer: <span class="font-mono text-xs">{{ proposal.transactionData.targetSigner || 'Unknown Signer' }}</span></div>
+                                                            <div class="flex items-center space-x-2"><LockIcon class="h-4 w-4 mr-2" /> Wallet threshold updated</div>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
@@ -312,37 +483,55 @@
                                     <!-- Failed Execution -->
                                     <li v-else-if="normalizeStatus(proposal.status) === 'failed'">
                                         <div class="relative">
-                                            <div class="relative flex space-x-3">
-                                                <div>
-                                                    <span class="h-8 w-8 rounded-full bg-red-500 flex items-center justify-center ring-8 ring-white dark:ring-gray-800">
-                                                        <AlertTriangle class="h-4 w-4 text-white" />
-                                                    </span>
+                                            <div class="relative flex items-start space-x-4">
+                                                <div class="flex-shrink-0">
+                                                    <div class="h-12 w-12 rounded-full bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center ring-4 ring-white dark:ring-gray-800 shadow-lg">
+                                                        <AlertTriangle class="h-5 w-5 text-white" />
+                                                    </div>
                                                 </div>
-                                                <div class="flex-1 min-w-0">
-                                                    <div>
-                                                        <div class="text-sm">
-                                                            <span class="font-medium text-red-900 dark:text-red-300">Proposal execution failed</span>
+                                                <div class="flex-1 min-w-0 bg-red-50 dark:bg-red-900/20 rounded-lg p-4 border border-red-200 dark:border-red-800">
+                                                    <div class="flex items-center justify-between mb-2">
+                                                        <div class="text-sm font-medium text-red-900 dark:text-red-100">
+                                                            ❌ Execution Failed
                                                         </div>
-                                                        <p class="mt-0.5 text-sm text-gray-500 dark:text-gray-400">
-                                                            {{ proposal.executedAt ? formatDate(proposal.executedAt) : 'Recently' }}
-                                                        </p>
-                                                        <p v-if="proposal.executedBy" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                                                            Attempted by {{ getSignerName(proposal.executedBy.toString(), wallet?.signers) ? getSignerName(proposal.executedBy.toString(), wallet?.signers)[0] : 'Unknown Signer' }}
-                                                        </p>
-                                                        <div v-if="proposal.executionResult?.error" class="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded">
-                                                            <p class="text-xs font-medium text-red-800 dark:text-red-300">Error Details:</p>
-                                                            <p class="text-xs text-red-700 dark:text-red-300 mt-1">{{ proposal.executionResult.error }}</p>
+                                                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300">
+                                                            ⚠️ Failed
+                                                        </span>
+                                                    </div>
+                                                    <div class="text-sm text-red-700 dark:text-red-200 mb-2">
+                                                        The proposal execution encountered an error
+                                                    </div>
+                                                    <div class="flex items-center justify-between text-xs text-red-600 dark:text-red-400 mb-2">
+                                                        <span>{{ proposal.executedAt ? formatDateTime(proposal.executedAt) : 'Recently' }}</span>
+                                                        <span>{{ proposal.executedAt ? formatTimeAgo(proposal.executedAt.getTime()) : '' }}</span>
+                                                    </div>
+                                                    <div v-if="proposal.executedBy" class="text-xs text-red-600 dark:text-red-400 font-mono bg-red-100 dark:bg-red-900/30 p-2 rounded border mb-3">
+                                                        Attempted by: {{ (proposal.executedBy.toString()) }}
+                                                    </div>
+
+                                                    <!-- Error Details -->
+                                                    <div v-if="proposal.executionResult?.error" class="mt-3 pt-3 border-t border-red-200 dark:border-red-700">
+                                                        <div class="text-xs text-red-600 dark:text-red-400 font-medium mb-2">🚫 Error Details:</div>
+                                                        <div class="text-xs text-red-700 dark:text-red-200 bg-red-100 dark:bg-red-900/30 p-3 rounded border font-mono">
+                                                            {{ proposal.executionResult.error }}
                                                         </div>
-                                                        <div v-if="proposal.executionResult?.actionResults && proposal.executionResult.actionResults.length > 0" class="mt-2">
-                                                            <p class="text-xs font-medium text-gray-700 dark:text-gray-300">Action Results:</p>
-                                                            <ul class="mt-1 space-y-1">
-                                                                <li v-for="(actionResult, idx) in proposal.executionResult.actionResults" :key="idx" class="text-xs">
-                                                                    <span :class="actionResult.success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
-                                                                        Action {{ idx + 1 }}: {{ actionResult.success ? 'Success' : 'Failed' }}
-                                                                    </span>
-                                                                    <span v-if="!actionResult.success && actionResult.error" class="text-red-600 dark:text-red-400"> - {{ actionResult.error }}</span>
-                                                                </li>
-                                                            </ul>
+                                                    </div>
+
+                                                    <!-- Action Results -->
+                                                    <div v-if="proposal.executionResult?.actionResults && proposal.executionResult.actionResults.length > 0" class="mt-3 pt-3 border-t border-red-200 dark:border-red-700">
+                                                        <div class="text-xs text-red-600 dark:text-red-400 font-medium mb-2">📋 Action Results:</div>
+                                                        <div class="space-y-2">
+                                                            <div v-for="(actionResult, idx) in proposal.executionResult.actionResults" :key="idx"
+                                                                class="text-xs p-2 rounded border"
+                                                                :class="actionResult.success ? 'bg-green-100 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-800 dark:text-green-300' : 'bg-red-100 border-red-200 text-red-700 dark:bg-red-900/20 dark:border-red-800 dark:text-red-300'"
+                                                            >
+                                                                <div class="font-medium mb-1">
+                                                                    {{ actionResult.success ? '✅' : '❌' }} Action {{ idx + 1 }}: {{ actionResult.success ? 'Success' : 'Failed' }}
+                                                                </div>
+                                                                <div v-if="!actionResult.success && actionResult.error" class="font-mono text-xs">
+                                                                    {{ actionResult.error }}
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -357,47 +546,77 @@
                     <!-- Sidebar -->
                     <div class="space-y-6">
                         <!-- Progress -->
-                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Progress</h3>
-                            
-                            <div class="space-y-4">
-                                <div>
-                                    <div class="flex justify-between text-sm mb-2">
-                                        <span class="text-gray-500 dark:text-gray-400">Signatures</span>
-                                        <span class="font-medium text-gray-900 dark:text-white">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-6">Status</h3>
+
+                            <div class="space-y-6">
+                                <!-- Status Badge -->
+                                <div class="text-center">
+                                    <div v-if="normalizeStatus(proposal.status) === 'executed'" class="inline-flex items-center justify-center space-x-2 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 px-4 py-2 rounded-full border border-green-200 dark:border-green-800">
+                                        <CheckIcon class="h-4 w-4" />
+                                        <span class="text-sm font-medium">Executed Successfully</span>
+                                    </div>
+                                    <div v-else-if="normalizeStatus(proposal.status) === 'failed'" class="inline-flex items-center justify-center space-x-2 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 px-4 py-2 rounded-full border border-red-200 dark:border-red-800">
+                                        <AlertTriangle class="h-4 w-4" />
+                                        <span class="text-sm font-medium">Execution Failed</span>
+                                    </div>
+                                    <div v-else-if="normalizeStatus(proposal.status) === 'approved'" class="inline-flex items-center justify-center space-x-2 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 px-4 py-2 rounded-full border border-blue-200 dark:border-blue-800">
+                                        <PlayIcon class="h-4 w-4" />
+                                        <span class="text-sm font-medium">Ready to Execute</span>
+                                    </div>
+                                    <div v-else-if="normalizeStatus(proposal.status) === 'expired'" class="inline-flex items-center justify-center space-x-2 bg-gray-50 dark:bg-gray-900/20 text-gray-700 dark:text-gray-300 px-4 py-2 rounded-full border border-gray-200 dark:border-gray-800">
+                                        <AlertTriangle class="h-4 w-4" />
+                                        <span class="text-sm font-medium">Expired</span>
+                                    </div>
+                                    <div v-else class="inline-flex items-center justify-center space-x-2 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300 px-4 py-2 rounded-full border border-yellow-200 dark:border-yellow-800">
+                                        <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd" />
+                                        </svg>
+                                        <span class="text-sm font-medium">Awaiting Signatures</span>
+                                    </div>
+                                </div>
+
+                                <!-- Signatures Progress -->
+                                <div class="space-y-3">
+                                    <div class="flex justify-between items-center">
+                                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Signatures Collected</span>
+                                        <span class="text-sm font-bold text-gray-900 dark:text-white">
                                             {{ proposal.currentSignatures || 0 }}/{{ proposal.requiredSignatures || 0 }}
                                         </span>
                                     </div>
-                                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                                        <div 
-                                            class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                                            :style="{ width: `${((Number(proposal.currentSignatures) || 0) / Math.max(Number(proposal.requiredSignatures) || 1, 1)) * 100}%` }"
-                                        ></div>
+
+                                    <!-- Enhanced Progress Bar -->
+                                    <div class="relative">
+                                        <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-3 overflow-hidden">
+                                            <div
+                                                class="h-3 rounded-full transition-all duration-500 ease-out relative overflow-hidden"
+                                                :class="{
+                                                    'bg-gradient-to-r from-green-500 to-green-600': normalizeStatus(proposal.status) === 'executed',
+                                                    'bg-gradient-to-r from-red-500 to-red-600': normalizeStatus(proposal.status) === 'failed',
+                                                    'bg-gradient-to-r from-blue-500 to-blue-600': normalizeStatus(proposal.status) === 'approved' || (Number(proposal.currentSignatures) >= Number(proposal.requiredSignatures)),
+                                                    'bg-gradient-to-r from-yellow-500 to-yellow-600': normalizeStatus(proposal.status) === 'pending'
+                                                }"
+                                                :style="{ width: `${Math.min(((Number(proposal.currentSignatures) || 0) / Math.max(Number(proposal.requiredSignatures) || 1, 1)) * 100, 100)}%` }"
+                                            >
+                                                <div class="absolute inset-0 bg-white/20 animate-pulse"></div>
+                                            </div>
+                                        </div>
+
+                                        <!-- Progress markers -->
+                                        <div class="absolute top-0 left-0 w-full h-3 flex justify-between items-center px-1">
+                                            <div v-for="i in Number(proposal.requiredSignatures)" :key="i"
+                                                class="w-1 h-1 rounded-full"
+                                                :class="i <= Number(proposal.currentSignatures) ? 'bg-white/80' : 'bg-gray-400/50'"
+                                            ></div>
+                                        </div>
                                     </div>
-                                </div>
-                                
-                                <div class="text-center">
-                                    <div v-if="normalizeStatus(proposal.status) === 'executed'" class="flex items-center justify-center space-x-2">
-                                        <CheckIcon class="h-4 w-4 text-green-600 dark:text-green-400" />
-                                        <p class="text-sm font-medium text-green-600 dark:text-green-400">
-                                            Executed Successfully
+
+                                    <!-- Remaining info -->
+                                    <div v-if="normalizeStatus(proposal.status) === 'pending'" class="text-center">
+                                        <p class="text-xs text-gray-500 dark:text-gray-400">
+                                            {{ (Number(proposal.requiredSignatures) || 0) - (Number(proposal.currentSignatures) || 0) }} more signature{{ ((Number(proposal.requiredSignatures) || 0) - (Number(proposal.currentSignatures) || 0)) !== 1 ? 's' : '' }} needed
                                         </p>
                                     </div>
-                                    <div v-else-if="normalizeStatus(proposal.status) === 'failed'" class="flex items-center justify-center space-x-2">
-                                        <AlertTriangle class="h-4 w-4 text-red-600 dark:text-red-400" />
-                                        <p class="text-sm font-medium text-red-600 dark:text-red-400">
-                                            Execution Failed
-                                        </p>
-                                    </div>
-                                    <div v-else-if="normalizeStatus(proposal.status) === 'approved'" class="flex items-center justify-center space-x-2">
-                                        <PlayIcon class="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                                        <p class="text-sm font-medium text-blue-600 dark:text-blue-400">
-                                            Ready to Execute
-                                        </p>
-                                    </div>
-                                    <p v-else class="text-sm text-gray-500 dark:text-gray-400">
-                                        {{ (Number(proposal.requiredSignatures) || 0) - (Number(proposal.currentSignatures) || 0) }} more signature{{ ((Number(proposal.requiredSignatures) || 0) - (Number(proposal.currentSignatures) || 0)) !== 1 ? 's' : '' }} needed
-                                    </p>
                                 </div>
                             </div>
                         </div>
@@ -434,17 +653,74 @@
                         </div>
 
                         <!-- Expiration -->
-                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
                             <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Expiration</h3>
-                            
-                            <div class="text-center">
-                                <p class="text-sm text-gray-500 dark:text-gray-400 mb-2">Expires on</p>
-                                <p class="font-medium text-gray-900 dark:text-white">
-                                    {{ proposal.expiresAt ? formatDate(proposal.expiresAt) : 'Unknown date' }}
-                                </p>
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                    {{ proposal.expiresAt ? formatTimeAgo(proposal.expiresAt.getTime()) : 'Unknown' }}
-                                </p>
+
+                            <div class="text-center space-y-3">
+                                <div class="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mb-1">Expires on</p>
+                                    <p class="font-medium text-gray-900 dark:text-white text-sm">
+                                        {{ proposal.expiresAt ? formatDate(proposal.expiresAt) : 'Unknown date' }}
+                                    </p>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                        {{ proposal.expiresAt ? getTimeStatus(proposal.expiresAt) : 'Unknown' }}
+                                    </p>
+                                </div>
+
+                                <!-- Time remaining indicator -->
+                                <div v-if="proposal.expiresAt" class="flex items-center justify-center space-x-2">
+                                    <div class="w-2 h-2 rounded-full"
+                                        :class="{
+                                            'bg-red-500 animate-pulse': isExpiringSoon(proposal.expiresAt),
+                                            'bg-yellow-500': isExpiringToday(proposal.expiresAt) && !isExpiringSoon(proposal.expiresAt),
+                                            'bg-green-500': !isExpiringToday(proposal.expiresAt)
+                                        }"
+                                    ></div>
+                                    <span class="text-xs font-medium"
+                                        :class="{
+                                            'text-red-600 dark:text-red-400': isExpiringSoon(proposal.expiresAt),
+                                            'text-yellow-600 dark:text-yellow-400': isExpiringToday(proposal.expiresAt) && !isExpiringSoon(proposal.expiresAt),
+                                            'text-green-600 dark:text-green-400': !isExpiringToday(proposal.expiresAt)
+                                        }"
+                                    >
+                                        {{ getExpirationStatus(proposal.expiresAt) }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Proposal Metadata -->
+                        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4">Metadata</h3>
+
+                            <div class="space-y-3 text-sm">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-500 dark:text-gray-400">Created</span>
+                                    <span class="font-medium text-gray-900 dark:text-white">
+                                        {{ proposal.proposedAt ? formatDateTime(proposal.proposedAt) : 'Unknown' }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-500 dark:text-gray-400">Duration</span>
+                                    <span class="font-medium text-gray-900 dark:text-white">
+                                        {{ proposal.proposedAt && proposal.expiresAt ? calculateDuration(proposal.proposedAt, proposal.expiresAt) : 'Unknown' }}
+                                    </span>
+                                </div>
+                                <div v-if="proposal.executedAt" class="flex justify-between">
+                                    <span class="text-gray-500 dark:text-gray-400">{{ normalizeStatus(proposal.status) === 'executed' ? 'Executed' : 'Attempted' }}</span>
+                                    <span class="font-medium text-gray-900 dark:text-white">
+                                        {{ formatDateTime(proposal.executedAt) }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-500 dark:text-gray-400">Proposal ID</span>
+                                    <div class="flex items-center space-x-1">
+                                        <span class="font-mono text-xs font-medium text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded">
+                                            {{ proposal.id || 'N/A' }}
+                                        </span>
+                                        <CopyIcon :data="proposal.id || ''" class="w-3 h-3" />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -457,13 +733,27 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useMultisigStore } from '@/stores/multisig'
 import { useModalStore } from '@/stores/modal'
 import { useAuthStore } from '@/stores/auth'
 import { multisigService } from '@/api/services/multisig'
 import { toast } from 'vue-sonner'
 import { formatCurrency, formatNumber } from '@/utils/numberFormat'
 import { formatDate, formatTimeAgo } from '@/utils/dateFormat'
+import { 
+    getProposalTypeKey, 
+    getTransferAmount, 
+    getTransferRecipient, 
+    getModificationTarget,
+    getSignerName as getSignerNameUtil,
+    getSignerRole,
+    getVisibilityChange,
+    getThresholdChange,
+    getTransferMemo,
+    formatPrincipal as formatPrincipalUtil,
+    parseTokenAmount,
+    formatTokenAmount
+} from '@/utils/multisig'
+import { parseTokenAmount as parseTokenAmountUtil, formatTokenAmountLabel } from '@/utils/token'
 import {
     ArrowLeftIcon,
     PenIcon,
@@ -472,7 +762,13 @@ import {
     PlusIcon,
     CheckIcon,
     WalletIcon,
-    AlertTriangle
+    AlertTriangle,
+    UserPlusIcon,
+    UserMinusIcon,
+    LockIcon,
+    CoinsIcon,
+    SettingsIcon,
+    VoteIcon,
 } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import LoadingSkeleton from '@/components/multisig/LoadingSkeleton.vue'
@@ -482,7 +778,7 @@ import CopyIcon from '@/icons/CopyIcon.vue'
 // Stores and router
 const route = useRoute()
 const router = useRouter()
-const multisigStore = useMultisigStore()
+// const multisigStore = useMultisigStore() // Unused for now
 const modalStore = useModalStore()
 const authStore = useAuthStore()
 
@@ -727,6 +1023,96 @@ const getSignerName = (signerPrincipal: string, signers: any[]): string => {
     return `${rolePrefix} ${signerPrincipal.slice(0, 8)}...`
 }
 
+// Enhanced datetime formatting
+const formatDateTime = (date: Date): string => {
+    return new Intl.DateTimeFormat('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZoneName: 'short'
+    }).format(date)
+}
+
+// Helper function to format principal
+const formatPrincipal = (principal: string): string => {
+    if (!principal) return 'Unknown'
+    if (principal.length <= 16) return principal
+    return `${principal.slice(0, 8)}...${principal.slice(-8)}`
+}
+
+// Calculate duration between two dates
+const calculateDuration = (start: Date, end: Date): string => {
+    const diffMs = end.getTime() - start.getTime()
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+
+    if (diffDays > 0) {
+        return `${diffDays} day${diffDays > 1 ? 's' : ''} ${diffHours}h`
+    } else if (diffHours > 0) {
+        return `${diffHours} hour${diffHours > 1 ? 's' : ''}`
+    } else {
+        const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+        return `${diffMinutes} minute${diffMinutes > 1 ? 's' : ''}`
+    }
+}
+
+// Check if proposal is expiring soon (within 24 hours)
+const isExpiringSoon = (expiresAt: Date): boolean => {
+    const now = new Date()
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime()
+    return timeUntilExpiry > 0 && timeUntilExpiry <= 24 * 60 * 60 * 1000 // 24 hours
+}
+
+// Check if proposal is expiring today
+const isExpiringToday = (expiresAt: Date): boolean => {
+    const now = new Date()
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime()
+    return timeUntilExpiry > 0 && timeUntilExpiry <= 24 * 60 * 60 * 1000 // Today
+}
+
+// Get expiration status
+const getExpirationStatus = (expiresAt: Date): string => {
+    const now = new Date()
+    const timeUntilExpiry = expiresAt.getTime() - now.getTime()
+
+    if (timeUntilExpiry <= 0) {
+        return 'Expired'
+    } else if (timeUntilExpiry <= 60 * 60 * 1000) { // 1 hour
+        return 'Expires Soon'
+    } else if (timeUntilExpiry <= 24 * 60 * 60 * 1000) { // 24 hours
+        return 'Expires Today'
+    } else {
+        const days = Math.ceil(timeUntilExpiry / (24 * 60 * 60 * 1000))
+        return `${days} day${days > 1 ? 's' : ''} left`
+    }
+}
+
+// Get time status relative to now
+const getTimeStatus = (date: Date): string => {
+    const now = new Date()
+    const diffMs = date.getTime() - now.getTime()
+
+    if (diffMs <= 0) {
+        return formatTimeAgo(date.getTime()) + ' ago'
+    } else {
+        const futureMs = Math.abs(diffMs)
+        const futureDays = Math.floor(futureMs / (1000 * 60 * 60 * 24))
+        const futureHours = Math.floor((futureMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+
+        if (futureDays > 0) {
+            return `in ${futureDays} day${futureDays > 1 ? 's' : ''}`
+        } else if (futureHours > 0) {
+            return `in ${futureHours} hour${futureHours > 1 ? 's' : ''}`
+        } else {
+            const futureMinutes = Math.floor((futureMs % (1000 * 60 * 60)) / (1000 * 60))
+            return `in ${futureMinutes} minute${futureMinutes > 1 ? 's' : ''}`
+        }
+    }
+}
+
 const refreshData = () => {
     loadProposalData()
 }
@@ -839,6 +1225,63 @@ const getStatusDisplay = (status: any, currentSigs: number, requiredSigs: number
         return 'Expired'
     }
     return statusStr ? statusStr.charAt(0).toUpperCase() + statusStr.slice(1) : 'Unknown'
+}
+
+// Helper methods for formatting proposal data
+const getFormattedTransferAmount = (proposal: any): string => {
+    const { amount, asset } = getTransferAmount(proposal)
+    
+    if (!amount) return 'Unknown amount'
+    
+    try {
+        const numAmount = typeof amount === 'bigint' ? Number(amount) : Number(amount)
+        
+        if (!asset || asset === 'ICP' || (typeof asset === 'object' && 'ICP' in asset)) {
+            const icpAmount = parseTokenAmountUtil(numAmount, 8)
+            return `${icpAmount.toFixed(6).replace(/\.?0+$/, '')} ICP`
+        } else if (typeof asset === 'object' && 'Token' in asset) {
+            const tokenAmount = parseTokenAmountUtil(numAmount, 8)
+            return formatTokenAmountLabel(tokenAmount.toString(), 'Token')
+        } else {
+            const tokenAmount = parseTokenAmountUtil(numAmount, 8)
+            return formatTokenAmountLabel(tokenAmount.toString(), asset || 'Token')
+        }
+    } catch (error) {
+        return `${amount}`
+    }
+}
+
+const getTransferFee = (proposal: any): string => {
+    // Default ICP fee
+    return '0.0001 ICP'
+}
+
+const getFormattedRecipient = (proposal: any): string => {
+    const recipient = getTransferRecipient(proposal)
+    
+    if (!recipient) return 'Unknown recipient'
+    
+    if (typeof recipient === 'object' && recipient.toString) {
+        return recipient.toString()
+    }
+    if (typeof recipient === 'string') {
+        return recipient
+    }
+    return String(recipient)
+}
+
+const getFormattedTarget = (proposal: any): string => {
+    const target = getModificationTarget(proposal)
+    
+    if (!target) return 'Unknown target'
+    
+    if (typeof target === 'object' && target.toString) {
+        return target.toString()
+    }
+    if (typeof target === 'string') {
+        return target
+    }
+    return String(target)
 }
 
 // Watch for route changes

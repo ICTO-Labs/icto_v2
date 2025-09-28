@@ -1,5 +1,6 @@
 // Multisig Utility Functions
 import { Principal } from '@dfinity/principal';
+import { formatTimeAgo } from '@/utils/dateFormat';
 import type {
   MultisigWallet,
   Proposal,
@@ -156,6 +157,84 @@ export function hoursToNanoseconds(hours: number): bigint {
 
 export function nanosecondsToHours(nanoseconds: bigint): number {
   return Number(nanoseconds / 3600000000000n);
+}
+
+/**
+ * Status normalization utility - Handle both string and object status formats
+ */
+export function normalizeStatus(status: any): string {
+    if (!status) return 'unknown'
+
+    if (typeof status === 'string') {
+        return status.toLowerCase()
+    }
+
+    if (typeof status === 'object') {
+        // Handle Motoko variant objects
+        if ('Pending' in status) return 'pending'
+        if ('Approved' in status) return 'approved'
+        if ('Executed' in status) return 'executed'
+        if ('Failed' in status) return 'failed'
+        if ('Rejected' in status) return 'rejected'
+        if ('Expired' in status) return 'expired'
+    }
+
+    return String(status).toLowerCase()
+}
+
+/**
+ * Safe timestamp formatter for proposals that handles both BigInt and other formats
+ */
+export function safeFormatTimeAgo(timestamp: any): string {
+    if (!timestamp) {
+        console.log('safeFormatTimeAgo: No timestamp provided')
+        return 'Unknown'
+    }
+
+    try {
+        let timeValue: number
+
+        console.log('safeFormatTimeAgo input:', timestamp, 'type:', typeof timestamp)
+
+        if (timestamp instanceof Date) {
+            timeValue = timestamp.getTime()
+        } else if (typeof timestamp === 'bigint') {
+            // Convert nanoseconds to milliseconds
+            timeValue = Number(timestamp) / 1000000
+        } else if (typeof timestamp === 'number') {
+            // If timestamp looks like nanoseconds, convert to milliseconds
+            timeValue = timestamp > 1e12 ? timestamp / 1000000 : timestamp
+        } else if (typeof timestamp === 'string') {
+            const parsed = new Date(timestamp)
+            timeValue = parsed.getTime()
+        } else if (typeof timestamp === 'object') {
+            // Handle possible object format from Motoko
+            console.log('Timestamp is object:', timestamp)
+            // Try to extract time from object properties
+            const timeField = timestamp.time || timestamp.timestamp || timestamp.value
+            if (timeField) {
+                return safeFormatTimeAgo(timeField)
+            }
+            return 'Unknown'
+        } else {
+            console.log('Unknown timestamp format:', typeof timestamp)
+            return 'Unknown'
+        }
+
+        console.log('Converted timeValue:', timeValue)
+
+        if (isNaN(timeValue) || timeValue <= 0) {
+            console.log('Invalid timeValue:', timeValue)
+            return 'Unknown'
+        }
+
+        const result = formatTimeAgo(timeValue)
+        console.log('formatTimeAgo result:', result)
+        return result
+    } catch (error) {
+        console.error('Error formatting time:', error, 'timestamp was:', timestamp)
+        return 'Unknown'
+    }
 }
 
 /**
@@ -448,4 +527,432 @@ export function generateMockSignature(): Uint8Array {
 export function generateMockPrincipal(): Principal {
   const randomBytes = new Uint8Array(29).map(() => Math.floor(Math.random() * 256));
   return Principal.fromUint8Array(randomBytes);
+}
+
+/**
+ * Proposal data extraction utilities - Extract detailed information from proposal actions
+ */
+
+/**
+ * Extract data from multiple possible paths in Motoko variant structures
+ */
+export function extractFromMultiplePaths(obj: any, paths: string[]): any {
+    // First, try to extract from Motoko variant structure
+    if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
+        const keys = Object.keys(obj)
+        if (keys.length === 1) {
+            const variantKey = keys[0]
+            const variantValue = obj[variantKey]
+            
+            if (variantKey === 'Transfer' && typeof variantValue === 'object') {
+                for (const path of paths) {
+                    const field = path.split('.').pop()
+                    if (variantValue[field]) {
+                        return variantValue[field]
+                    }
+                }
+                return variantValue
+            }
+            if (variantKey === 'WalletModification' && typeof variantValue === 'object') {
+                for (const path of paths) {
+                    const field = path.split('.').pop()
+                    if (variantValue[field]) {
+                        return variantValue[field]
+                    }
+                }
+                return variantValue
+            }
+            return variantValue
+        }
+    }
+    
+    // Fallback to original path-based extraction
+    for (const path of paths) {
+        const keys = path.split('.')
+        let current = obj
+        let found = true
+        
+        for (const key of keys) {
+            if (current && typeof current === 'object' && key in current) {
+                current = current[key]
+            } else {
+                found = false
+                break
+            }
+        }
+        
+        if (found && current !== undefined && current !== null) {
+            return current
+        }
+    }
+    
+    return null
+}
+
+/**
+ * Get proposal type key from actions array or fallback paths
+ */
+export function getProposalTypeKey(proposal: any): string {
+    // First check if proposal has actions array (from debug image structure)
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'Transfer') {
+                return 'transfer'
+            } else if (variantKey === 'WalletModification') {
+                const modData = firstAction.actionType.WalletModification
+                if (modData.modificationType) {
+                    const modType = Object.keys(modData.modificationType)[0]
+                    switch (modType) {
+                        case 'AddSigner': return 'add_signer'
+                        case 'RemoveSigner': return 'remove_signer'
+                        case 'AddObserver': return 'add_observer'
+                        case 'RemoveObserver': return 'remove_observer'
+                        case 'ChangeVisibility': return 'change_visibility'
+                        case 'ChangeThreshold': return 'threshold_changed'
+                        case 'GovernanceVote': return 'governance_vote'
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback to original logic
+    if (proposal.type) {
+        return proposal.type.toLowerCase()
+    }
+    
+    if (proposal.proposalType) {
+        if ('Transfer' in proposal.proposalType) return 'transfer'
+        if ('WalletModification' in proposal.proposalType) {
+            const modData = proposal.proposalType.WalletModification
+            if (modData.modificationType) {
+                const modType = Object.keys(modData.modificationType)[0]
+                switch (modType) {
+                    case 'AddSigner': return 'add_signer'
+                    case 'RemoveSigner': return 'remove_signer'
+                    case 'AddObserver': return 'add_observer'
+                    case 'RemoveObserver': return 'remove_observer'
+                    case 'ChangeVisibility': return 'change_visibility'
+                    case 'ChangeThreshold': return 'threshold_changed'
+                    case 'GovernanceVote': return 'governance_vote'
+                }
+            }
+        }
+    }
+    
+    return 'unknown'
+}
+
+/**
+ * Extract transfer amount and asset from proposal
+ */
+export function getTransferAmount(proposal: any): { amount: bigint | number | null, asset: any } {
+    let amount = null
+    let asset = null
+    
+    // Check if proposal has actions array (from debug image structure)
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'Transfer') {
+                const transferData = firstAction.actionType.Transfer
+                amount = transferData.amount
+                asset = transferData.asset
+            }
+        }
+    }
+    
+    // Fallback logic if not found in actions
+    if (!amount) {
+        amount = extractFromMultiplePaths(proposal, [
+            'proposalType.Transfer.amount',
+            'transactionData.amount',
+            'amount'
+        ])
+    }
+    
+    if (!asset) {
+        asset = extractFromMultiplePaths(proposal, [
+            'proposalType.Transfer.asset',
+            'transactionData.asset',
+            'asset'
+        ])
+    }
+    
+    return { amount, asset }
+}
+
+/**
+ * Extract transfer recipient from proposal
+ */
+export function getTransferRecipient(proposal: any): any {
+    let recipient = null
+    
+    // Check if proposal has actions array
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'Transfer') {
+                const transferData = firstAction.actionType.Transfer
+                recipient = transferData.recipient || transferData.to
+            }
+        }
+    }
+    
+    // Fallback logic if not found in actions
+    if (!recipient) {
+        recipient = extractFromMultiplePaths(proposal, [
+            'proposalType.Transfer.recipient',
+            'proposalType.Transfer.to',
+            'transactionData.to',
+            'transactionData.recipient',
+            'to',
+            'recipient'
+        ])
+    }
+    
+    return recipient
+}
+
+/**
+ * Extract target from wallet modification proposals
+ */
+export function getModificationTarget(proposal: any): any {
+    let target = null
+    
+    // Check if proposal has actions array
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'WalletModification') {
+                const modData = firstAction.actionType.WalletModification
+                if (modData.modificationType) {
+                    const modTypeKey = Object.keys(modData.modificationType)[0]
+                    const modTypeData = modData.modificationType[modTypeKey]
+                    
+                    if (modTypeKey === 'AddSigner' || modTypeKey === 'RemoveSigner') {
+                        target = modTypeData.signer
+                    } else if (modTypeKey === 'AddObserver' || modTypeKey === 'RemoveObserver') {
+                        target = modTypeData.observer
+                    } else {
+                        target = modTypeData.target || modTypeData.principal
+                    }
+                }
+                if (!target) {
+                    target = modData.target || modData.principal
+                }
+            }
+        }
+    }
+    
+    // Fallback logic if not found in actions
+    if (!target) {
+        target = extractFromMultiplePaths(proposal, [
+            'proposalType.WalletModification.modificationType.AddSigner.signer',
+            'proposalType.WalletModification.modificationType.RemoveSigner.signer',
+            'proposalType.WalletModification.modificationType.AddObserver.observer',
+            'proposalType.WalletModification.modificationType.RemoveObserver.observer',
+            'proposalType.WalletModification.target',
+            'proposalType.WalletModification.principal',
+            'transactionData.targetSigner',
+            'transactionData.target',
+            'targetSigner',
+            'target'
+        ])
+    }
+    
+    return target
+}
+
+/**
+ * Extract signer name from AddSigner/RemoveSigner proposals
+ */
+export function getSignerName(proposal: any): string | null {
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'WalletModification') {
+                const modData = firstAction.actionType.WalletModification
+                if (modData.modificationType) {
+                    const modTypeKey = Object.keys(modData.modificationType)[0]
+                    const modTypeData = modData.modificationType[modTypeKey]
+                    if (['AddSigner', 'RemoveSigner', 'AddObserver', 'RemoveObserver'].includes(modTypeKey)) {
+                        if (modTypeData.name && Array.isArray(modTypeData.name) && modTypeData.name.length > 0) {
+                            return modTypeData.name[0]
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback
+    return extractFromMultiplePaths(proposal, [
+        'proposalType.WalletModification.modificationType.AddSigner.name[0]',
+        'proposalType.WalletModification.modificationType.RemoveSigner.name[0]',
+        'transactionData.targetSignerName[0]',
+        'targetSignerName[0]'
+    ])
+}
+
+/**
+ * Extract signer role from AddSigner proposals
+ */
+export function getSignerRole(proposal: any): string | null {
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'WalletModification') {
+                const modData = firstAction.actionType.WalletModification
+                if (modData.modificationType) {
+                    const modTypeKey = Object.keys(modData.modificationType)[0]
+                    if (modTypeKey === 'AddSigner') {
+                        const signerData = modData.modificationType.AddSigner
+                        if (signerData.role && typeof signerData.role === 'object') {
+                            return Object.keys(signerData.role)[0]
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback
+    const role = extractFromMultiplePaths(proposal, [
+        'proposalType.WalletModification.modificationType.AddSigner.role',
+        'transactionData.role'
+    ])
+    
+    if (role && typeof role === 'object') {
+        return Object.keys(role)[0]
+    }
+    
+    return role
+}
+
+/**
+ * Extract visibility change from ChangeVisibility proposals
+ */
+export function getVisibilityChange(proposal: any): boolean | null {
+    let visibility = null
+    
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'WalletModification') {
+                const modData = firstAction.actionType.WalletModification
+                if (modData.modificationType) {
+                    const modTypeKey = Object.keys(modData.modificationType)[0]
+                    if (modTypeKey === 'ChangeVisibility') {
+                        const visibilityData = modData.modificationType.ChangeVisibility
+                        // From debug image: ChangeVisibility: {isPublic: true}
+                        visibility = visibilityData.isPublic
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback
+    if (visibility === null) {
+        visibility = extractFromMultiplePaths(proposal, [
+            'proposalType.WalletModification.modificationType.ChangeVisibility.isPublic',
+            'proposalType.WalletModification.modificationType.ChangeVisibility.newVisibility',
+            'proposalType.WalletModification.modificationType.ChangeVisibility.visibility',
+            'transactionData.newVisibility',
+            'transactionData.visibility',
+            'newVisibility',
+            'visibility'
+        ])
+    }
+    
+    return visibility
+}
+
+/**
+ * Extract threshold change from ChangeThreshold proposals
+ */
+export function getThresholdChange(proposal: any): { newThreshold: number | null, oldThreshold: number | null } {
+    let newThreshold = null
+    let oldThreshold = null
+    
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'WalletModification') {
+                const modData = firstAction.actionType.WalletModification
+                if (modData.modificationType) {
+                    const modTypeKey = Object.keys(modData.modificationType)[0]
+                    if (modTypeKey === 'ChangeThreshold') {
+                        const thresholdData = modData.modificationType.ChangeThreshold
+                        newThreshold = thresholdData.newThreshold
+                        oldThreshold = thresholdData.oldThreshold
+                    }
+                }
+            }
+        }
+    }
+    
+    // Fallback
+    if (newThreshold === null) {
+        newThreshold = extractFromMultiplePaths(proposal, [
+            'proposalType.WalletModification.modificationType.ChangeThreshold.newThreshold',
+            'transactionData.newThreshold',
+            'newThreshold'
+        ])
+    }
+    
+    if (oldThreshold === null) {
+        oldThreshold = extractFromMultiplePaths(proposal, [
+            'proposalType.WalletModification.modificationType.ChangeThreshold.oldThreshold',
+            'transactionData.oldThreshold',
+            'oldThreshold'
+        ])
+    }
+    
+    return { newThreshold, oldThreshold }
+}
+
+/**
+ * Format transfer memo from proposal
+ */
+export function getTransferMemo(proposal: any): string | null {
+    let memo = null
+    
+    // Check if proposal has actions array
+    if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
+        const firstAction = proposal.actions[0]
+        if (firstAction.actionType && typeof firstAction.actionType === 'object') {
+            const variantKey = Object.keys(firstAction.actionType)[0]
+            if (variantKey === 'Transfer') {
+                const transferData = firstAction.actionType.Transfer
+                memo = transferData.memo
+            }
+        }
+    }
+    
+    // Fallback
+    if (!memo) {
+        memo = extractFromMultiplePaths(proposal, [
+            'proposalType.Transfer.memo',
+            'transactionData.memo',
+            'memo'
+        ])
+    }
+    
+    // Handle array format
+    if (Array.isArray(memo) && memo.length > 0) {
+        return memo[0]
+    }
+    
+    return memo
 }

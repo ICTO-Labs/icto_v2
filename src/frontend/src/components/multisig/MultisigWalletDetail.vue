@@ -40,7 +40,7 @@
                     'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300': wallet.status === 'Failed'
                   }"
                 >
-                  {{ wallet.status }}
+                  {{ keyToText(wallet.status) }}
                 </span>
                 <span class="text-sm text-gray-500 dark:text-gray-400">
                   {{ wallet.config?.threshold || wallet.threshold }}-of-{{ wallet.signers?.length || wallet.totalSigners }} Multisig
@@ -73,6 +73,14 @@
             >
               <Users class="h-4 w-4 mr-2" />
               Manage Signers
+            </button>
+            <button
+              @click="showUnifiedAuditDashboard = true"
+              class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 dark:focus:ring-offset-gray-900"
+              v-if="userVisibility?.isAuthorized"
+            >
+              <Shield class="h-4 w-4 mr-2" />
+              Security Audit
             </button>
             <button
               @click="loadWalletInfo"
@@ -187,61 +195,13 @@
         </div>
 
         <!-- Assets -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-          <div class="flex items-center justify-between mb-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white">
-              Assets
-            </h3>
-            <button
-              @click="loadWalletInfo"
-              class="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium"
-            >
-              Refresh
-            </button>
-          </div>
-          <div class="space-y-4">
-            <!-- ICP Balance -->
-            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-              <div class="flex items-center space-x-3">
-                <div class="w-8 h-8 bg-gradient-to-br from-orange-500 to-red-600 rounded-full flex items-center justify-center">
-                  <span class="text-white text-sm font-bold">₿</span>
-                </div>
-                <div>
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">ICP</p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">Internet Computer</p>
-                </div>
-              </div>
-              <div class="text-right">
-                <p class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ formatICPAmount(wallet.balances?.icp || 0n) }}
-                </p>
-              </div>
-            </div>
-            <!-- Token Balances -->
-            <div
-              v-for="token in wallet.balances?.tokens || []"
-              :key="token.canisterId.toString()"
-              class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
-            >
-              <div class="flex items-center space-x-3">
-                <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                  <span class="text-white text-sm font-bold">
-                    {{ (token.symbol || 'T').charAt(0) }}
-                  </span>
-                </div>
-                <div>
-                  <p class="text-sm font-medium text-gray-900 dark:text-white">{{ token.symbol || 'TOKEN' }}</p>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">{{ token.name || 'Unknown Token' }}</p>
-                </div>
-              </div>
-              <div class="text-right">
-                <p class="text-sm font-medium text-gray-900 dark:text-white">
-                  {{ formatTokenAmount(token.balance, token.decimals, token.symbol) }}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AssetsList
+          ref="assetsListRef"
+          :wallet-id="walletId"
+          :wallet="wallet"
+          @assets-updated="onAssetsUpdated"
+        />
+
       </div>
 
       <!-- Recent Proposals -->
@@ -266,25 +226,14 @@
             </button>
           </div>
         </div>
-        <div v-if="proposalsLoading">
-          <LoadingSkeleton type="list" :count="3" item-type="proposal-card" />
-        </div>
-        <div v-else-if="filteredProposals.length === 0" class="text-center py-8">
-          <FileText class="mx-auto h-12 w-12 text-gray-400 mb-4" />
-          <p class="text-gray-600 dark:text-gray-400">No proposals found</p>
-        </div>
-        <div v-else class="space-y-3">
-          <MultisigProposalCompact
-            v-for="proposal in filteredProposals.slice(0, 8)"
-            :key="proposal.id"
-            :proposal="proposal"
-            :wallet="wallet"
-            @select="handleProposalSelect"
-            @sign="handleProposalSign"
-            @execute="handleProposalExecute"
-            @view-details="handleProposalDetails"
-          />
-        </div>
+        <UnifiedProposalTable
+          :proposals="filteredProposals.slice(0, 8)"
+          title=""
+          :show-create-button="false"
+          :loading="proposalsLoading"
+          @view-proposal="handleProposalDetails"
+          @sign-proposal="handleProposalSign"
+        />
       </div>
     </div>
 
@@ -306,6 +255,7 @@
             <CreateProposalForm
               v-if="createProposalVisible"
               :wallet="wallet"
+              :assets="walletAssets"
               @submit="handleCreateProposal"
               @cancel="createProposalVisible = false"
             />
@@ -339,6 +289,31 @@
         </div>
       </div>
     </div>
+
+    <!-- Unified Audit Dashboard Modal -->
+    <div v-if="showUnifiedAuditDashboard" class="fixed inset-0 z-[99] overflow-y-auto">
+      <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+        <!-- Backdrop -->
+        <div class="fixed inset-0 bg-black bg-opacity-50 transition-opacity" @click="showUnifiedAuditDashboard = false"></div>
+
+        <!-- Modal -->
+        <div class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-7xl sm:w-full relative max-h-[90vh]">
+          <div class="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6 sm:pb-4 overflow-y-auto max-h-[90vh]">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-medium text-gray-900 dark:text-white">Security Audit Dashboard</h3>
+              <button @click="showUnifiedAuditDashboard = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                <X class="w-6 h-6" />
+              </button>
+            </div>
+            <UnifiedAuditDashboard
+              v-if="showUnifiedAuditDashboard"
+              :canisterId="wallet.canisterId?.toString() || wallet.id"
+              :visibility="userVisibility"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -361,17 +336,19 @@ import { useMultisigStore } from '@/stores/multisig'
 import { useMultisig } from '@/composables/useMultisig'
 import { multisigService } from '@/api/services/multisig'
 import { toast } from 'vue-sonner'
-import MultisigProposalCard from './MultisigProposalCard.vue'
-import MultisigProposalCompact from './MultisigProposalCompact.vue'
+import UnifiedProposalTable from './UnifiedProposalTable.vue'
 import CreateProposalForm from './CreateProposalForm.vue'
 import ManageSignersForm from './ManageSignersForm.vue'
 import LoadingSkeleton from './LoadingSkeleton.vue'
+import AssetsList from './AssetsList.vue'
+import UnifiedAuditDashboard from './UnifiedAuditDashboard.vue'
 import {
   formatPrincipal,
   formatICPAmount,
   formatTokenAmount,
   getSecurityScoreText,
-  canSignerManage
+  canSignerManage,
+  normalizeStatus
 } from '@/utils/multisig'
 import { keyToText } from '@/utils/common'
 interface Props {
@@ -393,7 +370,8 @@ const {
   loading: multisigLoading,
   fetchProposals,
   fetchEvents,
-  fetchWalletInfo
+  fetchWalletInfo,
+  checkWalletVisibility
 } = useMultisig()
 
 // Router
@@ -408,8 +386,16 @@ const proposalsLoading = ref(false)
 const eventsLoading = ref(false)
 const createProposalVisible = ref(false)
 const manageSignersVisible = ref(false)
+const showUnifiedAuditDashboard = ref(false)
+const walletAssets = ref<any[]>([])
+const assetsListRef = ref()
+
+// User visibility for quick access control
+const userVisibility = ref<any>(null)
+const visibilityLoaded = ref(false)
 
 // Computed properties
+const walletId = computed(() => props.wallet?.canisterId?.toString() || props.wallet?.id || '')
 const canManageWallet = computed(() => {
   if (!authStore.principal) return false
 
@@ -421,8 +407,44 @@ const canManageWallet = computed(() => {
 })
 
 const filteredProposals = computed(() => {
-  if (proposalFilter.value === 'all') return proposals.value
-  return proposals.value.filter((p: any) => p.status.toLowerCase() === proposalFilter.value)
+  let filtered = proposals.value || []
+  
+  // Filter by status if not 'all'
+  if (proposalFilter.value !== 'all') {
+    filtered = filtered.filter((p: any) => p.status.toLowerCase() === proposalFilter.value)
+  }
+  
+  // Sort by timestamp (newest first) - same logic as UnifiedProposalTable
+  return [...filtered].sort((a: any, b: any) => {
+    // Safe date comparison with fallbacks
+    const getTimestamp = (proposal: any) => {
+      if (!proposal) return 0
+
+      const proposedAt = proposal.proposedAt || proposal.createdAt || proposal.timestamp
+      if (!proposedAt) return 0
+
+      if (proposedAt instanceof Date) {
+        return proposedAt.getTime()
+      }
+
+      if (typeof proposedAt === 'bigint') {
+        return Number(proposedAt) / 1000000 // Convert nanoseconds to milliseconds
+      }
+
+      if (typeof proposedAt === 'number') {
+        return proposedAt > 1e12 ? proposedAt / 1000000 : proposedAt // Handle nanoseconds vs milliseconds
+      }
+
+      if (typeof proposedAt === 'string') {
+        const parsed = new Date(proposedAt)
+        return isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+      }
+
+      return 0
+    }
+
+    return getTimestamp(b) - getTimestamp(a) // Descending order (newest first)
+  })
 })
 
 const pendingProposalsCount = computed(() => {
@@ -430,8 +452,8 @@ const pendingProposalsCount = computed(() => {
 
   return proposals.value.filter(p => {
     if (!p || !p.status) return false
-    const status = String(p.status).toLowerCase()
-    return status === 'pending' || status === 'active'
+    const status = normalizeStatus(p.status)
+    return status === 'pending' || status === 'active' || status === 'approved'
   }).length
 })
 
@@ -440,8 +462,8 @@ const awaitingSignatureCount = computed(() => {
 
   return proposals.value.filter(p => {
     if (!p || !p.status) return false
-    const status = String(p.status).toLowerCase()
-    const isPending = status === 'pending' || status === 'active'
+    const status = normalizeStatus(p.status)
+    const isPending = status === 'pending' || status === 'active' || status === 'approved'
     const currentSigs = p.currentSignatures || p.currentApprovals || 0
     const requiredSigs = p.requiredSignatures || p.requiredApprovals || props.wallet?.threshold || 2
 
@@ -503,16 +525,8 @@ const loadWalletInfo = async () => {
 }
 
 // Event handlers
-const handleProposalSelect = (proposal: any) => {
-  console.log('Selected proposal:', proposal)
-}
-
 const handleProposalSign = async (proposal: any) => {
   console.log('Sign proposal:', proposal)
-}
-
-const handleProposalExecute = async (proposal: any) => {
-  console.log('Execute proposal:', proposal)
 }
 
 const handleProposalDetails = (proposal: any) => {
@@ -563,11 +577,26 @@ const handleCreateProposal = async (proposalData: any) => {
         })
       }
     } else if (proposalData.type === 'add_signer') {
-      // Create add signer proposal
-      const modificationType = {
-        AddSigner: {
-          signer: Principal.fromText(proposalData.targetSigner),
-          role: { Signer: null } // Default role
+      // Create add signer proposal with optional threshold update
+      let modificationType: any
+
+      if (proposalData.newThreshold && proposalData.newThreshold !== props.wallet?.threshold) {
+        // Use ChangeThreshold + AddSigner separately if needed
+        modificationType = {
+          AddSigner: {
+            signer: Principal.fromText(proposalData.targetSigner),
+            name: proposalData.signerName ? [proposalData.signerName] : [], // Optional name as array
+            role: { Signer: null } // Default role
+          }
+        }
+        // Note: Threshold change would need to be a separate proposal
+      } else {
+        modificationType = {
+          AddSigner: {
+            signer: Principal.fromText(proposalData.targetSigner),
+            name: proposalData.signerName ? [proposalData.signerName] : [], // Optional name as array
+            role: { Signer: null } // Default role
+          }
         }
       }
 
@@ -599,6 +628,8 @@ const handleCreateProposal = async (proposalData: any) => {
           signer: Principal.fromText(proposalData.targetSigner)
         }
       }
+
+      // Note: If threshold needs to be changed, it should be a separate ChangeThreshold proposal
 
       const result = await multisigService.createWalletModificationProposal(
         walletId,
@@ -711,13 +742,37 @@ const handleCreateProposal = async (proposalData: any) => {
         })
       }
     } else if (proposalData.type === 'governance_vote') {
-      // For governance votes - this would require integration with SNS/governance system
-      // For now, show a more specific message
-      toast.info('Governance Integration Required', {
-        id: toastId,
-        description: 'Governance voting requires SNS integration which will be available soon'
-      })
-      createProposalVisible.value = false
+      // Create governance vote proposal
+      const modificationType = {
+        GovernanceVote: {
+          proposalId: BigInt(proposalData.proposalId),
+          vote: proposalData.vote === 'yes' ? { Yes: null } :
+                proposalData.vote === 'no' ? { No: null } :
+                { Abstain: null }
+        }
+      }
+
+      const result = await multisigService.createWalletModificationProposal(
+        walletId,
+        modificationType,
+        proposalData.title,
+        proposalData.description
+      )
+
+      if (result.success) {
+        toast.success('Governance vote proposal created successfully!', {
+          id: toastId,
+          description: 'Your governance vote proposal has been submitted for approval'
+        })
+        createProposalVisible.value = false
+        await loadProposals()
+        emit('updated', props.wallet)
+      } else {
+        toast.error('Failed to create governance vote proposal', {
+          id: toastId,
+          description: result.error || 'An unexpected error occurred'
+        })
+      }
     } else {
       // For any other unknown proposal types
       toast.warning('Unknown Proposal Type', {
@@ -739,17 +794,85 @@ const handleSignersUpdated = () => {
   loadWalletInfo()
 }
 
+const onAssetsUpdated = (assets: any[]) => {
+  console.log('Assets updated in MultisigWalletDetail:', assets)
+  walletAssets.value = assets
+}
+
+// ============== AUDIT MONITORING METHODS ==============
+
+// Load user visibility quickly for UI optimization
+const loadUserVisibility = async () => {
+  // Skip if already loaded for this wallet + auth state
+  const currentWalletId = walletId.value
+  const currentPrincipal = authStore.principal?.toString()
+  
+  if (visibilityLoaded.value && userVisibility.value && 
+      userVisibility.value._walletId === currentWalletId && 
+      userVisibility.value._principalId === currentPrincipal) {
+    return
+  }
+
+  if (!authStore.principal) {
+    userVisibility.value = { 
+      isOwner: false, isSigner: false, isObserver: false, isAuthorized: false,
+      _walletId: currentWalletId, _principalId: null 
+    }
+    visibilityLoaded.value = true
+    return
+  }
+
+  try {
+    const visibility = await checkWalletVisibility(currentWalletId)
+    userVisibility.value = {
+      ...visibility,
+      _walletId: currentWalletId,
+      _principalId: currentPrincipal
+    }
+    visibilityLoaded.value = true
+  } catch (error) {
+    userVisibility.value = { 
+      isOwner: false, isSigner: false, isObserver: false, isAuthorized: false,
+      _walletId: currentWalletId, _principalId: currentPrincipal 
+    }
+    visibilityLoaded.value = true
+  }
+}
+
+
 // Lifecycle
-onMounted(() => {
-  loadProposals()
+onMounted(async () => {
+  // Step 1: Load user visibility first (critical for UI)
+  await loadUserVisibility()
+  
+  // Step 2: Load essential data in parallel
+  await Promise.all([
+    loadProposals(),
+    loadBalance()
+  ])
+  
+  // Step 3: Load optional data (can be delayed)
   loadEvents()
-  loadBalance()
 })
 
 // Watch for wallet changes
-watch(() => props.wallet.canisterId || props.wallet.id, () => {
-  loadProposals()
+watch(() => props.wallet.canisterId || props.wallet.id, async () => {
+  visibilityLoaded.value = false // Reset cache
+  await loadUserVisibility()
+  Promise.all([
+    loadProposals(),
+    loadBalance()
+  ])
   loadEvents()
-  loadBalance()
+})
+
+// Watch for auth changes
+watch(() => authStore.principal, () => {
+  visibilityLoaded.value = false // Reset cache
+  if (authStore.principal) {
+    loadUserVisibility()
+  } else {
+    userVisibility.value = { isOwner: false, isSigner: false, isObserver: false, isAuthorized: false }
+  }
 })
 </script>

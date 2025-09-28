@@ -31,7 +31,12 @@ class MultisigService {
   }
 
   private async getContractActor(canisterId: string) {
-    return await multisigContractActor({ canisterId, anon: false });
+    return await multisigContractActor({ canisterId, anon: false, requiresSigning: true });
+  }
+
+  // For query-only operations (like visibility checks)
+  private async getContractQueryActor(canisterId: string) {
+    return await multisigContractActor({ canisterId, anon: false, requiresSigning: false });
   }
 
   private convertFormDataToConfig(formData: any): any {
@@ -192,7 +197,7 @@ class MultisigService {
   // Contract methods
   async getWalletInfo(canisterId: string): Promise<ApiResponse<any>> {
     try {
-      const actor = await this.getContractActor(canisterId);
+      const actor = await this.getContractQueryActor(canisterId);
       const backendActorInstance = await backendActor({ anon: true });
       
       // Get wallet info from contract and metadata from backend
@@ -361,7 +366,7 @@ class MultisigService {
     proposalId: string
   ): Promise<ApiResponse<any>> {
     try {
-      const actor = await this.getContractActor(canisterId);
+      const actor = await this.getContractQueryActor(canisterId);
       const proposal = await actor.getProposal(proposalId);
 
       if (!proposal) {
@@ -387,17 +392,24 @@ class MultisigService {
     offset?: number
   ): Promise<ApiResponse<any[]>> {
     try {
-      const actor = await this.getContractActor(canisterId);
+      const actor = await this.getContractQueryActor(canisterId);
 
       console.log('Calling getProposals with canisterId:', canisterId);
 
-      const proposals = await actor.getProposals(
-        filter ? [filter] : [], // ProposalFilter should be wrapped as optional
-        limit ? [BigInt(limit)] : [], 
-        offset ? [BigInt(offset)] : []
-      );
+      // Fetch proposals and wallet info in parallel to get threshold
+      const [proposals, walletInfoResponse] = await Promise.all([
+        actor.getProposals(
+          filter ? [filter] : [], // ProposalFilter should be wrapped as optional
+          limit ? [BigInt(limit)] : [],
+          offset ? [BigInt(offset)] : []
+        ),
+        this.getWalletInfo(canisterId)
+      ]);
 
       console.log('getProposals successful, raw data:', proposals);
+
+      // Get threshold from wallet info
+      const threshold = walletInfoResponse.success && walletInfoResponse.data?.config?.threshold || 2;
 
       // Process proposals to add computed fields
       const processedProposals = proposals.map((proposal: any) => {
@@ -406,31 +418,14 @@ class MultisigService {
           Object.keys(proposal.approvals).length :
           (proposal.signatures ? proposal.signatures.length : 0);
 
-        // Get wallet info to determine required signatures (threshold)
-        const walletInfoPromise = this.getWalletInfo(canisterId);
-
         return {
           ...proposal,
           currentSignatures,
-          // Will be updated with actual threshold from wallet info
-          requiredSignatures: 2, // Default fallback
+          requiredSignatures: threshold,
           // Add computed status
           status: proposal.status || 'pending'
         };
       });
-
-      // Get wallet info to set correct required signatures
-      try {
-        const walletInfoResponse = await this.getWalletInfo(canisterId);
-        if (walletInfoResponse.success && walletInfoResponse.data) {
-          const threshold = walletInfoResponse.data.config?.threshold || 2;
-          processedProposals.forEach(proposal => {
-            proposal.requiredSignatures = threshold;
-          });
-        }
-      } catch (walletInfoError) {
-        console.warn('Could not fetch wallet info for threshold:', walletInfoError);
-      }
 
       console.log('getProposals processed data:', processedProposals);
 
@@ -454,7 +449,7 @@ class MultisigService {
     offset?: number
   ): Promise<ApiResponse<any[]>> {
     try {
-      const actor = await this.getContractActor(canisterId);
+      const actor = await this.getContractQueryActor(canisterId);
       const events = await actor.getEvents(
         filter ? [filter] : [], // EventFilter should be wrapped as optional
         limit ? [BigInt(limit)] : [], 
@@ -598,6 +593,329 @@ class MultisigService {
       if ('RateLimited' in error) return 'Rate limited - please wait before creating another proposal';
     }
     return 'Failed to create proposal';
+  }
+
+  // Asset management methods
+  async addWatchedAsset(
+    canisterId: string,
+    asset: any
+  ): Promise<ApiResponse<void>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+      const result = await actor.addWatchedAsset(asset);
+
+      if ('ok' in result) {
+        return {
+          success: true,
+          data: undefined
+        };
+      } else {
+        return {
+          success: false,
+          error: result.err || 'Failed to add watched asset'
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to add watched asset'
+      };
+    }
+  }
+
+  async removeWatchedAsset(
+    canisterId: string,
+    asset: any
+  ): Promise<ApiResponse<void>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+      const result = await actor.removeWatchedAsset(asset);
+
+      if ('ok' in result) {
+        return {
+          success: true,
+          data: undefined
+        };
+      } else {
+        return {
+          success: false,
+          error: result.err || 'Failed to remove watched asset'
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to remove watched asset'
+      };
+    }
+  }
+
+  async getWatchedAssets(canisterId: string): Promise<ApiResponse<any[]>> {
+    try {
+      console.log('MultisigService: Getting watched assets for canister:', canisterId);
+      const actor = await this.getContractActor(canisterId);
+      console.log('MultisigService: Got actor:', typeof actor);
+
+      console.log('MultisigService: Calling getWatchedAssets on actor...');
+      const assets = await actor.getWatchedAssets();
+      console.log('MultisigService: Got watched assets result:', assets);
+
+      return {
+        success: true,
+        data: assets
+      };
+    } catch (error) {
+      console.error('MultisigService: Error getting watched assets:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch watched assets'
+      };
+    }
+  }
+
+  async getContractBalances(
+    canisterId: string,
+    assets: any[]
+  ): Promise<ApiResponse<[string, bigint][]>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+      const result = await actor.getWalletBalances(assets);
+
+      if ('ok' in result) {
+        return {
+          success: true,
+          data: result.ok
+        };
+      } else {
+        return {
+          success: false,
+          error: result.err || 'Failed to fetch contract balances'
+        };
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch contract balances'
+      };
+    }
+  }
+
+  // ============== AUDIT MONITORING METHODS ==============
+
+  // Quick wallet visibility check (for UI/UX optimization)
+  async getWalletVisibility(canisterId: string): Promise<ApiResponse<{
+    isOwner: boolean;
+    isSigner: boolean;
+    isObserver: boolean;
+    isAuthorized: boolean;
+  }>> {
+    try {
+      const authStore = useAuthStore();
+      if (!authStore.principal) {
+        return {
+          success: true,
+          data: { isOwner: false, isSigner: false, isObserver: false, isAuthorized: false }
+        };
+      }
+
+      const actor = await this.getContractQueryActor(canisterId);
+
+
+      // Get minimal wallet info for quick access check
+      const [isOwner, isSigner] = await Promise.all([
+        actor.isOwner(Principal.fromText(authStore.principal)).catch(() => false),
+        actor.isSigner(Principal.fromText(authStore.principal)).catch(() => false)
+      ]);
+
+      const isAuthorized = isOwner || isSigner;
+
+      return {
+        success: true,
+        data: {
+          isOwner,
+          isSigner,
+          isObserver: false, // TODO: implement observer check if needed
+          isAuthorized
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to check wallet visibility'
+      };
+    }
+  }
+
+  // Get comprehensive audit log (only for authorized users)
+  async getAuditLog(
+    canisterId: string,
+    startTime?: number,
+    endTime?: number,
+    eventTypes?: string[],
+    limit?: number
+  ): Promise<ApiResponse<{
+    events: any[];
+    summary: any;
+    securityAlerts: any[];
+  }>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+
+      const result = await actor.getAuditLog(
+        startTime ? [BigInt(startTime)] : [],
+        endTime ? [BigInt(endTime)] : [],
+        eventTypes ? [eventTypes] : [],
+        limit ? [BigInt(limit)] : []
+      );
+
+      if ('ok' in result) {
+        return {
+          success: true,
+          data: result.ok
+        };
+      } else {
+        this.handleError(result);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch audit log'
+      };
+    }
+  }
+
+  // Get real-time security status
+  async getSecurityStatus(canisterId: string): Promise<ApiResponse<{
+    isPaused: boolean;
+    isExecuting: boolean;
+    activeThreats: number;
+    lastSecurityScan: number;
+    riskLevel: string;
+    recommendations: string[];
+  }>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+
+      const result = await actor.getSecurityStatus();
+
+      if ('ok' in result) {
+        return {
+          success: true,
+          data: result.ok
+        };
+      } else {
+        this.handleError(result);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch security status'
+      };
+    }
+  }
+
+  // Get activity report for specific time periods
+  async getActivityReport(
+    canisterId: string,
+    startTime: number,
+    endTime: number
+  ): Promise<ApiResponse<{
+    proposalActivity: any;
+    transferActivity: any;
+    securityActivity: any;
+    userActivity: any[];
+  }>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+
+      const result = await actor.getActivityReport({
+        startTime: BigInt(startTime),
+        endTime: BigInt(endTime)
+      });
+
+      if ('ok' in result) {
+        return {
+          success: true,
+          data: result.ok
+        };
+      } else {
+        this.handleError(result);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch activity report'
+      };
+    }
+  }
+
+  // Get security metrics
+  async getSecurityMetrics(canisterId: string): Promise<ApiResponse<{
+    failedAttempts: number;
+    rateLimit: boolean;
+    suspiciousActivity: boolean;
+    lastSecurityEvent?: number;
+    securityScore: number;
+  }>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+      const metrics = await actor.getSecurityMetrics();
+
+      return {
+        success: true,
+        data: metrics
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch security metrics'
+      };
+    }
+  }
+
+  // Emergency controls (only for owners)
+  async emergencyPause(canisterId: string): Promise<ApiResponse<void>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+      const result = await actor.emergencyPause();
+
+      if ('ok' in result) {
+        toast.success('Emergency pause activated');
+        return {
+          success: true,
+          data: undefined
+        };
+      } else {
+        this.handleError(result);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to activate emergency pause'
+      };
+    }
+  }
+
+  async emergencyUnpause(canisterId: string): Promise<ApiResponse<void>> {
+    try {
+      const actor = await this.getContractActor(canisterId);
+      const result = await actor.emergencyUnpause();
+
+      if ('ok' in result) {
+        toast.success('Emergency pause deactivated');
+        return {
+          success: true,
+          data: undefined
+        };
+      } else {
+        this.handleError(result);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to deactivate emergency pause'
+      };
+    }
   }
 
   // Format helpers

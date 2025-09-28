@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { normalizeStatus } from '@/utils/multisig'
 import type {
     MultisigWallet,
     MultisigActivity,
@@ -20,7 +21,65 @@ export const useMultisigStore = defineStore('multisig', () => {
 
     // Computed
     const pendingProposals = computed(() => {
-        return proposals.value.filter(proposal => proposal.status === 'Pending')
+        return proposals.value.filter(proposal => {
+            const normalizedStatus = normalizeStatus(proposal.status)
+            return normalizedStatus === 'pending'
+        })
+    })
+
+    const executedProposals = computed(() => {
+        return proposals.value.filter(proposal => {
+            const normalizedStatus = normalizeStatus(proposal.status)
+            return normalizedStatus === 'executed'
+        })
+    })
+
+    const rejectedProposals = computed(() => {
+        return proposals.value.filter(proposal => {
+            const normalizedStatus = normalizeStatus(proposal.status)
+            return normalizedStatus === 'rejected' || normalizedStatus === 'failed'
+        })
+    })
+
+    const approvedProposals = computed(() => {
+        return proposals.value.filter(proposal => {
+            const normalizedStatus = normalizeStatus(proposal.status)
+            return normalizedStatus === 'approved'
+        })
+    })
+
+    // Recent proposals - sorted by creation time, newest first, limited to 10
+    const recentProposals = computed(() => {
+        return [...proposals.value]
+            .sort((a, b) => {
+                // Helper function to get timestamp
+                const getTimestamp = (proposal: any) => {
+                    const proposedAt = proposal.proposedAt || proposal.createdAt || proposal.timestamp
+                    if (!proposedAt) return 0
+
+                    if (proposedAt instanceof Date) {
+                        return proposedAt.getTime()
+                    }
+
+                    if (typeof proposedAt === 'bigint') {
+                        return Number(proposedAt) / 1000000 // Convert nanoseconds to milliseconds
+                    }
+
+                    if (typeof proposedAt === 'number') {
+                        return proposedAt > 1e12 ? proposedAt / 1000000 : proposedAt // Handle nanoseconds vs milliseconds
+                    }
+
+                    if (typeof proposedAt === 'string') {
+                        const parsed = new Date(proposedAt)
+                        return isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+                    }
+
+                    return 0
+                }
+
+                return getTimestamp(b) - getTimestamp(a) // Newest first
+            })
+            .slice(0, 10) // Limit to 10 newest
     })
 
     const totalAssetsValue = computed(() => {
@@ -144,6 +203,24 @@ export const useMultisigStore = defineStore('multisig', () => {
         } catch (error) {
             console.error('Error fetching proposals:', error)
             return []
+        }
+    }
+
+    // Optimized method to load wallet and proposals together
+    const loadWalletWithProposals = async (walletId: string) => {
+        loading.value = true
+        try {
+            // Load wallet and proposals in parallel instead of sequentially
+            const [walletResult] = await Promise.all([
+                loadWallet(walletId),
+                fetchProposals(walletId)
+            ])
+            return walletResult
+        } catch (error) {
+            console.error('Error loading wallet with proposals:', error)
+            return null
+        } finally {
+            loading.value = false
         }
     }
 
@@ -298,6 +375,10 @@ export const useMultisigStore = defineStore('multisig', () => {
 
         // Computed
         pendingProposals,
+        executedProposals,
+        rejectedProposals,
+        approvedProposals,
+        recentProposals,
         totalAssetsValue,
         totalActiveSigners,
 
@@ -305,6 +386,7 @@ export const useMultisigStore = defineStore('multisig', () => {
         refreshData,
         loadWallet,
         loadWallets,
+        loadWalletWithProposals,
         fetchProposals,
         fetchEvents,
         signProposal,

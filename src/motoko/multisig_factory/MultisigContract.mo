@@ -13,6 +13,7 @@ import Text "mo:base/Text";
 import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
 import Int "mo:base/Int";
+import Bool "mo:base/Bool";
 import Float "mo:base/Float";
 import Buffer "mo:base/Buffer";
 import Blob "mo:base/Blob";
@@ -22,6 +23,7 @@ import Nat32 "mo:base/Nat32";
 
 import MultisigTypes "../shared/types/MultisigTypes";
 import ICRC "../shared/types/ICRC";
+import SafeMath "../shared/utils/SafeMath";
 
 persistent actor class MultisigContract(initArgs: {
         id: MultisigTypes.WalletId;
@@ -65,6 +67,9 @@ persistent actor class MultisigContract(initArgs: {
         private var tokensArray: [MultisigTypes.TokenBalance] = [];
         private var nftsArray: [MultisigTypes.NFTBalance] = [];
 
+        // Watched assets - STABLE for upgrades
+        private var watchedAssets: [MultisigTypes.AssetType] = [];
+
         // Security and monitoring - STABLE for upgrades
         private var securityFlags: MultisigTypes.SecurityFlags = {
             suspiciousActivity = false;
@@ -78,6 +83,14 @@ persistent actor class MultisigContract(initArgs: {
             lastSecurityEvent = null;
             securityScore = 1.0;
         };
+
+        // Reentrancy protection - STABLE for upgrades
+        private var isExecuting: Bool = false;
+        private var emergencyPaused: Bool = false;
+
+        // Enhanced rate limiting - Runtime state (will be reconstructed)
+        private transient var lastProposalTimes = HashMap.HashMap<Principal, Int>(10, Principal.equal, Principal.hash);
+        private transient var dailyLimitsUsage = HashMap.HashMap<Text, Nat>(10, Text.equal, Text.hash);
 
         // Events and audit trail - STABLE for upgrades
         private var eventsEntries: [EventEntry] = [];
@@ -105,20 +118,18 @@ persistent actor class MultisigContract(initArgs: {
             Text.hash
         );
 
-        // Reentrancy protection
-        private transient var isExecuting = false;
 
         private transient var observers = Buffer.fromArray<Principal>(observersArray);
 
-        // Security rate limiting
-        private transient var lastProposalTimes = HashMap.HashMap<Principal, Int>(10, Principal.equal, Principal.hash);
-        private transient var dailyLimitsUsage = HashMap.HashMap<MultisigTypes.AssetType, Nat>(10, func(a: MultisigTypes.AssetType, b: MultisigTypes.AssetType): Bool { false }, func(a: MultisigTypes.AssetType): Nat32 { 0 });
 
-        // Constants
+        // Security Constants
         private let MAX_PROPOSALS_PER_HOUR = 10;
         private let MIN_PROPOSAL_INTERVAL = 60_000_000_000; // 1 minute in nanoseconds
         private let SECURITY_COOLDOWN = 300_000_000_000; // 5 minutes
         private let MAX_FAILED_ATTEMPTS = 5;
+        private let EMERGENCY_THRESHOLD_MULTIPLIER = 2; // Require 2x normal threshold for emergency actions
+        private let MAX_TRANSFER_AMOUNT = 1_000_000_000_000; // 10,000 ICP in e8s
+        private let DAILY_LIMIT_RESET_INTERVAL = 86_400_000_000_000; // 24 hours in nanoseconds
 
         // ============== INITIALIZATION ==============
 
@@ -152,7 +163,7 @@ persistent actor class MultisigContract(initArgs: {
             events.put(initEvent.id, initEvent);
 
             status := #Active;
-            Debug.print("MultisigContract: Initialized wallet " # walletId # " with " # debug_show(signers.size()) # " signers");
+            // Debug.print("MultisigContract: Initialized wallet " # walletId # " with " # debug_show(signers.size()) # " signers");
         };
 
         // Initialize the wallet - call moved to after createEvent definition
@@ -170,7 +181,7 @@ persistent actor class MultisigContract(initArgs: {
             };
         };
 
-        private func isSigner(caller: Principal): Bool {
+        private func isSignerInternal(caller: Principal): Bool {
             switch (signers.get(caller)) {
                 case (?signer) {
                     signer.isActive and (signer.role == #Owner or signer.role == #Signer)
@@ -179,14 +190,201 @@ persistent actor class MultisigContract(initArgs: {
             };
         };
 
-        private func isOwner(caller: Principal): Bool {
+        private func isOwnerInternal(caller: Principal): Bool {
             switch (signers.get(caller)) {
                 case (?signer) signer.isActive and signer.role == #Owner;
                 case null false;
             };
         };
 
-        private func isObserver(caller: Principal): Bool {
+        // ============== SECURITY GUARDS ==============
+
+        private func nonReentrant<T>(f: () -> T): T {
+            if (isExecuting) {
+                Debug.trap("Reentrancy detected");
+            };
+            isExecuting := true;
+            let result = f();
+            isExecuting := false;
+            result
+        };
+
+        private func whenNotPaused<T>(f: () -> T): T {
+            if (emergencyPaused) {
+                Debug.trap("Contract is paused");
+            };
+            f()
+        };
+
+        private func validateAmountSafe(amount: Nat): Result.Result<(), Text> {
+            switch (SafeMath.validateAmount(amount, 1, MAX_TRANSFER_AMOUNT)) {
+                case (#err(msg)) { #err(msg) };
+                case (#ok()) { #ok() };
+            }
+        };
+
+        private func checkDailyLimitSafe(asset: MultisigTypes.AssetType, amount: Nat): Result.Result<(), Text> {
+            let assetKey = switch (asset) {
+                case (#ICP) { "ICP" };
+                case (#Token(principal)) { Principal.toText(principal) };
+                case (#NFT(nftData)) { Principal.toText(nftData.canister) # "-" # Nat.toText(nftData.tokenId) };
+            };
+
+            let currentUsage = switch (dailyLimitsUsage.get(assetKey)) {
+                case (?usage) { usage };
+                case null { 0 };
+            };
+
+            switch (SafeMath.addNat(currentUsage, amount)) {
+                case (#err(msg)) { #err("Daily limit calculation error: " # msg) };
+                case (#ok(newUsage)) {
+                    let dailyLimit = switch (asset) {
+                        case (#ICP) { MAX_TRANSFER_AMOUNT };
+                        case (#Token(_)) { MAX_TRANSFER_AMOUNT };
+                    };
+
+                    if (newUsage > dailyLimit) {
+                        #err("Daily limit exceeded")
+                    } else {
+                        dailyLimitsUsage.put(assetKey, newUsage);
+                        #ok()
+                    }
+                };
+            }
+        };
+
+        private func isEmergencyAction(proposalType: MultisigTypes.ProposalType): Bool {
+            switch (proposalType) {
+                case (#Emergency(_)) true;
+                case _ false;
+            }
+        };
+
+        private func calculateRequiredApprovalsSafe(proposalType: MultisigTypes.ProposalType): Nat {
+            let baseThreshold = walletConfig.threshold;
+            if (isEmergencyAction(proposalType)) {
+                switch (SafeMath.mulNat(baseThreshold, EMERGENCY_THRESHOLD_MULTIPLIER)) {
+                    case (#ok(result)) { Nat.min(result, signers.size()) };
+                    case (#err(_)) { signers.size() }; // Fallback to max
+                }
+            } else {
+                baseThreshold
+            }
+        };
+
+        // ============== COMPREHENSIVE INPUT VALIDATION ==============
+
+        private func validatePrincipalInput(principal: Principal): Result.Result<(), Text> {
+            if (Principal.isAnonymous(principal)) {
+                return #err("Anonymous principal not allowed");
+            };
+            let textForm = Principal.toText(principal);
+            if (textForm.size() < 5) {
+                return #err("Invalid principal format");
+            };
+            #ok()
+        };
+
+        private func validateProposalTitle(title: Text): Result.Result<(), Text> {
+            if (title.size() == 0) {
+                return #err("Title cannot be empty");
+            };
+            if (title.size() > 200) {
+                return #err("Title too long (max 200 characters)");
+            };
+            #ok()
+        };
+
+        private func validateProposalDescription(description: Text): Result.Result<(), Text> {
+            if (description.size() > 2000) {
+                return #err("Description too long (max 2000 characters)");
+            };
+            #ok()
+        };
+
+        private func validateTransferParams(recipient: Principal, amount: Nat, asset: MultisigTypes.AssetType): Result.Result<(), Text> {
+            // Validate recipient
+            switch (validatePrincipalInput(recipient)) {
+                case (#err(msg)) { return #err("Invalid recipient: " # msg) };
+                case (#ok()) {};
+            };
+
+            // Validate amount
+            switch (validateAmountSafe(amount)) {
+                case (#err(msg)) { return #err("Invalid amount: " # msg) };
+                case (#ok()) {};
+            };
+
+            // Additional asset-specific validation
+            switch (asset) {
+                case (#ICP) {
+                    if (amount < 10000) { // 0.0001 ICP minimum
+                        return #err("ICP amount too small (minimum 0.0001 ICP)");
+                    };
+                };
+                case (#Token(_)) {
+                    // Token-specific validation can be added here
+                };
+                case (#NFT(_)) {
+                    // NFT transfers usually have amount = 1
+                    if (amount != 1) {
+                        return #err("NFT amount must be 1");
+                    };
+                };
+            };
+
+            #ok()
+        };
+
+        private func validateThresholdChange(newThreshold: Nat): Result.Result<(), Text> {
+            if (newThreshold == 0) {
+                return #err("Threshold must be greater than 0");
+            };
+            if (newThreshold > signers.size()) {
+                return #err("Threshold cannot exceed number of signers");
+            };
+            if (newThreshold == walletConfig.threshold) {
+                return #err("New threshold must be different from current");
+            };
+            #ok()
+        };
+
+        // Enhanced rate limiting with proper validation
+        private func checkAdvancedRateLimit(caller: Principal, proposalType: MultisigTypes.ProposalType): Result.Result<(), Text> {
+            let now = Time.now();
+
+            // Check basic interval
+            switch (lastProposalTimes.get(caller)) {
+                case (?lastTime) {
+                    if (now - lastTime < MIN_PROPOSAL_INTERVAL) {
+                        let waitTime = Int.abs(MIN_PROPOSAL_INTERVAL - (now - lastTime)) / 1_000_000_000;
+                        return #err("Rate limit exceeded: must wait " #
+                                  Nat.toText(waitTime) #
+                                  " more seconds");
+                    };
+                };
+                case null {};
+            };
+
+            // Emergency proposals have stricter limits
+            if (isEmergencyAction(proposalType)) {
+                switch (lastProposalTimes.get(caller)) {
+                    case (?lastTime) {
+                        if (now - lastTime < SECURITY_COOLDOWN) {
+                            let cooldownTime = Int.abs(SECURITY_COOLDOWN - (now - lastTime)) / 1_000_000_000;
+                        return #err("Security cooldown: emergency proposals require " #
+                                      Nat.toText(cooldownTime) #
+                                      " more seconds");
+                        };
+                    };
+                    case null {};
+                };
+            };
+
+            #ok()
+        };
+
+        private func isObserverInternal(caller: Principal): Bool {
             // Check if caller is in observers buffer (deprecated)
             for (observer in observers.vals()) {
                 if (observer == caller) return true;
@@ -204,7 +402,7 @@ persistent actor class MultisigContract(initArgs: {
                 return true;
             };
             // Private wallet: creator, signers and observers can view
-            caller == creator or isSigner(caller) or isObserver(caller)
+            caller == creator or isSignerInternal(caller) or isObserverInternal(caller)
         };
 
         private func canCreateProposal(caller: Principal): Result.Result<(), Text> {
@@ -212,7 +410,7 @@ persistent actor class MultisigContract(initArgs: {
                 return #err("Wallet is not active");
             };
 
-            if (not isSigner(caller)) {
+            if (not isSignerInternal(caller)) {
                 return #err("Only signers can create proposals");
             };
 
@@ -303,17 +501,18 @@ persistent actor class MultisigContract(initArgs: {
             lastProposalTimes.put(caller, Time.now());
 
             // Create event
-            let event = createEvent(
+            let event = createEventWithProposal(
                 #ProposalCreated,
                 caller,
-                ?("Proposal created: " # title)
+                ?("Proposal created: " # title),
+                ?proposalId
             );
             events.put(event.id, event);
 
             // Update activity
             updateLastActivity();
 
-            Debug.print("MultisigContract: Created proposal " # proposalId # " by " # Principal.toText(caller));
+            // Debug.print("MultisigContract: Created proposal " # proposalId # " by " # Principal.toText(caller));
 
             #ok(proposalId)
         };
@@ -324,7 +523,7 @@ persistent actor class MultisigContract(initArgs: {
             note: ?Text
         ): async MultisigTypes.SignatureResult {
 
-            if (not isSigner(caller)) {
+            if (not isSignerInternal(caller)) {
                 return #err(#Unauthorized);
             };
 
@@ -393,17 +592,18 @@ persistent actor class MultisigContract(initArgs: {
                     proposals.put(proposalId, updatedProposal);
 
                     // Create event
-                    let event = createEvent(
+                    let event = createEventWithProposal(
                         #ProposalSigned,
                         caller,
-                        ?("Proposal " # proposalId # " signed")
+                        ?("Proposal " # proposalId # " signed"),
+                        ?proposalId
                     );
                     events.put(event.id, event);
 
                     updateLastActivity();
                     lastProposalTimes.put(caller, Time.now());
 
-                    Debug.print("MultisigContract: Proposal " # proposalId # " signed by " # Principal.toText(caller) # " (" # debug_show(currentApprovals) # "/" # debug_show(walletConfig.threshold) # ")");
+                    // Debug.print("MultisigContract: Proposal " # proposalId # " signed by " # Principal.toText(caller) # " (" # debug_show(currentApprovals) # "/" # debug_show(walletConfig.threshold) # ")");
 
                     // Auto-execute if ready and not blocked by reentrancy protection
                     if (readyForExecution and not isExecuting) {
@@ -425,10 +625,11 @@ persistent actor class MultisigContract(initArgs: {
                             proposals.put(proposalId, executedProposal);
 
                             // Create execution event
-                            let executionEvent = createEvent(
+                            let executionEvent = createEventWithProposal(
                                 #ProposalExecuted,
                                 caller,
-                                ?("Proposal " # proposalId # " auto-executed")
+                                ?("Proposal " # proposalId # " auto-executed"),
+                                ?proposalId
                             );
                             events.put(executionEvent.id, executionEvent);
 
@@ -483,12 +684,18 @@ persistent actor class MultisigContract(initArgs: {
             proposalId: MultisigTypes.ProposalId
         ): async Result.Result<MultisigTypes.ExecutionResult, MultisigTypes.ProposalError> {
 
+            // Emergency pause check
+            if (emergencyPaused) {
+                return #err(#SecurityViolation("Contract is paused"));
+            };
+
             // Reentrancy protection
             if (isExecuting) {
                 return #err(#SecurityViolation("Execution already in progress"));
             };
+            isExecuting := true;
 
-            if (not isSigner(caller)) {
+            if (not isSignerInternal(caller)) {
                 return #err(#Unauthorized);
             };
 
@@ -543,16 +750,23 @@ persistent actor class MultisigContract(initArgs: {
                         proposals.put(proposalId, updatedProposal);
 
                         if (executionResult.success) {
-                            executedProposals += 1;
+                            switch (SafeMath.addNat(executedProposals, 1)) {
+                                case (#ok(newCount)) { executedProposals := newCount };
+                                case (#err(_)) { /* Log error but continue */ };
+                            }
                         } else {
-                            failedProposals += 1;
+                            switch (SafeMath.addNat(failedProposals, 1)) {
+                                case (#ok(newCount)) { failedProposals := newCount };
+                                case (#err(_)) { /* Log error but continue */ };
+                            }
                         };
 
                         // Create event
-                        let event = createEvent(
+                        let event = createEventWithProposal(
                             if (executionResult.success) #ProposalExecuted else #ProposalRejected,
                             caller,
-                            ?("Proposal " # proposalId # " execution result: " # debug_show(executionResult.success))
+                            ?("Proposal " # proposalId # " execution result: " # debug_show(executionResult.success)),
+                            ?proposalId
                         );
                         events.put(event.id, event);
 
@@ -565,7 +779,10 @@ persistent actor class MultisigContract(initArgs: {
                         #ok(executionResult)
 
                     } catch (e) {
-                        failedProposals += 1;
+                        switch (SafeMath.addNat(failedProposals, 1)) {
+                            case (#ok(newCount)) { failedProposals := newCount };
+                            case (#err(_)) { /* Log error but continue */ };
+                        };
                         let errorMsg = "Execution failed: " # Error.message(e);
 
                         let updatedProposal = {
@@ -694,12 +911,26 @@ persistent actor class MultisigContract(initArgs: {
             actionIndex: Nat
         ): async MultisigTypes.ActionResult {
             
-            Debug.print("MultisigContract: Executing transfer - Recipient: " # Principal.toText(transferData.recipient) # 
-                       ", Amount: " # Nat.toText(transferData.amount) # 
+            Debug.print("MultisigContract: Executing transfer - Recipient: " # Principal.toText(transferData.recipient) #
+                       ", Amount: " # Nat.toText(transferData.amount) #
                        ", Asset: " # debug_show(transferData.asset));
 
-            // Check daily limits
-            switch (checkDailyLimit(transferData.asset, transferData.amount)) {
+            // Validate amount using SafeMath
+            switch (validateAmountSafe(transferData.amount)) {
+                case (#err(error)) {
+                    return {
+                        actionIndex = actionIndex;
+                        success = false;
+                        error = ?("Amount validation failed: " # error);
+                        gasUsed = null;
+                        result = null;
+                    };
+                };
+                case (#ok()) {};
+            };
+
+            // Check daily limits with SafeMath
+            switch (checkDailyLimitSafe(transferData.asset, transferData.amount)) {
                 case (#err(error)) {
                     return {
                         actionIndex = actionIndex;
@@ -848,6 +1079,14 @@ persistent actor class MultisigContract(initArgs: {
 
                     signers.put(signerData.signer, newSigner);
 
+                    // Create signer added event
+                    let signerEvent = createEvent(
+                        #SignerAdded,
+                        proposer,
+                        ?("Signer added: " # Principal.toText(signerData.signer))
+                    );
+                    events.put(signerEvent.id, signerEvent);
+
                     {
                         actionIndex = actionIndex;
                         success = true;
@@ -858,6 +1097,14 @@ persistent actor class MultisigContract(initArgs: {
                 };
                 case (#RemoveSigner(signerData)) {
                     signers.delete(signerData.signer);
+
+                    // Create signer removed event
+                    let signerEvent = createEvent(
+                        #SignerRemoved,
+                        proposer,
+                        ?("Signer removed: " # Principal.toText(signerData.signer))
+                    );
+                    events.put(signerEvent.id, signerEvent);
 
                     {
                         actionIndex = actionIndex;
@@ -871,6 +1118,14 @@ persistent actor class MultisigContract(initArgs: {
                     walletConfig := {
                         walletConfig with threshold = thresholdData.newThreshold
                     };
+
+                    // Create threshold changed event
+                    let thresholdEvent = createEvent(
+                        #WalletModified,
+                        proposer,
+                        ?("Threshold changed to " # Nat.toText(thresholdData.newThreshold))
+                    );
+                    events.put(thresholdEvent.id, thresholdEvent);
 
                     {
                         actionIndex = actionIndex;
@@ -886,6 +1141,14 @@ persistent actor class MultisigContract(initArgs: {
                         case (?signer) {
                             let updatedSigner = { signer with role = roleData.newRole };
                             signers.put(roleData.signer, updatedSigner);
+
+                            // Create role updated event
+                            let roleEvent = createEvent(
+                                #WalletModified,
+                                proposer,
+                                ?("Signer role updated: " # Principal.toText(roleData.signer))
+                            );
+                            events.put(roleEvent.id, roleEvent);
 
                             {
                                 actionIndex = actionIndex;
@@ -926,6 +1189,14 @@ persistent actor class MultisigContract(initArgs: {
 
                     signers.put(observerData.observer, newObserver);
 
+                    // Create observer added event
+                    let observerEvent = createEvent(
+                        #WalletModified,
+                        proposer,
+                        ?("Observer added: " # Principal.toText(observerData.observer))
+                    );
+                    events.put(observerEvent.id, observerEvent);
+
                     {
                         actionIndex = actionIndex;
                         success = true;
@@ -937,6 +1208,14 @@ persistent actor class MultisigContract(initArgs: {
                 case (#RemoveObserver(observerData)) {
                     // Remove observer by deleting from signers
                     signers.delete(observerData.observer);
+
+                    // Create observer removed event
+                    let observerEvent = createEvent(
+                        #WalletModified,
+                        proposer,
+                        ?("Observer removed: " # Principal.toText(observerData.observer))
+                    );
+                    events.put(observerEvent.id, observerEvent);
 
                     {
                         actionIndex = actionIndex;
@@ -1005,7 +1284,7 @@ persistent actor class MultisigContract(initArgs: {
         ): async MultisigTypes.ActionResult {
 
             // Security check: Only owners can execute emergency actions
-            if (not isOwner(proposer)) {
+            if (not isOwnerInternal(proposer)) {
                 return {
                     actionIndex = actionIndex;
                     success = false;
@@ -1208,7 +1487,8 @@ persistent actor class MultisigContract(initArgs: {
                 case (?limit) {
                     switch (asset) {
                         case (#ICP) {
-                            let currentUsage = switch (dailyLimitsUsage.get(asset)) {
+                            let assetKey = "ICP";
+                            let currentUsage = switch (dailyLimitsUsage.get(assetKey)) {
                                 case (?usage) usage;
                                 case null 0;
                             };
@@ -1217,7 +1497,7 @@ persistent actor class MultisigContract(initArgs: {
                                 return #err("Daily limit exceeded");
                             };
 
-                            dailyLimitsUsage.put(asset, currentUsage + amount);
+                            dailyLimitsUsage.put(assetKey, currentUsage + amount);
                         };
                         case (_) {}; // TODO: Implement for other assets
                     };
@@ -1230,9 +1510,68 @@ persistent actor class MultisigContract(initArgs: {
 
         // ============== QUERY FUNCTIONS ==============
 
+        // Quick visibility query methods for UI optimization
+        public shared query func isOwner(principal: Principal): async Bool {
+            switch (signers.get(principal)) {
+                case (?signer) signer.isActive and signer.role == #Owner;
+                case null false;
+            };
+        };
+
+        public shared query func isSigner(principal: Principal): async Bool {
+            switch (signers.get(principal)) {
+                case (?signer) {
+                    signer.isActive and (signer.role == #Owner or signer.role == #Signer)
+                };
+                case null false;
+            };
+        };
+
+        public shared query func isObserver(principal: Principal): async Bool {
+            switch (observers.vals() |> Iter.toArray(_)) {
+                case (observerArray) {
+                    Array.find<Principal>(observerArray, func(p) = p == principal) != null
+                };
+            }
+        };
+
+        public shared query func getUserRole(principal: Principal): async ?{
+            role: Text;
+            isActive: Bool;
+            permissions: [Text];
+        } {
+            switch (signers.get(principal)) {
+                case (?signer) {
+                    let permissions = switch (signer.role) {
+                        case (#Owner) ["create_proposal", "sign_proposal", "manage_signers", "emergency_controls", "view_audit"];
+                        case (#Signer) ["create_proposal", "sign_proposal", "view_audit"];
+                        case (#Observer) ["view_only"];
+                    };
+
+                    ?{
+                        role = debug_show(signer.role);
+                        isActive = signer.isActive;
+                        permissions = permissions;
+                    }
+                };
+                case null {
+                    // Check if observer
+                    if (isObserverInternal(principal)) {
+                        ?{
+                            role = "Observer";
+                            isActive = true;
+                            permissions = ["view_only"];
+                        }
+                    } else {
+                        null
+                    }
+                };
+            };
+        };
+
         // Public function to update balances (callable by signers)
         public shared({caller}) func updateWalletBalances(): async Result.Result<(), Text> {
-            if (not isSigner(caller) and caller != factory) {
+            if (not isSignerInternal(caller) and caller != factory) {
                 return #err("Only signers can update balances");
             };
 
@@ -1251,9 +1590,9 @@ persistent actor class MultisigContract(initArgs: {
             };
 
             // Update balances for accurate information (only for authorized callers)
-            if (isSigner(caller) or caller == factory) {
+            if (isSignerInternal(caller) or caller == factory) {
                 try {
-                    ignore await* updateBalances();
+                    await* updateBalances();
                 } catch (error) {
                     Debug.print("Failed to update balances in getWalletInfo: " # Error.message(error));
                 };
@@ -1330,6 +1669,99 @@ persistent actor class MultisigContract(initArgs: {
             }
         };
 
+        // ============== ASSET MANAGEMENT ==============
+
+        public shared({caller}) func addWatchedAsset(asset: MultisigTypes.AssetType): async Result.Result<(), Text> {
+            if (not isSignerInternal(caller)) {
+                return #err("Only signers can add watched assets");
+            };
+
+            // Check if asset already exists
+            for (existingAsset in watchedAssets.vals()) {
+                if (assetsEqual(existingAsset, asset)) {
+                    return #err("Asset already being watched");
+                };
+            };
+
+            // Add asset to watched list
+            watchedAssets := Array.append(watchedAssets, [asset]);
+
+            // Create event
+            let event = createEvent(
+                #WalletCreated, // Reuse existing event type or add new one
+                caller,
+                ?("Added watched asset")
+            );
+            events.put(event.id, event);
+
+            #ok()
+        };
+
+        public shared({caller}) func removeWatchedAsset(asset: MultisigTypes.AssetType): async Result.Result<(), Text> {
+            if (not isSignerInternal(caller)) {
+                return #err("Only signers can remove watched assets");
+            };
+
+            // Filter out the asset
+            watchedAssets := Array.filter<MultisigTypes.AssetType>(
+                watchedAssets,
+                func(existingAsset) = not assetsEqual(existingAsset, asset)
+            );
+
+            // Create event
+            let event = createEvent(
+                #WalletCreated, // Reuse existing event type or add new one
+                caller,
+                ?("Removed watched asset")
+            );
+            events.put(event.id, event);
+
+            #ok()
+        };
+
+        public query func getWatchedAssets(): async [MultisigTypes.AssetType] {
+            watchedAssets
+        };
+
+        public shared({caller}) func getWalletBalances(
+            assets: [MultisigTypes.AssetType]
+        ): async Result.Result<[(Text, Nat)], Text> {
+            if (not canViewWallet(caller)) {
+                return #err("Access denied");
+            };
+
+            let results = Buffer.Buffer<(Text, Nat)>(assets.size());
+
+            for (asset in assets.vals()) {
+                switch (asset) {
+                    case (#ICP) {
+                        let balance = await* getICPBalance();
+                        results.add(("ICP", balance));
+                    };
+                    case (#Token(canisterId)) {
+                        let balance = await* getICRCBalance(canisterId);
+                        results.add((Principal.toText(canisterId), balance));
+                    };
+                    case (#NFT(nftInfo)) {
+                        // For NFTs, we could check ownership - simplified to 0 for now
+                        results.add((Principal.toText(nftInfo.canister) # "-" # Nat.toText(nftInfo.tokenId), 0));
+                    };
+                };
+            };
+
+            #ok(Buffer.toArray(results))
+        };
+
+        // Helper function to compare assets
+        private func assetsEqual(a1: MultisigTypes.AssetType, a2: MultisigTypes.AssetType): Bool {
+            switch (a1, a2) {
+                case (#ICP, #ICP) true;
+                case (#Token(c1), #Token(c2)) Principal.equal(c1, c2);
+                case (#NFT(n1), #NFT(n2)) Principal.equal(n1.canister, n2.canister) and n1.tokenId == n2.tokenId;
+                case (_, _) false;
+            }
+        };
+
         // ============== ICRC TRANSFER FUNCTIONALITY ==============
 
         // Use ICRC standard ledger interface
@@ -1351,17 +1783,24 @@ persistent actor class MultisigContract(initArgs: {
             Debug.print("MultisigContract: Transfer fee from ledger: " # Nat.toText(transferFee));
             Debug.print("MultisigContract: Transfer amount requested: " # Nat.toText(amount));
             
-            // Check amount is sufficient (following DistributionContract pattern)
-            let transferAmount = if (amount > transferFee) {
-                Nat.sub(amount, transferFee)
-            } else { 0 };
-            
+            // Check amount is sufficient using SafeMath
+            let transferAmount = switch (SafeMath.subNat(amount, transferFee)) {
+                case (#ok(result)) { result };
+                case (#err(_)) { 0 }; // Amount < transferFee
+            };
+
             Debug.print("MultisigContract: Calculated transfer amount after fee: " # Nat.toText(transferAmount));
-            
+
             if (transferAmount == 0) {
                 Debug.print("MultisigContract: Transfer amount is 0 after fee deduction");
-                let minAmount = transferFee + 1; // Minimum + 1 for actual transfer
-                return #err("Amount too small to cover transfer fee. Minimum required: " # Nat.toText(minAmount) # " e8s (fee: " # Nat.toText(transferFee) # " e8s), provided: " # Nat.toText(amount) # " e8s");
+                switch (SafeMath.addNat(transferFee, 1)) { // Minimum + 1 for actual transfer
+                    case (#ok(minAmount)) {
+                        return #err("Amount too small to cover transfer fee. Minimum required: " # Nat.toText(minAmount) # " e8s (fee: " # Nat.toText(transferFee) # " e8s), provided: " # Nat.toText(amount) # " e8s");
+                    };
+                    case (#err(msg)) {
+                        return #err("Fee calculation error: " # msg);
+                    };
+                }
             };
             
             // Prepare transfer arguments (following DistributionContract pattern)
@@ -1474,7 +1913,7 @@ persistent actor class MultisigContract(initArgs: {
         ): async MultisigTypes.ProposalResult {
 
             // Check if caller is authorized signer
-            if (not isSigner(caller)) {
+            if (not isSignerInternal(caller)) {
                 return #err(#Unauthorized);
             };
 
@@ -1538,10 +1977,11 @@ persistent actor class MultisigContract(initArgs: {
             totalProposals += 1;
 
             // Create event
-            let event = createEvent(
+            let event = createEventWithProposal(
                 #ProposalCreated,
                 caller,
-                ?("Transfer proposal created for " # Nat.toText(amount))
+                ?("Transfer proposal created for " # Nat.toText(amount)),
+                ?proposalId
             );
             events.put(event.id, event);
 
@@ -1581,7 +2021,7 @@ persistent actor class MultisigContract(initArgs: {
         ): async MultisigTypes.ProposalResult {
 
             // Check if caller is authorized signer
-            if (not isSigner(caller)) {
+            if (not isSignerInternal(caller)) {
                 return #err(#Unauthorized);
             };
 
@@ -1616,6 +2056,42 @@ persistent actor class MultisigContract(initArgs: {
                         return #err(#InvalidProposal("Threshold must be greater than 0"));
                     };
                     if (thresholdData.newThreshold > signers.size()) {
+                        return #err(#InvalidProposal("Threshold cannot exceed number of signers"));
+                    };
+                };
+                case (#AddObserver(observerData)) {
+                    if (Principal.isAnonymous(observerData.observer)) {
+                        return #err(#InvalidProposal("Invalid observer address"));
+                    };
+                    // Check if observer already exists
+                    switch (signers.get(observerData.observer)) {
+                        case (?_) return #err(#InvalidProposal("Observer already exists"));
+                        case null {};
+                    };
+                };
+                case (#RemoveObserver(observerData)) {
+                    if (Principal.isAnonymous(observerData.observer)) {
+                        return #err(#InvalidProposal("Invalid observer address"));
+                    };
+                    // Check if observer exists
+                    switch (signers.get(observerData.observer)) {
+                        case null return #err(#InvalidProposal("Observer does not exist"));
+                        case (?_) {};
+                    };
+                };
+                case (#ChangeVisibility(visibilityData)) {
+                    // Visibility change is always valid
+                    // Just check that it's actually changing the visibility
+                    if (visibilityData.isPublic == walletConfig.isPublic) {
+                        return #err(#InvalidProposal("Visibility is already set to this value"));
+                    };
+                };
+                case (#UpdateWalletConfig(configData)) {
+                    // Basic validation for wallet config update
+                    if (configData.config.threshold == 0) {
+                        return #err(#InvalidProposal("Threshold must be greater than 0"));
+                    };
+                    if (configData.config.threshold > signers.size()) {
                         return #err(#InvalidProposal("Threshold cannot exceed number of signers"));
                     };
                 };
@@ -1675,10 +2151,11 @@ persistent actor class MultisigContract(initArgs: {
             totalProposals += 1;
 
             // Create event
-            let event = createEvent(
+            let event = createEventWithProposal(
                 #ProposalCreated,
                 caller,
-                ?("Wallet modification proposal created: " # title)
+                ?("Wallet modification proposal created: " # title),
+                ?proposalId
             );
             events.put(event.id, event);
 
@@ -1693,7 +2170,7 @@ persistent actor class MultisigContract(initArgs: {
         };
 
         public shared({caller}) func resetICPLedger(): async Result.Result<(), Text> {
-            if (not isSigner(caller) and caller != factory) {
+            if (not isSignerInternal(caller) and caller != factory) {
                 return #err("Only signers can reset ICP ledger");
             };
             
@@ -1755,8 +2232,90 @@ persistent actor class MultisigContract(initArgs: {
 
         private func generateProposalId(): MultisigTypes.ProposalId {
             let id = nextProposalId;
-            nextProposalId += 1;
+            switch (SafeMath.addNat(nextProposalId, 1)) {
+                case (#ok(newId)) { nextProposalId := newId };
+                case (#err(_)) {
+                    Debug.print("Warning: Proposal ID overflow detected, resetting to 1");
+                    nextProposalId := 1;
+                };
+            };
             Nat.toText(id)
+        };
+
+        // Helper function to create and store a proposal with common validation
+        private func createAndStoreProposal(
+            caller: Principal,
+            proposalType: MultisigTypes.ProposalType,
+            title: Text,
+            description: Text,
+            actions: [MultisigTypes.ProposalAction]
+        ): MultisigTypes.ProposalResult {
+
+            // Check if caller is authorized signer
+            if (not isSignerInternal(caller)) {
+                return #err(#Unauthorized);
+            };
+
+            // Rate limiting check
+            let now = Time.now();
+            switch (lastProposalTimes.get(caller)) {
+                case (?lastTime) {
+                    if (now - lastTime < MIN_PROPOSAL_INTERVAL) {
+                        return #err(#SecurityViolation("Rate limit exceeded"));
+                    };
+                };
+                case null {};
+            };
+
+            // Generate proposal ID
+            let proposalId = generateProposalId();
+
+            // Calculate required approvals
+            let requiredApprovals = walletConfig.threshold;
+
+            // Create proposal
+            let proposal: MultisigTypes.Proposal = {
+                id = proposalId;
+                walletId = walletId;
+                proposalType = proposalType;
+                title = title;
+                description = description;
+                actions = actions;
+                proposer = caller;
+                proposedAt = now;
+                earliestExecution = null;
+                expiresAt = now + (24 * 60 * 60 * 1_000_000_000); // 24 hours in nanoseconds
+                requiredApprovals = requiredApprovals;
+                currentApprovals = 0;
+                approvals = [];
+                rejections = [];
+                status = #Pending;
+                executedAt = null;
+                executedBy = null;
+                executionResult = null;
+                risk = #Medium;
+                requiresConsensus = false;
+                emergencyOverride = false;
+                dependsOn = [];
+                executionOrder = null;
+            };
+
+            // Store proposal
+            proposals.put(proposalId, proposal);
+
+            // Update last proposal time
+            lastProposalTimes.put(caller, now);
+
+            // Create event
+            let event = createEventWithProposal(#ProposalCreated, caller, ?("Proposal created: " # title), ?proposalId);
+            events.put(event.id, event);
+
+            #ok({
+                proposalId = proposalId;
+                status = #Pending;
+                requiredApprovals = proposal.requiredApprovals;
+                currentApprovals = 0;
+            })
         };
 
         private func generateSignatureId(): MultisigTypes.SignatureId {
@@ -1768,8 +2327,23 @@ persistent actor class MultisigContract(initArgs: {
             actorEvent: Principal,
             _description: ?Text
         ): MultisigTypes.WalletEvent {
+            createEventWithProposal(eventType, actorEvent, _description, null)
+        };
+
+        private func createEventWithProposal(
+            eventType: MultisigTypes.EventType,
+            actorEvent: Principal,
+            _description: ?Text,
+            proposalId: ?MultisigTypes.ProposalId
+        ): MultisigTypes.WalletEvent {
             let eventId = "event-" # Nat.toText(nextEventId);
-            nextEventId += 1;
+            switch (SafeMath.addNat(nextEventId, 1)) {
+                case (#ok(newId)) { nextEventId := newId };
+                case (#err(_)) {
+                    Debug.print("Warning: Event ID overflow detected, resetting to 1");
+                    nextEventId := 1;
+                };
+            };
 
             {
                 id = eventId;
@@ -1778,7 +2352,7 @@ persistent actor class MultisigContract(initArgs: {
                 timestamp = Time.now();
                 actorEvent = actorEvent;
                 data = null;
-                proposalId = null;
+                proposalId = proposalId;
                 transactionId = null;
                 ipAddress = null;
                 userAgent = null;
@@ -1792,6 +2366,394 @@ persistent actor class MultisigContract(initArgs: {
             lastActivity := Time.now();
         };
 
+        // ============== EMERGENCY CONTROLS ==============
+
+        public shared({caller}) func emergencyPause(): async Result.Result<(), Text> {
+            // Only owners can pause
+            if (not isOwnerInternal(caller)) {
+                return #err("Unauthorized: Only owners can pause");
+            };
+
+            emergencyPaused := true;
+
+            // Create emergency event
+            let event = createEvent(#EmergencyAction, caller, ?"Emergency pause activated");
+            events.put(event.id, event);
+
+            #ok()
+        };
+
+        public shared({caller}) func emergencyUnpause(): async Result.Result<(), Text> {
+            // Only owners can unpause
+            if (not isOwnerInternal(caller)) {
+                return #err("Unauthorized: Only owners can unpause");
+            };
+
+            emergencyPaused := false;
+
+            // Create emergency event
+            let event = createEvent(#EmergencyAction, caller, ?"Emergency pause deactivated");
+            events.put(event.id, event);
+
+            #ok()
+        };
+
+        public query func getEmergencyStatus(): async {
+            isPaused: Bool;
+            isExecuting: Bool;
+        } {
+            {
+                isPaused = emergencyPaused;
+                isExecuting = isExecuting;
+            }
+        };
+
+        public shared({caller}) func resetDailyLimits(): async Result.Result<(), Text> {
+            // Only owners can reset daily limits
+            if (not isOwnerInternal(caller)) {
+                return #err("Unauthorized: Only owners can reset daily limits");
+            };
+
+            // Clear daily limits
+            dailyLimitsUsage := HashMap.HashMap<Text, Nat>(10, Text.equal, Text.hash);
+
+            // Create event
+            let event = createEvent(#WalletModified, caller, ?"Daily limits reset");
+            events.put(event.id, event);
+
+            #ok()
+        };
+
+        // ============== COMPREHENSIVE AUDIT MONITORING ==============
+
+        public query func getSecurityMetrics(): async {
+            failedAttempts: Nat;
+            rateLimit: Bool;
+            suspiciousActivity: Bool;
+            lastSecurityEvent: ?Int;
+            securityScore: Float;
+        } {
+            {
+                failedAttempts = securityFlags.failedAttempts;
+                rateLimit = securityFlags.rateLimit;
+                suspiciousActivity = securityFlags.suspiciousActivity;
+                lastSecurityEvent = securityFlags.lastSecurityEvent;
+                securityScore = securityFlags.securityScore;
+            }
+        };
+
+        // Audit log for comprehensive monitoring (only accessible by signers/owners)
+        public shared query({caller}) func getAuditLog(
+            startTime: ?Int,
+            endTime: ?Int,
+            eventTypes: ?[MultisigTypes.EventType],
+            limit: ?Nat
+        ): async Result.Result<{
+            events: [MultisigTypes.WalletEvent];
+            summary: {
+                totalEvents: Nat;
+                proposalsCreated: Nat;
+                proposalsExecuted: Nat;
+                signersAdded: Nat;
+                signersRemoved: Nat;
+                emergencyActions: Nat;
+                securityIncidents: Nat;
+            };
+            securityAlerts: [{
+                severity: Text;
+                message: Text;
+                timestamp: Int;
+                principal: Principal;
+            }];
+        }, Text> {
+
+            // Security check: only signers/owners can view audit logs
+            if (not (isSignerInternal(caller) or isOwnerInternal(caller))) {
+                return #err("Unauthorized: Only signers and owners can access audit logs");
+            };
+
+            let maxLimit = 1000;
+            let actualLimit = switch (limit) {
+                case (?l) { Nat.min(l, maxLimit) };
+                case null { 100 };
+            };
+
+            let now = Time.now();
+            let defaultStartTime = now - (30 * 24 * 60 * 60 * 1_000_000_000); // 30 days ago
+            let actualStartTime = switch (startTime) {
+                case (?st) { st };
+                case null { defaultStartTime };
+            };
+            let actualEndTime = switch (endTime) {
+                case (?et) { et };
+                case null { now };
+            };
+
+            // Filter events
+            let filteredEvents = Buffer.Buffer<MultisigTypes.WalletEvent>(0);
+            let securityAlerts = Buffer.Buffer<{severity: Text; message: Text; timestamp: Int; principal: Principal}>(0);
+
+            var proposalsCreated = 0;
+            var proposalsExecuted = 0;
+            var signersAdded = 0;
+            var signersRemoved = 0;
+            var emergencyActions = 0;
+            var securityIncidents = 0;
+
+            for ((eventId, event) in events.entries()) {
+                if (event.timestamp >= actualStartTime and event.timestamp <= actualEndTime) {
+                    // Check event type filter
+                    let includeEvent = switch (eventTypes) {
+                        case (?types) {
+                            Array.find<MultisigTypes.EventType>(types, func(t) = t == event.eventType) != null
+                        };
+                        case null { true };
+                    };
+
+                    if (includeEvent and filteredEvents.size() < actualLimit) {
+                        filteredEvents.add(event);
+
+                        // Count event types for summary
+                        switch (event.eventType) {
+                            case (#ProposalCreated) { proposalsCreated += 1 };
+                            case (#ProposalExecuted) { proposalsExecuted += 1 };
+                            case (#SignerAdded) { signersAdded += 1 };
+                            case (#SignerRemoved) { signersRemoved += 1 };
+                            case (#EmergencyAction) {
+                                emergencyActions += 1;
+                                securityAlerts.add({
+                                    severity = "HIGH";
+                                    message = "Emergency action triggered";
+                                    timestamp = event.timestamp;
+                                    principal = event.actorEvent;
+                                });
+                            };
+                            case _ {};
+                        };
+
+                        // Detect security incidents
+                        if (isSecurityEvent(event)) {
+                            securityIncidents += 1;
+                            let severity = getEventSeverity(event);
+                            securityAlerts.add({
+                                severity = severity;
+                                message = "Security event detected: " # debug_show(event.eventType);
+                                timestamp = event.timestamp;
+                                principal = event.actorEvent;
+                            });
+                        };
+                    };
+                };
+            };
+
+            #ok({
+                events = Buffer.toArray(filteredEvents);
+                summary = {
+                    totalEvents = filteredEvents.size();
+                    proposalsCreated = proposalsCreated;
+                    proposalsExecuted = proposalsExecuted;
+                    signersAdded = signersAdded;
+                    signersRemoved = signersRemoved;
+                    emergencyActions = emergencyActions;
+                    securityIncidents = securityIncidents;
+                };
+                securityAlerts = Buffer.toArray(securityAlerts);
+            })
+        };
+
+        // Helper function to determine if an event is security-related
+        private func isSecurityEvent(event: MultisigTypes.WalletEvent): Bool {
+            switch (event.eventType) {
+                case (#EmergencyAction) { true };
+                case (#SignerRemoved) { true };
+                case (#WalletModified) { true };
+                case _ { false };
+            }
+        };
+
+        // Helper function to get event severity
+        private func getEventSeverity(event: MultisigTypes.WalletEvent): Text {
+            switch (event.eventType) {
+                case (#EmergencyAction) { "CRITICAL" };
+                case (#SignerRemoved) { "HIGH" };
+                case (#WalletModified) { "MEDIUM" };
+                case _ { "LOW" };
+            }
+        };
+
+        // Real-time security monitoring
+        public shared query({caller}) func getSecurityStatus(): async Result.Result<{
+            isPaused: Bool;
+            isExecuting: Bool;
+            activeThreats: Nat;
+            lastSecurityScan: Int;
+            riskLevel: Text;
+            recommendations: [Text];
+        }, Text> {
+
+            if (not (isSignerInternal(caller) or isOwnerInternal(caller))) {
+                return #err("Unauthorized: Only signers and owners can access security status");
+            };
+
+            let activeThreats = (if (securityFlags.suspiciousActivity) 1 else 0) +
+                               (if (securityFlags.rateLimit) 1 else 0) +
+                               (if (securityFlags.failedAttempts > 3) 1 else 0);
+
+            let riskLevel = if (activeThreats >= 2) "HIGH"
+                          else if (activeThreats == 1) "MEDIUM"
+                          else "LOW";
+
+            let recommendations = Buffer.Buffer<Text>(0);
+            if (securityFlags.suspiciousActivity) {
+                recommendations.add("Review recent suspicious activities");
+            };
+            if (securityFlags.failedAttempts > 3) {
+                recommendations.add("Consider temporary access restrictions");
+            };
+            if (not securityFlags.autoFreezeEnabled) {
+                recommendations.add("Enable auto-freeze for enhanced security");
+            };
+
+            #ok({
+                isPaused = emergencyPaused;
+                isExecuting = isExecuting;
+                activeThreats = activeThreats;
+                lastSecurityScan = Time.now();
+                riskLevel = riskLevel;
+                recommendations = Buffer.toArray(recommendations);
+            })
+        };
+
+        // Activity monitoring for specific time periods
+        public shared query({caller}) func getActivityReport(
+            timeRange: {startTime: Int; endTime: Int}
+        ): async Result.Result<{
+            proposalActivity: {
+                created: Nat;
+                executed: Nat;
+                failed: Nat;
+                pending: Nat;
+            };
+            transferActivity: {
+                icpTransfers: Nat;
+                tokenTransfers: Nat;
+                totalValue: Nat; // in e8s
+            };
+            securityActivity: {
+                emergencyActions: Nat;
+                signerChanges: Nat;
+                configChanges: Nat;
+            };
+            userActivity: [{
+                principal: Text;
+                proposalsCreated: Nat;
+                proposalsSigned: Nat;
+                lastActivity: Int;
+            }];
+        }, Text> {
+
+            if (not (isSignerInternal(caller) or isOwnerInternal(caller))) {
+                return #err("Unauthorized: Only signers and owners can access activity reports");
+            };
+
+            var proposalsCreated = 0;
+            var proposalsExecuted = 0;
+            var proposalsFailed = 0;
+            var proposalsPending = 0;
+            var icpTransfers = 0;
+            var tokenTransfers = 0;
+            var totalValue = 0;
+            var emergencyActions = 0;
+            var signerChanges = 0;
+            var configChanges = 0;
+
+            let userActivityMap = HashMap.HashMap<Principal, {
+                var proposalsCreated: Nat;
+                var proposalsSigned: Nat;
+                var lastActivity: Int;
+            }>(10, Principal.equal, Principal.hash);
+
+            // Analyze events in time range
+            for ((eventId, event) in events.entries()) {
+                if (event.timestamp >= timeRange.startTime and event.timestamp <= timeRange.endTime) {
+                    switch (event.eventType) {
+                        case (#ProposalCreated) {
+                            proposalsCreated += 1;
+                            switch (userActivityMap.get(event.actorEvent)) {
+                                case (?userData) {
+                                    userData.proposalsCreated += 1;
+                                    userData.lastActivity := event.timestamp;
+                                };
+                                case null {
+                                    userActivityMap.put(event.actorEvent, {
+                                        var proposalsCreated = 1;
+                                        var proposalsSigned = 0;
+                                        var lastActivity = event.timestamp;
+                                    });
+                                };
+                            };
+                        };
+                        case (#ProposalExecuted) { proposalsExecuted += 1 };
+                        case (#ProposalRejected) { proposalsFailed += 1 };
+                        case (#EmergencyAction) { emergencyActions += 1 };
+                        case (#SignerAdded or #SignerRemoved) { signerChanges += 1 };
+                        case (#WalletModified) { configChanges += 1 };
+                        case _ {};
+                    };
+                };
+            };
+
+            // Count pending proposals
+            for ((proposalId, proposal) in proposals.entries()) {
+                if (proposal.status == #Pending) {
+                    proposalsPending += 1;
+                };
+            };
+
+            let userActivityArray = Buffer.Buffer<{principal: Text; proposalsCreated: Nat; proposalsSigned: Nat; lastActivity: Int}>(userActivityMap.size());
+            for ((principal, userData) in userActivityMap.entries()) {
+                userActivityArray.add({
+                    principal = Principal.toText(principal);
+                    proposalsCreated = userData.proposalsCreated;
+                    proposalsSigned = userData.proposalsSigned;
+                    lastActivity = userData.lastActivity;
+                });
+            };
+
+            #ok({
+                proposalActivity = {
+                    created = proposalsCreated;
+                    executed = proposalsExecuted;
+                    failed = proposalsFailed;
+                    pending = proposalsPending;
+                };
+                transferActivity = {
+                    icpTransfers = icpTransfers;
+                    tokenTransfers = tokenTransfers;
+                    totalValue = totalValue;
+                };
+                securityActivity = {
+                    emergencyActions = emergencyActions;
+                    signerChanges = signerChanges;
+                    configChanges = configChanges;
+                };
+                userActivity = Buffer.toArray(userActivityArray);
+            })
+        };
+
+        public shared({caller}) func updateSecurityScore(newScore: Float): async Result.Result<(), Text> {
+            // Only factory can update security score
+            if (caller != factory) {
+                return #err("Unauthorized: Only factory can update security score");
+            };
+
+            securityFlags := {
+                securityFlags with securityScore = newScore
+            };
+
+            #ok()
+        };
+
         // ============== UPGRADE HOOKS ==============
 
         system func preupgrade(){
@@ -1799,6 +2761,7 @@ persistent actor class MultisigContract(initArgs: {
             proposalsEntries := Iter.toArray(proposals.entries());
             eventsEntries := Iter.toArray(events.entries());
             observersArray := Buffer.toArray(observers);
+            // watchedAssets is already stable
 
             Debug.print("MultisigContract: Pre-upgrade completed for wallet " # walletId);
         };

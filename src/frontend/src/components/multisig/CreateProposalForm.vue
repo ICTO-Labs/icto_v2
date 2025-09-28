@@ -119,55 +119,43 @@
         <div v-if="formData.type === 'transfer'" class="space-y-6">
       <!-- Asset Selection -->
       <div class="space-y-3">
-        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-          Asset Type
-        </label>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="flex justify-between items-center">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            Asset <span class="text-xs text-gray-500 dark:text-gray-400">({{ walletAssets?.length || 0 }})</span>
+          </label>
           <button
-            @click="formData.assetType = 'ICP'"
-            :class="[
-              formData.assetType === 'ICP'
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400'
-                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400',
-              'flex items-center p-3 border-2 rounded-lg transition-colors'
-            ]"
+            @click="loadWalletAssets"
+            class="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400"
           >
-            <Coins class="h-4 w-4 mr-2 text-blue-500" />
-            <div class="text-left">
-              <div class="text-sm font-medium text-gray-900 dark:text-white">ICP</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">Internet Computer</div>
-            </div>
-          </button>
-          <button
-            @click="formData.assetType = 'ICRC'"
-            :class="[
-              formData.assetType === 'ICRC'
-                ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-400'
-                : 'border-gray-300 dark:border-gray-600 hover:border-gray-400',
-              'flex items-center p-3 border-2 rounded-lg transition-colors'
-            ]"
-          >
-            <Coins class="h-4 w-4 mr-2 text-green-500" />
-            <div class="text-left">
-              <div class="text-sm font-medium text-gray-900 dark:text-white">ICRC Token</div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">Custom token</div>
-            </div>
+            <span class="flex items-center gap-1"><RefreshCcw class="w-3.5 h-3.5" /> Reload Assets</span>
           </button>
         </div>
+        <Select
+          v-model="selectedAssetOption"
+          :options="availableAssetOptions.map(option => ({ label: `${option.label} ${option.canisterId?'('+option.canisterId+')':''}`, value: option.value }))"
+          placeholder="Choose an asset"
+          class="w-full"
+        />
       </div>
 
-      <!-- Token Canister ID (for ICRC only) -->
-      <div v-if="formData.assetType === 'ICRC'" class="space-y-2">
+      <!-- Custom Token Canister ID (only when Custom Token is selected) -->
+      <div v-if="selectedAssetOption === 'custom'" class="space-y-2">
         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
           Token Canister ID
         </label>
         <input
           v-model="formData.tokenCanister"
           type="text"
-          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono text-sm"
+          :class="[
+            'w-full px-3 py-2 border rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono text-sm',
+            tokenCanisterError ? 'border-red-300 focus:border-red-300 focus:ring-red-500/10' : 'border-gray-300'
+          ]"
           placeholder="Enter ICRC token canister ID..."
         />
-        <div v-if="tokenInfo.symbol" class="text-xs text-green-600 dark:text-green-400">
+        <div v-if="tokenCanisterError" class="text-xs text-red-600 dark:text-red-400">
+          {{ tokenCanisterError }}
+        </div>
+        <div v-else-if="tokenInfo.symbol && selectedAssetOption === 'custom'" class="text-xs text-green-600 dark:text-green-400">
           Found: {{ tokenInfo.name }} ({{ tokenInfo.symbol }}) - {{ tokenInfo.decimals }} decimals
         </div>
       </div>
@@ -196,7 +184,7 @@
           </label>
           <div class="text-xs text-gray-500 dark:text-gray-400">
             Balance: <span v-if="balanceLoading" class="animate-pulse">Loading...</span>
-            <span v-else class="font-medium">{{ formatBalance(currentBalance, tokenInfo.decimals) }} {{ currentAssetSymbol }}</span>
+            <span v-else class="font-medium">{{ formatDisplayBalance(currentBalance, tokenInfo.decimals) }} {{ currentAssetSymbol }}</span>
           </div>
         </div>
         <div class="relative">
@@ -224,7 +212,7 @@
         <div v-if="amountError" class="text-xs text-red-600 dark:text-red-400">
           {{ amountError }}
         </div>
-        <div v-if="formData.amount && !amountError" class="text-xs text-gray-500 dark:text-gray-400">
+        <div v-if="formData.amount && !amountError && selectedAssetOption === 'ICP'" class="text-xs text-gray-500 dark:text-gray-400">
           ≈ ${{ formatUsdValue(formData.amount) }} USD
         </div>
       </div>
@@ -236,7 +224,7 @@
           <span class="text-sm font-medium text-amber-800 dark:text-amber-200">Transaction Fee</span>
         </div>
         <p class="text-sm text-amber-700 dark:text-amber-300 mt-1">
-          Estimated fee: {{ formatBalance(estimatedFee) }} {{ currentAssetSymbol }}
+          Estimated fee: {{ formatDisplayBalance(estimatedFee, tokenInfo.decimals) }} {{ currentAssetSymbol }}
         </p>
       </div>
 
@@ -320,6 +308,21 @@
           class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white font-mono text-sm"
           placeholder="Enter signer principal ID..."
         />
+      </div>
+
+      <div class="space-y-2" v-if="formData.type === 'add_signer'">
+        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+          Signer Name (Optional)
+        </label>
+        <input
+          v-model="formData.signerName"
+          type="text"
+          class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          placeholder="Enter a friendly name for this signer..."
+        />
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          This name will help identify the signer in the wallet interface
+        </p>
       </div>
 
       <div class="space-y-2" v-if="formData.type === 'add_signer'">
@@ -485,7 +488,10 @@
 <script setup lang="ts">
 import { ref, computed, reactive, watch, onMounted } from 'vue'
 import { Principal } from '@dfinity/principal'
-import Swal from 'sweetalert2'
+import { toast } from 'vue-sonner'
+
+import { useSwal } from '@/composables/useSwal2'
+
 import {
   Coins,
   Vote,
@@ -495,12 +501,16 @@ import {
   Globe,
   Eye,
   ArrowRightIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  RefreshCcw
 } from 'lucide-vue-next'
 import { formatPrincipal } from '@/utils/multisig'
+import { parseTokenAmount } from '@/utils/token'
 
+const swal = useSwal
 interface Props {
   wallet: any
+  assets?: any[] // Optional assets array passed from parent
 }
 
 const props = defineProps<Props>()
@@ -526,12 +536,16 @@ const formData = reactive({
   proposalId: '',
   vote: '',
   targetSigner: '',
+  signerName: '',
   newThreshold: '',
   // New fields for observer and visibility proposals
   targetObserver: '',
   observerName: '',
   newVisibility: true // true = public, false = private
 })
+
+// Asset selection
+const selectedAssetOption = ref('ICP') // Default to ICP
 
 // Reactive state for balance and validation
 const currentBalance = ref(BigInt(0))
@@ -544,6 +558,7 @@ const tokenInfo = ref({
 })
 const recipientError = ref('')
 const amountError = ref('')
+const tokenCanisterError = ref('')
 const estimatedFee = ref(BigInt(10000)) // Default ICP fee
 
 // Proposal types
@@ -611,16 +626,75 @@ const selectedType = computed(() => {
   return proposalTypes.value.find(t => t.value === formData.type)
 })
 
+// Wallet assets state
+const walletAssets = ref<any[]>([])
+
+// Available assets from wallet
+const availableAssetOptions = computed(() => {
+  console.log('Computing availableAssetOptions, walletAssets:', walletAssets.value)
+
+  const options = []
+
+  // Always include ICP as first option (default)
+  options.push({
+    value: 'ICP',
+    label: 'ICP',
+    icon: '🟣',
+    canisterId: 'ryjl3-tyaaa-aaaaa-aaaba-cai',
+    description: 'Internet Computer'
+  })
+
+  // Add assets from wallet contract if available
+  if (Array.isArray(walletAssets.value)) {
+    walletAssets.value.forEach((asset: any) => {
+      console.log('Processing asset:', asset)
+      if (asset && asset.type === 'ICRC1' && asset.canisterId) {
+        // Format balance for display
+        const formattedBalance = asset.balance ? parseTokenAmount(asset.balance, asset.decimals || 8).toFixed(6).replace(/\.?0+$/, '') : '0'
+
+        options.push({
+          value: asset.canisterId,
+          label: `${asset.symbol || 'Unknown'}`,
+          icon: '🪙',
+          canisterId: asset.canisterId,
+          description: `${formattedBalance} ${asset.symbol || 'TOKENS'} • ${asset.canisterId.slice(0, 8)}...`
+        })
+      }
+    })
+  }
+
+  // Add "Custom Token" option at the end
+  options.push({
+    value: 'custom',
+    label: 'Custom Token...',
+    icon: '➕',
+    description: 'Enter canister ID manually'
+  })
+
+  console.log('Final asset options:', options)
+  return options
+})
+
 // Computed properties
 const currentAssetSymbol = computed(() => {
-  if (formData.assetType === 'ICP') return 'ICP'
-  return tokenInfo.value.symbol || 'TOKEN'
+  if (selectedAssetOption.value === 'ICP') return 'ICP'
+  if (selectedAssetOption.value === 'custom') {
+    return tokenInfo.value?.symbol || 'TOKEN'
+  }
+
+  // Find the asset symbol from wallet assets
+  if (Array.isArray(walletAssets.value)) {
+    const asset = walletAssets.value.find((a: any) => a?.canisterId === selectedAssetOption.value)
+    return asset?.symbol || 'TOKEN'
+  }
+
+  return 'TOKEN'
 })
 
 const maxTransferAmount = computed(() => {
   if (currentBalance.value <= estimatedFee.value) return '0'
   const maxAmount = currentBalance.value - estimatedFee.value
-  return formatBalance(maxAmount, tokenInfo.value.decimals)
+  return formatDisplayBalance(maxAmount, tokenInfo.value.decimals)
 })
 
 // Form validation
@@ -680,23 +754,13 @@ const selectProposalType = (type: string) => {
 const goBackToTypeSelection = () => {
   currentStep.value = 1
 }
-const formatBalance = (balance: bigint, decimals: number = 8): string => {
-  const divisor = BigInt(10 ** decimals)
-  const wholePart = balance / divisor
-  const fractionalPart = balance % divisor
 
-  if (fractionalPart === BigInt(0)) {
-    return wholePart.toString()
-  }
+const formatDisplayBalance = (balance: bigint, decimals: number = 8): string => {
+  // Use parseTokenAmount from utils/token.ts for consistent formatting
+  const parsedAmount = parseTokenAmount(balance, decimals)
 
-  const fractionalStr = fractionalPart.toString().padStart(decimals, '0')
-  const trimmedFractional = fractionalStr.replace(/0+$/, '')
-
-  if (trimmedFractional === '') {
-    return wholePart.toString()
-  }
-
-  return `${wholePart}.${trimmedFractional}`
+  // Format with up to 6 decimal places, removing trailing zeros
+  return parsedAmount.toFixed(6).replace(/\.?0+$/, '')
 }
 
 const formatUsdValue = (amount: string | number): string => {
@@ -712,12 +776,12 @@ const setMaxAmount = () => {
     return
   }
   const maxAmount = currentBalance.value - estimatedFee.value
-  formData.amount = formatBalance(maxAmount, tokenInfo.value.decimals)
+  formData.amount = formatDisplayBalance(maxAmount, tokenInfo.value.decimals)
   validateAmount()
 }
 
 const loadTokenInfo = async () => {
-  if (formData.assetType === 'ICP') {
+  if (selectedAssetOption.value === 'ICP') {
     tokenInfo.value = {
       symbol: 'ICP',
       name: 'Internet Computer',
@@ -727,7 +791,31 @@ const loadTokenInfo = async () => {
     return
   }
 
-  if (formData.assetType === 'ICRC' && formData.tokenCanister) {
+  // Check if it's an existing asset from wallet
+  if (selectedAssetOption.value !== 'custom' && walletAssets.value.length > 0) {
+    const asset = walletAssets.value.find((a: any) => a.canisterId === selectedAssetOption.value)
+    if (asset && asset.type === 'ICRC1') {
+      tokenInfo.value = {
+        symbol: asset.symbol || 'Unknown',
+        name: asset.name || 'Unknown Token',
+        decimals: asset.decimals || 8
+      }
+      estimatedFee.value = BigInt(asset.fee || 10000)
+      return
+    }
+  }
+
+  // Handle custom token
+  if (selectedAssetOption.value === 'custom' && formData.tokenCanister) {
+    // Clear previous error
+    tokenCanisterError.value = ''
+
+    // Validate canister ID format first
+    if (!validateCanisterId(formData.tokenCanister)) {
+      tokenCanisterError.value = 'Invalid canister ID format'
+      return
+    }
+
     try {
       const { IcrcService } = await import('@/api/services/icrc')
       const metadata = await IcrcService.getIcrc1Metadata(formData.tokenCanister)
@@ -738,9 +826,23 @@ const loadTokenInfo = async () => {
           decimals: metadata.decimals || 8
         }
         estimatedFee.value = BigInt(metadata.fee || 10000)
+
+        // Success toast
+        const { toast } = await import('vue-sonner')
+        toast.success(`Token found: ${metadata.name} (${metadata.symbol})`)
+      } else {
+        throw new Error('No metadata returned')
       }
     } catch (error) {
       console.error('Error loading token info:', error)
+
+      // Set error message
+      tokenCanisterError.value = 'Failed to fetch token metadata'
+
+      // Error toast
+      toast.error('Failed to fetch token metadata. Please check the canister ID.')
+
+      // Reset token info
       tokenInfo.value = {
         symbol: 'Unknown',
         name: 'Unknown Token',
@@ -748,6 +850,71 @@ const loadTokenInfo = async () => {
       }
       estimatedFee.value = BigInt(10000)
     }
+  }
+}
+
+const loadWalletAssets = async () => {
+  try {
+    // 1. First priority: Use assets passed from parent component
+    if (props.assets && Array.isArray(props.assets) && props.assets.length > 0) {
+      console.log('Using assets from props:', props.assets)
+      walletAssets.value = props.assets
+      toast.success(`Loaded ${props.assets.length} assets`)
+      return
+    }
+
+    // 2. Second priority: Extract from wallet data structure
+    if (props.wallet?.balances?.tokens && Array.isArray(props.wallet.balances.tokens)) {
+      console.log('Found tokens in wallet.balances.tokens:', props.wallet.balances.tokens)
+
+      const tokenAssets = props.wallet.balances.tokens.map((token: any) => ({
+        type: 'ICRC1',
+        canisterId: token.canisterId?.toString() || token.canister_id?.toString(),
+        symbol: token.symbol || 'Unknown',
+        name: token.name || 'Unknown Token',
+        decimals: token.decimals || 8,
+        balance: token.balance || 0n,
+        fee: token.fee || 10000
+      }))
+
+      walletAssets.value = tokenAssets
+      toast.success(`Loaded ${tokenAssets.length} assets`)
+      console.log('Set walletAssets from wallet.balances.tokens:', walletAssets.value)
+      return
+    }
+
+    // 3. Third priority: Direct service call (when no props available)
+    const walletId = props.wallet?.canisterId?.toString() || props.wallet?.id
+    if (!walletId) {
+      console.warn('No wallet ID available for service call')
+      return
+    }
+
+    console.log('Making service call for wallet assets...')
+    const { multisigService } = await import('@/api/services/multisig')
+    const result = await multisigService.getWatchedAssets(walletId)
+    console.log('Service call result:', result)
+
+    if (result.success && result.data && Array.isArray(result.data)) {
+      walletAssets.value = result.data
+      console.log('Set walletAssets from service:', walletAssets.value)
+
+      if (result.data.length > 0) {
+        const { toast } = await import('vue-sonner')
+        toast.success(`Loaded ${result.data.length} assets`)
+      }
+    } else {
+      console.warn('Service call failed or returned no data:', result.error)
+      if (result.error) {
+        const { toast } = await import('vue-sonner')
+        toast.warning(`Assets unavailable: ${result.error}`)
+      }
+    }
+
+  } catch (error) {
+    console.error('Error in loadWalletAssets:', error)
+    const { toast } = await import('vue-sonner')
+    toast.error('Failed to load wallet assets')
   }
 }
 
@@ -762,16 +929,17 @@ const loadBalance = async () => {
   try {
     let balance = BigInt(0)
 
-    console.log('Loading balance for wallet:', walletId, 'asset type:', formData.assetType)
+    console.log('Loading balance for asset:', selectedAssetOption.value)
 
-    if (formData.assetType === 'ICP') {
+    if (selectedAssetOption.value === 'ICP') {
       const { multisigService } = await import('@/api/services/multisig')
       const result = await multisigService.getWalletBalance(walletId)
       console.log('ICP balance result:', result)
       if (result.success && result.data) {
         balance = result.data
       }
-    } else if (formData.assetType === 'ICRC' && formData.tokenCanister) {
+    } else if (selectedAssetOption.value === 'custom' && formData.tokenCanister) {
+      // Custom token - fetch balance using canister ID
       const { IcrcService } = await import('@/api/services/icrc')
       const walletPrincipal = Principal.fromText(walletId)
       const tokenData = await IcrcService.getIcrc1Metadata(formData.tokenCanister)
@@ -785,6 +953,29 @@ const loadBalance = async () => {
           balance = balanceResult.default || BigInt(0)
         }
       }
+    } else if (selectedAssetOption.value !== 'ICP' && selectedAssetOption.value !== 'custom') {
+      // Existing asset from wallet - use stored balance or fetch fresh
+      const asset = walletAssets.value.find((a: any) => a.canisterId === selectedAssetOption.value)
+      if (asset) {
+        balance = asset.balance || BigInt(0)
+
+        // Optionally fetch fresh balance
+        try {
+          const { IcrcService } = await import('@/api/services/icrc')
+          const walletPrincipal = Principal.fromText(walletId)
+          const tokenData = await IcrcService.getIcrc1Metadata(selectedAssetOption.value)
+          if (tokenData) {
+            const balanceResult = await IcrcService.getIcrc1Balance(tokenData, walletPrincipal)
+            if (typeof balanceResult === 'bigint') {
+              balance = balanceResult
+            } else if (balanceResult && typeof balanceResult === 'object' && 'default' in balanceResult) {
+              balance = balanceResult.default || BigInt(0)
+            }
+          }
+        } catch (error) {
+          console.warn('Failed to fetch fresh balance, using stored value:', error)
+        }
+      }
     }
 
     currentBalance.value = balance
@@ -794,6 +985,19 @@ const loadBalance = async () => {
     currentBalance.value = BigInt(0)
   } finally {
     balanceLoading.value = false
+  }
+}
+
+const validateCanisterId = (canisterId: string): boolean => {
+  if (!canisterId || canisterId.trim().length === 0) {
+    return false
+  }
+
+  try {
+    Principal.fromText(canisterId.trim())
+    return true
+  } catch (error) {
+    return false
   }
 }
 
@@ -855,7 +1059,7 @@ const handleSubmit = async () => {
   loading.value = true
 
   // Show confirmation dialog
-  const result = await Swal.fire({
+  const result = await swal.fire({
     title: 'Confirm Proposal Creation',
     html: `
       <div class="text-left space-y-2">
@@ -883,23 +1087,32 @@ const handleSubmit = async () => {
   }
 
   // Show progress
-  Swal.fire({
+  swal.fire({
     title: 'Creating Proposal...',
     text: 'Please wait while your proposal is being created',
     allowOutsideClick: false,
     allowEscapeKey: false,
     showConfirmButton: false,
     didOpen: () => {
-      Swal.showLoading()
+      swal.showLoading()
     }
   })
 
   try {
-    // Prepare asset data based on type
+    // Prepare asset data based on selected asset
     let assetData: any = { ICP: null }
-    if (formData.assetType === 'ICRC' && formData.tokenCanister) {
-      assetData = { ICRC: { canister_id: formData.tokenCanister } }
+
+    if (selectedAssetOption.value === 'ICP') {
+      assetData = { ICP: null }
+    } else if (selectedAssetOption.value === 'custom' && formData.tokenCanister) {
+      // Custom token case
+      assetData = { Token: Principal.fromText(formData.tokenCanister) }
+    } else if (selectedAssetOption.value !== 'ICP' && selectedAssetOption.value !== 'custom') {
+      // Existing asset from wallet
+      assetData = { Token: Principal.fromText(selectedAssetOption.value) }
     }
+
+    console.log('Asset data prepared:', assetData)
 
     const proposalData = {
       type: formData.type,
@@ -912,6 +1125,7 @@ const handleSubmit = async () => {
       proposalId: formData.proposalId?.trim(),
       vote: formData.vote || undefined,
       targetSigner: formData.targetSigner?.trim(),
+      signerName: formData.signerName?.trim() || undefined,
       newThreshold: formData.newThreshold ? parseInt(formData.newThreshold) : undefined,
       // New fields for observer and visibility proposals
       targetObserver: formData.targetObserver?.trim(),
@@ -924,14 +1138,14 @@ const handleSubmit = async () => {
     // Success will be handled by parent component
     // Close the loading after a short delay to allow parent to handle
     setTimeout(() => {
-      Swal.close()
+      swal.close()
       loading.value = false
     }, 1000)
 
   } catch (error) {
     console.error('Error in handleSubmit:', error)
     loading.value = false
-    Swal.fire({
+    swal.fire({
       title: 'Error',
       text: 'Failed to create proposal. Please try again.',
       icon: 'error',
@@ -941,6 +1155,25 @@ const handleSubmit = async () => {
 }
 
 // Watchers
+watch(() => selectedAssetOption.value, async (newValue) => {
+  console.log('Asset selection changed to:', newValue)
+
+  if (newValue === 'ICP') {
+    formData.assetType = 'ICP'
+    formData.tokenCanister = ''
+  } else if (newValue === 'custom') {
+    formData.assetType = 'ICRC'
+    formData.tokenCanister = ''
+  } else {
+    // Selected an existing asset from wallet
+    formData.assetType = 'ICRC'
+    formData.tokenCanister = newValue
+  }
+
+  await loadTokenInfo()
+  await loadBalance()
+})
+
 watch(() => formData.assetType, async () => {
   await loadTokenInfo()
   await loadBalance()
@@ -956,8 +1189,15 @@ watch(() => formData.tokenCanister, async (newValue) => {
 watch(() => formData.recipient, validateRecipient)
 watch(() => formData.amount, validateAmount)
 
+// Watch for changes in wallet props
+watch(() => props.wallet, async (newWallet) => {
+  console.log('Wallet props changed:', newWallet)
+  await loadWalletAssets()
+}, { deep: true })
+
 // Load initial data
 onMounted(async () => {
+  await loadWalletAssets()
   await loadTokenInfo()
   await loadBalance()
 })
