@@ -57,7 +57,7 @@ persistent actor TokenFactoryCanister {
         status: PendingStatus;
         config: TokenConfig;
         deploymentConfig: DeploymentConfig;
-        caller: Principal;            // The original backend caller
+        caller: Principal;            // The backend principal
         lastAttempt: Time.Time;
         errorMessage: ?Text;
         retryCount: Nat;
@@ -84,6 +84,11 @@ persistent actor TokenFactoryCanister {
     private stable var tokensStable : [(Text, TokenInfo)] = [];
     private stable var deploymentHistoryStable : [(Text, DeploymentResultToken)] = [];
     private stable var pendingDeploymentsStable: [(Text, PendingDeployment)] = [];
+    
+    // Factory-First V2: User Indexes
+    private stable var creatorIndexStable : [(Principal, [Principal])] = [];
+    private stable var publicTokensStable : [Principal] = [];
+    private stable var verifiedTokensStable : [Principal] = [];
     
     // Configuration - backend controlled
     private stable var deploymentFee : Nat = 100_000_000; // 1 ICP
@@ -114,6 +119,11 @@ persistent actor TokenFactoryCanister {
     private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
     private transient var pendingDeployments: Trie.Trie<Text, PendingDeployment> = Trie.empty();
     
+    // Factory-First V2: User Indexes (runtime)
+    private transient var creatorIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
+    private transient var publicTokens : [Principal] = [];
+    private transient var verifiedTokens : [Principal] = [];
+    
     // Timer for automatic WASM updates
     private stable var timerId : Nat = 0;
     
@@ -125,6 +135,12 @@ persistent actor TokenFactoryCanister {
         deploymentHistoryStable := Trie.toArray<Text, DeploymentResultToken, (Text, DeploymentResultToken)>(deploymentHistory, func (k, v) = (k, v));
         whitelistedBackends := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelistTrie, func (k, v) = (k, v));
         pendingDeploymentsStable := Trie.toArray<Text, PendingDeployment, (Text, PendingDeployment)>(pendingDeployments, func (k, v) = (k, v));
+        
+        // Factory-First V2: Save user indexes
+        creatorIndexStable := Trie.toArray<Principal, [Principal], (Principal, [Principal])>(creatorIndex, func (k, v) = (k, v));
+        publicTokensStable := publicTokens;
+        verifiedTokensStable := verifiedTokens;
+        
         Debug.print("TokenFactory V2: Preupgrade completed");
     };
     
@@ -150,6 +166,14 @@ persistent actor TokenFactoryCanister {
         for ((key, value) in pendingDeploymentsStable.vals()) {
             pendingDeployments := Trie.put(pendingDeployments, textKey(key), Text.equal, value).0;
         };
+        
+        // Factory-First V2: Restore user indexes
+        creatorIndex := Trie.empty();
+        for ((key, value) in creatorIndexStable.vals()) {
+            creatorIndex := Trie.put(creatorIndex, principalKey(key), Principal.equal, value).0;
+        };
+        publicTokens := publicTokensStable;
+        verifiedTokens := verifiedTokensStable;
         
         serviceStartTime := Time.now();
         
@@ -188,6 +212,40 @@ persistent actor TokenFactoryCanister {
             case (?enabled) { enabled };
             case null { false };
         }
+    };
+    
+    // ================ FACTORY-FIRST V2: INDEX HELPERS ================
+    
+    // Add token to user's creator index
+    private func addToCreatorIndex(user : Principal, tokenId : Principal) {
+        let existing = Trie.get(creatorIndex, principalKey(user), Principal.equal);
+        let newList = switch (existing) {
+            case null { [tokenId] };
+            case (?list) {
+                // Check if already exists to avoid duplicates
+                if (Array.find(list, func(id : Principal) : Bool = id == tokenId) != null) {
+                    list
+                } else {
+                    Array.append(list, [tokenId])
+                }
+            };
+        };
+        creatorIndex := Trie.put(creatorIndex, principalKey(user), Principal.equal, newList).0;
+    };
+    
+    // Check if token is deployed by this factory
+    private func isDeployedToken(tokenId : Principal) : Bool {
+        Trie.get(tokens, textKey(Principal.toText(tokenId)), Text.equal) != null
+    };
+    
+    // Check if token is verified
+    private func isVerifiedToken(tokenId : Principal) : Bool {
+        Array.find(verifiedTokens, func(id : Principal) : Bool = id == tokenId) != null
+    };
+    
+    // Check if token is public
+    private func isPublicToken(tokenId : Principal) : Bool {
+        Array.find(publicTokens, func(id : Principal) : Bool = id == tokenId) != null
     };
     
     // ================ WASM MANAGEMENT (Enhanced from V1) ================
@@ -551,6 +609,9 @@ persistent actor TokenFactoryCanister {
             case (?record) { record };
         };
 
+        // Determine isPublic - default to true for discoverability
+        let isPublic = true;
+
         // Create and store TokenInfo
         let tokenInfo : TokenInfo = {
             name = pendingRecord.config.name;
@@ -575,8 +636,21 @@ persistent actor TokenFactoryCanister {
             lockContracts = [];
             enableCycleOps = Option.get(pendingRecord.deploymentConfig.enableCycleOps, false);
             lastCycleCheck = Time.now();
+            isPublic = isPublic; // Factory-First V2
+            isVerified = false; // Factory-First V2: Admin must verify manually
         };
         tokens := Trie.put(tokens, textKey(Principal.toText(canisterId)), Text.equal, tokenInfo).0;
+        
+        // Factory-First V2: Update user indexes (use tokenOwner from config)
+        let tokenOwner = Option.get(pendingRecord.deploymentConfig.tokenOwner, pendingRecord.caller);
+        addToCreatorIndex(tokenOwner, canisterId);
+        
+        // Factory-First V2: Add to public tokens if public
+        if (isPublic) {
+            if (Array.find(publicTokens, func(id : Principal) : Bool = id == canisterId) == null) {
+                publicTokens := Array.append(publicTokens, [canisterId]);
+            };
+        };
 
         // Create and store DeploymentResultToken
         let deploymentResult : DeploymentResultToken = {
@@ -739,6 +813,7 @@ persistent actor TokenFactoryCanister {
                             case (#ok()) {
                                 // Success! Store token info
                                 let deploymentEnd = Time.now();
+                                let isPublic = true; // Default to public
                                 let tokenInfo : TokenInfo = {
                                     name = config.name;
                                     symbol = config.symbol;
@@ -762,9 +837,20 @@ persistent actor TokenFactoryCanister {
                                     lockContracts = [];
                                     enableCycleOps = enableCycleOps;
                                     lastCycleCheck = Time.now();
+                                    isPublic = isPublic; // Factory-First V2
+                                    isVerified = false; // Factory-First V2
                                 };
                                 
                                 tokens := Trie.put(tokens, textKey(Principal.toText(canister)), Text.equal, tokenInfo).0;
+                                
+                                // Factory-First V2: Update indexes (use owner from config if available, otherwise caller)
+                                let tokenOwner = Option.get(deploymentConfig.tokenOwner, caller);
+                                addToCreatorIndex(tokenOwner, canister);
+                                if (isPublic) {
+                                    if (Array.find(publicTokens, func(id : Principal) : Bool = id == canister) == null) {
+                                        publicTokens := Array.append(publicTokens, [canister]);
+                                    };
+                                };
                                 
                                 // Create deployment record
                                 let deploymentResult : DeploymentResultToken = {
@@ -956,6 +1042,146 @@ persistent actor TokenFactoryCanister {
         Trie.size(tokens)
     };
     
+    // ================ FACTORY-FIRST V2: STANDARDIZED QUERY FUNCTIONS ================
+    
+    // Get tokens created by user with pagination
+    public query func getMyCreatedTokens(
+        user : Principal,
+        limit : Nat,
+        offset : Nat
+    ) : async {
+        tokens : [TokenInfo];
+        total : Nat;
+    } {
+        let tokenIds = Trie.get(creatorIndex, principalKey(user), Principal.equal);
+        switch (tokenIds) {
+            case null { { tokens = []; total = 0 } };
+            case (?ids) {
+                let total = ids.size();
+                let startIdx = Nat.min(offset, total);
+                let endIdx = Nat.min(offset + limit, total);
+                
+                if (startIdx >= total) {
+                    return { tokens = []; total = total };
+                };
+                
+                let paginatedIds = Array.subArray(ids, startIdx, endIdx - startIdx);
+                let buffer = Buffer.Buffer<TokenInfo>(paginatedIds.size());
+                
+                label tokenLoop for (id in paginatedIds.vals()) {
+                    switch (Trie.get(tokens, textKey(Principal.toText(id)), Text.equal)) {
+                        case null {};
+                        case (?tokenInfo) { buffer.add(tokenInfo) };
+                    };
+                };
+                
+                { tokens = Buffer.toArray(buffer); total = total }
+            };
+        }
+    };
+    
+    // Get public tokens with pagination
+    public query func getPublicTokens(
+        limit : Nat,
+        offset : Nat
+    ) : async {
+        tokens : [TokenInfo];
+        total : Nat;
+    } {
+        let total = publicTokens.size();
+        let startIdx = Nat.min(offset, total);
+        let endIdx = Nat.min(offset + limit, total);
+        
+        if (startIdx >= total) {
+            return { tokens = []; total = total };
+        };
+        
+        let paginatedIds = Array.subArray(publicTokens, startIdx, endIdx - startIdx);
+        let buffer = Buffer.Buffer<TokenInfo>(paginatedIds.size());
+        
+        label publicLoop for (id in paginatedIds.vals()) {
+            switch (Trie.get(tokens, textKey(Principal.toText(id)), Text.equal)) {
+                case null {};
+                case (?tokenInfo) { buffer.add(tokenInfo) };
+            };
+        };
+        
+        { tokens = Buffer.toArray(buffer); total = total }
+    };
+    
+    // Get verified tokens with pagination
+    public query func getVerifiedTokens(
+        limit : Nat,
+        offset : Nat
+    ) : async {
+        tokens : [TokenInfo];
+        total : Nat;
+    } {
+        let total = verifiedTokens.size();
+        let startIdx = Nat.min(offset, total);
+        let endIdx = Nat.min(offset + limit, total);
+        
+        if (startIdx >= total) {
+            return { tokens = []; total = total };
+        };
+        
+        let paginatedIds = Array.subArray(verifiedTokens, startIdx, endIdx - startIdx);
+        let buffer = Buffer.Buffer<TokenInfo>(paginatedIds.size());
+        
+        label verifiedLoop for (id in paginatedIds.vals()) {
+            switch (Trie.get(tokens, textKey(Principal.toText(id)), Text.equal)) {
+                case null {};
+                case (?tokenInfo) { buffer.add(tokenInfo) };
+            };
+        };
+        
+        { tokens = Buffer.toArray(buffer); total = total }
+    };
+    
+    // Get single token by canister ID
+    public query func getToken(canisterId : Principal) : async ?TokenInfo {
+        Trie.get(tokens, textKey(Principal.toText(canisterId)), Text.equal)
+    };
+    
+    // Search tokens by name or symbol (case-insensitive)
+    public query func searchTokens(
+        queryStr : Text,
+        limit : Nat
+    ) : async [TokenInfo] {
+        let queryLower = Text.toLowercase(queryStr);
+        let buffer = Buffer.Buffer<TokenInfo>(0);
+        var count = 0;
+        
+        label searchLoop for ((_, tokenInfo) in Trie.iter(tokens)) {
+            if (count >= limit) break searchLoop;
+            
+            let nameLower = Text.toLowercase(tokenInfo.name);
+            let symbolLower = Text.toLowercase(tokenInfo.symbol);
+            
+            if (Text.contains(nameLower, #text queryLower) or Text.contains(symbolLower, #text queryLower)) {
+                buffer.add(tokenInfo);
+                count += 1;
+            };
+        };
+        
+        Buffer.toArray(buffer)
+    };
+    
+    // Get factory statistics
+    public query func getFactoryStats() : async {
+        totalTokens : Nat;
+        totalCreators : Nat;
+        publicTokensCount : Nat;
+        verifiedTokensCount : Nat;
+    } {
+        {
+            totalTokens = Trie.size(tokens);
+            totalCreators = Trie.size(creatorIndex);
+            publicTokensCount = publicTokens.size();
+            verifiedTokensCount = verifiedTokens.size();
+        }
+    };
+    
     // ================ ADMIN FUNCTIONS (V2.1 additions) ================
     
     public shared({caller}) func getPendingDeployments() : async Result.Result<[PendingDeployment], DeploymentError> {
@@ -1099,6 +1325,120 @@ persistent actor TokenFactoryCanister {
             cyclesForArchive = cyclesForArchive;
             allowManualWasm = allowManualWasm;
         }
+    };
+    
+    // ================ FACTORY-FIRST V2: ADMIN VERIFICATION FUNCTIONS ================
+    
+    // Admin: Verify a token (mark as legitimate)
+    public shared({ caller }) func verifyToken(tokenId : Principal) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can verify tokens");
+        };
+        
+        // Check if token exists
+        let tokenInfo = Trie.get(tokens, textKey(Principal.toText(tokenId)), Text.equal);
+        switch (tokenInfo) {
+            case null { #err("Token not found") };
+            case (?info) {
+                // Check if already verified
+                if (info.isVerified) {
+                    return #ok();
+                };
+                
+                // Add to verified list if not already there
+                if (Array.find(verifiedTokens, func(id : Principal) : Bool = id == tokenId) == null) {
+                    verifiedTokens := Array.append(verifiedTokens, [tokenId]);
+                };
+                
+                // Update token info
+                let updatedInfo : TokenInfo = {
+                    info with isVerified = true
+                };
+                tokens := Trie.put(tokens, textKey(Principal.toText(tokenId)), Text.equal, updatedInfo).0;
+                
+                Debug.print("Token verified: " # Principal.toText(tokenId));
+                #ok()
+            };
+        }
+    };
+    
+    // Admin: Unverify a token
+    public shared({ caller }) func unverifyToken(tokenId : Principal) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can unverify tokens");
+        };
+        
+        // Remove from verified list
+        verifiedTokens := Array.filter(verifiedTokens, func(id : Principal) : Bool = id != tokenId);
+        
+        // Update token info
+        let tokenInfo = Trie.get(tokens, textKey(Principal.toText(tokenId)), Text.equal);
+        switch (tokenInfo) {
+            case null { #err("Token not found") };
+            case (?info) {
+                let updatedInfo : TokenInfo = {
+                    info with isVerified = false
+                };
+                tokens := Trie.put(tokens, textKey(Principal.toText(tokenId)), Text.equal, updatedInfo).0;
+                
+                Debug.print("Token unverified: " # Principal.toText(tokenId));
+                #ok()
+            };
+        }
+    };
+    
+    // Admin: Update token visibility (public/private)
+    public shared({ caller }) func updateTokenVisibility(
+        tokenId : Principal,
+        isPublic : Bool
+    ) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can update token visibility");
+        };
+        
+        let tokenInfo = Trie.get(tokens, textKey(Principal.toText(tokenId)), Text.equal);
+        switch (tokenInfo) {
+            case null { #err("Token not found") };
+            case (?info) {
+                // Update public tokens list
+                if (isPublic) {
+                    // Add to public if not already there
+                    if (Array.find(publicTokens, func(id : Principal) : Bool = id == tokenId) == null) {
+                        publicTokens := Array.append(publicTokens, [tokenId]);
+                    };
+                } else {
+                    // Remove from public
+                    publicTokens := Array.filter(publicTokens, func(id : Principal) : Bool = id != tokenId);
+                };
+                
+                // Update token info
+                let updatedInfo : TokenInfo = {
+                    info with isPublic = isPublic
+                };
+                tokens := Trie.put(tokens, textKey(Principal.toText(tokenId)), Text.equal, updatedInfo).0;
+                
+                Debug.print("Token visibility updated: " # Principal.toText(tokenId) # " -> " # (if (isPublic) "public" else "private"));
+                #ok()
+            };
+        }
+    };
+    
+    // Admin: Batch verify multiple tokens
+    public shared({ caller }) func batchVerifyTokens(tokenIds : [Principal]) : async Result.Result<Nat, Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can verify tokens");
+        };
+        
+        var successCount = 0;
+        for (tokenId in tokenIds.vals()) {
+            let result = await verifyToken(tokenId);
+            switch (result) {
+                case (#ok()) { successCount += 1 };
+                case (#err(_)) {};
+            };
+        };
+        
+        #ok(successCount)
     };
     
     // ================ BOOTSTRAP FUNCTION FOR INITIAL SETUP ================

@@ -51,6 +51,10 @@ module TokenFactory {
         // Cycle management
         enableCycleOps : Bool;
         lastCycleCheck : Time.Time;
+        
+        // Factory-First V2 additions
+        isPublic : Bool; // Discoverable in public listings
+        isVerified : Bool; // Admin-verified legitimate token
     };
 
     // Backup from backend/types/TokenDeployer

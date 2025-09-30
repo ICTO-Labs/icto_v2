@@ -116,10 +116,12 @@
 import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import { useAuthGuard } from '@/composables/useAuthGuard'
+import { useAuthStore } from '@/stores/auth'
 import { formatCurrency, formatNumber } from '@/utils/numberFormat'
 import { PlusIcon, RefreshCcwIcon, SlidersIcon } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import MetricCard from '@/components/token/MetricCard.vue'
+import tokenService from '@/api/services/token'
 
 // Lazy load tab components
 const TokenOverviewTab = defineAsyncComponent(() => import('./tabs/TokenOverviewTab.vue'))
@@ -129,13 +131,14 @@ const MyTokensTab = defineAsyncComponent(() => import('./tabs/MyTokensTab.vue'))
 // Tabs
 const tabs = [
     { id: 'overview', name: 'Overview', component: TokenOverviewTab },
-    { id: 'total', name: 'Total Tokens', component: TotalTokensTab },
+    { id: 'total', name: 'All Tokens', component: TotalTokensTab },
     { id: 'my-tokens', name: 'My Tokens', component: MyTokensTab }
 ]
 
-const currentTab = ref('overview')
+const currentTab = ref('total') // Start with Total Tokens tab
 const isLoading = ref(false)
 const modalStore = useModalStore()
+const authStore = useAuthStore()
 const { withAuth } = useAuthGuard()
 
 // Metrics data
@@ -150,6 +153,14 @@ const metrics = ref({
     holdersChange: 0
 })
 
+// Factory stats
+const factoryStats = ref({
+    totalTokens: 0n,
+    totalCreators: 0n,
+    publicTokensCount: 0n,
+    verifiedTokensCount: 0n
+})
+
 // Computed
 const currentTabComponent = computed(() => {
     const tab = tabs.find(t => t.id === currentTab.value)
@@ -157,16 +168,31 @@ const currentTabComponent = computed(() => {
 })
 
 const currentTabProps = computed(() => ({
-    // Add any props needed by tab components
+    factoryStats: factoryStats.value,
+    refreshData
 }))
 
 // Methods
+const loadFactoryStats = async () => {
+    try {
+        const stats = await tokenService.getFactoryStats()
+        factoryStats.value = stats
+        
+        // Update metrics
+        metrics.value.totalTokens = Number(stats.totalTokens)
+        // TODO: Calculate change percentage from previous data
+        metrics.value.totalTokensChange = 0
+    } catch (error) {
+        console.error('Failed to load factory stats:', error)
+    }
+}
+
 const refreshData = async () => {
     if (isLoading.value) return
     try {
         isLoading.value = true
-        // TODO: Implement data refresh logic
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        await loadFactoryStats()
+        // Trigger tab refresh by emitting event
     } finally {
         isLoading.value = false
     }
@@ -208,8 +234,8 @@ const openFilterModal = () => {
     modalStore.open('tokenFilter')
 }
 
-onMounted(() => {
-    refreshData()
+onMounted(async () => {
+    await refreshData()
 })
 </script>
 

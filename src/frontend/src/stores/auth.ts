@@ -309,3 +309,11 @@ export const launchpadContractActor = ({ canisterId, anon = false, requiresSigni
 export const multisigContractActor = ({ canisterId, anon = false, requiresSigning = true }: { canisterId: string, anon?: boolean, requiresSigning?: boolean }) => {
     return pnp.getActor<CanisterType["MULTISIG_CONTRACT"]>({ canisterId, idl: canisters.multisig_contract.idl, anon, requiresSigning });
 }
+
+export const tokenFactoryActor = ({ anon = false, requiresSigning = true }: { anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["TOKEN_FACTORY"]>({ canisterId: canisters.token_factory.canisterId!, idl: canisters.token_factory.idl, anon, requiresSigning });
+}
+
+export const distributionFactoryActor = ({ anon = false, requiresSigning = false }: { anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["DISTRIBUTION_FACTORY"]>({ canisterId: canisters.distribution_factory.canisterId!, idl: canisters.distribution_factory.idl, anon, requiresSigning });
+}

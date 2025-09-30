@@ -123,23 +123,45 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useRouter } from 'vue-router';
-import { backendService } from '@/api/services/backend';
-import type { ProcessedDeployment } from '@/types/backend';
+import { useAuthStore } from '@/stores/auth';
+import tokenService, { type TokenInfo } from '@/api/services/token';
 import { toast } from 'vue-sonner';
 import { formatBalance } from '@/utils/numberFormat';
 import { CopyIcon } from '@/icons';
 import TokenLogo from '@/components/token/TokenLogo.vue';
+import { Principal } from '@dfinity/principal';
+
 const router = useRouter();
+const authStore = useAuthStore();
 
 const emit = defineEmits<{
     (e: 'refresh'): void
 }>();
 
-const deployments = ref<ProcessedDeployment[]>([]);
+const myTokens = ref<TokenInfo[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
+
+// Computed: Convert TokenInfo to display format
+const deployments = computed(() => {
+    return myTokens.value.map(token => ({
+        id: token.canisterId.toText(),
+        canisterId: token.canisterId.toText(),
+        name: token.name,
+        deploymentType: token.standard,
+        deployedAt: new Date(Number(token.deployedAt) / 1_000_000).toLocaleDateString(),
+        tokenInfo: {
+            name: token.name,
+            symbol: token.symbol,
+            standard: token.standard,
+            decimals: token.decimals,
+            totalSupply: token.totalSupply,
+            logo: token.logo && token.logo.length > 0 ? token.logo[0] : undefined
+        }
+    }));
+});
 
 onMounted(async () => {
     await fetchDeployments();
@@ -150,26 +172,31 @@ async function fetchDeployments() {
     error.value = null;
     
     try {
-        deployments.value = await backendService.getUserDeployments();
+        // Check if user is authenticated
+        if (!authStore.principal) {
+            error.value = 'Please connect your wallet to view your tokens';
+            myTokens.value = [];
+            return;
+        }
+        
+        const userPrincipal = Principal.fromText(authStore.principal);
+        const result = await tokenService.getMyCreatedTokens(userPrincipal, 100, 0);
+        myTokens.value = result.tokens;
     } catch (err) {
-        console.error('Error fetching deployments:', err);
-        error.value = 'Failed to load your token deployments. Please try again.';
+        console.error('Error fetching my tokens:', err);
+        error.value = 'Failed to load your tokens. Please try again.';
     } finally {
         loading.value = false;
     }
 }
 
 async function refreshDeployments() {
-    loading.value = true;
-    try {
-        deployments.value = await backendService.getUserDeployments(true);
-        toast.success('Deployments refreshed successfully');
+    await fetchDeployments();
+    if (!error.value) {
+        toast.success('Tokens refreshed successfully');
         emit('refresh');
-    } catch (err) {
-        console.error('Error refreshing deployments:', err);
-        toast.error('Failed to refresh deployments');
-    } finally {
-        loading.value = false;
+    } else {
+        toast.error('Failed to refresh tokens');
     }
 }
 

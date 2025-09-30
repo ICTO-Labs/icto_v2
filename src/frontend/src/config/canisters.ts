@@ -36,6 +36,18 @@ import {
     idlFactory as multisigContractIDL,
 } from "../../../declarations/multisig_contract";
 import type { _SERVICE as _MULTISIG_CONTRACT_SERVICE } from "../../../declarations/multisig_contract/multisig_contract.did.d.ts";
+// Token Factory
+import {
+    canisterId as tokenFactoryCanisterId,
+    idlFactory as tokenFactoryIDL,
+} from "../../../declarations/token_factory";
+import type { _SERVICE as _TOKEN_FACTORY_SERVICE } from "../../../declarations/token_factory/token_factory.did.d.ts";
+// Distribution Factory
+import {
+    canisterId as distributionFactoryCanisterId,
+    idlFactory as distributionFactoryIDL,
+} from "../../../declarations/distribution_factory";
+import type { _SERVICE as _DISTRIBUTION_FACTORY_SERVICE } from "../../../declarations/distribution_factory/distribution_factory.did.d.ts";
 
 
 // Consolidated canister types
@@ -44,9 +56,11 @@ export type CanisterType = {
     ICP_LEDGER: _ICP_SERVICE;
     ICRC2_LEDGER: _ICRC2_SERVICE;
     DISTRIBUTION_CONTRACT: _DISTRIBUTION_CONTRACT_SERVICE;
+    DISTRIBUTION_FACTORY: _DISTRIBUTION_FACTORY_SERVICE;
     DAO_CONTRACT: _DAO_CONTRACT_SERVICE;
     LAUNCHPAD_CONTRACT: _LAUNCHPAD_CONTRACT_SERVICE;
     MULTISIG_CONTRACT: _MULTISIG_CONTRACT_SERVICE;
+    TOKEN_FACTORY: _TOKEN_FACTORY_SERVICE;
 };
 
 export type CanisterConfigs = {
@@ -96,4 +110,26 @@ export const canisters: CanisterConfigs = {
         idl: multisigContractIDL,
         type: {} as CanisterType["MULTISIG_CONTRACT"],
     },
+    token_factory: {
+        canisterId: import.meta.env.VITE_TOKEN_FACTORY_CANISTER_ID,
+        idl: tokenFactoryIDL,
+        type: {} as CanisterType["TOKEN_FACTORY"],
+    },
+    distribution_factory: {
+        canisterId: import.meta.env.VITE_DISTRIBUTION_FACTORY_CANISTER_ID,
+        idl: distributionFactoryIDL,
+        type: {} as CanisterType["DISTRIBUTION_FACTORY"],
+    },
+};
+
+// Export canister IDs for easy access
+export const canisterIds = {
+    backend: canisters.backend.canisterId,
+    icp: canisters.icp.canisterId,
+    distribution_contract: canisters.distribution_contract.canisterId,
+    distribution_factory: canisters.distribution_factory.canisterId,
+    dao_contract: canisters.dao_contract.canisterId,
+    launchpad_contract: canisters.launchpad_contract.canisterId,
+    multisig_contract: canisters.multisig_contract.canisterId,
+    token_factory: canisters.token_factory.canisterId,
 };

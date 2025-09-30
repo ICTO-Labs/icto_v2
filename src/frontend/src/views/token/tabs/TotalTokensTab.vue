@@ -70,10 +70,25 @@
                         </tr>
                     </thead>
                     <tbody class="bg-white divide-y divide-gray-200 dark:bg-gray-800 dark:divide-gray-700">
+                        <tr v-if="isLoading">
+                            <td colspan="7" class="px-6 py-12 text-center">
+                                <div class="flex items-center justify-center">
+                                    <RefreshCcwIcon class="w-6 h-6 animate-spin text-blue-500" />
+                                    <span class="ml-2 text-gray-500 dark:text-gray-400">Loading tokens...</span>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr v-else-if="displayTokens.length === 0">
+                            <td colspan="7" class="px-6 py-12 text-center text-gray-500 dark:text-gray-400">
+                                No tokens found
+                            </td>
+                        </tr>
                         <tr 
-                            v-for="token in filteredTokens" 
+                            v-else
+                            v-for="token in displayTokens" 
                             :key="token.canisterId"
-                            class="hover:bg-gray-50 dark:hover:bg-gray-700"
+                            class="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer"
+                            @click="viewToken(token)"
                         >
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="flex items-center">
@@ -81,10 +96,18 @@
                                         :src="token.logo" 
                                         :alt="token.name"
                                         class="w-8 h-8 rounded-full"
+                                        @error="(e) => (e.target as HTMLImageElement).src = '/images/logo/logo-icon.svg'"
                                     />
                                     <div class="ml-4">
-                                        <div class="text-sm font-medium text-gray-900 dark:text-white">
-                                            {{ token.name }}
+                                        <div class="flex items-center space-x-2">
+                                            <span class="text-sm font-medium text-gray-900 dark:text-white">
+                                                {{ token.name }}
+                                            </span>
+                                            <span v-if="token.isVerified" 
+                                                  class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300"
+                                                  title="Verified Token">
+                                                ✓ Verified
+                                            </span>
                                         </div>
                                         <div class="text-sm text-gray-500 dark:text-gray-400">
                                             {{ token.symbol }}
@@ -93,12 +116,7 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                                    :class="{
-                                        'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': token.standard === 'ICRC-1',
-                                        'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': token.standard === 'ICRC-2'
-                                    }"
-                                >
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
                                     {{ token.standard }}
                                 </span>
                             </td>
@@ -108,23 +126,23 @@
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-900 dark:text-white">
-                                    {{ formatNumber(token.holders) }}
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-900 dark:text-white">
-                                    {{ formatCurrency(token.tvl) }}
+                                <div class="text-sm text-gray-500 dark:text-gray-400">
+                                    N/A
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="text-sm text-gray-500 dark:text-gray-400">
-                                    {{ formatTimeAgo(token.createdAt) }}
+                                    N/A
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <div class="text-sm text-gray-500 dark:text-gray-400">
+                                    {{ formatTimeAgo(token.deployedAt) }}
                                 </div>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                                 <button
-                                    @click="viewToken(token)"
+                                    @click.stop="viewToken(token)"
                                     class="text-blue-600 hover:text-blue-900 dark:text-blue-500 dark:hover:text-blue-400"
                                 >
                                     View
@@ -176,92 +194,125 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { formatCurrency, formatNumber, formatBalance } from '@/utils/numberFormat'
 import { formatTimeAgo } from '@/utils/dateFormat'
 import { RefreshCcwIcon, SearchIcon } from 'lucide-vue-next'
+import tokenService, { type TokenInfo } from '@/api/services/token'
+import { Principal } from '@dfinity/principal'
 
 const router = useRouter()
 const searchQuery = ref('')
-const sortBy = ref('holders')
+const sortBy = ref('created')
 const isLoading = ref(false)
 const currentPage = ref(1)
 const perPage = ref(25)
 
-// Mock data
-const tokens = ref([
-    {
-        canisterId: '1',
-        name: 'ICTO Token',
-        symbol: 'ICTO',
-        logo: '/images/logo/logo-icon.svg',
-        standard: 'ICRC-2',
-        totalSupply: '100000000',
-        decimals: 8,
-        holders: 1234,
-        tvl: 9876543,
-        createdAt: new Date().getTime() - 86400000
-    },
-    // Add more mock tokens...
-])
+// Real data from factory
+const tokens = ref<TokenInfo[]>([])
+const totalTokens = ref(0)
+const isSearching = ref(false)
+
+// Helper functions
+const displayLogo = (token: TokenInfo): string => {
+    if (token.logo && token.logo.length > 0) {
+        return token.logo[0]
+    }
+    return '/images/logo/logo-icon.svg' // Fallback
+}
 
 // Computed
-const filteredTokens = computed(() => {
-    let result = tokens.value
-
-    // Search filter
-    if (searchQuery.value) {
-        const query = searchQuery.value.toLowerCase()
-        result = result.filter(token => 
-            token.name.toLowerCase().includes(query) ||
-            token.symbol.toLowerCase().includes(query) ||
-            token.canisterId.toLowerCase().includes(query)
-        )
-    }
-
-    // Sort
-    result = [...result].sort((a, b) => {
-        switch (sortBy.value) {
-            case 'holders':
-                return b.holders - a.holders
-            case 'tvl':
-                return b.tvl - a.tvl
-            case 'created':
-                return b.createdAt - a.createdAt
-            default:
-                return 0
-        }
-    })
-
-    return result
-})
+const offset = computed(() => (currentPage.value - 1) * perPage.value)
 
 const totalPages = computed(() => 
-    Math.ceil(filteredTokens.value.length / perPage.value)
+    Math.ceil(totalTokens.value / perPage.value)
 )
 
-const paginatedTokens = computed(() => {
-    const start = (currentPage.value - 1) * perPage.value
-    const end = start + perPage.value
-    return filteredTokens.value.slice(start, end)
+const displayTokens = computed(() => {
+    return tokens.value.map(token => ({
+        canisterId: token.canisterId.toText(),
+        name: token.name,
+        symbol: token.symbol,
+        logo: displayLogo(token),
+        standard: token.standard,
+        totalSupply: token.totalSupply,
+        decimals: token.decimals,
+        deployedAt: Number(token.deployedAt) / 1_000_000, // Convert nanoseconds to ms
+        isVerified: token.isVerified,
+        isPublic: token.isPublic,
+        status: token.status
+    }))
 })
 
 // Methods
-const refreshTokens = async () => {
+const loadPublicTokens = async () => {
     if (isLoading.value) return
     try {
         isLoading.value = true
-        // TODO: Implement token refresh logic
-        await new Promise(resolve => setTimeout(resolve, 1000))
+        const result = await tokenService.getPublicTokens(perPage.value, offset.value)
+        tokens.value = result.tokens
+        totalTokens.value = Number(result.total)
+    } catch (error) {
+        console.error('Failed to load public tokens:', error)
+        tokens.value = []
     } finally {
         isLoading.value = false
     }
 }
 
-const viewToken = (token: any) => {
-    router.push(`/token/${token.canisterId}`)
+const handleSearch = async () => {
+    if (!searchQuery.value.trim()) {
+        await loadPublicTokens()
+        return
+    }
+
+    try {
+        isSearching.value = true
+        const results = await tokenService.searchTokens(searchQuery.value, perPage.value)
+        tokens.value = results
+        totalTokens.value = results.length
+    } catch (error) {
+        console.error('Search failed:', error)
+        tokens.value = []
+    } finally {
+        isSearching.value = false
+    }
 }
+
+const refreshTokens = async () => {
+    if (searchQuery.value) {
+        await handleSearch()
+    } else {
+        await loadPublicTokens()
+    }
+}
+
+const viewToken = (token: any) => {
+    router.push(`/tokens/${token.canisterId}`)
+}
+
+// Watch for pagination changes
+watch([currentPage, perPage], () => {
+    if (!searchQuery.value) {
+        loadPublicTokens()
+    }
+})
+
+// Watch search query
+watch(searchQuery, async (newValue) => {
+    currentPage.value = 1 // Reset to first page
+    if (newValue) {
+        await handleSearch()
+    } else {
+        await loadPublicTokens()
+    }
+})
+
+// Load on mount
+onMounted(async () => {
+    await loadPublicTokens()
+})
 
 defineEmits<{
     (e: 'refresh'): void
