@@ -73,67 +73,174 @@ export const useAuthStore = defineStore('auth', () => {
         try {
             connectionError.value = null;
             isAuthenticating.value = true;
+            
+            console.log(`[Auth] Connecting to wallet: ${walletId} (auto: ${isAutoConnect}, retry: ${isRetry})`);
+            
             const result = await pnp.connect(walletId);
-            principal.value = result?.owner;
-            try {
-                address.value = await pnp.provider.getAccountId();
-            } catch (accIdError) {
-                console.error("Failed to get accountId after reconnect:", accIdError);
-                address.value = null; // Reset on error
-            }
-            // address.value = 'result?.address';
+            
             if (!result?.owner) {
                 if (!isRetry && !isAutoConnect) {
-                    console.warn(`Connection attempt failed for ${walletId}, retrying once...`);
+                    console.warn(`[Auth] Connection attempt failed for ${walletId}, retrying once...`);
                     await pnp.disconnect();
                     await new Promise(resolve => setTimeout(resolve, 500));
                     return await connectWallet(walletId, true, isAutoConnect);
                 }
-                console.error("Connection failed after retry.");
+                
+                console.error(`[Auth] Connection failed after retry for ${walletId}`);
                 await disconnectWallet();
+                
+                // For auto-connect, fail silently to avoid disrupting user experience
+                if (isAutoConnect) {
+                    console.warn(`[Auth] Auto-connect failed for ${walletId}, clearing session data`);
+                    return { success: false, error: 'Auto-connect failed' };
+                }
+                
                 throw new Error("Invalid connection result after retry. Please try again. If the issue persists, reload the page.");
             }
+            
+            // Update state
+            principal.value = result.owner.toString();
             isConnected.value = true;
             selectedWalletId.value = walletId;
+            
+            // Get account ID
+            try {
+                address.value = await pnp.provider.getAccountId();
+            } catch (accIdError) {
+                console.warn(`[Auth] Failed to get accountId for ${walletId}:`, accIdError);
+                address.value = null;
+            }
+            
             // Store session data in localStorage
             storage.set('LAST_WALLET', walletId);
             storage.set('WAS_CONNECTED', 'true');
 
-            // Load balances in background
+            // Load user data in background
             setTimeout(async () => {
-                console.log('>>> fetchBalances', tokens.value, result.owner?.toString(), true)
+                console.log(`[Auth] Loading user data for ${result.owner?.toString()}`);
                 try {
                     await userTokensStore.setPrincipal(result.owner);
                     await userTokensStore.refreshTokenData();
                     await userTokensStore.refreshAllBalances();
                 } catch (error) {
-                    console.error("Error loading balances:", error);
+                    console.error("[Auth] Error loading user data:", error);
                 }
             }, 0);
 
+            console.log(`[Auth] Successfully connected to ${walletId}`);
             return { success: true, walletId };
         } catch (error) {
-            connectionError.value = error instanceof Error ? error.message : 'Unknown error';
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(`[Auth] Connection error for ${walletId}:`, errorMessage);
+            
+            connectionError.value = errorMessage;
             isConnected.value = false;
-            return { success: false, error: connectionError.value };
+            
+            // For auto-connect failures, clear session data to prevent repeated attempts
+            if (isAutoConnect) {
+                storage.clear();
+            }
+            
+            return { success: false, error: errorMessage };
         } finally {
             isAuthenticating.value = false;
         }
     }
 
     async function disconnectWallet() {
+        console.log('[Auth] Disconnecting wallet...');
         await pnp.disconnect();
         isConnected.value = false;
         selectedWalletId.value = null;
+        principal.value = null;
+        address.value = null;
         // Clear session data from localStorage
         storage.clear();
+        // Clear user tokens store
+        await userTokensStore.setPrincipal(null);
     }
 
-    function initialize() {
-        const lastWallet = storage.get('LAST_WALLET');
-        const wasConnected = storage.get('WAS_CONNECTED');
-        if (lastWallet && wasConnected === 'true') {
-            connectWallet(lastWallet, false, true);
+    function isSessionValid(): boolean {
+        try {
+            return pnp.isAuthenticated();
+        } catch (error) {
+            console.warn('[Auth] Error checking session validity:', error);
+            return false;
+        }
+    }
+
+    async function initialize() {
+        try {
+            // First check if PNP already has an active session
+            if (pnp.isAuthenticated()) {
+                console.log('[Auth] PNP session already active, attempting to restore state...');
+                
+                // Try to get current session info
+                try {
+                    // Check if we have stored wallet info
+                    const lastWallet = storage.get('LAST_WALLET');
+                    
+                    if (lastWallet) {
+                        // Try to get account info from provider
+                        let accountId = null;
+                        try {
+                            accountId = await pnp.provider.getAccountId();
+                        } catch (error) {
+                            console.warn('[Auth] Could not get account ID during session restore:', error);
+                        }
+                        
+                        // If we can get account info, the session is likely valid
+                        if (accountId) {
+                            isConnected.value = true;
+                            selectedWalletId.value = lastWallet;
+                            address.value = accountId;
+                            
+                            // Try to get principal from provider
+                            try {
+                                const principalId = await pnp.provider.getPrincipal();
+                                if (principalId) {
+                                    principal.value = principalId.toString();
+                                    
+                                    // Load user data in background
+                                    setTimeout(async () => {
+                                        try {
+                                            await userTokensStore.setPrincipal(principalId);
+                                            await userTokensStore.refreshTokenData();
+                                            await userTokensStore.refreshAllBalances();
+                                        } catch (error) {
+                                            console.error('[Auth] Error loading user data during session restore:', error);
+                                        }
+                                    }, 0);
+                                    
+                                    console.log('[Auth] Session restored successfully for wallet:', lastWallet);
+                                    return;
+                                }
+                            } catch (error) {
+                                console.warn('[Auth] Could not get principal during session restore:', error);
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('[Auth] Error during session restore:', error);
+                }
+                
+                // If session restore failed, clear the authentication state
+                console.log('[Auth] Session restore failed, clearing PNP session...');
+                await pnp.disconnect();
+            }
+            
+            // If no active PNP session, check localStorage for auto-reconnect
+            const lastWallet = storage.get('LAST_WALLET');
+            const wasConnected = storage.get('WAS_CONNECTED');
+            
+            if (lastWallet && wasConnected === 'true') {
+                console.log('[Auth] Attempting auto-reconnect to wallet:', lastWallet);
+                await connectWallet(lastWallet, false, true);
+            }
+        } catch (error) {
+            console.error('[Auth] Error during initialization:', error);
+            // Clear potentially corrupted session data
+            storage.clear();
         }
     }
 
@@ -163,6 +270,7 @@ export const useAuthStore = defineStore('auth', () => {
         connectWallet,
         disconnectWallet,
         isWalletConnected,
+        isSessionValid,
         initialize,
         pnp,
         handleConnection

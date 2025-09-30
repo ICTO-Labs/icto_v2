@@ -37,8 +37,12 @@ const progress = useProgressDialog()
 
 const authStore = useAuthStore();
 
-onMounted(() => {
-  authStore.initialize();
+onMounted(async () => {
+  try {
+    await authStore.initialize();
+  } catch (error) {
+    console.error('[App] Error during auth initialization:', error);
+  }
 });
 
 // Initialize assets context

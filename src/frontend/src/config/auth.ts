@@ -21,7 +21,7 @@ export function initializePNP(): PNP {
     try {
         // Create a stable configuration object
         const config = {
-            dfxNetwork: 'local',
+            dfxNetwork: isDev ? 'local' : 'ic',
             hostUrl: isDev ? "http://localhost:4943" : "https://icp0.io",
             replicaPort: 4943, // Replica port for local development
             frontendCanisterId,
@@ -34,10 +34,7 @@ export function initializePNP(): PNP {
             adapters: {
                 ii: {
                     enabled: true,
-                    config: {
-                        localIdentityCanisterId: import.meta.env.VITE_INTERNET_IDENTITY_CANISTER_ID,
-                        identityProvider: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
-                    }
+                    localIdentityCanisterId: import.meta.env.VITE_INTERNET_IDENTITY_CANISTER_ID,
                 },
                 plug: {
                     enabled: true,

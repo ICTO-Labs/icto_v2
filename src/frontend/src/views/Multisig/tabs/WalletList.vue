@@ -97,6 +97,9 @@
                                 Status
                             </th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                                Visibility
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                                 Last Activity
                             </th>
                             <th class="relative px-6 py-3">
@@ -113,8 +116,8 @@
                         >
                             <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="flex items-center">
-                                    <div class="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                                        <WalletIcon class="h-5 w-5 text-white" />
+                                    <div class="w-10 h-10 bg-brand-100 dark:bg-brand-900/20 rounded-lg flex items-center justify-center">
+                                        <WalletIcon class="h-5 w-5 text-brand-600 dark:text-brand-400" />
                                     </div>
                                     <div class="ml-4">
                                         <div class="text-sm font-medium text-gray-900 dark:text-white">{{ wallet.config.name }}</div>
@@ -135,7 +138,7 @@
                                     <div
                                         v-for="signer in wallet.signers.slice(0, 3)"
                                         :key="signer.principal.toString()"
-                                        class="w-6 h-6 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-xs text-white font-medium"
+                                        class="w-6 h-6 bg-brand-500 dark:bg-brand-600 rounded-full flex items-center justify-center text-xs text-white font-medium"
                                         :title="signer.name"
                                     >
                                         {{ (signer.name || 'S').charAt(0).toUpperCase() }}
@@ -160,6 +163,18 @@
                                     }"
                                 >
                                     {{ wallet.status.replace('_', ' ').toUpperCase() }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                                <span v-if="wallet.config?.isPublic" 
+                                      class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                    <Globe :size="12" />
+                                    Public
+                                </span>
+                                <span v-else 
+                                      class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+                                    <Lock :size="12" />
+                                    Private
                                 </span>
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
@@ -194,7 +209,9 @@ import {
     GridIcon,
     ListIcon,
     WalletIcon,
-    PlusIcon
+    PlusIcon,
+    Globe,
+    Lock
 } from 'lucide-vue-next'
 
 // Props

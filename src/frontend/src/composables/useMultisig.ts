@@ -289,7 +289,7 @@ export function useMultisig() {
   const checkWalletVisibility = async (canisterId: string, retryCount = 0) => {
     try {
       const response = await multisigService.getWalletVisibility(canisterId);
-      if (response.success) {
+      if (response.success && response.data) {
         walletVisibility.value.set(canisterId, response.data);
         return response.data;
       } else {
@@ -301,6 +301,16 @@ export function useMultisig() {
           await new Promise(resolve => setTimeout(resolve, 1000));
           return checkWalletVisibility(canisterId, 1);
         }
+        
+        // Return default denied access
+        return { 
+          isOwner: false, 
+          isSigner: false, 
+          isObserver: false, 
+          isAuthorized: false,
+          isPublic: false,
+          canView: false
+        };
       }
     } catch (err) {
       console.error('Failed to check wallet visibility:', err);
@@ -312,7 +322,14 @@ export function useMultisig() {
         return checkWalletVisibility(canisterId, 1);
       }
     }
-    return { isOwner: false, isSigner: false, isObserver: false, isAuthorized: false };
+    return { 
+      isOwner: false, 
+      isSigner: false, 
+      isObserver: false, 
+      isAuthorized: false,
+      isPublic: false,
+      canView: false
+    };
   };
 
   // Audit logging

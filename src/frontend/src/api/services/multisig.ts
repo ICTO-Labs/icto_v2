@@ -703,42 +703,95 @@ class MultisigService {
   // ============== AUDIT MONITORING METHODS ==============
 
   // Quick wallet visibility check (for UI/UX optimization)
+  // This method is optimized to check access rights BEFORE attempting to load wallet data
   async getWalletVisibility(canisterId: string): Promise<ApiResponse<{
     isOwner: boolean;
     isSigner: boolean;
     isObserver: boolean;
     isAuthorized: boolean;
+    isPublic: boolean;
+    canView: boolean;
   }>> {
     try {
       const authStore = useAuthStore();
+      const actor = await this.getContractQueryActor(canisterId);
+
+      // Step 1: Try to get wallet info to check isPublic
+      // This call will succeed for public wallets or authorized users
+      let isPublic = false;
+      let walletInfo = null;
+      
+      try {
+        walletInfo = await actor.getWalletInfo();
+        isPublic = walletInfo?.config?.isPublic ?? false;
+      } catch (walletError: any) {
+        // If getWalletInfo fails with "Access denied", wallet is private and user not authorized
+        if (walletError?.message?.includes('Access denied') || 
+            walletError?.message?.includes("don't have permission")) {
+          // Wallet exists but is private and user not authorized
+          return {
+            success: true,
+            data: { 
+              isOwner: false, 
+              isSigner: false, 
+              isObserver: false, 
+              isAuthorized: false,
+              isPublic: false,
+              canView: false
+            }
+          };
+        }
+        // Other errors (wallet not found, network issues, etc.)
+        throw walletError;
+      }
+
+      // Step 2: If we got wallet info, determine user's role
       if (!authStore.principal) {
+        // Not authenticated, but wallet is public (since getWalletInfo succeeded)
         return {
           success: true,
-          data: { isOwner: false, isSigner: false, isObserver: false, isAuthorized: false }
+          data: { 
+            isOwner: false, 
+            isSigner: false, 
+            isObserver: false, 
+            isAuthorized: false,
+            isPublic,
+            canView: isPublic
+          }
         };
       }
 
-      const actor = await this.getContractQueryActor(canisterId);
-
-
-      // Get minimal wallet info for quick access check
+      // Step 3: Check user roles (only if authenticated)
       const [isOwner, isSigner] = await Promise.all([
         actor.isOwner(Principal.fromText(authStore.principal)).catch(() => false),
         actor.isSigner(Principal.fromText(authStore.principal)).catch(() => false)
       ]);
 
       const isAuthorized = isOwner || isSigner;
+      const canView = isPublic || isAuthorized;
 
       return {
         success: true,
         data: {
           isOwner,
           isSigner,
-          isObserver: false, // TODO: implement observer check if needed
-          isAuthorized
+          isObserver: false,
+          isAuthorized,
+          isPublic,
+          canView
         }
       };
-    } catch (error) {
+    } catch (error: any) {
+      console.error('getWalletVisibility error:', error);
+      
+      // Check if it's a "wallet not found" error
+      if (error?.message?.includes('not found') || error?.message?.includes('does not exist')) {
+        return {
+          success: false,
+          error: 'Wallet not found'
+        };
+      }
+      
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to check wallet visibility'

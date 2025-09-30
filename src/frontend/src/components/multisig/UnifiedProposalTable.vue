@@ -99,11 +99,11 @@
                                     <component :is="getProposalIcon(proposal)" class="h-4 w-4" />
                                 </div>
                                 <div class="ml-4">
-                                    <div class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ proposal.title }}
+                                    <div class="text-sm font-medium text-gray-900 dark:text-white cursor-pointer" @click="$emit('view-proposal', proposal)">
+                                        {{ getProposalTitle(proposal) }}
                                     </div>
-                                    <div class="text-sm text-gray-500 dark:text-gray-400">
-                                        by {{ proposal.proposerName || (proposal.proposer ? proposal.proposer.toString().slice(0, 8) + '...' : 'Unknown') }}
+                                    <div class="text-xs text-gray-500 dark:text-gray-400">
+                                        by {{ getProposerDisplay(proposal) }}
                                     </div>
                                 </div>
                             </div>
@@ -278,7 +278,7 @@
 import { ref, computed } from 'vue'
 import { normalizeStatus, safeFormatTimeAgo, getProposalTypeDisplay } from '@/utils/multisig'
 import { shortPrincipal } from '@/utils/common'
-import { parseTokenAmount, formatTokenAmountLabel } from '@/utils/token'
+import { formatTokenDisplay } from '@/utils/token'
 import {
     FileTextIcon,
     PlusIcon,
@@ -397,6 +397,55 @@ const filteredProposals = computed(() => {
 const formatProposalType = (type: string) => {
     if(!type) return ''
     return type.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+}
+
+const getProposalTitle = (proposal: any): string => {
+    // Try to get title/name from various fields
+    if (proposal.title) return proposal.title
+    if (proposal.name) return proposal.name
+    if (proposal.description) return proposal.description
+
+    // Fallback: generate title based on proposal type
+    const type = getDetailedProposalType(proposal)
+    const id = proposal.id || proposal.proposalId || ''
+
+    return `${type} ${id ? `#${id}` : ''}`
+}
+
+const getProposerDisplay = (proposal: any): string => {
+    // Try to extract proposer name from various fields
+    const proposerName = extractFromMultiplePaths(proposal, [
+        'proposerName',
+        'creatorName',
+        'creator.name',
+        'proposer.name',
+        'metadata.proposerName',
+        'metadata.creatorName'
+    ])
+
+    if (proposerName) return proposerName
+
+    // Try to get proposer principal
+    const proposer = extractFromMultiplePaths(proposal, [
+        'proposer',
+        'creator',
+        'createdBy',
+        'metadata.proposer',
+        'metadata.creator'
+    ])
+
+    if (proposer) {
+        // Handle Principal object
+        if (typeof proposer === 'object' && proposer.toString) {
+            return shortPrincipal(proposer.toString())
+        }
+        // Handle string
+        if (typeof proposer === 'string') {
+            return shortPrincipal(proposer)
+        }
+    }
+
+    return 'Unknown'
 }
 
 // Enhanced proposal type display with context
@@ -793,23 +842,16 @@ const getAmountDisplay = (proposal: any): string => {
     }
 
     try {
-        // Handle BigInt amounts (from debug image: amount: 12300000000n)
-        const numAmount = typeof amount === 'bigint' ? Number(amount) : Number(amount)
-        
-        // Check if it's ICP (default) or token transfer
+        // Determine asset symbol for display
+        let symbol = 'Token'
         if (!asset || asset === 'ICP' || (typeof asset === 'object' && 'ICP' in asset)) {
-            // ICP transfer - convert e8s to ICP
-            const icpAmount = parseTokenAmount(numAmount, 8) // 8 decimals for ICP
-            return `${icpAmount.toFixed(6).replace(/\.?0+$/, '')} ICP`
-        } else if (typeof asset === 'object' && 'Token' in asset) {
-            // Token transfer - use token formatting with decimals
-            const tokenAmount = parseTokenAmount(numAmount, 8) // Assume 8 decimals for tokens
-            return formatTokenAmountLabel(tokenAmount.toString(), 'Token')
-        } else {
-            // Generic token - try to detect decimals or default to 8
-            const tokenAmount = parseTokenAmount(numAmount, 8)
-            return formatTokenAmountLabel(tokenAmount.toString(), asset || 'Token')
+            symbol = 'ICP'
+        } else if (typeof asset === 'string') {
+            symbol = asset
         }
+
+        // Use common formatTokenDisplay utility
+        return formatTokenDisplay(amount, 8, symbol)
     } catch (error) {
         return `${amount}`
     }
@@ -1135,7 +1177,7 @@ const getThresholdDisplay = (proposal: any): string => {
 }
 
 // Helper function to extract signer name from AddSigner/RemoveSigner actions
-const getSignerNameDisplay = (proposal: any): string => {
+const getSignerNameDisplay = (proposal: any): string | null => {
     // Check if proposal has actions array
     if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
         const firstAction = proposal.actions[0]
@@ -1146,7 +1188,7 @@ const getSignerNameDisplay = (proposal: any): string => {
                 if (modData.modificationType) {
                     const modTypeKey = Object.keys(modData.modificationType)[0]
                     const modTypeData = modData.modificationType[modTypeKey]
-                    
+
                     // Extract name from AddSigner/RemoveSigner: name: ["Jig"]
                     if (modTypeKey === 'AddSigner' || modTypeKey === 'RemoveSigner') {
                         if (modTypeData.name && Array.isArray(modTypeData.name) && modTypeData.name.length > 0) {
@@ -1163,12 +1205,12 @@ const getSignerNameDisplay = (proposal: any): string => {
             }
         }
     }
-    
+
     return null
 }
 
 // Helper function to extract role from AddSigner actions
-const getSignerRoleDisplay = (proposal: any): string => {
+const getSignerRoleDisplay = (proposal: any): string | null => {
     // Check if proposal has actions array
     if (proposal.actions && Array.isArray(proposal.actions) && proposal.actions.length > 0) {
         const firstAction = proposal.actions[0]
@@ -1190,7 +1232,7 @@ const getSignerRoleDisplay = (proposal: any): string => {
             }
         }
     }
-    
+
     return null
 }
 

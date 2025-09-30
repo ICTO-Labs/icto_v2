@@ -1,12 +1,35 @@
 <template>
   <div class="gap-4 md:gap-6">
     <!-- Loading state -->
-    <div v-if="loading">
+    <div v-if="loading || !visibilityLoaded">
       <LoadingSkeleton type="wallet-detail" />
     </div>
 
+    <!-- Access Denied state (wallet is private and user not authorized) -->
+    <div v-else-if="visibilityLoaded && userVisibility && !userVisibility.canView" 
+         class="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 dark:border-yellow-600 p-6 rounded-lg">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <svg class="h-6 w-6 text-yellow-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <div class="ml-4">
+          <h3 class="text-lg font-medium text-yellow-800 dark:text-yellow-200">
+            Private Wallet
+          </h3>
+          <p class="mt-1 text-sm text-yellow-700 dark:text-yellow-300">
+            This wallet is private. Only authorized signers and observers can view its details.
+          </p>
+          <p class="mt-2 text-xs text-yellow-600 dark:text-yellow-400">
+            If you believe you should have access, please contact the wallet owner.
+          </p>
+        </div>
+      </div>
+    </div>
+
     <!-- Error state -->
-    <div v-else-if="error" class="bg-red-50 border-l-4 border-red-400 p-4 mb-4">
+    <div v-else-if="error" class="bg-red-50 dark:bg-red-900/20 border-l-4 border-red-400 dark:border-red-600 p-4 mb-4 rounded-lg">
       <div class="flex">
         <div class="flex-shrink-0">
           <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
@@ -14,19 +37,19 @@
           </svg>
         </div>
         <div class="ml-3">
-          <p class="text-sm text-red-700">{{ error }}</p>
+          <p class="text-sm text-red-700 dark:text-red-300">{{ error }}</p>
         </div>
       </div>
     </div>
 
-    <!-- Wallet content -->
-    <div v-else-if="wallet">
+    <!-- Wallet content (only shown if user has access) -->
+    <div v-else-if="wallet && visibilityLoaded && userVisibility?.canView">
       <!-- Wallet Header -->
       <div class="mb-8">
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-4">
-            <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center">
-              <Shield class="h-6 w-6 text-white" />
+            <div class="w-12 h-12 bg-brand-100 dark:bg-brand-900/20 rounded-xl flex items-center justify-center">
+              <Shield class="h-6 w-6 text-brand-600 dark:text-brand-400" />
             </div>
             <div>
               <h1 class="text-2xl font-bold text-gray-900 dark:text-white">
@@ -42,11 +65,24 @@
                 >
                   {{ keyToText(wallet.status) }}
                 </span>
-                <span class="text-sm text-gray-500 dark:text-gray-400">
+                
+                <!-- Visibility Badge -->
+                <span v-if="wallet.config?.isPublic" 
+                      class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300">
+                  <Globe class="h-3 w-3" />
+                  Public
+                </span>
+                <span v-else 
+                      class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300">
+                  <Lock class="h-3 w-3" />
+                  Private
+                </span>
+                
+                <span class="text-xs text-gray-500 dark:text-gray-400">
                   {{ wallet.config?.threshold || wallet.threshold }}-of-{{ wallet.signers?.length || wallet.totalSigners }} Multisig
                 </span>
-                <span class="text-sm text-gray-500 dark:text-gray-400">
-                  {{ wallet.canisterId || wallet.id }}
+                <span class="text-xs text-gray-500 dark:text-gray-500 flex items-center gap-1 bg-gray-100 rounded-full px-2.5 py-0.5">
+                  {{ wallet.canisterId || wallet.id }} <CopyIcon :data="wallet.canisterId || wallet.id" class="h-3.5 w-3.5" />
                 </span>
               </div>
             </div>
@@ -90,13 +126,13 @@
               <RotateCcw class="h-4 w-4 mr-2" :class="{ 'animate-spin': multisigLoading }" />
               Refresh
             </button>
-            <button
+            <!-- <button
               @click="$emit('back')"
               class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
             >
               <ArrowLeft class="h-4 w-4 mr-2" />
               Back
-            </button>
+            </button> -->
           </div>
         </div>
       </div>
@@ -164,7 +200,7 @@
               class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
             >
               <div class="flex items-center space-x-3">
-                <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center">
                   <span class="text-white text-sm font-medium">
                     {{ getSignerInitials(signer) }}
                   </span>
@@ -329,7 +365,9 @@ import {
   RotateCcw,
   Users,
   X,
-  Archive
+  Archive,
+  Globe,
+  Lock
 } from 'lucide-vue-next'
 import { useAuthStore } from '@/stores/auth'
 import { useMultisigStore } from '@/stores/multisig'
@@ -342,6 +380,7 @@ import ManageSignersForm from './ManageSignersForm.vue'
 import LoadingSkeleton from './LoadingSkeleton.vue'
 import AssetsList from './AssetsList.vue'
 import UnifiedAuditDashboard from './UnifiedAuditDashboard.vue'
+import CopyIcon from '@/icons/CopyIcon.vue'
 import {
   formatPrincipal,
   formatICPAmount,
@@ -480,6 +519,8 @@ const getSignerInitials = (signer: any): string => {
   if (!signer) return ''
   if (signer?.name && typeof signer.name === 'string') {
     return signer.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
+  } else if (signer?.name && typeof signer.name === 'object') {
+    return signer.name[0].split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)
   }
   return signer?.principal?.toString().slice(0, 2).toUpperCase() || '??'
 }
@@ -810,16 +851,18 @@ const loadUserVisibility = async () => {
   if (visibilityLoaded.value && userVisibility.value && 
       userVisibility.value._walletId === currentWalletId && 
       userVisibility.value._principalId === currentPrincipal) {
-    return
+    return userVisibility.value
   }
 
-  if (!authStore.principal) {
-    userVisibility.value = { 
+  if (!currentWalletId) {
+    const defaultVisibility = { 
       isOwner: false, isSigner: false, isObserver: false, isAuthorized: false,
-      _walletId: currentWalletId, _principalId: null 
+      isPublic: false, canView: false,
+      _walletId: currentWalletId, _principalId: currentPrincipal 
     }
+    userVisibility.value = defaultVisibility
     visibilityLoaded.value = true
-    return
+    return defaultVisibility
   }
 
   try {
@@ -830,49 +873,67 @@ const loadUserVisibility = async () => {
       _principalId: currentPrincipal
     }
     visibilityLoaded.value = true
+    return userVisibility.value
   } catch (error) {
-    userVisibility.value = { 
+    console.error('Failed to load user visibility:', error)
+    const errorVisibility = { 
       isOwner: false, isSigner: false, isObserver: false, isAuthorized: false,
+      isPublic: false, canView: false,
       _walletId: currentWalletId, _principalId: currentPrincipal 
     }
+    userVisibility.value = errorVisibility
     visibilityLoaded.value = true
+    return errorVisibility
   }
 }
 
 
 // Lifecycle
 onMounted(async () => {
-  // Step 1: Load user visibility first (critical for UI)
-  await loadUserVisibility()
+  // Step 1: Load user visibility first (CRITICAL - determines if user can access)
+  const visibility = await loadUserVisibility()
   
-  // Step 2: Load essential data in parallel
-  await Promise.all([
-    loadProposals(),
-    loadBalance()
-  ])
-  
-  // Step 3: Load optional data (can be delayed)
-  loadEvents()
+  // Step 2: Only load data if user has permission to view
+  if (visibility?.canView) {
+    // Load essential data in parallel
+    await Promise.all([
+      loadProposals(),
+      loadBalance()
+    ])
+    
+    // Load optional data (can be delayed)
+    loadEvents()
+  } else {
+    console.warn('User does not have permission to view this wallet')
+  }
 })
 
 // Watch for wallet changes
 watch(() => props.wallet.canisterId || props.wallet.id, async () => {
   visibilityLoaded.value = false // Reset cache
-  await loadUserVisibility()
-  Promise.all([
-    loadProposals(),
-    loadBalance()
-  ])
-  loadEvents()
+  const visibility = await loadUserVisibility()
+  
+  // Only load data if user has permission
+  if (visibility?.canView) {
+    Promise.all([
+      loadProposals(),
+      loadBalance()
+    ])
+    loadEvents()
+  }
 })
 
 // Watch for auth changes
-watch(() => authStore.principal, () => {
+watch(() => authStore.principal, async () => {
   visibilityLoaded.value = false // Reset cache
-  if (authStore.principal) {
-    loadUserVisibility()
-  } else {
-    userVisibility.value = { isOwner: false, isSigner: false, isObserver: false, isAuthorized: false }
+  const visibility = await loadUserVisibility()
+  
+  // Reload data if user now has permission
+  if (visibility?.canView) {
+    Promise.all([
+      loadProposals(),
+      loadBalance()
+    ])
   }
 })
 </script>

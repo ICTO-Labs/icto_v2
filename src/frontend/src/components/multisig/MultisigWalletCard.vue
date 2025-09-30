@@ -8,12 +8,26 @@
         </div>
         <div>
           <h3 class="font-semibold text-gray-900 dark:text-white">{{ wallet.config.name }}</h3>
-          <span
-            class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium"
-            :class="getStatusClasses(wallet.status)"
-          >
-            {{ wallet.status }}
-          </span>
+          <div class="flex items-center gap-2 mt-1">
+            <span
+              class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium"
+              :class="getStatusClasses(wallet.status)"
+            >
+              {{ wallet.status }}
+            </span>
+            
+            <!-- Visibility Badge -->
+            <span v-if="wallet.config?.isPublic" 
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              <Globe :size="12" />
+              Public
+            </span>
+            <span v-else 
+                  class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
+              <Lock :size="12" />
+              Private
+            </span>
+          </div>
         </div>
       </div>
 
@@ -191,7 +205,9 @@ import {
   Grid3x3,
   Users,
   Calendar,
-  Shield
+  Shield,
+  Globe,
+  Lock
 } from 'lucide-vue-next';
 import { formatAmount } from '@/utils/token';
 import { formatTimeAgo } from '@/utils/time';

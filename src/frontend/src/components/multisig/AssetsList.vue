@@ -231,7 +231,7 @@ import { useAuthStore } from '@/stores/auth'
 import { multisigService } from '@/api/services/multisig'
 import { IcrcService } from '@/api/services/icrc'
 import { formatTokenAmount, isValidPrincipal } from '@/utils/multisig'
-import { parseTokenAmount } from '@/utils/token'
+import { formatTokenDisplay } from '@/utils/token'
 import { toast } from 'vue-sonner'
 import { useSwal } from '@/composables/useSwal2'
 import {
@@ -325,11 +325,10 @@ const canManageAssets = computed(() => {
 
 // Methods
 const formatBalance = (balance: bigint, decimals: number = 8): string => {
-    // Use parseTokenAmount for better formatting
-    const parsedAmount = parseTokenAmount(balance, decimals)
-
-    // Format with up to 6 decimal places, removing trailing zeros
-    return parsedAmount.toFixed(6).replace(/\.?0+$/, '')
+    // Use common formatTokenDisplay utility without symbol
+    const formatted = formatTokenDisplay(balance, decimals, '')
+    // Remove trailing space if no symbol
+    return formatted.trim()
 }
 
 const formatCanisterId = (canisterId: string | null): string => {
@@ -344,19 +343,41 @@ const loadStoredAssets = async (): Promise<any[]> => {
             const result = await multisigService.getWatchedAssets(props.walletId)
 
             if (result.success && result.data) {
-                const mappedAssets = result.data.map((asset: any) => {
+                const mappedAssets = await Promise.all(result.data.map(async (asset: any) => {
                     const id = `${getAssetTypeId(asset)}_${Date.now()}`
+                    const type = getAssetType(asset)
+                    const canisterId = getAssetCanisterId(asset)
+                    const tokenId = getAssetTokenId(asset)
+
+                    let symbol = 'Unknown'
+                    let name = 'Unknown Token'
+                    let decimals = 8
+
+                    // Fetch metadata for ICRC1 tokens
+                    if (type === 'ICRC1' && canisterId) {
+                        try {
+                            const tokenMetadata = await IcrcService.getIcrc1Metadata(canisterId)
+                            if (tokenMetadata) {
+                                symbol = tokenMetadata.symbol || 'TOKEN'
+                                name = tokenMetadata.name || 'ICRC-1 Token'
+                                decimals = tokenMetadata.decimals || 8
+                            }
+                        } catch (error) {
+                            console.warn(`Failed to fetch metadata for ${canisterId}:`, error)
+                        }
+                    }
+
                     return {
                         id,
-                        type: getAssetType(asset),
-                        canisterId: getAssetCanisterId(asset),
-                        tokenId: getAssetTokenId(asset),
+                        type,
+                        canisterId,
+                        tokenId,
                         balance: 0n,
-                        decimals: 8,
-                        symbol: 'Loading...',
-                        name: 'Loading...'
+                        decimals,
+                        symbol,
+                        name
                     }
-                })
+                }))
                 return mappedAssets
             }
         } catch (error) {
@@ -693,6 +714,9 @@ onMounted(async () => {
     const storedAssets = await loadStoredAssets()
     assets.value = [...defaultAssets.value, ...storedAssets]
 
+    // Save assets to localStorage with updated metadata
+    await saveAssets(storedAssets)
+
     // Emit initial assets
     emit('assets-updated', assets.value)
 
@@ -704,6 +728,9 @@ onMounted(async () => {
 watch(() => props.walletId, async () => {
     const storedAssets = await loadStoredAssets()
     assets.value = [...defaultAssets.value, ...storedAssets]
+
+    // Save assets to localStorage with updated metadata
+    await saveAssets(storedAssets)
 
     // Emit updated assets
     emit('assets-updated', assets.value)
