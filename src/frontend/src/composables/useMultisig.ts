@@ -120,7 +120,7 @@ export function useMultisig() {
     }
   };
 
-  const createWallet = async (formData: MultisigFormData): Promise<boolean> => {
+  const createWallet = async (formData: MultisigFormData): Promise<{ success: boolean; walletId?: string; canisterId?: Principal }> => {
     setLoading(true);
     clearError();
 
@@ -129,14 +129,18 @@ export function useMultisig() {
       if (response.success && response.data) {
         // Refresh wallets list
         await fetchWallets();
-        return true;
+        return {
+          success: true,
+          walletId: response.data.walletId,
+          canisterId: response.data.canisterId
+        };
       } else {
         setError(response.error || 'Failed to create wallet');
-        return false;
+        return { success: false };
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create wallet');
-      return false;
+      return { success: false };
     } finally {
       setLoading(false);
     }

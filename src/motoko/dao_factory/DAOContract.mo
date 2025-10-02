@@ -25,7 +25,10 @@ import SafeMath "../shared/utils/SafeMath";
 import DAOUtils "../shared/utils/DAO";
 // ICTO V2 - Mini DAO Contract
 // FIXED: Proper ICRC2 approve/transferFrom pattern + comprehensive transaction logging
-persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
+shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
+
+    // Store factory principal for callbacks
+    private var factoryPrincipal : Principal = factory;
 
     // ================ TYPE DEFINITIONS ================
     
@@ -1330,6 +1333,50 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
         };
     };
 
+    // ================ FACTORY CALLBACK HELPERS ================
+
+    /// Notify factory when a member joins (becomes staker)
+    private func _notifyFactoryMemberJoined(member: Principal) : async () {
+        let factory = actor(Principal.toText(factoryPrincipal)) : actor {
+            notifyMemberJoined : (Principal) -> async Result.Result<(), Text>;
+        };
+
+        try {
+            let result = await factory.notifyMemberJoined(member);
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ Notified factory: member " # Principal.toText(member) # " joined");
+                };
+                case (#err(msg)) {
+                    Debug.print("⚠️ Factory notification failed: " # msg);
+                };
+            };
+        } catch (e) {
+            Debug.print("⚠️ Failed to notify factory: " # Error.message(e));
+        };
+    };
+
+    /// Notify factory when a member leaves (unstakes all)
+    private func _notifyFactoryMemberLeft(member: Principal) : async () {
+        let factory = actor(Principal.toText(factoryPrincipal)) : actor {
+            notifyMemberLeft : (Principal) -> async Result.Result<(), Text>;
+        };
+
+        try {
+            let result = await factory.notifyMemberLeft(member);
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ Notified factory: member " # Principal.toText(member) # " left");
+                };
+                case (#err(msg)) {
+                    Debug.print("⚠️ Factory notification failed: " # msg);
+                };
+            };
+        } catch (e) {
+            Debug.print("⚠️ Failed to notify factory: " # Error.message(e));
+        };
+    };
+
     // ================ STAKING FUNCTIONS WITH SECURITY ================
 
     /// 🔥 NEW: Enhanced stake function with tier system and anti-gaming
@@ -1462,9 +1509,15 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                         case (#ok(stakeEntry)) {
                             // Add to user's stake entries
                             let currentEntries = _getUserStakeEntries(caller);
+                            let wasNewMember = Array.size(currentEntries) == 0;
                             let updatedEntries = Array.append(currentEntries, [stakeEntry]);
                             _updateUserStakeEntries(caller, updatedEntries);
-                            
+
+                            // Notify factory if this is user's first stake (becoming member)
+                            if (wasNewMember) {
+                                await _notifyFactoryMemberJoined(caller);
+                            };
+
                             // Update totals with SafeMath
                             switch (SafeMath.addNat(total_staked, amount)) {
                                 case (#err(msg)) { return #err("Total staked calculation failed: " # msg) };
@@ -1583,7 +1636,13 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
             case (#ok(blockIndex)) {
                 // Update state
                 _updateUserStakeEntries(caller, updatedEntries);
-                
+
+                // Check if user has left (no more active entries)
+                let hasLeft = Array.filter<Types.StakeEntry>(updatedEntries, func(e) = e.isActive and e.amount > 0).size() == 0;
+                if (hasLeft) {
+                    await _notifyFactoryMemberLeft(caller);
+                };
+
                 // Add timeline entry
                 _addTimelineEntry(
                     caller,
@@ -1591,7 +1650,7 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                     "Unstaked " # Nat.toText(amount / Types.E8S) # " tokens (batch)",
                     ?blockIndex
                 );
-                
+
                 return #ok();
             };
         }
@@ -1684,7 +1743,13 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                 });
                 
                 _updateUserStakeEntries(caller, updatedEntries);
-                
+
+                // Check if user has left (no more active entries)
+                let hasLeft = Array.filter<Types.StakeEntry>(updatedEntries, func(e) = e.isActive and e.amount > 0).size() == 0;
+                if (hasLeft) {
+                    await _notifyFactoryMemberLeft(caller);
+                };
+
                 // Add timeline entry
                 _addTimelineEntry(
                     caller,
@@ -1692,7 +1757,7 @@ persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
                     "Unstaked " # Nat.toText(unstakeAmount / Types.E8S) # " tokens (Entry #" # Nat.toText(entryId) # ", Lock: " # Nat.toText(entry.lockPeriod / SECONDS_PER_DAY) # " days)",
                     ?blockIndex
                 );
-                
+
                 return #ok();
             };
         }

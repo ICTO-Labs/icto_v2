@@ -317,3 +317,7 @@ export const tokenFactoryActor = ({ anon = false, requiresSigning = true }: { an
 export const distributionFactoryActor = ({ anon = false, requiresSigning = false }: { anon?: boolean, requiresSigning?: boolean }) => {
     return pnp.getActor<CanisterType["DISTRIBUTION_FACTORY"]>({ canisterId: canisters.distribution_factory.canisterId!, idl: canisters.distribution_factory.idl, anon, requiresSigning });
 }
+
+export const multisigFactoryActor = ({ anon = false, requiresSigning = false }: { anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["MULTISIG_FACTORY"]>({ canisterId: canisters.multisig_factory.canisterId!, idl: canisters.multisig_factory.idl, anon, requiresSigning });
+}

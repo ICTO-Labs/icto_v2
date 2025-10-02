@@ -22,15 +22,14 @@ import Nat64 "mo:base/Nat64";
 import Nat32 "mo:base/Nat32";
 
 import MultisigTypes "../shared/types/MultisigTypes";
+import MultisigUpgradeTypes "../shared/types/MultisigUpgradeTypes";
+import IUpgradeable "../common/IUpgradeable";
 import ICRC "../shared/types/ICRC";
 import SafeMath "../shared/utils/SafeMath";
+import Prim "mo:⛔";
+import Cycles "mo:base/ExperimentalCycles";
 
-persistent actor class MultisigContract(initArgs: {
-        id: MultisigTypes.WalletId;
-        config: MultisigTypes.WalletConfig;
-        creator: Principal;
-        factory: Principal;
-    }) = self {
+persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigInitArgs) = self {
 
         // ============== TYPES ==============
 
@@ -38,63 +37,172 @@ persistent actor class MultisigContract(initArgs: {
         private type EventEntry = (Text, MultisigTypes.WalletEvent);
         private type SignerEntry = (Principal, MultisigTypes.SignerInfo);
 
+        // ============== INITIALIZATION ==============
+
+        // Determine deployment mode
+        let isUpgrade: Bool = switch (initArgs) {
+            case (#InitialSetup(_)) { false };
+            case (#Upgrade(_)) { true };
+        };
+
+        // Extract metadata based on mode
+        let init_id: MultisigTypes.WalletId = switch (initArgs) {
+            case (#InitialSetup(setup)) {
+                Debug.print("🆕 MultisigContract: Fresh deployment");
+                setup.id
+            };
+            case (#Upgrade(upgrade)) {
+                Debug.print("⬆️ MultisigContract: Upgrading from previous version");
+                upgrade.id
+            };
+        };
+
+        let init_config: MultisigTypes.WalletConfig = switch (initArgs) {
+            case (#InitialSetup(setup)) { setup.config };
+            case (#Upgrade(upgrade)) { upgrade.currentConfig };  // CURRENT config (may have been modified!)
+        };
+
+        let init_creator: Principal = switch (initArgs) {
+            case (#InitialSetup(setup)) { setup.creator };
+            case (#Upgrade(upgrade)) { upgrade.creator };
+        };
+
+        let init_factory: Principal = switch (initArgs) {
+            case (#InitialSetup(setup)) { setup.factory };
+            case (#Upgrade(upgrade)) { upgrade.factory };
+        };
+
+        let init_createdAt: Time.Time = switch (initArgs) {
+            case (#InitialSetup(_)) { Time.now() };
+            case (#Upgrade(upgrade)) { upgrade.createdAt };
+        };
+
+        // Extract runtime state if upgrading
+        let upgradeState: ?MultisigUpgradeTypes.MultisigRuntimeState = switch (initArgs) {
+            case (#InitialSetup(_)) { null };
+            case (#Upgrade(upgrade)) { ?upgrade.runtimeState };
+        };
+
         // ============== STATE ==============
 
-        private var walletId = Principal.toText(Principal.fromActor(self));//initArgs.id;
-        private var walletConfig = initArgs.config;
-        private var creator = initArgs.creator;
-        private var factory = initArgs.factory;
-        private var createdAt = Time.now();
+        // Metadata (static or from upgrade)
+        private var walletId = init_id;
+        private var walletConfig = init_config;
+        private var creator = init_creator;
+        private var factory = init_factory;
+        private var createdAt = init_createdAt;
 
         // Core wallet state - STABLE for upgrades (implicitly stable in persistent actor)
-        private var status: MultisigTypes.WalletStatus = #Setup;
-        private var version: Nat = 1;
-        private var lastActivity = Time.now();
+        private var status: MultisigTypes.WalletStatus = switch (upgradeState) {
+            case null { #Setup };
+            case (?state) { state.status };
+        };
+        private var version: Nat = switch (upgradeState) {
+            case null { 1 };
+            case (?state) { state.version };
+        };
+        private var lastActivity = switch (upgradeState) {
+            case null { Time.now() };
+            case (?state) { state.lastActivity };
+        };
+
+        // Contract version for upgrade tracking
+        private var contractVersion: IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
 
         // Signers and permissions - STABLE for upgrades
-        private var signersEntries: [SignerEntry] = [];
-        private var observersArray: [Principal] = [];
+        private var signersEntries: [SignerEntry] = switch (upgradeState) {
+            case null { [] };
+            case (?state) { state.signersEntries };
+        };
+        private var observersArray: [Principal] = switch (upgradeState) {
+            case null { [] };
+            case (?state) { state.observersArray };
+        };
 
         // Proposals and execution - STABLE for upgrades
-        private var nextProposalId: Nat = 1;
-        private var proposalsEntries: [ProposalEntry] = [];
-        private var totalProposals: Nat = 0;
-        private var executedProposals: Nat = 0;
-        private var failedProposals: Nat = 0;
+        private var nextProposalId: Nat = switch (upgradeState) {
+            case null { 1 };
+            case (?state) { state.nextProposalId };
+        };
+        private var proposalsEntries: [ProposalEntry] = switch (upgradeState) {
+            case null { [] };
+            case (?state) { state.proposalsEntries };
+        };
+        private var totalProposals: Nat = switch (upgradeState) {
+            case null { 0 };
+            case (?state) { state.totalProposals };
+        };
+        private var executedProposals: Nat = switch (upgradeState) {
+            case null { 0 };
+            case (?state) { state.executedProposals };
+        };
+        private var failedProposals: Nat = switch (upgradeState) {
+            case null { 0 };
+            case (?state) { state.failedProposals };
+        };
 
         // Asset tracking - STABLE for upgrades
-        private var icpBalance: Nat = 0;
-        private var tokensArray: [MultisigTypes.TokenBalance] = [];
-        private var nftsArray: [MultisigTypes.NFTBalance] = [];
+        private var icpBalance: Nat = switch (upgradeState) {
+            case null { 0 };
+            case (?state) { state.icpBalance };
+        };
+        private var tokensArray: [MultisigTypes.TokenBalance] = switch (upgradeState) {
+            case null { [] };
+            case (?state) { state.tokensArray };
+        };
+        private var nftsArray: [MultisigTypes.NFTBalance] = switch (upgradeState) {
+            case null { [] };
+            case (?state) { state.nftsArray };
+        };
 
         // Watched assets - STABLE for upgrades
-        private var watchedAssets: [MultisigTypes.AssetType] = [];
+        private var watchedAssets: [MultisigTypes.AssetType] = switch (upgradeState) {
+            case null { [] };
+            case (?state) { state.watchedAssets };
+        };
 
         // Security and monitoring - STABLE for upgrades
-        private var securityFlags: MultisigTypes.SecurityFlags = {
-            suspiciousActivity = false;
-            rateLimit = false;
-            geoRestricted = false;
-            complianceAlert = false;
-            autoFreezeEnabled = true;
-            anomalyDetection = true;
-            whitelistOnly = false;
-            failedAttempts = 0;
-            lastSecurityEvent = null;
-            securityScore = 1.0;
+        private var securityFlags: MultisigTypes.SecurityFlags = switch (upgradeState) {
+            case null {
+                {
+                    suspiciousActivity = false;
+                    rateLimit = false;
+                    geoRestricted = false;
+                    complianceAlert = false;
+                    autoFreezeEnabled = true;
+                    anomalyDetection = true;
+                    whitelistOnly = false;
+                    failedAttempts = 0;
+                    lastSecurityEvent = null;
+                    securityScore = 1.0;
+                }
+            };
+            case (?state) { state.securityFlags };
         };
 
         // Reentrancy protection - STABLE for upgrades
-        private var isExecuting: Bool = false;
-        private var emergencyPaused: Bool = false;
+        private var isExecuting: Bool = switch (upgradeState) {
+            case null { false };
+            case (?state) { state.isExecuting };
+        };
+        private var emergencyPaused: Bool = switch (upgradeState) {
+            case null { false };
+            case (?state) { state.emergencyPaused };
+        };
 
         // Enhanced rate limiting - Runtime state (will be reconstructed)
         private transient var lastProposalTimes = HashMap.HashMap<Principal, Int>(10, Principal.equal, Principal.hash);
         private transient var dailyLimitsUsage = HashMap.HashMap<Text, Nat>(10, Text.equal, Text.hash);
 
         // Events and audit trail - STABLE for upgrades
-        private var eventsEntries: [EventEntry] = [];
-        private var nextEventId: Nat = 1;
+        private var eventsEntries: [EventEntry] = switch (upgradeState) {
+            case null { [] };
+            case (?state) { state.eventsEntries };
+        };
+        private var nextEventId: Nat = switch (upgradeState) {
+            case null { 1 };
+            case (?state) { state.nextEventId };
+        };
 
         // Runtime state
         private transient var signers = HashMap.fromIter<Principal, MultisigTypes.SignerInfo>(
@@ -1721,6 +1829,146 @@ persistent actor class MultisigContract(initArgs: {
 
         public query func getWatchedAssets(): async [MultisigTypes.AssetType] {
             watchedAssets
+        };
+
+        // ================ IUPGRADEABLE INTERFACE ================
+
+        /// Get current state serialized for upgrade
+        /// CRITICAL: Returns CURRENT config (may have been modified via #UpdateWalletConfig)
+        public query func getUpgradeArgs() : async Blob {
+            let upgradeData: MultisigUpgradeTypes.MultisigUpgradeArgs = {
+                // Metadata (static)
+                id = walletId;
+                creator = creator;
+                factory = factory;
+                createdAt = createdAt;
+
+                // CURRENT config (DYNAMIC - may have been modified!)
+                currentConfig = walletConfig;
+
+                // Current runtime state
+                runtimeState = {
+                    status = status;
+                    version = version;
+                    lastActivity = lastActivity;
+
+                    // Signers and permissions (from HashMaps → Arrays)
+                    signersEntries = Iter.toArray(signers.entries());
+                    observersArray = Buffer.toArray(observers);
+
+                    // Proposals and execution
+                    nextProposalId = nextProposalId;
+                    proposalsEntries = Iter.toArray(proposals.entries());
+                    totalProposals = totalProposals;
+                    executedProposals = executedProposals;
+                    failedProposals = failedProposals;
+
+                    // Asset tracking
+                    icpBalance = icpBalance;
+                    tokensArray = tokensArray;
+                    nftsArray = nftsArray;
+
+                    // Watched assets
+                    watchedAssets = watchedAssets;
+
+                    // Security and monitoring
+                    securityFlags = securityFlags;
+
+                    // Reentrancy protection
+                    isExecuting = isExecuting;
+                    emergencyPaused = emergencyPaused;
+
+                    // Events and audit trail
+                    eventsEntries = Iter.toArray(events.entries());
+                    nextEventId = nextEventId;
+                };
+            };
+
+            // Serialize to Candid blob
+            to_candid(upgradeData)
+        };
+
+        /// Validate if contract is ready for upgrade
+        public query func canUpgrade() : async Result.Result<(), Text> {
+            // Check 1: Not in executing state
+            if (isExecuting) {
+                return #err("Cannot upgrade: Transaction in progress");
+            };
+
+            // Check 2: Not in emergency pause (unless intentional)
+            if (emergencyPaused) {
+                return #err("Cannot upgrade: Contract is paused");
+            };
+
+            // Check 3: No pending high-risk proposals
+            var hasHighRiskPending = false;
+            for ((_, proposal) in proposals.entries()) {
+                if (proposal.status == #Pending and proposal.risk == #High) {
+                    hasHighRiskPending := true;
+                };
+            };
+
+            if (hasHighRiskPending) {
+                return #err("Cannot upgrade: High-risk proposals pending");
+            };
+
+            #ok()
+        };
+
+        /// Get current contract version
+        public query func getVersion() : async IUpgradeable.Version {
+            contractVersion
+        };
+
+        /// Comprehensive health check
+        public query func healthCheck() : async IUpgradeable.HealthStatus {
+            let issues = Buffer.Buffer<Text>(0);
+
+            // Check 1: Signers configuration
+            let signerCount = signers.size();
+            if (signerCount == 0) {
+                issues.add("No signers configured");
+            };
+            if (signerCount < walletConfig.threshold) {
+                issues.add("Signer count below threshold");
+            };
+
+            // Check 2: Wallet status
+            if (status == #Setup) {
+                issues.add("Wallet still in setup mode");
+            };
+
+            // Check 3: Security status
+            if (securityFlags.suspiciousActivity) {
+                issues.add("Suspicious activity detected");
+            };
+            if (securityFlags.failedAttempts > 3) {
+                issues.add("Multiple failed attempts: " # Nat.toText(securityFlags.failedAttempts));
+            };
+
+            // Check 4: Emergency status
+            if (emergencyPaused) {
+                issues.add("Contract is paused");
+            };
+
+            // Check 5: Threshold validation
+            if (walletConfig.threshold > signerCount) {
+                issues.add("Invalid threshold configuration");
+            };
+
+            // Check 6: Cycles balance
+            let cyclesBalance = Cycles.balance();
+            if (cyclesBalance < 100_000_000_000) { // 0.1T
+                issues.add("Low cycles: " # Nat.toText(cyclesBalance));
+            };
+
+            {
+                healthy = issues.size() == 0;
+                issues = Buffer.toArray(issues);
+                lastActivity = lastActivity;
+                canisterCycles = cyclesBalance;
+                memorySize = Prim.rts_memory_size();
+            }
         };
 
         public shared({caller}) func getWalletBalances(

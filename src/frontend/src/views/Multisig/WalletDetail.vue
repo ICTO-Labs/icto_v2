@@ -37,8 +37,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useMultisigStore } from '@/stores/multisig'
-import type { ExtendedMultisigWallet } from '@/types/multisig'
+import { useMultisigFactory } from '@/composables/useMultisigFactory'
+import type { WalletInfo } from '@/api/services/multisigFactory'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import MultisigWalletDetail from '@/components/multisig/MultisigWalletDetail.vue'
 import LoadingSkeleton from '@/components/multisig/LoadingSkeleton.vue'
@@ -48,13 +48,17 @@ import Breadcrumb from '@/components/common/Breadcrumb.vue'
 const route = useRoute()
 const router = useRouter()
 
-// Store
-const multisigStore = useMultisigStore()
+// Composable
+const {
+  loading,
+  error,
+  getWalletById,
+  fetchMyCreatedWallets,
+  myCreatedWallets
+} = useMultisigFactory()
 
 // Reactive state
-const loading = ref(false)
-const error = ref<string | null>(null)
-const wallet = ref<ExtendedMultisigWallet | null>(null)
+const wallet = ref<WalletInfo | null>(null)
 
 // Breadcrumb
 const breadcrumbItems = computed(() => [
@@ -64,30 +68,28 @@ const breadcrumbItems = computed(() => [
 
 // Methods
 const loadWalletData = async () => {
-    loading.value = true
+    const walletIdParam = route.params.id as string
+
+    // Clear previous error
     error.value = null
 
     try {
-        const canisterId = route.params.id as string
+        // Try direct factory query using the wallet ID parameter
+        let result = await getWalletById(walletIdParam)
 
-        // Try to find wallet in store first
-        const existingWallet = multisigStore.wallets.find(w => w.canisterId.toString() === canisterId)
+        // If not found by canisterId, try to find wallet by canisterId in all wallets
+        if (!result) {
+            await fetchMyCreatedWallets(100, 0) // Fetch more to find the wallet
+            result = myCreatedWallets.value.find(w => w.canisterId.toString() === walletIdParam)
+        }
 
-        if (existingWallet) {
-            wallet.value = existingWallet
+        if (result) {
+            wallet.value = result
         } else {
-            // Load wallet info directly using canisterId
-            const result = await multisigStore.loadWallet(canisterId)
-            if (result) {
-                wallet.value = result
-            } else {
-                error.value = 'Wallet not found'
-            }
+            error.value = 'Wallet not found'
         }
     } catch (err) {
         error.value = err instanceof Error ? err.message : 'Failed to load wallet'
-    } finally {
-        loading.value = false
     }
 }
 

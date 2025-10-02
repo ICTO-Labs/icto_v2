@@ -150,7 +150,7 @@ const isHighRiskProposal = computed(() => {
     // Check if transfer amount is large (you can adjust this threshold)
     const transferData = props.proposal.proposalType.Transfer
     if (transferData && 'ICP' in transferData.asset) {
-      const amount = Number(transferData.amount) / 100000000 // Convert from e8s to ICP
+      const amount = (typeof transferData.amount === 'bigint' ? Number(transferData.amount) : transferData.amount) / 100000000 // Convert from e8s to ICP
       return amount > 10 // Consider > 10 ICP as high risk
     }
   }

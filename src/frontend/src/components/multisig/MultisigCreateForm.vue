@@ -468,12 +468,14 @@ const handleSubmit = async () => {
 
   try {
     const { createWallet } = useMultisig();
-    const success = await createWallet(formData.value);
+    const result = await createWallet(formData.value);
 
-    if (success) {
+    if (result.success && result.walletId) {
       toast.success('Multisig wallet created successfully!');
-      emit('success', 'wallet-id'); // TODO: Get actual wallet ID
+      emit('success', result.walletId);
       resetForm();
+    } else {
+      toast.error('Failed to create wallet');
     }
   } catch (error) {
     toast.error(error instanceof Error ? error.message : 'Failed to create wallet');

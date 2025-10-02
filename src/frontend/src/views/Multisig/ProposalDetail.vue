@@ -462,7 +462,7 @@
                                                     <div v-if="proposal.type === 'icp_transfer' && proposal.transactionData" class="mt-3 pt-3 border-t border-emerald-200 dark:border-emerald-700">
                                                         <div class="text-xs text-emerald-600 dark:text-emerald-400 font-medium mb-2">🔗 Transaction Details:</div>
                                                         <div class="space-y-1 text-xs text-emerald-700 dark:text-emerald-200">
-                                                            <div>✅ {{ formatCurrency(Number(proposal.transactionData.amount || 0) / 100000000) }} ICP transferred</div>
+                                                            <div>✅ {{ formatCurrency((typeof proposal.transactionData.amount === 'bigint' ? Number(proposal.transactionData.amount) : Number(proposal.transactionData.amount || 0)) / 100000000) }} ICP transferred</div>
                                                             <div>📨 To: <span class="font-mono text-xs">{{ proposal.transactionData.to }}</span></div>
                                                             <div v-if="proposal.transactionData.memo">📝 Memo: {{ proposal.transactionData.memo }}</div>
                                                         </div>
@@ -936,13 +936,16 @@ const loadProposalData = async () => {
 
         // Parse timestamps
         if (proposal.proposedAt) {
-            proposal.proposedAt = new Date(Number(proposal.proposedAt) / 1000000) // Convert nanoseconds to milliseconds
+            const proposedAtValue = typeof proposal.proposedAt === 'bigint' ? Number(proposal.proposedAt) : proposal.proposedAt
+            proposal.proposedAt = new Date(proposedAtValue / 1000000) // Convert nanoseconds to milliseconds
         }
         if (proposal.expiresAt) {
-            proposal.expiresAt = new Date(Number(proposal.expiresAt) / 1000000)
+            const expiresAtValue = typeof proposal.expiresAt === 'bigint' ? Number(proposal.expiresAt) : proposal.expiresAt
+            proposal.expiresAt = new Date(expiresAtValue / 1000000)
         }
         if (proposal.executedAt) {
-            proposal.executedAt = new Date(Number(proposal.executedAt) / 1000000)
+            const executedAtValue = typeof proposal.executedAt === 'bigint' ? Number(proposal.executedAt) : proposal.executedAt
+            proposal.executedAt = new Date(executedAtValue / 1000000)
         }
 
         // Parse signature data from approvals array
@@ -950,7 +953,7 @@ const loadProposalData = async () => {
             proposal.signatures = proposal.approvals.map((approval: any) => ({
                 signer: approval.signer.toString(),
                 signerName: getSignerName(approval.signer.toString(), walletInfo.signers),
-                signedAt: approval.approvedAt ? new Date(Number(approval.approvedAt) / 1000000) : new Date(),
+                signedAt: approval.approvedAt ? new Date((typeof approval.approvedAt === 'bigint' ? Number(approval.approvedAt) : approval.approvedAt) / 1000000) : new Date(),
                 note: Array.isArray(approval.note) && approval.note.length > 0 ? approval.note[0] : (approval.note || null)
             }))
         } else {

@@ -76,7 +76,7 @@
                         </div>
                         <div class="text-right">
                             <div class="text-2xl font-bold text-blue-900 dark:text-blue-200">
-                                {{ formatCurrency(Number(deploymentFee) / 100000000) }}
+                                {{ formatCurrency((typeof deploymentFee === 'bigint' ? Number(deploymentFee) : deploymentFee) / 100000000) }}
                             </div>
                             <div class="text-sm text-blue-700 dark:text-blue-300">
                                 ICP

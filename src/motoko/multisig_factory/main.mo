@@ -19,7 +19,9 @@ import Float "mo:base/Float";
 import Blob "mo:base/Blob";
 
 import MultisigTypes "../shared/types/MultisigTypes";
+import MultisigUpgradeTypes "../shared/types/MultisigUpgradeTypes";
 import MultisigContract "./MultisigContract";
+import IUpgradeable "../common/IUpgradeable";
 import ICManagement "../shared/utils/IC";
 
 // Import VersionManager for version management
@@ -75,6 +77,11 @@ persistent actor MultisigFactory {
     private var totalFailed: Nat = 0;
     private var walletsEntries: [(MultisigTypes.WalletId, WalletRegistry)] = [];
 
+    // Factory-First V2: User Indexes (Stable Storage)
+    private var creatorIndexStable : [(Principal, [Principal])] = [];
+    private var signerIndexStable : [(Principal, [Principal])] = [];
+    private var observerIndexStable : [(Principal, [Principal])] = [];
+
     // Runtime state
     private transient var wallets = HashMap.fromIter<MultisigTypes.WalletId, WalletRegistry>(
         walletsEntries.vals(),
@@ -82,6 +89,11 @@ persistent actor MultisigFactory {
         Text.equal,
         Text.hash
     );
+
+    // Factory-First V2: User Indexes (Runtime)
+    private transient var creatorIndex = HashMap.HashMap<Principal, [Principal]>(10, Principal.equal, Principal.hash);
+    private transient var signerIndex = HashMap.HashMap<Principal, [Principal]>(10, Principal.equal, Principal.hash);
+    private transient var observerIndex = HashMap.HashMap<Principal, [Principal]>(10, Principal.equal, Principal.hash);
 
     // Backend-Managed Admin System
     private var admins: [Principal] = [];
@@ -243,12 +255,14 @@ persistent actor MultisigFactory {
             Cycles.add(requiredCycles);
 
             // Create MultisigContract actor
-            let multisigWallet = await MultisigContract.MultisigContract({
+            let initArgs: MultisigUpgradeTypes.MultisigInitArgs = #InitialSetup({
                 id = walletId;
                 config = config;
                 creator = actualCreator;
                 factory = Principal.fromActor(MultisigFactory);
             });
+
+            let multisigWallet = await MultisigContract.MultisigContract(initArgs);
             Debug.print("MultisigFactory: Created MultisigContract actor");
             let canisterId = Principal.fromActor(multisigWallet);
 
@@ -284,8 +298,22 @@ persistent actor MultisigFactory {
             wallets.put(walletId, registry);
             totalDeployed += 1;
 
+            // Index creator
+            addToIndex(creatorIndex, actualCreator, canisterId);
+
+            // Index signers and observers
+            for (signer in config.signers.vals()) {
+                if (signer.role == #Observer) {
+                    addToIndex(observerIndex, signer.principal, canisterId);
+                } else {
+                    addToIndex(signerIndex, signer.principal, canisterId);
+                };
+            };
+
             Debug.print("MultisigFactory: Successfully deployed wallet " # walletId #
                        " to canister " # Principal.toText(canisterId));
+            Debug.print("Indexed: creator=" # Principal.toText(actualCreator) #
+                       ", signers=" # debug_show(config.signers.size()));
 
             #ok({
                 walletId = walletId;
@@ -336,10 +364,61 @@ persistent actor MultisigFactory {
         #ok()
     };
 
+    // ============== INDEX MANAGEMENT ==============
+
+    private func addToIndex(index: HashMap.HashMap<Principal, [Principal]>, user: Principal, walletId: Principal) {
+        let existing = switch (index.get(user)) {
+            case (?list) list;
+            case null [];
+        };
+
+        // Check if already indexed
+        let alreadyIndexed = Array.find<Principal>(existing, func(id) = id == walletId);
+        if (alreadyIndexed != null) {
+            return; // Already indexed
+        };
+
+        // Add to index
+        let updated = Array.append<Principal>(existing, [walletId]);
+        index.put(user, updated);
+    };
+
+    private func removeFromIndex(index: HashMap.HashMap<Principal, [Principal]>, user: Principal, walletId: Principal) {
+        switch (index.get(user)) {
+            case (?list) {
+                let filtered = Array.filter<Principal>(list, func(id) = id != walletId);
+                if (filtered.size() > 0) {
+                    index.put(user, filtered);
+                } else {
+                    index.delete(user);
+                };
+            };
+            case null {};
+        };
+    };
+
+    private func getFromIndex(index: HashMap.HashMap<Principal, [Principal]>, user: Principal): [Principal] {
+        switch (index.get(user)) {
+            case (?list) list;
+            case null [];
+        };
+    };
+
     // ============== QUERY FUNCTIONS ==============
 
     public query func getWallet(walletId: MultisigTypes.WalletId): async ?WalletRegistry {
         wallets.get(walletId)
+    };
+
+    // Get wallet by canisterId (preferred method for frontend)
+    public query func getWalletByCanisterId(canisterId: Principal): async ?WalletRegistry {
+        // Find wallet by canisterId
+        for ((_, wallet) in wallets.entries()) {
+            if (wallet.canisterId == canisterId) {
+                return ?wallet;
+            };
+        };
+        null
     };
 
     public query func getWalletsByCreator(creator: Principal): async [WalletRegistry] {
@@ -348,6 +427,151 @@ persistent actor MultisigFactory {
             func(wallet) = wallet.creator == creator
         );
         result
+    };
+
+    // Factory-First V2: Index-based queries
+    public query func getMyCreatedWallets(user: Principal, limit: Nat, offset: Nat): async {
+        wallets: [WalletRegistry];
+        total: Nat;
+    } {
+        let walletIds = getFromIndex(creatorIndex, user);
+        let total = walletIds.size();
+
+        // Apply pagination
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(walletIds, start, end - start);
+
+        // Fetch wallet registries
+        let result = Array.mapFilter<Principal, WalletRegistry>(
+            paginatedIds,
+            func(canisterId) {
+                // Find wallet by canisterId
+                for ((_, wallet) in wallets.entries()) {
+                    if (wallet.canisterId == canisterId) {
+                        return ?wallet;
+                    };
+                };
+                null
+            }
+        );
+
+        { wallets = result; total = total }
+    };
+
+    public query func getMySignerWallets(user: Principal, limit: Nat, offset: Nat): async {
+        wallets: [WalletRegistry];
+        total: Nat;
+    } {
+        let walletIds = getFromIndex(signerIndex, user);
+        let total = walletIds.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(walletIds, start, end - start);
+
+        let result = Array.mapFilter<Principal, WalletRegistry>(
+            paginatedIds,
+            func(canisterId) {
+                for ((_, wallet) in wallets.entries()) {
+                    if (wallet.canisterId == canisterId) {
+                        return ?wallet;
+                    };
+                };
+                null
+            }
+        );
+
+        { wallets = result; total = total }
+    };
+
+    public query func getMyObserverWallets(user: Principal, limit: Nat, offset: Nat): async {
+        wallets: [WalletRegistry];
+        total: Nat;
+    } {
+        let walletIds = getFromIndex(observerIndex, user);
+        let total = walletIds.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(walletIds, start, end - start);
+
+        let result = Array.mapFilter<Principal, WalletRegistry>(
+            paginatedIds,
+            func(canisterId) {
+                for ((_, wallet) in wallets.entries()) {
+                    if (wallet.canisterId == canisterId) {
+                        return ?wallet;
+                    };
+                };
+                null
+            }
+        );
+
+        { wallets = result; total = total }
+    };
+
+    public query func getMyAllWallets(user: Principal, limit: Nat, offset: Nat): async {
+        wallets: [WalletRegistry];
+        total: Nat;
+    } {
+        // Combine all wallet IDs for user
+        let createdIds = getFromIndex(creatorIndex, user);
+        let signerIds = getFromIndex(signerIndex, user);
+        let observerIds = getFromIndex(observerIndex, user);
+
+        // Deduplicate
+        let allIds = Array.foldLeft<Principal, [Principal]>(
+            Array.append(Array.append(createdIds, signerIds), observerIds),
+            [],
+            func(acc, id) {
+                if (Array.find<Principal>(acc, func(x) = x == id) == null) {
+                    Array.append<Principal>(acc, [id])
+                } else {
+                    acc
+                }
+            }
+        );
+
+        let total = allIds.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(allIds, start, end - start);
+
+        let result = Array.mapFilter<Principal, WalletRegistry>(
+            paginatedIds,
+            func(canisterId) {
+                for ((_, wallet) in wallets.entries()) {
+                    if (wallet.canisterId == canisterId) {
+                        return ?wallet;
+                    };
+                };
+                null
+            }
+        );
+
+        { wallets = result; total = total }
+    };
+
+    public query func getPublicWallets(limit: Nat, offset: Nat): async {
+        wallets: [WalletRegistry];
+        total: Nat;
+    } {
+        let allWallets = Iter.toArray(wallets.vals());
+        let publicWallets = Array.filter<WalletRegistry>(
+            allWallets,
+            func(wallet) = wallet.config.isPublic
+        );
+
+        let total = publicWallets.size();
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+
+        {
+            wallets = Array.subArray<WalletRegistry>(publicWallets, start, end - start);
+            total = total;
+        }
     };
 
     public query func getAllWallets(): async [WalletRegistry] {
@@ -514,6 +738,57 @@ persistent actor MultisigFactory {
     };
 
     // Contract Upgrade Functions
+
+    /// Step 1: Prepare upgrade by capturing contract state
+    /// Returns the serialized state that can be passed to upgradeContract()
+    public shared({caller}) func prepareUpgrade(
+        contractId: Principal,
+        toVersion: VersionManager.Version
+    ) : async Result.Result<Blob, Text> {
+        // Check authorization (admin or contract creator)
+        if (not _isAdmin(caller)) {
+            switch (wallets.get(Principal.toText(contractId))) {
+                case null { return #err("Contract not found") };
+                case (?wallet) {
+                    if (wallet.creator != caller) {
+                        return #err("Unauthorized: Only admin or creator can prepare upgrade");
+                    };
+                };
+            };
+        };
+
+        // Check upgrade eligibility
+        switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok()) {};
+        };
+
+        // Get reference to the contract (cast to IUpgradeable)
+        let contract : IUpgradeable.IUpgradeable = actor(Principal.toText(contractId));
+
+        // Check if contract is ready for upgrade
+        try {
+            switch (await contract.canUpgrade()) {
+                case (#err(msg)) {
+                    return #err("Contract not ready for upgrade: " # msg)
+                };
+                case (#ok()) {};
+            };
+        } catch (e) {
+            return #err("Failed to check upgrade readiness: " # Error.message(e));
+        };
+
+        // Capture current state
+        try {
+            let upgradeArgs = await contract.getUpgradeArgs();
+            Debug.print("✅ Captured state for contract " # Principal.toText(contractId));
+            #ok(upgradeArgs)
+        } catch (e) {
+            #err("Failed to capture contract state: " # Error.message(e))
+        }
+    };
+
+    /// Step 2: Execute upgrade with captured state
     public shared({caller}) func upgradeContract(
         contractId: Principal,
         toVersion: VersionManager.Version,
@@ -628,6 +903,11 @@ persistent actor MultisigFactory {
     system func preupgrade() {
         walletsEntries := Iter.toArray(wallets.entries());
 
+        // Save indexes
+        creatorIndexStable := Iter.toArray(creatorIndex.entries());
+        signerIndexStable := Iter.toArray(signerIndex.entries());
+        observerIndexStable := Iter.toArray(observerIndex.entries());
+
         // Save Version Manager state
         versionManagerStable := versionManager.toStable();
 
@@ -637,6 +917,22 @@ persistent actor MultisigFactory {
     system func postupgrade() {
         // Restore Version Manager state
         versionManager.fromStable(versionManagerStable);
+
+        // Restore indexes
+        for ((user, walletIds) in creatorIndexStable.vals()) {
+            creatorIndex.put(user, walletIds);
+        };
+        for ((user, walletIds) in signerIndexStable.vals()) {
+            signerIndex.put(user, walletIds);
+        };
+        for ((user, walletIds) in observerIndexStable.vals()) {
+            observerIndex.put(user, walletIds);
+        };
+
+        // Clear stable storage
+        creatorIndexStable := [];
+        signerIndexStable := [];
+        observerIndexStable := [];
 
         walletsEntries := [];
         Debug.print("MultisigFactory: Post-upgrade, restored " # debug_show(wallets.size()) # " wallets");
@@ -700,5 +996,46 @@ persistent actor MultisigFactory {
             sender_canister_version = null;
         });
         #ok();
+    };
+
+    // ================ MIGRATION FUNCTIONS ================
+
+    /// Register all existing contracts that don't have versions yet
+    /// This is a one-time migration function to fix contracts deployed before auto-registration
+    public shared({ caller }) func migrateLegacyContracts() : async Result.Result<Text, Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can migrate legacy contracts");
+        };
+
+        var migratedCount = 0;
+        var errorCount = 0;
+
+        // Get default version for migration
+        let migrationVersion = switch (versionManager.getLatestStableVersion()) {
+            case (?latestVersion) { latestVersion };
+            case null { { major = 1; minor = 0; patch = 0 } };
+        };
+
+        Debug.print("🔄 Starting migration of legacy multisig contracts to version " # _versionToText(migrationVersion));
+
+        // Iterate through all deployed contracts
+        for ((_, wallet) in wallets.entries()) {
+            // Check if contract is already registered
+            let currentVersion = versionManager.getContractVersion(wallet.canisterId);
+
+            if (currentVersion == null) {
+                // Contract not registered, register it now
+                versionManager.registerContract(wallet.canisterId, migrationVersion, false);
+                migratedCount += 1;
+                Debug.print("✅ Migrated multisig contract " # Principal.toText(wallet.canisterId) # " to version " # _versionToText(migrationVersion));
+            } else {
+                Debug.print("ℹ️ Multisig contract " # Principal.toText(wallet.canisterId) # " already registered");
+            };
+        };
+
+        let result = "Migration completed: " # Nat.toText(migratedCount) # " contracts migrated, " # Nat.toText(errorCount) # " errors";
+        Debug.print("🎉 " # result);
+
+        #ok(result)
     };
 }

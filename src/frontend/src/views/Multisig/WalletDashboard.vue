@@ -109,7 +109,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
-import { useMultisigStore } from '@/stores/multisig'
+import { useMultisigFactory } from '@/composables/useMultisigFactory'
 import { formatCurrency, formatNumber } from '@/utils/numberFormat'
 import { PlusIcon, RefreshCcwIcon, SlidersIcon } from 'lucide-vue-next'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
@@ -122,9 +122,13 @@ const WalletList = defineAsyncComponent(() => import('./tabs/WalletList.vue'))
 const ProposalList = defineAsyncComponent(() => import('./tabs/ProposalList.vue'))
 const ActivityList = defineAsyncComponent(() => import('./tabs/ActivityList.vue'))
 
-// Router and Stores
+// Router and Composables
 const router = useRouter()
-const multisigStore = useMultisigStore()
+const {
+  loading,
+  myCreatedWallets,
+  fetchMyCreatedWallets
+} = useMultisigFactory()
 
 // Reactive state
 const currentTab = ref('wallets')
@@ -135,13 +139,13 @@ const tabs = computed(() => [
     {
         id: 'wallets',
         name: 'My Wallets',
-        count: multisigStore.wallets.length,
+        count: myCreatedWallets.value.length,
         component: WalletList
     },
     {
         id: 'proposals',
         name: 'Proposals',
-        count: multisigStore.pendingProposals.length,
+        count: 0, // TODO: Implement proposals fetching
         component: ProposalList
     },
     {
@@ -160,11 +164,11 @@ const currentTabComponent = computed(() => {
 const currentTabProps = computed(() => {
     switch (currentTab.value) {
         case 'wallets':
-            return { wallets: multisigStore.wallets }
+            return { wallets: myCreatedWallets.value }
         case 'proposals':
-            return { proposals: multisigStore.recentProposals }
+            return { proposals: [] } // TODO: Implement proposals fetching
         case 'activity':
-            return { activities: multisigStore.activities }
+            return { activities: [] } // TODO: Implement activity fetching
         default:
             return {}
     }
@@ -177,13 +181,13 @@ const breadcrumbItems = computed(() => [
 
 // Metrics
 const metrics = computed(() => ({
-    totalWallets: multisigStore.wallets.length,
+    totalWallets: myCreatedWallets.value.length,
     totalWalletsChange: '+12%',
-    totalAssets: multisigStore.totalAssetsValue,
+    totalAssets: 0, // TODO: Calculate from wallet balances
     assetsChange: '+8.5%',
-    pendingProposals: multisigStore.pendingProposals.length,
+    pendingProposals: 0, // TODO: Implement proposals counting
     proposalsChange: '+3',
-    activeSigners: multisigStore.totalActiveSigners,
+    activeSigners: 0, // TODO: Calculate from wallet signers
     signersChange: '+2'
 }))
 
@@ -191,15 +195,8 @@ const metrics = computed(() => ({
 const refreshData = async () => {
     isLoading.value = true
     try {
-        await multisigStore.refreshData()
-
-        // Load proposals for all wallets in parallel instead of sequential
-        const proposalPromises = multisigStore.wallets.map(wallet => {
-            const walletId = wallet.canisterId?.toString() || wallet.id
-            return walletId ? multisigStore.fetchProposals(walletId) : Promise.resolve([])
-        })
-
-        await Promise.all(proposalPromises)
+        await fetchMyCreatedWallets()
+        // TODO: Fetch proposals and activities when implemented
     } catch (error) {
         console.error('Failed to refresh data:', error)
     } finally {

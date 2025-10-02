@@ -350,7 +350,8 @@ persistent actor TokenFactoryCanister {
                     wasmVer.wasm,
                     "SNS ICRC-2 Ledger - Auto-sync from SNS canister - Hash: " # versionHex,
                     true, // SNS versions are considered stable
-                    null
+                    null,
+                    version // externalHash: SNS provides the hash
                 );
 
                 switch (registerResult) {
@@ -444,7 +445,8 @@ persistent actor TokenFactoryCanister {
             snsWasmData,
             "Manual ICRC-2 Ledger Upload - Hash: " # versionHex,
             true, // Manual uploads are considered stable once approved
-            null
+            null,
+            Blob.fromArray(hash) // externalHash: Calculated hash
         );
 
         switch (registerResult) {
@@ -764,7 +766,8 @@ persistent actor TokenFactoryCanister {
                     snsWasmData, // wasm blob
                     "SNS ICRC-2 Ledger - Hash: " # wasmVersionHex, // release notes
                     true, // isStable
-                    null // minUpgradeVersion
+                    null, // minUpgradeVersion
+                    snsWasmVersion // externalHash: SNS provides the hash
                 );
 
                 fallbackVersion
@@ -1772,12 +1775,53 @@ persistent actor TokenFactoryCanister {
             uptime = Time.now() - serviceStartTime;
         }
     };
-    
+
+    // ================ MIGRATION FUNCTIONS ================
+
+    /// Register all existing contracts that don't have versions yet
+    /// This is a one-time migration function to fix contracts deployed before auto-registration
+    public shared({ caller }) func migrateLegacyContracts() : async Result.Result<Text, Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can migrate legacy contracts");
+        };
+
+        var migratedCount = 0;
+        var errorCount = 0;
+
+        // Get default version for migration
+        let migrationVersion = switch (versionManager.getLatestStableVersion()) {
+            case (?latestVersion) { latestVersion };
+            case null { { major = 1; minor = 0; patch = 0 } };
+        };
+
+        Debug.print("🔄 Starting migration of legacy token contracts to version " # _versionToText(migrationVersion));
+
+        // Iterate through all deployed contracts
+        for ((_, token) in Trie.iter(tokens)) {
+            // Check if contract is already registered
+            let currentVersion = versionManager.getContractVersion(token.canisterId);
+
+            if (currentVersion == null) {
+                // Contract not registered, register it now
+                versionManager.registerContract(token.canisterId, migrationVersion, false);
+                migratedCount += 1;
+                Debug.print("✅ Migrated token contract " # Principal.toText(token.canisterId) # " to version " # _versionToText(migrationVersion));
+            } else {
+                Debug.print("ℹ️ Token contract " # Principal.toText(token.canisterId) # " already registered");
+            };
+        };
+
+        let result = "Migration completed: " # Nat.toText(migratedCount) # " contracts migrated, " # Nat.toText(errorCount) # " errors";
+        Debug.print("🎉 " # result);
+
+        #ok(result)
+    };
+
     // ================ INITIALIZATION ================
-    
+
     // Initialize service
     serviceStartTime := Time.now();
-    
+
     // Start automatic WASM update timer
     timerId := Timer.recurringTimer<system>(#seconds(24*60*60), updateWasmVersionTimer);
 }

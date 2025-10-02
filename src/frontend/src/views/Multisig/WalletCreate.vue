@@ -288,7 +288,7 @@
                                     <span class="block text-gray-500 dark:text-gray-400">Creation Fee:</span>
                                     <span class="font-medium text-gray-900 dark:text-white">
                                         <span v-if="feeLoading">Loading...</span>
-                                        <span v-else>{{ formatCurrency(Number(deploymentFee) / 100000000) }} ICP</span>
+                                        <span v-else>{{ formatCurrency((typeof deploymentFee === 'bigint' ? Number(deploymentFee) : deploymentFee) / 100000000) }} ICP</span>
                                     </span>
                                 </div>
                             </div>
@@ -557,7 +557,7 @@ const handleCreate = async () => {
                         <li><strong>Name:</strong> ${form.name.trim()}</li>
                         <li><strong>Threshold:</strong> ${form.threshold}/${totalSigners.value}</li>
                         <li><strong>Total Signers:</strong> ${totalSigners.value}</li>
-                        <li><strong>Creation Fee:</strong> ${formatCurrency(Number(deploymentFee.value) / 100000000)} ICP</li>
+                        <li><strong>Creation Fee:</strong> ${formatCurrency((typeof deploymentFee.value === 'bigint' ? Number(deploymentFee.value) : deploymentFee.value) / 100000000)} ICP</li>
                     </ul>
                 </div>
                 <div class="bg-yellow-50 p-3 rounded border border-yellow-200">

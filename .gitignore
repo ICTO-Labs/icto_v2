@@ -50,9 +50,14 @@ QWEN.md
 .bmad-core/
 .gemini/
 .qwen/
+.crush/
 
 # Playwright
 /test-results/
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+
+.env
+.env.development
+.env.production

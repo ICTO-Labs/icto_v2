@@ -48,6 +48,12 @@ import {
     idlFactory as distributionFactoryIDL,
 } from "../../../declarations/distribution_factory";
 import type { _SERVICE as _DISTRIBUTION_FACTORY_SERVICE } from "../../../declarations/distribution_factory/distribution_factory.did.d.ts";
+// Multisig Factory
+import {
+    canisterId as multisigFactoryCanisterId,
+    idlFactory as multisigFactoryIDL,
+} from "../../../declarations/multisig_factory";
+import type { _SERVICE as _MULTISIG_FACTORY_SERVICE } from "../../../declarations/multisig_factory/multisig_factory.did.d.ts";
 
 
 // Consolidated canister types
@@ -60,6 +66,7 @@ export type CanisterType = {
     DAO_CONTRACT: _DAO_CONTRACT_SERVICE;
     LAUNCHPAD_CONTRACT: _LAUNCHPAD_CONTRACT_SERVICE;
     MULTISIG_CONTRACT: _MULTISIG_CONTRACT_SERVICE;
+    MULTISIG_FACTORY: _MULTISIG_FACTORY_SERVICE;
     TOKEN_FACTORY: _TOKEN_FACTORY_SERVICE;
 };
 
@@ -120,6 +127,11 @@ export const canisters: CanisterConfigs = {
         idl: distributionFactoryIDL,
         type: {} as CanisterType["DISTRIBUTION_FACTORY"],
     },
+    multisig_factory: {
+        canisterId: import.meta.env.VITE_MULTISIG_FACTORY_CANISTER_ID,
+        idl: multisigFactoryIDL,
+        type: {} as CanisterType["MULTISIG_FACTORY"],
+    },
 };
 
 // Export canister IDs for easy access
@@ -131,5 +143,6 @@ export const canisterIds = {
     dao_contract: canisters.dao_contract.canisterId,
     launchpad_contract: canisters.launchpad_contract.canisterId,
     multisig_contract: canisters.multisig_contract.canisterId,
+    multisig_factory: canisters.multisig_factory.canisterId,
     token_factory: canisters.token_factory.canisterId,
 };

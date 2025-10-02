@@ -41,6 +41,10 @@ persistent actor DAOFactory {
     private stable var daoContractsStable : [(Text, DAOContract)] = [];
     private stable var nextDAOId : Nat = 1;
 
+    // Factory-First V2: User Indexes (Stable Storage)
+    private stable var creatorIndexStable : [(Principal, [Principal])] = [];
+    private stable var memberIndexStable : [(Principal, [Principal])] = [];
+
     // VERSION MANAGEMENT: Stable storage for VersionManager
     private stable var versionManagerStable : {
         wasmVersions: [(Text, VersionManager.WASMVersion)];
@@ -57,6 +61,10 @@ persistent actor DAOFactory {
     // Runtime variables
     private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
     private transient var daoContracts : Trie.Trie<Text, DAOContract> = Trie.empty();
+
+    // Factory-First V2: User Indexes (Runtime)
+    private transient var creatorIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
+    private transient var memberIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
 
     // Version Management Runtime State
     private transient var versionManager = VersionManager.VersionManagerState();
@@ -111,6 +119,20 @@ persistent actor DAOFactory {
             daoContracts := Trie.put(daoContracts, textKey(id), Text.equal, contract).0;
         };
 
+        // Restore indexes
+        creatorIndex := Trie.empty();
+        for ((user, daoIds) in creatorIndexStable.vals()) {
+            creatorIndex := Trie.put(creatorIndex, principalKey(user), Principal.equal, daoIds).0;
+        };
+        memberIndex := Trie.empty();
+        for ((user, daoIds) in memberIndexStable.vals()) {
+            memberIndex := Trie.put(memberIndex, principalKey(user), Principal.equal, daoIds).0;
+        };
+
+        // Clear stable storage
+        creatorIndexStable := [];
+        memberIndexStable := [];
+
         // Restore Version Manager state
         versionManager.fromStable(versionManagerStable);
 
@@ -135,6 +157,19 @@ persistent actor DAOFactory {
             contractsBuffer.add((id, contract));
         };
         daoContractsStable := Buffer.toArray(contractsBuffer);
+
+        // Save indexes
+        let creatorIndexBuffer = Buffer.Buffer<(Principal, [Principal])>(0);
+        for ((user, daoIds) in Trie.iter(creatorIndex)) {
+            creatorIndexBuffer.add((user, daoIds));
+        };
+        creatorIndexStable := Buffer.toArray(creatorIndexBuffer);
+
+        let memberIndexBuffer = Buffer.Buffer<(Principal, [Principal])>(0);
+        for ((user, daoIds) in Trie.iter(memberIndex)) {
+            memberIndexBuffer.add((user, daoIds));
+        };
+        memberIndexStable := Buffer.toArray(memberIndexBuffer);
 
         // Save Version Manager state
         versionManagerStable := versionManager.toStable();
@@ -241,10 +276,14 @@ persistent actor DAOFactory {
                 createdAt = Time.now();
                 status = #Active;
             };
-            
+
             daoContracts := Trie.put(daoContracts, textKey(daoId), Text.equal, daoContract).0;
-            
+
+            // Index creator
+            addToCreatorIndex(caller, canisterId);
+
             Debug.print("DAO created successfully: " # daoId # " at " # Principal.toText(canisterId));
+            Debug.print("Indexed: creator=" # Principal.toText(caller));
             #Ok({ daoId = daoId; canisterId = canisterId });
             
         } catch (error) {
@@ -253,6 +292,38 @@ persistent actor DAOFactory {
         };
     };
     
+    // ================ CALLBACK FUNCTIONS ================
+
+    /// Called by DAO contracts when a user stakes/joins (becomes member)
+    public shared({caller}) func notifyMemberJoined(member: Principal) : async Result.Result<(), Text> {
+        // Verify caller is deployed contract
+        if (not _isDeployedDAO(caller)) {
+            Debug.print("Unauthorized callback from: " # Principal.toText(caller));
+            return #err("Unauthorized: Caller is not a deployed DAO contract");
+        };
+
+        addToMemberIndex(member, caller);
+
+        Debug.print("Member joined: " # Principal.toText(member) # " to DAO " # Principal.toText(caller));
+        #ok()
+    };
+
+    /// Called by DAO contracts when a user unstakes/leaves (no longer member)
+    public shared({caller}) func notifyMemberLeft(member: Principal) : async Result.Result<(), Text> {
+        // Verify caller is deployed contract
+        if (not _isDeployedDAO(caller)) {
+            Debug.print("Unauthorized callback from: " # Principal.toText(caller));
+            return #err("Unauthorized: Caller is not a deployed DAO contract");
+        };
+
+        removeFromMemberIndex(member, caller);
+
+        Debug.print("Member left: " # Principal.toText(member) # " from DAO " # Principal.toText(caller));
+        #ok()
+    };
+
+    // ================ QUERY FUNCTIONS ================
+
     /// Get DAO contract info
     public query func getDAOInfo(daoId: Text) : async ?DAOContract {
         Trie.get(daoContracts, textKey(daoId), Text.equal);
@@ -303,7 +374,122 @@ persistent actor DAOFactory {
         };
         Buffer.toArray(userDAOs);
     };
-    
+
+    // Factory-First V2: Index-based queries
+    public query func getMyCreatedDAOs(user: Principal, limit: Nat, offset: Nat): async {
+        daos: [DAOContract];
+        total: Nat;
+    } {
+        let daoIds = getFromCreatorIndex(user);
+        let total = daoIds.size();
+
+        // Apply pagination
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(daoIds, start, end - start);
+
+        // Fetch DAO contracts
+        let result = Array.mapFilter<Principal, DAOContract>(
+            paginatedIds,
+            func(canisterId) {
+                // Find DAO by canisterId
+                for ((_, dao) in Trie.iter(daoContracts)) {
+                    if (dao.canisterId == canisterId) {
+                        return ?dao;
+                    };
+                };
+                null
+            }
+        );
+
+        { daos = result; total = total }
+    };
+
+    public query func getPublicDAOs(limit: Nat, offset: Nat): async {
+        daos: [DAOContract];
+        total: Nat;
+    } {
+        // For now, all DAOs are public
+        let allDAOs = Iter.toArray(Iter.map(Trie.iter(daoContracts), func (kv : (Text, DAOContract)) : DAOContract = kv.1));
+        let total = allDAOs.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+
+        {
+            daos = Array.subArray<DAOContract>(allDAOs, start, end - start);
+            total = total;
+        }
+    };
+
+    public query func getMyMemberDAOs(user: Principal, limit: Nat, offset: Nat): async {
+        daos: [DAOContract];
+        total: Nat;
+    } {
+        let daoIds = getFromMemberIndex(user);
+        let total = daoIds.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(daoIds, start, end - start);
+
+        let result = Array.mapFilter<Principal, DAOContract>(
+            paginatedIds,
+            func(canisterId) {
+                for ((_, dao) in Trie.iter(daoContracts)) {
+                    if (dao.canisterId == canisterId) {
+                        return ?dao;
+                    };
+                };
+                null
+            }
+        );
+
+        { daos = result; total = total }
+    };
+
+    public query func getMyAllDAOs(user: Principal, limit: Nat, offset: Nat): async {
+        daos: [DAOContract];
+        total: Nat;
+    } {
+        // Combine created and member DAOs
+        let createdIds = getFromCreatorIndex(user);
+        let memberIds = getFromMemberIndex(user);
+
+        // Deduplicate
+        let allIds = Array.foldLeft<Principal, [Principal]>(
+            Array.append(createdIds, memberIds),
+            [],
+            func(acc, id) {
+                if (Array.find<Principal>(acc, func(x) = x == id) == null) {
+                    Array.append<Principal>(acc, [id])
+                } else {
+                    acc
+                }
+            }
+        );
+
+        let total = allIds.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(allIds, start, end - start);
+
+        let result = Array.mapFilter<Principal, DAOContract>(
+            paginatedIds,
+            func(canisterId) {
+                for ((_, dao) in Trie.iter(daoContracts)) {
+                    if (dao.canisterId == canisterId) {
+                        return ?dao;
+                    };
+                };
+                null
+            }
+        );
+
+        { daos = result; total = total }
+    };
+
     /// Get factory statistics
     public query func getFactoryStats() : async {
         totalDAOs: Nat;
@@ -455,7 +641,80 @@ persistent actor DAOFactory {
         key = t;
         hash = Text.hash(t);
     };
-    
+
+    // ================ INDEX MANAGEMENT ================
+
+    private func addToCreatorIndex(user: Principal, daoId: Principal) {
+        let existing = switch (Trie.get(creatorIndex, principalKey(user), Principal.equal)) {
+            case (?list) list;
+            case null [];
+        };
+
+        // Check if already indexed
+        let alreadyIndexed = Array.find<Principal>(existing, func(id) = id == daoId);
+        if (alreadyIndexed != null) {
+            return; // Already indexed
+        };
+
+        // Add to index
+        let updated = Array.append<Principal>(existing, [daoId]);
+        creatorIndex := Trie.put(creatorIndex, principalKey(user), Principal.equal, updated).0;
+    };
+
+    private func getFromCreatorIndex(user: Principal): [Principal] {
+        switch (Trie.get(creatorIndex, principalKey(user), Principal.equal)) {
+            case (?list) list;
+            case null [];
+        };
+    };
+
+    private func addToMemberIndex(user: Principal, daoId: Principal) {
+        let existing = switch (Trie.get(memberIndex, principalKey(user), Principal.equal)) {
+            case (?list) list;
+            case null [];
+        };
+
+        // Check if already indexed
+        let alreadyIndexed = Array.find<Principal>(existing, func(id) = id == daoId);
+        if (alreadyIndexed != null) {
+            return; // Already indexed
+        };
+
+        // Add to index
+        let updated = Array.append<Principal>(existing, [daoId]);
+        memberIndex := Trie.put(memberIndex, principalKey(user), Principal.equal, updated).0;
+    };
+
+    private func removeFromMemberIndex(user: Principal, daoId: Principal) {
+        switch (Trie.get(memberIndex, principalKey(user), Principal.equal)) {
+            case (?list) {
+                let filtered = Array.filter<Principal>(list, func(id) = id != daoId);
+                if (filtered.size() > 0) {
+                    memberIndex := Trie.put(memberIndex, principalKey(user), Principal.equal, filtered).0;
+                } else {
+                    memberIndex := Trie.remove(memberIndex, principalKey(user), Principal.equal).0;
+                };
+            };
+            case null {};
+        };
+    };
+
+    private func getFromMemberIndex(user: Principal): [Principal] {
+        switch (Trie.get(memberIndex, principalKey(user), Principal.equal)) {
+            case (?list) list;
+            case null [];
+        };
+    };
+
+    private func _isDeployedDAO(caller: Principal) : Bool {
+        for ((_, dao) in Trie.iter(daoContracts)) {
+            if (dao.canisterId == caller) {
+                return true;
+            };
+        };
+        false
+    };
+
     // ================ VERSION MANAGEMENT ================
 
     // WASM Upload - Chunked (for large files >2MB)
@@ -697,6 +956,47 @@ persistent actor DAOFactory {
     // Get cycles available
     public query func getCyclesAvailable() : async Nat {
         Cycles.available();
+    };
+
+    // ================ MIGRATION FUNCTIONS ================
+
+    /// Register all existing contracts that don't have versions yet
+    /// This is a one-time migration function to fix contracts deployed before auto-registration
+    public shared({ caller }) func migrateLegacyContracts() : async Result.Result<Text, Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can migrate legacy contracts");
+        };
+
+        var migratedCount = 0;
+        var errorCount = 0;
+
+        // Get default version for migration
+        let migrationVersion = switch (versionManager.getLatestStableVersion()) {
+            case (?latestVersion) { latestVersion };
+            case null { { major = 1; minor = 0; patch = 0 } };
+        };
+
+        Debug.print("🔄 Starting migration of legacy DAO contracts to version " # _versionToText(migrationVersion));
+
+        // Iterate through all deployed contracts
+        for ((_, dao) in Trie.iter(daoContracts)) {
+            // Check if contract is already registered
+            let currentVersion = versionManager.getContractVersion(dao.canisterId);
+
+            if (currentVersion == null) {
+                // Contract not registered, register it now
+                versionManager.registerContract(dao.canisterId, migrationVersion, false);
+                migratedCount += 1;
+                Debug.print("✅ Migrated DAO contract " # Principal.toText(dao.canisterId) # " to version " # _versionToText(migrationVersion));
+            } else {
+                Debug.print("ℹ️ DAO contract " # Principal.toText(dao.canisterId) # " already registered");
+            };
+        };
+
+        let result = "Migration completed: " # Nat.toText(migratedCount) # " contracts migrated, " # Nat.toText(errorCount) # " errors";
+        Debug.print("🎉 " # result);
+
+        #ok(result)
     };
 
 };

@@ -559,6 +559,52 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
     // ================ PRIVATE IMPLEMENTATION ================
 
+    // ================ FACTORY CALLBACKS ================
+
+    private func _notifyFactoryParticipantAdded(participant: Principal) : async () {
+        let factory = actor(Principal.toText(factoryPrincipal)) : actor {
+            notifyParticipantAdded : (Principal) -> async Result.Result<(), Text>;
+        };
+
+        try {
+            let result = await factory.notifyParticipantAdded(participant);
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ Notified factory: participant " # Principal.toText(participant) # " added");
+                };
+                case (#err(msg)) {
+                    Debug.print("⚠️ Factory notification failed: " # msg);
+                };
+            };
+        } catch (e) {
+            Debug.print("⚠️ Failed to notify factory: " # Error.message(e));
+            // Continue anyway - not critical
+        };
+    };
+
+    private func _notifyFactoryParticipantRemoved(participant: Principal) : async () {
+        let factory = actor(Principal.toText(factoryPrincipal)) : actor {
+            notifyParticipantRemoved : (Principal) -> async Result.Result<(), Text>;
+        };
+
+        try {
+            let result = await factory.notifyParticipantRemoved(participant);
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ Notified factory: participant " # Principal.toText(participant) # " removed");
+                };
+                case (#err(msg)) {
+                    Debug.print("⚠️ Factory notification failed: " # msg);
+                };
+            };
+        } catch (e) {
+            Debug.print("⚠️ Failed to notify factory: " # Error.message(e));
+            // Continue anyway - not critical
+        };
+    };
+
+    // ================ VALIDATION ================
+
     private func _validateConfig(cfg: LaunchpadTypes.LaunchpadConfig) : Result.Result<(), Text> {
         if (cfg.saleParams.softCap > cfg.saleParams.hardCap) {
             return #err("Soft cap cannot be greater than hard cap");
@@ -637,6 +683,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let participantKey = Principal.toText(participant);
         let existingParticipant = Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal);
         
+        let isNewParticipant = Option.isNull(existingParticipant);
+
         let updatedParticipant = switch (existingParticipant) {
             case null {
                 // New participant
@@ -660,7 +708,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (?existing) {
                 // Existing participant
                 {
-                    existing with 
+                    existing with
                     totalContribution = existing.totalContribution + amount;
                     allocationAmount = existing.allocationAmount + _calculateTokenAllocation(amount);
                     commitCount = existing.commitCount + 1;
@@ -668,8 +716,13 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 }
             };
         };
-        
+
         participants := Trie.put(participants, LaunchpadTypes.textKey(participantKey), Text.equal, updatedParticipant).0;
+
+        // Notify factory if this is a new participant
+        if (isNewParticipant) {
+            await _notifyFactoryParticipantAdded(participant);
+        };
         
         // Update totals
         totalRaised += amount;

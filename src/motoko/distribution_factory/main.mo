@@ -18,6 +18,7 @@ import Nat "mo:base/Nat";
 // Import the DistributionContract class
 import DistributionContractClass "DistributionContract";
 import Types "Types";
+import DistributionUpgradeTypes "../shared/types/DistributionUpgradeTypes";
 
 // Import VersionManager for version management
 import VersionManager "../common/VersionManager";
@@ -265,33 +266,42 @@ persistent actor class DistributionFactory() = this {
             // Deploy new DistributionContract canister
             // Pass factory principal for callbacks (Factory Storage Standard)
             let factoryPrincipal = ?Principal.fromActor(this);
-            let distributionCanister = await DistributionContractClass.DistributionContract(args.config, args.owner, factoryPrincipal);
+
+            // Use #InitialSetup variant for fresh deployment
+            let initArgs: DistributionUpgradeTypes.DistributionInitArgs = #InitialSetup({
+                config = args.config;
+                creator = args.owner;
+                factory = factoryPrincipal;
+            });
+
+            let distributionCanister = await DistributionContractClass.DistributionContract(initArgs);
             
             // Get the canister's principal
             let canisterId = Principal.fromActor(distributionCanister);
-            
+
+            // VERSION MANAGEMENT: Register contract IMMEDIATELY after deployment
+            // (before activation, because activation can fail but contract is already deployed)
+            let contractVersion = switch (versionManager.getLatestStableVersion()) {
+                case (?latestVersion) {
+                    // Use latest uploaded version if available
+                    latestVersion
+                };
+                case null {
+                    // Fallback to initial version if no WASM versions uploaded yet
+                    { major = 1; minor = 0; patch = 0 }
+                };
+            };
+
+            versionManager.registerContract(canisterId, contractVersion, false);
+            Debug.print("✅ Registered contract " # Principal.toText(canisterId) # " with version " # _versionToText(contractVersion));
+
             // Activate the distribution
             switch (await distributionCanister.activate()) {
                 case (#ok(_)) {
-                    Debug.print("Distribution activated successfully: " # Principal.toText(canisterId));
-
-                    // VERSION MANAGEMENT: Register contract with current factory version
-                    let contractVersion = switch (versionManager.getLatestStableVersion()) {
-                        case (?latestVersion) {
-                            // Use latest uploaded version if available
-                            latestVersion
-                        };
-                        case null {
-                            // Fallback to initial version if no WASM versions uploaded yet
-                            { major = 1; minor = 0; patch = 0 }
-                        };
-                    };
-
-                    versionManager.registerContract(canisterId, contractVersion, false);
-                    Debug.print("✅ Registered contract " # Principal.toText(canisterId) # " with version " # _versionToText(contractVersion));
+                    Debug.print("✅ Distribution activated successfully: " # Principal.toText(canisterId));
                 };
                 case (#err(msg)) {
-                    Debug.print("Warning: Failed to activate distribution: " # msg);
+                    Debug.print("⚠️ Warning: Failed to activate distribution: " # msg);
                     // Continue anyway, can be activated later
                 };
             };
@@ -820,7 +830,56 @@ persistent actor class DistributionFactory() = this {
     public query({caller}) func isAdmin() : async Bool {
         _isAdmin(caller)
     };
-    
+
+    // ================ MIGRATION FUNCTIONS ================
+
+    /// Register all existing contracts that don't have versions yet
+    /// This is a one-time migration function to fix contracts deployed before auto-registration
+    public shared({ caller }) func migrateLegacyContracts() : async Result.Result<Text, Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can migrate legacy contracts");
+        };
+
+        var migratedCount = 0;
+        var errorCount = 0;
+
+        // Get default version for migration
+        let migrationVersion = switch (versionManager.getLatestStableVersion()) {
+            case (?latestVersion) { latestVersion };
+            case null { { major = 1; minor = 0; patch = 0 } };
+        };
+
+        Debug.print("🔄 Starting migration of legacy contracts to version " # _versionToText(migrationVersion));
+
+        // Iterate through all deployed contracts
+        for ((_, contract) in Trie.iter(distributionContracts)) {
+            switch (contract.deployedCanister) {
+                case (?canisterId) {
+                    // Check if contract is already registered
+                    let currentVersion = versionManager.getContractVersion(canisterId);
+
+                    if (currentVersion == null) {
+                        // Contract not registered, register it now
+                        versionManager.registerContract(canisterId, migrationVersion, false);
+                        migratedCount += 1;
+                        Debug.print("✅ Migrated contract " # Principal.toText(canisterId) # " to version " # _versionToText(migrationVersion));
+                    } else {
+                        Debug.print("ℹ️ Contract " # Principal.toText(canisterId) # " already registered");
+                    };
+                };
+                case null {
+                    errorCount += 1;
+                    Debug.print("⚠️ Contract " # contract.id # " has no deployed canister");
+                };
+            };
+        };
+
+        let result = "Migration completed: " # Nat.toText(migratedCount) # " contracts migrated, " # Nat.toText(errorCount) # " errors";
+        Debug.print("🎉 " # result);
+
+        #ok(result)
+    };
+
     // ================ WHITELIST MANAGEMENT ================
     public shared({ caller }) func addToWhitelist(backend : Principal) : async Result.Result<(), Text> {
         if (not _isAdmin(caller)) {

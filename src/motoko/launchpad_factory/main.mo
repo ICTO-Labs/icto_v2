@@ -38,6 +38,10 @@ persistent actor LaunchpadFactory {
     private stable var launchpadContractsStable : [(Text, LaunchpadContract)] = [];
     private stable var nextLaunchpadId : Nat = 1;
 
+    // Factory-First V2: User Indexes (Stable Storage)
+    private stable var creatorIndexStable : [(Principal, [Principal])] = [];
+    private stable var participantIndexStable : [(Principal, [Principal])] = [];
+
     // VERSION MANAGEMENT: Stable storage for VersionManager
     private stable var versionManagerStable : {
         wasmVersions: [(Text, VersionManager.WASMVersion)];
@@ -50,10 +54,14 @@ persistent actor LaunchpadFactory {
         compatibilityMatrix = [];
         latestStableVersion = null;
     };
-    
+
     // Runtime variables
     private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
     private transient var launchpadContracts : Trie.Trie<Text, LaunchpadContract> = Trie.empty();
+
+    // Factory-First V2: User Indexes (Runtime)
+    private transient var creatorIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
+    private transient var participantIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
 
     // Version Management Runtime State
     private transient var versionManager = VersionManager.VersionManagerState();
@@ -129,6 +137,20 @@ persistent actor LaunchpadFactory {
             launchpadContracts := Trie.put(launchpadContracts, textKey(id), Text.equal, contract).0;
         };
 
+        // Restore indexes
+        creatorIndex := Trie.empty();
+        for ((user, launchpadIds) in creatorIndexStable.vals()) {
+            creatorIndex := Trie.put(creatorIndex, principalKey(user), Principal.equal, launchpadIds).0;
+        };
+        participantIndex := Trie.empty();
+        for ((user, launchpadIds) in participantIndexStable.vals()) {
+            participantIndex := Trie.put(participantIndex, principalKey(user), Principal.equal, launchpadIds).0;
+        };
+
+        // Clear stable storage
+        creatorIndexStable := [];
+        participantIndexStable := [];
+
         // Restore Version Manager state
         versionManager.fromStable(versionManagerStable);
 
@@ -154,6 +176,19 @@ persistent actor LaunchpadFactory {
         };
         launchpadContractsStable := Buffer.toArray(contractsBuffer);
 
+        // Save indexes
+        let creatorIndexBuffer = Buffer.Buffer<(Principal, [Principal])>(0);
+        for ((user, launchpadIds) in Trie.iter(creatorIndex)) {
+            creatorIndexBuffer.add((user, launchpadIds));
+        };
+        creatorIndexStable := Buffer.toArray(creatorIndexBuffer);
+
+        let participantIndexBuffer = Buffer.Buffer<(Principal, [Principal])>(0);
+        for ((user, launchpadIds) in Trie.iter(participantIndex)) {
+            participantIndexBuffer.add((user, launchpadIds));
+        };
+        participantIndexStable := Buffer.toArray(participantIndexBuffer);
+
         // Save Version Manager state
         versionManagerStable := versionManager.toStable();
 
@@ -169,7 +204,56 @@ persistent actor LaunchpadFactory {
     private func textKey(t: Text) : Trie.Key<Text> {
         { key = t; hash = Text.hash(t) }
     };
-    
+
+    // ================ INDEX MANAGEMENT ================
+
+    private func addToIndex(index: Trie.Trie<Principal, [Principal]>, user: Principal, launchpadId: Principal) : Trie.Trie<Principal, [Principal]> {
+        let existing = switch (Trie.get(index, principalKey(user), Principal.equal)) {
+            case (?list) list;
+            case null [];
+        };
+
+        // Check if already indexed
+        let alreadyIndexed = Array.find<Principal>(existing, func(id) = id == launchpadId);
+        if (alreadyIndexed != null) {
+            return index; // Already indexed
+        };
+
+        // Add to index
+        let updated = Array.append<Principal>(existing, [launchpadId]);
+        Trie.put(index, principalKey(user), Principal.equal, updated).0
+    };
+
+    private func removeFromIndex(index: Trie.Trie<Principal, [Principal]>, user: Principal, launchpadId: Principal) : Trie.Trie<Principal, [Principal]> {
+        switch (Trie.get(index, principalKey(user), Principal.equal)) {
+            case (?list) {
+                let filtered = Array.filter<Principal>(list, func(id) = id != launchpadId);
+                if (filtered.size() > 0) {
+                    Trie.put(index, principalKey(user), Principal.equal, filtered).0
+                } else {
+                    Trie.remove(index, principalKey(user), Principal.equal).0
+                };
+            };
+            case null index;
+        };
+    };
+
+    private func getFromIndex(index: Trie.Trie<Principal, [Principal]>, user: Principal) : [Principal] {
+        switch (Trie.get(index, principalKey(user), Principal.equal)) {
+            case (?list) list;
+            case null [];
+        };
+    };
+
+    private func _isDeployedContract(caller: Principal) : Bool {
+        for ((_, contract) in Trie.iter(launchpadContracts)) {
+            if (contract.canisterId == caller) {
+                return true;
+            };
+        };
+        false
+    };
+
     private func generateLaunchpadId() : Text {
         let id = "launchpad_" # Nat.toText(nextLaunchpadId);
         nextLaunchpadId += 1;
@@ -315,14 +399,18 @@ persistent actor LaunchpadFactory {
             
             // Store the contract
             launchpadContracts := Trie.put(
-                launchpadContracts, 
-                textKey(launchpadId), 
-                Text.equal, 
+                launchpadContracts,
+                textKey(launchpadId),
+                Text.equal,
                 contractRecord
             ).0;
-            
+
+            // Index creator
+            creatorIndex := addToIndex(creatorIndex, caller, canisterId);
+
             Debug.print("Launchpad created successfully: " # launchpadId # " at " # Principal.toText(canisterId));
-            
+            Debug.print("Indexed: creator=" # Principal.toText(caller));
+
             #Ok({
                 launchpadId = launchpadId;
                 canisterId = canisterId;
@@ -431,8 +519,38 @@ persistent actor LaunchpadFactory {
         };
     };
     
+    // ================ CALLBACK FUNCTIONS ================
+
+    /// Called by launchpad contracts when a user contributes/participates
+    public shared({caller}) func notifyParticipantAdded(participant: Principal) : async Result.Result<(), Text> {
+        // Verify caller is deployed contract
+        if (not _isDeployedContract(caller)) {
+            Debug.print("Unauthorized callback from: " # Principal.toText(caller));
+            return #err("Unauthorized: Caller is not a deployed contract");
+        };
+
+        participantIndex := addToIndex(participantIndex, participant, caller);
+
+        Debug.print("Participant added: " # Principal.toText(participant) # " to " # Principal.toText(caller));
+        #ok()
+    };
+
+    /// Called by launchpad contracts when a participant is removed (refund, etc)
+    public shared({caller}) func notifyParticipantRemoved(participant: Principal) : async Result.Result<(), Text> {
+        // Verify caller is deployed contract
+        if (not _isDeployedContract(caller)) {
+            Debug.print("Unauthorized callback from: " # Principal.toText(caller));
+            return #err("Unauthorized: Caller is not a deployed contract");
+        };
+
+        participantIndex := removeFromIndex(participantIndex, participant, caller);
+
+        Debug.print("Participant removed: " # Principal.toText(participant) # " from " # Principal.toText(caller));
+        #ok()
+    };
+
     // ================ QUERY FUNCTIONS ================
-    
+
     public query func getLaunchpad(launchpadId: Text) : async ?LaunchpadContract {
         Trie.get(launchpadContracts, textKey(launchpadId), Text.equal)
     };
@@ -474,7 +592,130 @@ persistent actor LaunchpadFactory {
             func(contract) { contract.creator == user }
         )
     };
-    
+
+    // Factory-First V2: Index-based queries
+    public query func getMyCreatedLaunchpads(user: Principal, limit: Nat, offset: Nat): async {
+        sales: [LaunchpadContract];
+        total: Nat;
+    } {
+        let launchpadIds = getFromIndex(creatorIndex, user);
+        let total = launchpadIds.size();
+
+        // Apply pagination
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(launchpadIds, start, end - start);
+
+        // Fetch launchpad contracts
+        let result = Array.mapFilter<Principal, LaunchpadContract>(
+            paginatedIds,
+            func(canisterId) {
+                // Find launchpad by canisterId
+                for ((_, launchpad) in Trie.iter(launchpadContracts)) {
+                    if (launchpad.canisterId == canisterId) {
+                        return ?launchpad;
+                    };
+                };
+                null
+            }
+        );
+
+        { sales = result; total = total }
+    };
+
+    public query func getMyParticipantLaunchpads(user: Principal, limit: Nat, offset: Nat): async {
+        sales: [LaunchpadContract];
+        total: Nat;
+    } {
+        let launchpadIds = getFromIndex(participantIndex, user);
+        let total = launchpadIds.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(launchpadIds, start, end - start);
+
+        let result = Array.mapFilter<Principal, LaunchpadContract>(
+            paginatedIds,
+            func(canisterId) {
+                for ((_, launchpad) in Trie.iter(launchpadContracts)) {
+                    if (launchpad.canisterId == canisterId) {
+                        return ?launchpad;
+                    };
+                };
+                null
+            }
+        );
+
+        { sales = result; total = total }
+    };
+
+    public query func getMyAllLaunchpads(user: Principal, limit: Nat, offset: Nat): async {
+        sales: [LaunchpadContract];
+        total: Nat;
+    } {
+        // Combine all launchpad IDs for user
+        let createdIds = getFromIndex(creatorIndex, user);
+        let participantIds = getFromIndex(participantIndex, user);
+
+        // Deduplicate
+        let allIds = Array.foldLeft<Principal, [Principal]>(
+            Array.append(createdIds, participantIds),
+            [],
+            func(acc, id) {
+                if (Array.find<Principal>(acc, func(x) = x == id) == null) {
+                    Array.append<Principal>(acc, [id])
+                } else {
+                    acc
+                }
+            }
+        );
+
+        let total = allIds.size();
+
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+        let paginatedIds = Array.subArray<Principal>(allIds, start, end - start);
+
+        let result = Array.mapFilter<Principal, LaunchpadContract>(
+            paginatedIds,
+            func(canisterId) {
+                for ((_, launchpad) in Trie.iter(launchpadContracts)) {
+                    if (launchpad.canisterId == canisterId) {
+                        return ?launchpad;
+                    };
+                };
+                null
+            }
+        );
+
+        { sales = result; total = total }
+    };
+
+    public query func getPublicLaunchpads(limit: Nat, offset: Nat): async {
+        sales: [LaunchpadContract];
+        total: Nat;
+    } {
+        // For now, filter active launchpads
+        let allLaunchpads = Array.map<(Text, LaunchpadContract), LaunchpadContract>(
+            Iter.toArray(Trie.iter(launchpadContracts)),
+            func((id, contract)) { contract }
+        );
+
+        let activeLaunchpads = Array.filter<LaunchpadContract>(
+            allLaunchpads,
+            func(launchpad) { launchpad.status == #Active }
+        );
+
+        let total = activeLaunchpads.size();
+        let start = Nat.min(offset, total);
+        let end = Nat.min(offset + limit, total);
+
+        {
+            sales = Array.subArray<LaunchpadContract>(activeLaunchpads, start, end - start);
+            total = total;
+        }
+    };
+
     public query func getFactoryStats() : async {
         totalLaunchpads: Nat;
         activeLaunchpads: Nat;
@@ -697,8 +938,49 @@ persistent actor LaunchpadFactory {
         versionManager.getUpgradeHistory(contractId)
     };
 
+    // ================ MIGRATION FUNCTIONS ================
+
+    /// Register all existing contracts that don't have versions yet
+    /// This is a one-time migration function to fix contracts deployed before auto-registration
+    public shared({ caller }) func migrateLegacyContracts() : async Result.Result<Text, Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can migrate legacy contracts");
+        };
+
+        var migratedCount = 0;
+        var errorCount = 0;
+
+        // Get default version for migration
+        let migrationVersion = switch (versionManager.getLatestStableVersion()) {
+            case (?latestVersion) { latestVersion };
+            case null { { major = 1; minor = 0; patch = 0 } };
+        };
+
+        Debug.print("🔄 Starting migration of legacy launchpad contracts to version " # _versionToText(migrationVersion));
+
+        // Iterate through all deployed contracts
+        for ((_, launchpad) in Trie.iter(launchpadContracts)) {
+            // Check if contract is already registered
+            let currentVersion = versionManager.getContractVersion(launchpad.canisterId);
+
+            if (currentVersion == null) {
+                // Contract not registered, register it now
+                versionManager.registerContract(launchpad.canisterId, migrationVersion, false);
+                migratedCount += 1;
+                Debug.print("✅ Migrated launchpad contract " # Principal.toText(launchpad.canisterId) # " to version " # _versionToText(migrationVersion));
+            } else {
+                Debug.print("ℹ️ Launchpad contract " # Principal.toText(launchpad.canisterId) # " already registered");
+            };
+        };
+
+        let result = "Migration completed: " # Nat.toText(migratedCount) # " contracts migrated, " # Nat.toText(errorCount) # " errors";
+        Debug.print("🎉 " # result);
+
+        #ok(result)
+    };
+
     // ================ VALIDATION FUNCTIONS ================
-    
+
     private func validateLaunchpadConfig(config: LaunchpadTypes.LaunchpadConfig) : Result.Result<(), Text> {
         // Basic validation
         if (Text.size(config.projectInfo.name) == 0) {

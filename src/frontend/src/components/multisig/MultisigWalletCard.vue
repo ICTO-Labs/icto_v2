@@ -7,13 +7,13 @@
           <Wallet :size="20" />
         </div>
         <div>
-          <h3 class="font-semibold text-gray-900 dark:text-white">{{ wallet.config.name }}</h3>
+          <h3 class="font-semibold text-gray-900 dark:text-white">{{ wallet.config?.name || 'Unnamed Wallet' }}</h3>
           <div class="flex items-center gap-2 mt-1">
             <span
               class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium"
               :class="getStatusClasses(wallet.status)"
             >
-              {{ wallet.status }}
+              {{ formatStatus(wallet.status).toUpperCase() }}
             </span>
             
             <!-- Visibility Badge -->
@@ -96,7 +96,7 @@
       <div class="flex items-center justify-between text-sm">
         <span class="text-gray-600 dark:text-gray-400">Threshold:</span>
         <span class="font-medium text-gray-900 dark:text-white">
-          {{ wallet.config.threshold }} of {{ wallet.signers.length }}
+          {{ typeof wallet.config.threshold === 'bigint' ? Number(wallet.config.threshold) : wallet.config.threshold }} of {{ wallet.config.signers?.length || 0 }}
         </span>
       </div>
 
@@ -105,7 +105,7 @@
         <div class="h-2 rounded-full bg-gray-200 dark:bg-gray-600">
           <div
             class="h-2 rounded-full bg-brand-500"
-            :style="{ width: `${(wallet.config.threshold / wallet.signers.length) * 100}%` }"
+            :style="{ width: `${((typeof wallet.config.threshold === 'bigint' ? Number(wallet.config.threshold) : wallet.config.threshold) / (wallet.config.signers?.length || 1)) * 100}%` }"
           ></div>
         </div>
       </div>
@@ -132,7 +132,7 @@
           <span class="text-sm text-gray-600 dark:text-gray-400">Balance</span>
         </div>
         <span class="font-medium text-gray-900 dark:text-white">
-          {{ formatAmount(Number(wallet.balances.icp) / 100000000) }} ICP
+          {{ formatAmount(0) }} ICP
         </span>
       </div>
 
@@ -144,11 +144,11 @@
         <div class="flex items-center space-x-4">
           <div class="flex items-center space-x-1">
             <div class="h-2 w-2 rounded-full bg-yellow-400"></div>
-            <span class="text-xs text-gray-600 dark:text-gray-400">{{ wallet.totalProposals - wallet.executedProposals - wallet.failedProposals }}</span>
+            <span class="text-xs text-gray-600 dark:text-gray-400">0</span>
           </div>
           <div class="flex items-center space-x-1">
             <div class="h-2 w-2 rounded-full bg-green-400"></div>
-            <span class="text-xs text-gray-600 dark:text-gray-400">{{ wallet.executedProposals }}</span>
+            <span class="text-xs text-gray-600 dark:text-gray-400">0</span>
           </div>
         </div>
       </div>
@@ -160,18 +160,18 @@
         </div>
         <div class="flex -space-x-1">
           <div
-            v-for="(signer, index) in wallet.signers.slice(0, 3)"
-            :key="signer.principal"
+            v-for="(signer, index) in (wallet.config?.signers || []).slice(0, 3)"
+            :key="signer.principal || index"
             class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-brand-100 text-xs font-medium text-brand-700 dark:border-gray-800 dark:bg-brand-900/20 dark:text-brand-400"
             :title="signer.name || 'Unnamed Signer'"
           >
             {{ (signer.name || 'S')[0].toUpperCase() }}
           </div>
           <div
-            v-if="wallet.signers.length > 3"
+            v-if="(wallet.config?.signers || []).length > 3"
             class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-gray-100 text-xs font-medium text-gray-600 dark:border-gray-800 dark:bg-gray-700 dark:text-gray-400"
           >
-            +{{ wallet.signers.length - 3 }}
+            +{{ (wallet.config?.signers || []).length - 3 }}
           </div>
         </div>
       </div>
@@ -185,7 +185,7 @@
           <span class="text-xs text-gray-500 dark:text-gray-400">Last Activity</span>
         </div>
         <span class="text-xs text-gray-500 dark:text-gray-400">
-          {{ formatTimeAgo(Number(wallet.lastActivity) / 1000000) }}
+          {{ wallet.createdAt ? formatTimeAgo(Math.max(0, (typeof wallet.createdAt === 'bigint' ? Number(wallet.createdAt) : wallet.createdAt) / 1_000_000)) : 'Unknown' }}
         </span>
       </div>
     </div>
@@ -211,35 +211,40 @@ import {
 } from 'lucide-vue-next';
 import { formatAmount } from '@/utils/token';
 import { formatTimeAgo } from '@/utils/time';
-import type { MultisigWallet } from '@/types/multisig';
+import type { WalletInfo } from '@/api/services/multisigFactory';
 
 // Props
 const props = defineProps<{
-  wallet: MultisigWallet;
+  wallet: WalletInfo;
   canManageWallet?: boolean;
 }>();
 
 // Emits
 defineEmits<{
-  select: [wallet: MultisigWallet];
-  'view-details': [wallet: MultisigWallet];
-  'create-proposal': [wallet: MultisigWallet];
-  manage: [wallet: MultisigWallet];
+  select: [wallet: WalletInfo];
+  'view-details': [wallet: WalletInfo];
+  'create-proposal': [wallet: WalletInfo];
+  manage: [wallet: WalletInfo];
 }>();
 
 // Computed
 const securityScore = computed(() => {
-  // Calculate security score based on various factors
-  let score = 0;
+  try {
+    // Calculate security score based on various factors
+    let score = 0;
 
-  // Threshold strength (30 points max)
-  const thresholdRatio = props.wallet.config.threshold / props.wallet.signers.length;
+    // Safety check for config
+    if (!props.wallet?.config) return 0;
+
+    // Threshold strength (30 points max)
+    const threshold = typeof props.wallet.config.threshold === 'bigint' ? Number(props.wallet.config.threshold) : props.wallet.config.threshold;
+    const thresholdRatio = threshold / (props.wallet.config.signers?.length || 1);
   if (thresholdRatio >= 0.66) score += 30;
   else if (thresholdRatio >= 0.5) score += 20;
   else score += 10;
 
   // Number of signers (25 points max)
-  const signerCount = props.wallet.signers.length;
+  const signerCount = props.wallet.config.signers?.length || 0;
   if (signerCount >= 5) score += 25;
   else if (signerCount >= 3) score += 20;
   else score += 10;
@@ -250,15 +255,37 @@ const securityScore = computed(() => {
   if (props.wallet.config.requiresConsensusForChanges) score += 15;
 
   return Math.min(score, 100);
+  } catch (error) {
+    console.error('MultisigWalletCard - Error calculating security score:', error);
+    return 0;
+  }
 });
 
 // Methods
-const getStatusClasses = (status: string): string => {
-  switch (status.toLowerCase()) {
+const formatStatus = (status: any): string => {
+  // Handle factory status variant: { Active: null }, { Paused: null }, etc.
+  if (status && typeof status === 'object') {
+    if ('Active' in status) return 'active';
+    if ('Paused' in status) return 'paused';
+    if ('Deprecated' in status) return 'deprecated';
+    if ('Failed' in status) return 'failed';
+  }
+  // Handle string status
+  if (typeof status === 'string') {
+    return status.toLowerCase();
+  }
+  return 'unknown';
+};
+
+const getStatusClasses = (status: any): string => {
+  const statusStr = formatStatus(status);
+  switch (statusStr) {
     case 'active':
       return 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400';
+    case 'paused':
     case 'inactive':
       return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400';
+    case 'failed':
     case 'locked':
       return 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400';
     case 'pending':

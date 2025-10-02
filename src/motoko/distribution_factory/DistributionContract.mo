@@ -14,14 +14,17 @@ import Nat "mo:base/Nat";
 import Error "mo:base/Error";
 // Import shared types (trust source)
 import DistributionTypes "../shared/types/DistributionTypes";
+import DistributionUpgradeTypes "../shared/types/DistributionUpgradeTypes";
+import IUpgradeable "../common/IUpgradeable";
 import Timer "mo:base/Timer";
 import ICRC "../shared/types/ICRC";
 import BlockID "../shared/utils/BlockID";
+import Prim "mo:⛔";
 
-persistent actor class DistributionContract(init_config: DistributionTypes.DistributionConfig, init_creator: Principal, init_factory_canister: ?Principal) = self {
+persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.DistributionInitArgs) = self {
 
     // ================ TYPE ALIASES (from shared types) ================
-    
+
     public type TokenInfo = DistributionTypes.TokenInfo;
     public type EligibilityType = DistributionTypes.EligibilityType;
     public type Recipient = DistributionTypes.Recipient;
@@ -49,26 +52,96 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     public type ClaimRecord = DistributionTypes.ClaimRecord;
     public type DistributionStats = DistributionTypes.DistributionStats;
 
+    // ================ INITIALIZATION LOGIC ================
+    // Determine if this is a fresh deployment or an upgrade
+    // and extract the appropriate values
+
+    let isUpgrade: Bool = switch (initArgs) {
+        case (#InitialSetup(_)) { false };
+        case (#Upgrade(_)) { true };
+    };
+
+    // Extract config and creator based on deployment mode
+    let init_config: DistributionConfig = switch (initArgs) {
+        case (#InitialSetup(setup)) {
+            Debug.print("🆕 DistributionContract: Fresh deployment");
+            setup.config
+        };
+        case (#Upgrade(upgrade)) {
+            Debug.print("⬆️ DistributionContract: Upgrading from previous version");
+            upgrade.config
+        };
+    };
+
+    let init_creator: Principal = switch (initArgs) {
+        case (#InitialSetup(setup)) { setup.creator };
+        case (#Upgrade(upgrade)) { upgrade.creator };
+    };
+
+    let init_factory_canister: ?Principal = switch (initArgs) {
+        case (#InitialSetup(setup)) { setup.factory };
+        case (#Upgrade(upgrade)) { upgrade.factory };
+    };
+
+    let upgradeState: ?DistributionUpgradeTypes.DistributionRuntimeState = switch (initArgs) {
+        case (#InitialSetup(_)) { null };
+        case (#Upgrade(upgrade)) { ?upgrade.runtimeState };
+    };
+
     // ================ STABLE VARIABLES ================
-    
+
     private var config: DistributionConfig = init_config;
     private var creator: Principal = init_creator;
-    private var status: DistributionStatus = #Created;
-    private var createdAt: Time.Time = Time.now();
-    private var initialized: Bool = false;
-    
+    private var status: DistributionStatus = switch (upgradeState) {
+        case null { #Created };
+        case (?state) { state.status };
+    };
+    private var createdAt: Time.Time = switch (upgradeState) {
+        case null { Time.now() };
+        case (?state) { state.createdAt };
+    };
+    private var initialized: Bool = switch (upgradeState) {
+        case null { false };
+        case (?state) { state.initialized };
+    };
+
+    // Contract version for upgrade tracking
+    private var contractVersion: IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
+    private var lastActivityTime: Time.Time = Time.now();
+
     // Participant management
-    private var participantsStable: [(Principal, Participant)] = [];
-    private var claimRecordsStable: [ClaimRecord] = [];
-    private var whitelistStable: [(Principal, Bool)] = [];
-    private var blacklistStable: [(Principal, Bool)] = []; // Blacklist is a list of principals that are not allowed to participate in the distribution
-    
+    private var participantsStable: [(Principal, Participant)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.participants };
+    };
+    private var claimRecordsStable: [ClaimRecord] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.claimRecords };
+    };
+    private var whitelistStable: [(Principal, Bool)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.whitelist };
+    };
+    private var blacklistStable: [(Principal, Bool)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.blacklist };
+    };
+
     // Stats
-    private var totalDistributed: Nat = 0;
-    private var totalClaimed: Nat = 0;
-    private var participantCount: Nat = 0;
-    
-    // Runtime variables
+    private var totalDistributed: Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.totalDistributed };
+    };
+    private var totalClaimed: Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.totalClaimed };
+    };
+    private var participantCount: Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.participantCount };
+    };
+
+    // Runtime variables - will be restored in postupgrade
     private transient var participants: Trie.Trie<Principal, Participant> = Trie.empty();
     private transient var claimRecords: Buffer.Buffer<ClaimRecord> = Buffer.Buffer(0);
     private transient var whitelist: Trie.Trie<Principal, Bool> = Trie.empty();
@@ -77,7 +150,7 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     // Timer and token management
     private var timerId: Nat = 0;
     private var tokenCanister: ?ICRC.ICRCLedger = null;
-    
+
     // BlockID integration
     private let BLOCK_ID_CANISTER_ID = "3c7yh-4aaaa-aaaap-qhria-cai";
     private let BLOCK_ID_APPLICATION = "block-id";
@@ -87,14 +160,20 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private var factoryCanisterId: ?Principal = init_factory_canister;
 
     // Launchpad Integration - Optional features
-    private var launchpadCanisterId: ?Principal = null;
+    private var launchpadCanisterId: ?Principal = switch (upgradeState) {
+        case null { null };
+        case (?state) { state.launchpadCanisterId };
+    };
 
     //Token info
-    private var transferFee: Nat = 0;
-    
+    private var transferFee: Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.transferFee };
+    };
+
     // Constants
     private let E8S: Nat = 100_000_000;
-    private let NANO_TIME: Nat = 1_000_000_000;
+    private let _NANO_TIME: Nat = 1_000_000_000;
 
     // Initialize whitelist and participants from config on contract creation
     public shared({ caller }) func init() : async Result.Result<(), Text> {
@@ -461,11 +540,11 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         let remaining = if (config.totalAmount > totalDistributed) {
             Nat.sub(config.totalAmount, totalDistributed)
         } else { 0 };
-        
+
         let completionPercentage = if (config.totalAmount > 0) {
             Float.fromInt(totalDistributed) / Float.fromInt(config.totalAmount) * 100.0
         } else { 0.0 };
-        
+
         {
             totalParticipants = participantCount;
             totalDistributed = totalDistributed;
@@ -473,6 +552,126 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
             remainingAmount = remaining;
             completionPercentage = completionPercentage;
             isActive = _isActive();
+        }
+    };
+
+    // ================ IUPGRADEABLE INTERFACE ================
+
+    /// Get current state serialized for upgrade
+    /// CRITICAL: Returns CURRENT config + ALL runtime state
+    /// Factory calls this BEFORE upgrade to capture state
+    public query func getUpgradeArgs() : async Blob {
+        let upgradeData: DistributionUpgradeTypes.DistributionUpgradeArgs = {
+            // Original init args (STATIC - config never modified)
+            config = config;
+            creator = creator;
+            factory = factoryCanisterId;
+
+            // Current runtime state (DYNAMIC - captured now)
+            runtimeState = {
+                status = status;
+                createdAt = createdAt;
+                initialized = initialized;
+
+                // Convert Tries to Arrays for serialization
+                participants = Trie.toArray<Principal, Participant, (Principal, Participant)>(
+                    participants,
+                    func (k, v) = (k, v)
+                );
+                claimRecords = Buffer.toArray(claimRecords);
+                whitelist = Trie.toArray<Principal, Bool, (Principal, Bool)>(
+                    whitelist,
+                    func (k, v) = (k, v)
+                );
+                blacklist = Trie.toArray<Principal, Bool, (Principal, Bool)>(
+                    blacklist,
+                    func (k, v) = (k, v)
+                );
+
+                // Statistics
+                totalDistributed = totalDistributed;
+                totalClaimed = totalClaimed;
+                participantCount = participantCount;
+
+                // Integration
+                launchpadCanisterId = launchpadCanisterId;
+
+                // Token info
+                transferFee = transferFee;
+            };
+        };
+
+        // Serialize to Candid blob
+        to_candid(upgradeData)
+    };
+
+    /// Validate if contract is ready for upgrade
+    /// Checks for pending operations and critical state
+    public query func canUpgrade() : async Result.Result<(), Text> {
+        // Check 1: Contract not in emergency or critical processing state
+        if (status == #Created and not initialized) {
+            return #err("Cannot upgrade: Contract not initialized");
+        };
+
+        // Check 2: No pending claims in progress (if status is Active)
+        // For distribution contracts, we allow upgrade during most states
+        // as claims are independent operations
+
+        // Check 3: Recent activity check (optional - commented out for flexibility)
+        // let timeSinceLastActivity = Time.now() - lastActivityTime;
+        // if (timeSinceLastActivity < 60_000_000_000) { // 60 seconds
+        //     return #err("Cannot upgrade: Recent activity detected (wait 60s)");
+        // };
+
+        #ok()
+    };
+
+    /// Get current contract version
+    public query func getVersion() : async IUpgradeable.Version {
+        contractVersion
+    };
+
+    /// Comprehensive health check
+    public query func healthCheck() : async IUpgradeable.HealthStatus {
+        let issues = Buffer.Buffer<Text>(0);
+
+        // Check 1: Initialization status
+        if (not initialized) {
+            issues.add("Contract not initialized");
+        };
+
+        // Check 2: Token canister connectivity
+        if (Option.isNull(tokenCanister)) {
+            issues.add("Token canister not set");
+        };
+
+        // Check 3: Data consistency
+        let participantTrieSize = Trie.size(participants);
+        if (participantTrieSize != participantCount) {
+            issues.add("Participant count mismatch: Trie=" # Nat.toText(participantTrieSize) # " vs Count=" # Nat.toText(participantCount));
+        };
+
+        // Check 4: Financial consistency
+        if (totalClaimed > totalDistributed) {
+            issues.add("Claimed amount exceeds distributed amount");
+        };
+
+        if (totalDistributed > config.totalAmount) {
+            issues.add("Distributed amount exceeds configured total");
+        };
+
+        // Check 5: Cycles balance
+        let cyclesBalance = Cycles.balance();
+        if (cyclesBalance < 100_000_000_000) { // Less than 0.1T cycles
+            issues.add("Low cycles: " # Nat.toText(cyclesBalance));
+        };
+
+        {
+            healthy = issues.size() == 0;
+            issues = Buffer.toArray(issues);
+            lastActivity = lastActivityTime;
+            canisterCycles = cyclesBalance;
+            memorySize = Prim.rts_memory_size();
         }
     };
 
@@ -1415,11 +1614,6 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         #ok()
     };
 
-    // ================ HEALTH CHECK ================
-    public query func healthCheck() : async Bool {
-        Cycles.balance() > 1_000_000_000 // 1B cycles minimum
-    };
-    
     public query func getCanisterInfo() : async {
         creator: Principal;
         createdAt: Time.Time;
