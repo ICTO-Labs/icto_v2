@@ -11,6 +11,7 @@ import Buffer "mo:base/Buffer";
 import Nat "mo:base/Nat";
 import Debug "mo:base/Debug";
 import Queue "mo:core/Queue";
+import HashMap "mo:base/HashMap";
 
 // System Modules
 import ConfigService "./modules/systems/config/ConfigService";
@@ -71,6 +72,9 @@ persistent actor Backend {
     private var stableMultisigFactoryState : ?MultisigFactoryTypes.StableState = null;
     private var stableFactoryRegistryState : ?FactoryRegistryTypes.StableState = null;
 
+    // Factory Admin Management
+    private var factoryAdmins : [(Principal, [Principal])] = [];
+
     // --- Runtime State (must be initialized) ---
     private transient var owner : Principal = stableBackend;
     private transient var configState : ConfigTypes.State = ConfigService.initState(stableBackend);
@@ -84,6 +88,12 @@ persistent actor Backend {
     private transient var factoryRegistryState : FactoryRegistryTypes.State = FactoryRegistryService.initState();
     private transient var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
     private transient var defaultTokens : [Common.TokenInfo] = [];
+    private transient var factoryAdminsMap : HashMap.HashMap<Principal, [Principal]> = HashMap.fromIter(
+        factoryAdmins.vals(),
+        10,
+        Principal.equal,
+        Principal.hash
+    );
 
     system func preupgrade() {
         stableConfigState := ?ConfigService.toStableState(configState);
@@ -96,6 +106,7 @@ persistent actor Backend {
         stableMultisigFactoryState := ?MultisigFactoryService.toStableState(multisigFactoryState);
         stableFactoryRegistryState := ?FactoryRegistryService.toStableState(factoryRegistryState);
         stableTokenSymbolRegistry := Iter.toArray(Trie.iter(tokenSymbolRegistry));
+        factoryAdmins := Iter.toArray(factoryAdminsMap.entries());
     };
 
     system func postupgrade() {
@@ -153,6 +164,14 @@ persistent actor Backend {
             newRegistry := Trie.put(newRegistry, { key = k; hash = Text.hash(k) }, Text.equal, v).0;
         };
         tokenSymbolRegistry := newRegistry;
+
+        // Restore factory admins map
+        factoryAdminsMap := HashMap.fromIter(
+            factoryAdmins.vals(),
+            10,
+            Principal.equal,
+            Principal.hash
+        );
     };
 
     // ==================================================================================================
@@ -1445,10 +1464,201 @@ persistent actor Backend {
         return ConfigService.getAdmins(configState);
     };
 
-    // Get all super admins (admin only)  
+    // Get all super admins (admin only)
     public shared ({ caller }) func adminGetSuperAdmins() : async [Principal] {
         if (not _isAdmin(caller)) { return [] };
         return ConfigService.getSuperAdmins(configState);
+    };
+
+    // ==================================================================================================
+    // FACTORY ADMIN MANAGEMENT (Backend-Managed Admin System)
+    // ==================================================================================================
+
+    // Add admin to a specific factory
+    public shared({caller}) func addFactoryAdmin(
+        factory: Principal,
+        admin: Principal
+    ) : async Result.Result<(), Text> {
+        // Only super admins can manage factory admins
+        switch (_onlySuperAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(
+                    auditState,
+                    caller,
+                    #AccessDenied,
+                    #RawData("addFactoryAdmin: Super-admin access required"),
+                    null, null, ?#Backend, null
+                );
+                return #err(msg);
+            };
+            case (#ok()) {};
+        };
+
+        let currentAdmins = switch (factoryAdminsMap.get(factory)) {
+            case (?admins) { admins };
+            case null { [] };
+        };
+
+        // Check if already admin
+        if (Array.find(currentAdmins, func(p: Principal) : Bool { p == admin }) != null) {
+            return #err("Principal is already a factory admin");
+        };
+
+        let updatedAdmins = Array.append(currentAdmins, [admin]);
+        factoryAdminsMap.put(factory, updatedAdmins);
+
+        // Log the action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UserManagement,
+            #AdminData({
+                adminAction = "Add Factory Admin";
+                targetUser = ?admin;
+                configChanges = "Added admin '" # Principal.toText(admin) # "' to factory '" # Principal.toText(factory) # "'";
+                justification = "Super admin request to add factory admin";
+            }),
+            null, null, ?#Backend, null
+        );
+
+        // Sync to factory
+        try {
+            await _syncAdminsToFactory(factory, updatedAdmins);
+            #ok()
+        } catch (e) {
+            #err("Failed to sync admins to factory: " # Error.message(e))
+        }
+    };
+
+    // Remove admin from a specific factory
+    public shared({caller}) func removeFactoryAdmin(
+        factory: Principal,
+        admin: Principal
+    ) : async Result.Result<(), Text> {
+        // Only super admins can manage factory admins
+        switch (_onlySuperAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(
+                    auditState,
+                    caller,
+                    #AccessDenied,
+                    #RawData("removeFactoryAdmin: Super-admin access required"),
+                    null, null, ?#Backend, null
+                );
+                return #err(msg);
+            };
+            case (#ok()) {};
+        };
+
+        let currentAdmins = switch (factoryAdminsMap.get(factory)) {
+            case (?admins) { admins };
+            case null { return #err("Factory not found"); };
+        };
+
+        let updatedAdmins = Array.filter(currentAdmins, func(p: Principal) : Bool { p != admin });
+
+        if (updatedAdmins.size() == currentAdmins.size()) {
+            return #err("Principal is not a factory admin");
+        };
+
+        factoryAdminsMap.put(factory, updatedAdmins);
+
+        // Log the action
+        ignore await AuditService.logAction(
+            auditState,
+            caller,
+            #UserManagement,
+            #AdminData({
+                adminAction = "Remove Factory Admin";
+                targetUser = ?admin;
+                configChanges = "Removed admin '" # Principal.toText(admin) # "' from factory '" # Principal.toText(factory) # "'";
+                justification = "Super admin request to remove factory admin";
+            }),
+            null, null, ?#Backend, null
+        );
+
+        // Sync to factory
+        try {
+            await _syncAdminsToFactory(factory, updatedAdmins);
+            #ok()
+        } catch (e) {
+            #err("Failed to sync admins to factory: " # Error.message(e))
+        }
+    };
+
+    // List admins for a specific factory
+    public query func listFactoryAdmins(factory: Principal) : async [Principal] {
+        switch (factoryAdminsMap.get(factory)) {
+            case (?admins) { admins };
+            case null { [] };
+        }
+    };
+
+    // Manual sync (in case of failures or after factory upgrade)
+    public shared({caller}) func syncFactoryAdmins(factory: Principal) : async Result.Result<(), Text> {
+        // Only super admins can sync factory admins
+        switch (_onlySuperAdmin(caller)) {
+            case (#err(msg)) {
+                ignore await AuditService.logAction(
+                    auditState,
+                    caller,
+                    #AccessDenied,
+                    #RawData("syncFactoryAdmins: Super-admin access required"),
+                    null, null, ?#Backend, null
+                );
+                return #err(msg);
+            };
+            case (#ok()) {};
+        };
+
+        let admins = switch (factoryAdminsMap.get(factory)) {
+            case (?a) { a };
+            case null { return #err("Factory not found"); };
+        };
+
+        try {
+            await _syncAdminsToFactory(factory, admins);
+
+            // Log the action
+            ignore await AuditService.logAction(
+                auditState,
+                caller,
+                #UserManagement,
+                #AdminData({
+                    adminAction = "Sync Factory Admins";
+                    targetUser = null;
+                    configChanges = "Synced " # Nat.toText(admins.size()) # " admins to factory '" # Principal.toText(factory) # "'";
+                    justification = "Manual admin sync requested";
+                }),
+                null, null, ?#Backend, null
+            );
+
+            #ok()
+        } catch (e) {
+            #err("Failed to sync admins to factory: " # Error.message(e))
+        }
+    };
+
+    // Private helper function to sync admins to factory
+    private func _syncAdminsToFactory(
+        factory: Principal,
+        admins: [Principal]
+    ) : async () {
+        // Generic factory interface for setAdmins
+        let factoryActor = actor(Principal.toText(factory)) : actor {
+            setAdmins: ([Principal]) -> async Result.Result<(), Text>;
+        };
+
+        let result = await factoryActor.setAdmins(admins);
+
+        switch (result) {
+            case (#ok()) {
+                Debug.print("Successfully synced admins to factory: " # Principal.toText(factory));
+            };
+            case (#err(msg)) {
+                Debug.print("Failed to sync admins to factory " # Principal.toText(factory) # ": " # msg);
+            };
+        };
     };
 
     // ==================================================================================================

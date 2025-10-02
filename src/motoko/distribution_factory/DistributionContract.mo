@@ -11,16 +11,14 @@ import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Float "mo:base/Float";
 import Nat "mo:base/Nat";
-import Array "mo:base/Array";
 import Error "mo:base/Error";
 // Import shared types (trust source)
 import DistributionTypes "../shared/types/DistributionTypes";
 import Timer "mo:base/Timer";
 import ICRC "../shared/types/ICRC";
 import BlockID "../shared/utils/BlockID";
-import FactoryRegistryTypes "../backend/modules/systems/factory_registry/FactoryRegistryTypes";
 
-persistent actor class DistributionContract(init_config: DistributionTypes.DistributionConfig, init_creator: Principal, init_backend_canister: ?Principal) = self {
+persistent actor class DistributionContract(init_config: DistributionTypes.DistributionConfig, init_creator: Principal, init_factory_canister: ?Principal) = self {
 
     // ================ TYPE ALIASES (from shared types) ================
     
@@ -85,8 +83,8 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
     private let BLOCK_ID_APPLICATION = "block-id";
     private let blockID: BlockID.Self = actor(BLOCK_ID_CANISTER_ID);
 
-    // Backend integration for relationship updates
-    private var backendCanisterId: ?Principal = init_backend_canister;
+    // Factory integration for relationship updates (Factory Storage Standard)
+    private var factoryCanisterId: ?Principal = init_factory_canister;
 
     // Launchpad Integration - Optional features
     private var launchpadCanisterId: ?Principal = null;
@@ -586,9 +584,9 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
         participantCount += 1;
         
-        // Update backend with new relationship
-        await _registerBackendRelationship(config, caller);
-        
+        // Notify factory about new recipient (Factory Storage Standard)
+        await _notifyFactoryRecipientAdded(caller);
+
         #ok()
     };
 
@@ -597,7 +595,10 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         if (not _isOwner(caller)) {
             return #err("Unauthorized: Only owner can remove participant");
         };
-        ignore _removeBackendRelationship(config, principal);
+
+        // Notify factory about removed recipient (Factory Storage Standard)
+        await _notifyFactoryRecipientRemoved(principal);
+
         #ok()
     };
 
@@ -619,87 +620,63 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         #ok()
     };
 
-    // Notify backend of new relationship
-    private func _registerBackendRelationship(
-        config: DistributionConfig, userId: Principal
-    ) : async () {
-        switch (backendCanisterId) {
-            case (?backendId) {
+    // ================ FACTORY CALLBACKS (Factory Storage Standard) ================
+
+    // Notify factory when new recipient added
+    private func _notifyFactoryRecipientAdded(recipient: Principal) : async () {
+        switch (factoryCanisterId) {
+            case (?factoryId) {
                 try {
-                    let backendCanister = actor(Principal.toText(backendId)) : actor {
-                        updateUserRelationships: (
-                            FactoryRegistryTypes.RelationshipType,
-                            Principal,
-                            [Principal],
-                            FactoryRegistryTypes.RelationshipMetadata
-                        ) -> async FactoryRegistryTypes.FactoryRegistryResult<()>;
+                    let factory = actor(Principal.toText(factoryId)) : actor {
+                        notifyRecipientAdded: (Principal) -> async Result.Result<(), Text>;
                     };
-                    
-                    // Notify backend that this user is now a recipient of this distribution
-                    let updateResult = await backendCanister.updateUserRelationships(
-                        #DistributionRecipient,
-                        Principal.fromActor(self),
-                        [userId],
-                        {
-                            name = config.title;
-                            description = ?config.description;
-                            additionalData = null;
-                        }
-                    );
-                    
-                    switch (updateResult) {
-                        case (#Ok(_)) {
-                            Debug.print("✅ Successfully updated backend relationship for user: " # Principal.toText(userId));
+
+                    let result = await factory.notifyRecipientAdded(recipient);
+                    switch (result) {
+                        case (#ok()) {
+                            Debug.print("✅ Factory notified: recipient added " # Principal.toText(recipient));
                         };
-                        case (#Err(error)) {
-                            Debug.print("❌ Failed to update backend relationship: " # debug_show(error));
+                        case (#err(error)) {
+                            Debug.print("❌ Factory notification failed: " # error);
                         };
                     };
                 } catch (error) {
                     // Log error but don't fail registration
-                    Debug.print("Warning: Failed to update backend relationship: " # Error.message(error));
+                    Debug.print("⚠️ Warning: Failed to notify factory: " # Error.message(error));
                 };
             };
             case null {
-                Debug.print("❌ Warning: No backend canister configured for relationship updates. This means the distribution factory didn't whitelist the backend canister.");
+                Debug.print("⚠️ Warning: No factory configured for callbacks");
             };
         };
     };
-    //Remove backend relationship
-    private func _removeBackendRelationship(
-        config: DistributionConfig, userId: Principal
-    ) : async () {
-        switch (backendCanisterId) {
-            case (?backendId) {
-                try {
-                    let backendCanister = actor(Principal.toText(backendId)) : actor {
-                        removeUserRelationship: (
-                            Principal,
-                            FactoryRegistryTypes.RelationshipType,
-                            Principal
-                        ) -> async FactoryRegistryTypes.FactoryRegistryResult<()>;
-                    };
-                    // user: Principal,
-                    // relationshipType: FactoryRegistryTypes.RelationshipType,
-                    // canisterId: Principal
 
-                    
-                    // Notify backend that this user is no longer a recipient of this distribution
-                    ignore backendCanister.removeUserRelationship(
-                        userId,
-                        #DistributionRecipient,
-                        Principal.fromActor(self)
-                    );
+    // Notify factory when recipient removed
+    private func _notifyFactoryRecipientRemoved(recipient: Principal) : async () {
+        switch (factoryCanisterId) {
+            case (?factoryId) {
+                try {
+                    let factory = actor(Principal.toText(factoryId)) : actor {
+                        notifyRecipientRemoved: (Principal) -> async Result.Result<(), Text>;
+                    };
+
+                    let result = await factory.notifyRecipientRemoved(recipient);
+                    switch (result) {
+                        case (#ok()) {
+                            Debug.print("✅ Factory notified: recipient removed " # Principal.toText(recipient));
+                        };
+                        case (#err(error)) {
+                            Debug.print("❌ Factory notification failed: " # error);
+                        };
+                    };
                 } catch (error) {
-                    // Log error but don't fail registration
-                    Debug.print("Warning: Failed to update backend relationship: " # Error.message(error));
+                    Debug.print("⚠️ Warning: Failed to notify factory: " # Error.message(error));
                 };
             };
             case null {
-                Debug.print("Warning: No backend canister configured for relationship updates");
+                Debug.print("⚠️ Warning: No factory configured for callbacks");
             };
         };
-        
     };
     
     // Auto-register participant when no registration period is configured
@@ -783,10 +760,10 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
         participantCount += 1;
-        
-        // Update backend with new relationship
-        await _registerBackendRelationship(config, caller);
-        
+
+        // Notify factory about new recipient (Factory Storage Standard)
+        await _notifyFactoryRecipientAdded(caller);
+
         #ok(participant)
     };
     
@@ -1605,20 +1582,20 @@ persistent actor class DistributionContract(init_config: DistributionTypes.Distr
         }
     };
     
-    // Query function to get the configured backend canister
-    public query func getBackendCanisterId() : async ?Principal {
-        backendCanisterId
+    // Query function to get the configured factory canister
+    public query func getFactoryCanisterId() : async ?Principal {
+        factoryCanisterId
     };
-    
-    // Debug function to help troubleshoot backend relationship issues
+
+    // Debug function to help troubleshoot factory relationship issues
     public query func getRelationshipDebugInfo() : async {
-        hasBackendCanister: Bool;
-        backendCanisterId: ?Principal;
+        hasFactoryCanister: Bool;
+        factoryCanisterId: ?Principal;
         contractAddress: Principal;
     } {
         {
-            hasBackendCanister = Option.isSome(backendCanisterId);
-            backendCanisterId = backendCanisterId;
+            hasFactoryCanister = Option.isSome(factoryCanisterId);
+            factoryCanisterId = factoryCanisterId;
             contractAddress = Principal.fromActor(self);
         }
     };

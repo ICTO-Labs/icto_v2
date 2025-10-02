@@ -21,23 +21,45 @@ import DAOContractClass "DAOContract";
 import Types "Types";
 import DAOTypes "../shared/types/DAOTypes";
 
+// Import VersionManager for version management
+import VersionManager "../common/VersionManager";
+
 persistent actor DAOFactory {
     
     // ================ STABLE VARIABLES ================
-    private var MIN_CYCLES_IN_DEPLOYER : Nat = 2_000_000_000_000;
-    private var CYCLES_FOR_INSTALL : Nat = 1_000_000_000_000; // 1T cycles
-    
-    // Admin and whitelist management  
-    private var admins : [Text] = []; // Clear admin array to prevent Principal.fromText issues
-    private var whitelistedBackends : [(Principal, Bool)] = [];
+    private stable var MIN_CYCLES_IN_DEPLOYER : Nat = 2_000_000_000_000;
+    private stable var CYCLES_FOR_INSTALL : Nat = 1_000_000_000_000; // 1T cycles
+
+    // Backend-Managed Admin System
+    private stable var admins : [Principal] = [];
+    private stable let BACKEND_CANISTER : Principal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"); // Backend canister ID
+
+    // Whitelist management
+    private stable var whitelistedBackends : [(Principal, Bool)] = [];
     
     // DAO contracts storage
-    private var daoContractsStable : [(Text, DAOContract)] = [];
-    private var nextDAOId : Nat = 1;
-    
+    private stable var daoContractsStable : [(Text, DAOContract)] = [];
+    private stable var nextDAOId : Nat = 1;
+
+    // VERSION MANAGEMENT: Stable storage for VersionManager
+    private stable var versionManagerStable : {
+        wasmVersions: [(Text, VersionManager.WASMVersion)];
+        contractVersions: [(Principal, VersionManager.ContractVersion)];
+        compatibilityMatrix: [VersionManager.UpgradeCompatibility];
+        latestStableVersion: ?VersionManager.Version;
+    } = {
+        wasmVersions = [];
+        contractVersions = [];
+        compatibilityMatrix = [];
+        latestStableVersion = null;
+    };
+
     // Runtime variables
     private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
     private transient var daoContracts : Trie.Trie<Text, DAOContract> = Trie.empty();
+
+    // Version Management Runtime State
+    private transient var versionManager = VersionManager.VersionManagerState();
     
     // ================ TYPES ================
     
@@ -82,12 +104,16 @@ persistent actor DAOFactory {
         for ((principal, status) in whitelistedBackends.vals()) {
             whitelistTrie := Trie.put(whitelistTrie, principalKey(principal), Principal.equal, status).0;
         };
-        
+
         // Restore DAO contracts from stable storage
         daoContracts := Trie.empty();
         for ((id, contract) in daoContractsStable.vals()) {
             daoContracts := Trie.put(daoContracts, textKey(id), Text.equal, contract).0;
         };
+
+        // Restore Version Manager state
+        versionManager.fromStable(versionManagerStable);
+
         Debug.print("DAOFactory: Postupgrade completed");
     };
     
@@ -95,21 +121,24 @@ persistent actor DAOFactory {
     
     system func preupgrade() {
         Debug.print("DAOFactory: Starting preupgrade");
-        
+
         // Store whitelisted backends to stable storage
         let whitelistBuffer = Buffer.Buffer<(Principal, Bool)>(0);
         for ((principal, status) in Trie.iter(whitelistTrie)) {
             whitelistBuffer.add((principal, status));
         };
         whitelistedBackends := Buffer.toArray(whitelistBuffer);
-        
+
         // Store DAO contracts to stable storage
         let contractsBuffer = Buffer.Buffer<(Text, DAOContract)>(0);
         for ((id, contract) in Trie.iter(daoContracts)) {
             contractsBuffer.add((id, contract));
         };
         daoContractsStable := Buffer.toArray(contractsBuffer);
-        
+
+        // Save Version Manager state
+        versionManagerStable := versionManager.toStable();
+
         Debug.print("DAOFactory: Preupgrade completed");
     };
     
@@ -183,7 +212,25 @@ persistent actor DAOFactory {
             Debug.print("DAO FACTORY: DAO CANISTER created with initStorage: " # debug_show (initStorage));
             let canisterId = Principal.fromActor(daoCanister);
             Debug.print("DAO FACTORY: CANISTER ID: " # Principal.toText(canisterId));
-            
+
+            // VERSION MANAGEMENT: Register contract with current factory version
+            let contractVersion = switch (versionManager.getLatestStableVersion()) {
+                case (?latestVersion) {
+                    // Use latest uploaded version if available
+                    latestVersion
+                };
+                case null {
+                    // Fallback to initial version if no WASM versions uploaded yet
+                    { major = 1; minor = 0; patch = 0 }
+                };
+            };
+
+            versionManager.registerContract(canisterId, contractVersion, false);
+            Debug.print("DAOFactory: Registered contract with version " #
+                       Nat.toText(contractVersion.major) # "." #
+                       Nat.toText(contractVersion.minor) # "." #
+                       Nat.toText(contractVersion.patch));
+
             // Store DAO contract info
             let daoContract : DAOContract = {
                 id = daoId;
@@ -284,6 +331,30 @@ persistent actor DAOFactory {
         };
     };
     
+    // ================ BACKEND-MANAGED ADMIN SYSTEM ================
+
+    // Backend sync endpoint - Only backend can set admins
+    public shared({caller}) func setAdmins(newAdmins: [Principal]) : async Result.Result<(), Text> {
+        if (caller != BACKEND_CANISTER) {
+            return #err("Unauthorized: Only backend can set admins");
+        };
+
+        admins := newAdmins;
+        Debug.print("Admins synced from backend: " # debug_show(newAdmins));
+
+        #ok()
+    };
+
+    // Query current admins
+    public query func getAdmins() : async [Principal] {
+        admins
+    };
+
+    // Check if caller is admin
+    public query({caller}) func isAdmin() : async Bool {
+        _isAdmin(caller)
+    };
+
     // ================ ADMIN FUNCTIONS ================
     // Add whitelist to the dao factory
     public shared({caller}) func addToWhitelist(backend: Principal) : async Result.Result<(), Text> {
@@ -343,8 +414,9 @@ persistent actor DAOFactory {
     
     // ================ UTILITY FUNCTIONS ================
     
-    func _isAdmin(caller: Principal) : Bool {
-        Principal.isController(caller) or Array.find<Text>(admins, func(admin : Text) = admin == Principal.toText(caller)) != null
+    private func _isAdmin(caller: Principal) : Bool {
+        Principal.isController(caller) or
+        Array.find(admins, func(p: Principal) : Bool { p == caller }) != null
     };
     
     func _isWhitelisted(caller: Principal) : Bool {
@@ -384,8 +456,153 @@ persistent actor DAOFactory {
         hash = Text.hash(t);
     };
     
+    // ================ VERSION MANAGEMENT ================
+
+    // WASM Upload - Chunked (for large files >2MB)
+    public shared({caller}) func uploadWASMChunk(chunk: [Nat8]) : async Result.Result<Nat, Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upload WASM chunks");
+        };
+
+        versionManager.uploadWASMChunk(chunk)
+    };
+
+    public shared({caller}) func finalizeWASMUpload(
+        version: VersionManager.Version,
+        releaseNotes: Text,
+        isStable: Bool,
+        minUpgradeVersion: ?VersionManager.Version,
+        externalHash: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can finalize WASM upload");
+        };
+
+        versionManager.finalizeWASMUpload(caller, version, releaseNotes, isStable, minUpgradeVersion, externalHash)
+    };
+
+    public shared({caller}) func cancelWASMUpload() : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can cancel WASM upload");
+        };
+
+        versionManager.clearWASMChunks()
+    };
+
+    // WASM Upload - Direct (for small files <2MB)
+    public shared({caller}) func uploadWASMVersion(
+        version: VersionManager.Version,
+        wasm: Blob,
+        releaseNotes: Text,
+        isStable: Bool,
+        minUpgradeVersion: ?VersionManager.Version,
+        externalHash: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upload WASM");
+        };
+
+        versionManager.uploadWASMVersion(caller, version, wasm, releaseNotes, isStable, minUpgradeVersion, externalHash)
+    };
+
+    // Hash Verification Functions
+    public query func getWASMHash(version: VersionManager.Version) : async ?Blob {
+        versionManager.getWASMHash(version)
+    };
+
+    // Contract Upgrade Functions
+    public shared({caller}) func upgradeContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        upgradeArgs: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upgrade contracts");
+        };
+
+        // Check upgrade eligibility
+        switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok()) {};
+        };
+
+        // Perform chunked upgrade
+        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
+
+        switch (result) {
+            case (#ok()) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
+                Debug.print("✅ Upgraded DAO contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+            };
+            case (#err(msg)) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                Debug.print("❌ Failed to upgrade DAO contract: " # msg);
+            };
+        };
+
+        result
+    };
+
+    public shared({caller}) func rollbackContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        rollbackArgs: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can rollback contracts");
+        };
+
+        // Perform rollback upgrade
+        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, rollbackArgs);
+
+        switch (result) {
+            case (#ok()) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #RolledBack("Manual rollback"));
+                Debug.print("✅ Rolled back DAO contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+            };
+            case (#err(msg)) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                Debug.print("❌ Failed to rollback DAO contract: " # msg);
+            };
+        };
+
+        result
+    };
+
+    // Version Query Functions
+    public query func listAvailableVersions() : async [VersionManager.WASMVersion] {
+        versionManager.listVersions()
+    };
+
+    public query func getWASMVersion(version: VersionManager.Version) : async ?VersionManager.WASMVersion {
+        versionManager.getWASMMetadata(version)
+    };
+
+    public query func getContractVersion(contractId: Principal) : async ?VersionManager.ContractVersion {
+        versionManager.getContractVersion(contractId)
+    };
+
+    public query func getLatestStableVersion() : async ?VersionManager.Version {
+        versionManager.getLatestStableVersion()
+    };
+
+    public query func canUpgrade(
+        contractId: Principal,
+        toVersion: VersionManager.Version
+    ) : async Result.Result<Bool, Text> {
+        switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
+            case (#ok()) { #ok(true) };
+            case (#err(msg)) { #err(msg) };
+        }
+    };
+
+    // Helper function
+    private func _versionToText(v: VersionManager.Version) : Text {
+        Nat.toText(v.major) # "." # Nat.toText(v.minor) # "." # Nat.toText(v.patch)
+    };
+
     // ================ CANISTER MANAGEMENT ================
-    
+
     /// Get current cycles balance
     public query func getCyclesBalance() : async Nat {
         Cycles.balance();
@@ -399,9 +616,73 @@ persistent actor DAOFactory {
         accepted;
     };
 
+    // ================ SERVICE INFO ================
+    public query func getServiceInfo() : async {
+        name: Text;
+        version: Text;
+        description: Text;
+        endpoints: [Text];
+        maintainer: Text;
+        minCycles: Nat;
+        cyclesForInstall: Nat;
+    } {
+        {
+            name = "ICTO DAO Factory";
+            version = "2.0.0";
+            description = "Factory for deploying miniDAO contracts for token communities with governance capabilities";
+            endpoints = [
+                "createDAO",
+                "getDAOInfo",
+                "listDAOs",
+                "getUserDAOs",
+                "getFactoryStats",
+                "updateDAOStatus"
+            ];
+            maintainer = "ICTO Team";
+            minCycles = MIN_CYCLES_IN_DEPLOYER;
+            cyclesForInstall = CYCLES_FOR_INSTALL;
+        }
+    };
+
+    public query func getServiceHealth() : async {
+        totalDAOs: Nat;
+        activeDAOs: Nat;
+        pausedDAOs: Nat;
+        archivedDAOs: Nat;
+        cyclesBalance: Nat;
+        isHealthy: Bool;
+        factoryStatus: Text;
+    } {
+        var active = 0;
+        var paused = 0;
+        var archived = 0;
+
+        for ((_, dao) in Trie.iter(daoContracts)) {
+            switch (dao.status) {
+                case (#Active) { active += 1 };
+                case (#Paused) { paused += 1 };
+                case (#Archived) { archived += 1 };
+            };
+        };
+
+        let cycles = Cycles.balance();
+        let isHealthy = cycles > MIN_CYCLES_IN_DEPLOYER;
+        let factoryStatus = if (isHealthy) { "Healthy" } else { "Low Cycles" };
+
+        {
+            totalDAOs = Trie.size(daoContracts);
+            activeDAOs = active;
+            pausedDAOs = paused;
+            archivedDAOs = archived;
+            cyclesBalance = cycles;
+            isHealthy = isHealthy;
+            factoryStatus = factoryStatus;
+        }
+    };
+
     // Health check
     public query func healthCheck() : async Bool {
-        Trie.size(whitelistTrie) > 0 and Cycles.balance() > MIN_CYCLES_IN_DEPLOYER;
+        Cycles.balance() > MIN_CYCLES_IN_DEPLOYER
     };
 
     // Get whitelist

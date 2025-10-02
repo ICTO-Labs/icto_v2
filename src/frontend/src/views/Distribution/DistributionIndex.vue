@@ -148,29 +148,70 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { DistributionService } from '@/api/services/distribution'
-import { backendService } from '@/api/services/backend'
+import { useDistributionFactory } from '@/composables/useDistributionFactory'
 import { useAuthStore } from '@/stores/auth'
 import DistributionCard from '@/components/distribution/DistributionCard.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import { useModalStore } from '@/stores/modal'
 import { PlusIcon, SearchIcon, AlertCircleIcon, Share2Icon, RefreshCcwIcon, SlidersIcon } from 'lucide-vue-next'
 import type { DistributionCanister } from '@/types/distribution'
-import BrandButton from '@/components/common/BrandButton.vue'
+import type { DistributionInfo } from '@/api/services/distributionFactory'
+
 const router = useRouter()
 const modalStore = useModalStore()
 const authStore = useAuthStore()
 
-// Reactive variables
-const loading = ref(true)
-const error = ref<string | null>(null)
-const distributions = ref<DistributionCanister[]>([])
-const joinedDistributions = ref<DistributionCanister[]>([])
-const createdDistributions = ref<DistributionCanister[]>([])
-const publicDistributions = ref<DistributionCanister[]>([])
+// Use the new distribution factory composable
+const {
+  loading,
+  error,
+  myCreatedDistributions,
+  myRecipientDistributions,
+  publicDistributions: publicDistributionsRaw,
+  fetchMyCreatedDistributions,
+  fetchMyRecipientDistributions,
+  fetchPublicDistributions
+} = useDistributionFactory()
+
+// UI state
 const searchQuery = ref('')
 const activeFilter = ref('all')
 const sortBy = ref('recent')
+
+// Convert DistributionInfo to DistributionCanister format for compatibility with existing UI
+const convertToDistributionCanister = (info: DistributionInfo): DistributionCanister => {
+  return {
+    canisterId: info.contractId.toString(),
+    relationshipType: 'DistributionRecipient' as const,
+    metadata: {
+      name: info.title,
+      description: info.description,
+      isActive: info.isActive
+    }
+  }
+}
+
+// Computed distributions in DistributionCanister format
+const createdDistributions = computed(() =>
+  myCreatedDistributions.value.map(info => ({
+    ...convertToDistributionCanister(info),
+    relationshipType: 'DistributionCreator' as const
+  }))
+)
+
+const joinedDistributions = computed(() =>
+  myRecipientDistributions.value.map(convertToDistributionCanister)
+)
+
+const publicDistributions = computed(() =>
+  publicDistributionsRaw.value.map(convertToDistributionCanister)
+)
+
+const distributions = computed(() => [
+  ...publicDistributions.value,
+  ...joinedDistributions.value,
+  ...createdDistributions.value
+])
 
 // Filter options
 const filterOptions = [
@@ -242,91 +283,15 @@ const filteredDistributions = computed(() => {
   return filtered
 })
 
-// Fetch public distributions (works for anonymous users)
-const fetchPublicDistributions = async () => {
-  try {
-    publicDistributions.value = await DistributionService.getPublicDistributions()
-  } catch (err) {
-    console.error('Error fetching public distributions:', err)
-    // Don't throw - public distributions are optional
-  }
-}
-
-// Fetch distributions where user is a recipient (requires authentication)
-const fetchJoinedDistributions = async () => {
-  try {
-    // Only fetch if user is authenticated
-    if (authStore.isConnected) {
-      joinedDistributions.value = await DistributionService.getUserDistributions()
-    } else {
-      joinedDistributions.value = []
-    }
-  } catch (err) {
-    console.error('Error fetching joined distributions:', err)
-    joinedDistributions.value = []
-    // Don't throw - user-specific distributions are optional
-  }
-}
-
-// Fetch distributions created by the user (requires authentication)
-const fetchCreatedDistributions = async () => {
-  try {
-    // Only fetch if user is authenticated
-    if (authStore.isConnected) {
-      const deployments = await backendService.getUserDeployments()
-      
-      // Filter only distribution deployments and map to DistributionCanister format
-      const distributionDeployments = deployments.filter(
-        deployment => deployment.deploymentType === 'Distribution'
-      )
-      
-      createdDistributions.value = distributionDeployments.map(deployment => ({
-        canisterId: deployment.canisterId.toString(),
-        relationshipType: 'DistributionCreator' as const,
-        metadata: {
-          name: deployment.name,
-          description: deployment.description,
-          isActive: true
-        }
-      }))
-    } else {
-      createdDistributions.value = []
-    }
-  } catch (err) {
-    console.error('Error fetching created distributions:', err)
-    createdDistributions.value = []
-    // Don't throw - user-specific distributions are optional
-  }
-}
-
-// Fetch all distributions
+// Fetch all distributions using the new factory queries
 const fetchDistributions = async () => {
-  try {
-    loading.value = true
-    error.value = null
-    
-    // Fetch all types of distributions in parallel
-    await Promise.all([
-      fetchPublicDistributions(),     // Always fetch public (anonymous-friendly)
-      fetchJoinedDistributions(),     // Fetch user's joined distributions (if authenticated)
-      fetchCreatedDistributions()     // Fetch user's created distributions (if authenticated)
-    ])
-    
-    // Update the main distributions array for backward compatibility
-    distributions.value = [
-      ...publicDistributions.value,
-      ...joinedDistributions.value, 
-      ...createdDistributions.value
-    ]
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to fetch distributions'
-    console.error('Error fetching distributions:', err)
-  } finally {
-    loading.value = false
-  }
+  // Fetch all types of distributions in parallel
+  await Promise.all([
+    fetchPublicDistributions(),              // Always fetch public (anonymous-friendly)
+    authStore.isConnected ? fetchMyRecipientDistributions() : Promise.resolve(),  // Fetch user's joined distributions (if authenticated)
+    authStore.isConnected ? fetchMyCreatedDistributions() : Promise.resolve()    // Fetch user's created distributions (if authenticated)
+  ])
 }
-
-// Removed fetchUserDeployments - integrated into fetchCreatedDistributions
 
 const createNewCampaign = () => {
   router.push('/distribution/create')

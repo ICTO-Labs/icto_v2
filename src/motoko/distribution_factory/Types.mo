@@ -1,5 +1,7 @@
 // Import shared distribution types to avoid duplication
 import DistributionTypes "../shared/types/DistributionTypes";
+import Time "mo:base/Time";
+import Principal "mo:base/Principal";
 
 module Types {
     // Re-export all types from the shared module for backward compatibility
@@ -23,4 +25,26 @@ module Types {
     public type DistributionContract = DistributionTypes.DistributionContract;
     public type DistributionStatus = DistributionTypes.DistributionStatus;
     public type DeploymentResult = DistributionTypes.DeploymentResult;
+
+    // ================ NEW: Factory Storage Standard Types ================
+
+    // Distribution Info for factory registry (lightweight)
+    public type DistributionInfo = {
+        contractId: Principal;
+        creator: Principal;
+        title: Text;
+        description: Text;
+        recipientCount: Nat;
+        totalAmount: Nat;
+        tokenSymbol: Text;
+        isPublic: Bool;
+        createdAt: Time.Time;
+        isActive: Bool;
+    };
+
+    // Paginated response for queries
+    public type PaginatedResponse = {
+        distributions: [DistributionInfo];
+        total: Nat;
+    };
 }

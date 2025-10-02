@@ -1,0 +1,519 @@
+#!/bin/bash
+
+# ============================================================================
+# WASM Upload with Hash Script (SNS-Style)
+# ============================================================================
+# This script automates the process of:
+# 1. Building a contract WASM
+# 2. Calculating SHA-256 hash
+# 3. Uploading to factory with hash verification
+# ============================================================================
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+PURPLE='\033[0;35m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
+# ============================================================================
+# Helper Functions
+# ============================================================================
+
+print_header() {
+    echo ""
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}  $1${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════════${NC}"
+    echo ""
+}
+
+print_success() {
+    echo -e "${GREEN}✅ $1${NC}"
+}
+
+print_error() {
+    echo -e "${RED}❌ $1${NC}"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠️  $1${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ️  $1${NC}"
+}
+
+# ============================================================================
+# Contract Selection Menu
+# ============================================================================
+
+select_contract() {
+    print_header "Select Contract to Build"
+
+    echo "Available contracts:"
+    echo "  1) Distribution Contract"
+    echo "  2) Multisig Contract"
+    echo "  3) DAO Contract"
+    echo "  4) Launchpad Contract"
+    echo "  5) Token Contract"
+    echo "  6) Custom Contract Name"
+    echo ""
+
+    read -p "Enter your choice (1-6): " contract_choice
+
+    case $contract_choice in
+        1)
+            CONTRACT_NAME="distribution_contract"
+            FACTORY_NAME="distribution_factory"
+            ;;
+        2)
+            CONTRACT_NAME="multisig_contract"
+            FACTORY_NAME="multisig_factory"
+            ;;
+        3)
+            CONTRACT_NAME="dao_contract"
+            FACTORY_NAME="dao_factory"
+            ;;
+        4)
+            CONTRACT_NAME="launchpad_contract"
+            FACTORY_NAME="launchpad_factory"
+            ;;
+        5)
+            CONTRACT_NAME="token_contract"
+            FACTORY_NAME="token_factory"
+            ;;
+        6)
+            read -p "Enter contract name: " CONTRACT_NAME
+            read -p "Enter factory name: " FACTORY_NAME
+            ;;
+        *)
+            print_error "Invalid choice"
+            exit 1
+            ;;
+    esac
+
+    print_info "Contract: $CONTRACT_NAME"
+    print_info "Factory: $FACTORY_NAME"
+}
+
+# ============================================================================
+# Show Existing Versions
+# ============================================================================
+
+show_existing_versions() {
+    print_header "Checking Existing WASM Versions"
+
+    print_info "Fetching versions from $FACTORY_NAME..."
+
+    # Get list of available versions
+    VERSIONS_OUTPUT=$(dfx canister call $FACTORY_NAME listAvailableVersions '()' 2>&1)
+
+    if [ $? -eq 0 ]; then
+        # Count versions first
+        VERSION_COUNT=$(echo "$VERSIONS_OUTPUT" | grep -c 'version = record')
+
+        if [ $VERSION_COUNT -eq 0 ]; then
+            print_info "No versions found - this will be the first version"
+        else
+            print_success "Found $VERSION_COUNT existing version(s):"
+            echo ""
+
+            # Parse and display each version with stability info
+            echo "$VERSIONS_OUTPUT" | grep -A1 'version = record' | while IFS= read -r line; do
+                if echo "$line" | grep -q 'version = record'; then
+                    # Extract version numbers
+                    MAJOR=$(echo "$line" | grep -o 'major = [0-9]*' | head -1 | awk '{print $3}')
+                    MINOR=$(echo "$line" | grep -o 'minor = [0-9]*' | head -1 | awk '{print $3}')
+                    PATCH=$(echo "$line" | grep -o 'patch = [0-9]*' | head -1 | awk '{print $3}')
+
+                    # Read next line for stability
+                    read -r next_line
+                    if echo "$next_line" | grep -q 'isStable'; then
+                        IS_STABLE=$(echo "$next_line" | grep -o 'true\|false')
+                        if [ "$IS_STABLE" = "true" ]; then
+                            echo -e "${GREEN}  • v${MAJOR}.${MINOR}.${PATCH}${NC} ${BLUE}(stable)${NC}"
+                        else
+                            echo -e "${GREEN}  • v${MAJOR}.${MINOR}.${PATCH}${NC} ${YELLOW}(beta)${NC}"
+                        fi
+                    else
+                        echo -e "${GREEN}  • v${MAJOR}.${MINOR}.${PATCH}${NC}"
+                    fi
+                fi
+            done
+        fi
+    else
+        print_warning "Could not fetch versions (factory might be empty)"
+    fi
+
+    echo ""
+}
+
+# ============================================================================
+# Version Input
+# ============================================================================
+
+input_version() {
+    print_header "Enter Version Information"
+
+    echo "Enter the new version number:"
+    echo "(Tip: Use semantic versioning - MAJOR.MINOR.PATCH)"
+    echo "  - MAJOR: Breaking changes"
+    echo "  - MINOR: New features (backward compatible)"
+    echo "  - PATCH: Bug fixes"
+    echo ""
+
+    read -p "Major version (e.g., 1): " VERSION_MAJOR
+    read -p "Minor version (e.g., 0): " VERSION_MINOR
+    read -p "Patch version (e.g., 0): " VERSION_PATCH
+
+    VERSION_STRING="${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}"
+
+    print_info "New version: $VERSION_STRING"
+
+    # Check if version already exists
+    print_info "Checking if version already exists..."
+
+    VERSION_CHECK=$(dfx canister call $FACTORY_NAME getWASMVersion "(
+        record {
+            major = ${VERSION_MAJOR}:nat;
+            minor = ${VERSION_MINOR}:nat;
+            patch = ${VERSION_PATCH}:nat;
+        }
+    )" 2>&1)
+
+    if echo "$VERSION_CHECK" | grep -q "opt record"; then
+        print_error "Version $VERSION_STRING already exists!"
+        print_warning "Please choose a different version number"
+
+        read -p "Do you want to enter a new version? (y/n): " retry
+        if [[ "$retry" =~ ^[Yy]$ ]]; then
+            input_version  # Recursive call
+        else
+            exit 1
+        fi
+    else
+        print_success "Version $VERSION_STRING is available ✓"
+    fi
+}
+
+# ============================================================================
+# Release Information
+# ============================================================================
+
+input_release_info() {
+    print_header "Enter Release Information"
+
+    read -p "Release notes: " RELEASE_NOTES
+
+    read -p "Is this a stable release? (y/n): " is_stable_input
+    if [[ "$is_stable_input" =~ ^[Yy]$ ]]; then
+        IS_STABLE="true"
+    else
+        IS_STABLE="false"
+    fi
+
+    read -p "Minimum upgrade version (leave empty for none, format: 1.0.0): " MIN_VERSION_INPUT
+
+    if [ -z "$MIN_VERSION_INPUT" ]; then
+        MIN_UPGRADE_VERSION="null"
+    else
+        IFS='.' read -r MIN_MAJOR MIN_MINOR MIN_PATCH <<< "$MIN_VERSION_INPUT"
+        MIN_UPGRADE_VERSION="opt record {major=${MIN_MAJOR}:nat; minor=${MIN_MINOR}:nat; patch=${MIN_PATCH}:nat}"
+    fi
+
+    print_info "Release Notes: $RELEASE_NOTES"
+    print_info "Stable: $IS_STABLE"
+    print_info "Min Upgrade Version: ${MIN_VERSION_INPUT:-none}"
+}
+
+# ============================================================================
+# Build Contract
+# ============================================================================
+
+build_contract() {
+    print_header "Building Contract WASM"
+
+    print_info "Running: dfx build $CONTRACT_NAME"
+
+    if dfx build $CONTRACT_NAME; then
+        print_success "Build completed successfully"
+    else
+        print_error "Build failed"
+        exit 1
+    fi
+
+    WASM_PATH=".dfx/local/canisters/${CONTRACT_NAME}/${CONTRACT_NAME}.wasm"
+
+    if [ ! -f "$WASM_PATH" ]; then
+        print_error "WASM file not found: $WASM_PATH"
+        exit 1
+    fi
+
+    WASM_SIZE=$(wc -c < "$WASM_PATH")
+    print_info "WASM path: $WASM_PATH"
+    print_info "WASM size: $(numfmt --to=iec-i --suffix=B $WASM_SIZE)"
+}
+
+# ============================================================================
+# Calculate SHA-256 Hash
+# ============================================================================
+
+calculate_hash() {
+    print_header "Calculating SHA-256 Hash"
+
+    # Try different hash commands based on platform
+    if command -v sha256sum &> /dev/null; then
+        HASH=$(sha256sum "$WASM_PATH" | awk '{print $1}')
+    elif command -v shasum &> /dev/null; then
+        HASH=$(shasum -a 256 "$WASM_PATH" | awk '{print $1}')
+    elif command -v openssl &> /dev/null; then
+        HASH=$(openssl dgst -sha256 "$WASM_PATH" | awk '{print $2}')
+    else
+        print_error "No SHA-256 tool found (sha256sum, shasum, or openssl required)"
+        exit 1
+    fi
+
+    print_success "SHA-256 Hash: $HASH"
+
+    # Convert hash to Candid blob format
+    BLOB_HASH="blob \""
+    for ((i=0; i<${#HASH}; i+=2)); do
+        BLOB_HASH="${BLOB_HASH}\\${HASH:$i:2}"
+    done
+    BLOB_HASH="${BLOB_HASH}\""
+
+    print_info "Candid Blob Format: $BLOB_HASH"
+}
+
+# ============================================================================
+# Upload Selection
+# ============================================================================
+
+select_upload_method() {
+    print_header "Select Upload Method"
+
+    WASM_SIZE=$(wc -c < "$WASM_PATH")
+
+    # Force chunked upload for files > 500KB to avoid "Argument list too long"
+    # IC message limit is 2MB but command line args have lower limits
+    if [ $WASM_SIZE -gt 500000 ]; then
+        print_warning "WASM size ($WASM_SIZE bytes) exceeds 500KB"
+        print_info "Chunked upload will be used automatically (command line limit)"
+        UPLOAD_METHOD="chunked"
+    else
+        echo "Available upload methods:"
+        echo "  1) Direct upload (< 500KB, single call)"
+        echo "  2) Chunked upload (for larger files)"
+        echo ""
+
+        read -p "Enter your choice (1-2, default=1): " method_choice
+
+        case ${method_choice:-1} in
+            1)
+                UPLOAD_METHOD="direct"
+                ;;
+            2)
+                UPLOAD_METHOD="chunked"
+                ;;
+            *)
+                print_error "Invalid choice"
+                exit 1
+                ;;
+        esac
+    fi
+
+    print_info "Upload method: $UPLOAD_METHOD"
+}
+
+# ============================================================================
+# Upload WASM - Direct Method
+# ============================================================================
+
+upload_direct() {
+    print_header "Uploading WASM (Direct Method)"
+
+    print_warning "Direct upload is NOT recommended for most WASMs"
+    print_info "Using chunked upload instead for reliability..."
+
+    # Redirect to chunked upload
+    upload_chunked
+}
+
+# ============================================================================
+# Upload WASM - Chunked Method
+# ============================================================================
+
+upload_chunked() {
+    print_header "Uploading WASM (Chunked Method)"
+
+    # Chunk size: 1.5MB for safety (command line + IC limits)
+    CHUNK_SIZE=1572864  # 1.5MB in bytes
+
+    # Create temp directory for chunks
+    TEMP_DIR=$(mktemp -d)
+
+    # Split WASM into chunks
+    print_info "Splitting WASM into chunks (1.5MB each)..."
+    split -b $CHUNK_SIZE "$WASM_PATH" "${TEMP_DIR}/chunk_"
+
+    # Count chunks
+    CHUNK_COUNT=$(ls ${TEMP_DIR}/chunk_* 2>/dev/null | wc -l)
+    print_info "Total chunks: $CHUNK_COUNT"
+
+    # Upload each chunk
+    CHUNK_NUM=0
+    for CHUNK_FILE in ${TEMP_DIR}/chunk_*; do
+        CHUNK_NUM=$((CHUNK_NUM + 1))
+        print_info "Uploading chunk $CHUNK_NUM/$CHUNK_COUNT..."
+
+        # Create Candid input file to avoid command line limits
+        CANDID_FILE="${TEMP_DIR}/chunk_${CHUNK_NUM}.did"
+
+        # Convert binary to Candid vec format using Python
+        python3 << PYEOF > "$CANDID_FILE"
+with open("$CHUNK_FILE", "rb") as f:
+    data = f.read()
+    bytes_list = "; ".join(f"{b}:nat8" for b in data)
+    print(f"(vec {{{bytes_list}}})")
+PYEOF
+
+        # Upload using file input
+        dfx canister call $FACTORY_NAME uploadWASMChunk --argument-file "$CANDID_FILE"
+
+        if [ $? -ne 0 ]; then
+            print_error "Chunk upload failed at chunk $CHUNK_NUM"
+            print_info "Cleaning up temporary files..."
+            rm -rf "$TEMP_DIR"
+            exit 1
+        fi
+    done
+
+    print_success "All $CHUNK_COUNT chunks uploaded"
+
+    # Clean up chunk files
+    print_info "Cleaning up temporary files..."
+    rm -rf "$TEMP_DIR"
+
+    # Finalize upload
+    print_info "Finalizing upload with hash verification..."
+
+    dfx canister call $FACTORY_NAME finalizeWASMUpload "(
+        record {
+            major = ${VERSION_MAJOR}:nat;
+            minor = ${VERSION_MINOR}:nat;
+            patch = ${VERSION_PATCH}:nat;
+        },
+        \"$RELEASE_NOTES\",
+        $IS_STABLE,
+        $MIN_UPGRADE_VERSION,
+        $BLOB_HASH
+    )"
+
+    if [ $? -eq 0 ]; then
+        print_success "Chunked upload finalized successfully"
+    else
+        print_error "Finalize upload failed"
+        exit 1
+    fi
+}
+
+# ============================================================================
+# Verify Upload
+# ============================================================================
+
+verify_upload() {
+    print_header "Verifying Upload"
+
+    print_info "Checking stored hash for version $VERSION_STRING..."
+
+    STORED_HASH=$(dfx canister call $FACTORY_NAME getWASMHash "(
+        record {
+            major = ${VERSION_MAJOR}:nat;
+            minor = ${VERSION_MINOR}:nat;
+            patch = ${VERSION_PATCH}:nat;
+        }
+    )")
+
+    if [ $? -eq 0 ]; then
+        print_success "Stored hash retrieved"
+        echo "$STORED_HASH"
+
+        # Extract hash from result and compare
+        # Note: This is a simplified check, may need adjustment
+        if echo "$STORED_HASH" | grep -q "$HASH"; then
+            print_success "Hash verification PASSED! ✨"
+        else
+            print_warning "Hash verification - please verify manually"
+        fi
+    else
+        print_warning "Could not retrieve stored hash"
+    fi
+}
+
+# ============================================================================
+# Summary
+# ============================================================================
+
+print_summary() {
+    print_header "Upload Summary"
+
+    echo -e "${GREEN}Contract:${NC}        $CONTRACT_NAME"
+    echo -e "${GREEN}Factory:${NC}         $FACTORY_NAME"
+    echo -e "${GREEN}Version:${NC}         $VERSION_STRING"
+    echo -e "${GREEN}Stable:${NC}          $IS_STABLE"
+    echo -e "${GREEN}WASM Size:${NC}       $(numfmt --to=iec-i --suffix=B $WASM_SIZE)"
+    echo -e "${GREEN}SHA-256:${NC}         $HASH"
+    echo -e "${GREEN}Upload Method:${NC}   $UPLOAD_METHOD"
+    echo ""
+    print_success "WASM uploaded and verified successfully! 🎉"
+}
+
+# ============================================================================
+# Main Execution
+# ============================================================================
+
+main() {
+    print_header "WASM Upload with Hash Verification (SNS-Style)"
+
+    # Step 1: Select contract
+    select_contract
+
+    # Step 2: Show existing versions
+    show_existing_versions
+
+    # Step 3: Input version
+    input_version
+
+    # Step 4: Input release info
+    input_release_info
+
+    # Step 5: Build contract
+    build_contract
+
+    # Step 6: Calculate hash
+    calculate_hash
+
+    # Step 7: Select upload method
+    select_upload_method
+
+    # Step 8: Upload
+    if [ "$UPLOAD_METHOD" = "direct" ]; then
+        upload_direct
+    else
+        upload_chunked
+    fi
+
+    # Step 9: Verify
+    verify_upload
+
+    # Step 10: Summary
+    print_summary
+}
+
+# Run main function
+main

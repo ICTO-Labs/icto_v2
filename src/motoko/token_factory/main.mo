@@ -33,6 +33,9 @@ import SNSWasm "../shared/utils/SNSWasm";
 import Hex "../shared/utils/Hex";
 import TokenValidation "../shared/utils/TokenValidation";
 
+// Version Manager for version management
+import VersionManager "../common/VersionManager";
+
 persistent actor TokenFactoryCanister {
     
     // ================ SERVICE CONFIGURATION ================
@@ -89,6 +92,19 @@ persistent actor TokenFactoryCanister {
     private stable var creatorIndexStable : [(Principal, [Principal])] = [];
     private stable var publicTokensStable : [Principal] = [];
     private stable var verifiedTokensStable : [Principal] = [];
+
+    // VERSION MANAGEMENT: Stable storage for VersionManager
+    private stable var versionManagerStable : {
+        wasmVersions: [(Text, VersionManager.WASMVersion)];
+        contractVersions: [(Principal, VersionManager.ContractVersion)];
+        compatibilityMatrix: [VersionManager.UpgradeCompatibility];
+        latestStableVersion: ?VersionManager.Version;
+    } = {
+        wasmVersions = [];
+        contractVersions = [];
+        compatibilityMatrix = [];
+        latestStableVersion = null;
+    };
     
     // Configuration - backend controlled
     private stable var deploymentFee : Nat = 100_000_000; // 1 ICP
@@ -104,8 +120,11 @@ persistent actor TokenFactoryCanister {
     // Manual WASM upload chunks (from V1)
     private transient let wasmChunks : Buffer.Buffer<Blob> = Buffer.Buffer(0);
     
+    // Backend-Managed Admin System
+    private stable var admins : [Principal] = [];
+    private stable let BACKEND_CANISTER : Principal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"); // Backend canister ID
+
     // Security
-    private stable var admins : [Text] = [];
     private stable var whitelistedBackends : [(Principal, Bool)] = [];
     
     // Metrics
@@ -123,6 +142,9 @@ persistent actor TokenFactoryCanister {
     private transient var creatorIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
     private transient var publicTokens : [Principal] = [];
     private transient var verifiedTokens : [Principal] = [];
+
+    // Version Management Runtime State
+    private transient var versionManager = VersionManager.VersionManagerState();
     
     // Timer for automatic WASM updates
     private stable var timerId : Nat = 0;
@@ -135,38 +157,41 @@ persistent actor TokenFactoryCanister {
         deploymentHistoryStable := Trie.toArray<Text, DeploymentResultToken, (Text, DeploymentResultToken)>(deploymentHistory, func (k, v) = (k, v));
         whitelistedBackends := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelistTrie, func (k, v) = (k, v));
         pendingDeploymentsStable := Trie.toArray<Text, PendingDeployment, (Text, PendingDeployment)>(pendingDeployments, func (k, v) = (k, v));
-        
+
         // Factory-First V2: Save user indexes
         creatorIndexStable := Trie.toArray<Principal, [Principal], (Principal, [Principal])>(creatorIndex, func (k, v) = (k, v));
         publicTokensStable := publicTokens;
         verifiedTokensStable := verifiedTokens;
-        
+
+        // Save Version Manager state
+        versionManagerStable := versionManager.toStable();
+
         Debug.print("TokenFactory V2: Preupgrade completed");
     };
     
     system func postupgrade() {
         Debug.print("TokenFactory V2: Starting postupgrade");
-        
+
         tokens := Trie.empty();
         for ((key, value) in tokensStable.vals()) {
             tokens := Trie.put(tokens, Helpers.textKey(key), Text.equal, value).0;
         };
-        
+
         deploymentHistory := Trie.empty();
         for ((key, value) in deploymentHistoryStable.vals()) {
             deploymentHistory := Trie.put(deploymentHistory, textKey(key), Text.equal, value).0;
         };
-        
+
         whitelistTrie := Trie.empty();
         for ((key, value) in whitelistedBackends.vals()) {
             whitelistTrie := Trie.put(whitelistTrie, principalKey(key), Principal.equal, value).0;
         };
-        
+
         pendingDeployments := Trie.empty();
         for ((key, value) in pendingDeploymentsStable.vals()) {
             pendingDeployments := Trie.put(pendingDeployments, textKey(key), Text.equal, value).0;
         };
-        
+
         // Factory-First V2: Restore user indexes
         creatorIndex := Trie.empty();
         for ((key, value) in creatorIndexStable.vals()) {
@@ -174,12 +199,15 @@ persistent actor TokenFactoryCanister {
         };
         publicTokens := publicTokensStable;
         verifiedTokens := verifiedTokensStable;
-        
+
+        // Restore Version Manager state
+        versionManager.fromStable(versionManagerStable);
+
         serviceStartTime := Time.now();
-        
+
         // Restart automatic WASM update timer
         timerId := Timer.recurringTimer<system>(#seconds(24*60*60), updateWasmVersionTimer);
-        
+
         Debug.print("TokenFactory V2: Postupgrade completed");
     };
     
@@ -204,7 +232,8 @@ persistent actor TokenFactoryCanister {
     };
     
     private func isAdmin(caller : Principal) : Bool {
-        Principal.isController(caller) or Array.find<Text>(admins, func(admin : Text) = admin == Principal.toText(caller)) != null
+        Principal.isController(caller) or
+        Array.find(admins, func(p: Principal) : Bool { p == caller }) != null
     };
     
     private func _isWhitelisted(caller : Principal) : Bool {
@@ -295,6 +324,49 @@ persistent actor TokenFactoryCanister {
             let wasmResp = await snsWasm.get_wasm({ hash = version });
             let ?wasmVer = wasmResp.wasm else return #err("No blessed WASM available");
             snsWasmData := wasmVer.wasm;
+
+            // VERSION MANAGEMENT: Register SNS WASM with version manager
+            let versionHex = Hex.encode(Blob.toArray(version));
+            let existingVersions = versionManager.listVersions();
+
+            // Check if this WASM version is already registered
+            let alreadyRegistered = Array.find(existingVersions, func(wasmVer: VersionManager.WASMVersion) : Bool {
+                // Check if release notes contain the hash
+                Text.contains(wasmVer.releaseNotes, #text versionHex)
+            }) != null;
+
+            if (not alreadyRegistered) {
+                // Create a semantic version based on current timestamp
+                let now = Time.now();
+                let semanticVersion = {
+                    major = 1;
+                    minor = Nat64.toNat(Nat64.fromIntWrap(now / 1_000_000_000)) % 1000; // Seconds part
+                    patch = Nat64.toNat(Nat64.fromIntWrap(now % 1_000_000_000)); // Nanoseconds part
+                };
+
+                let registerResult = versionManager.uploadWASMVersion(
+                    Principal.fromText("qaa6y-5yaaa-aaaaa-aaafa-cai"), // SNS canister as uploader
+                    semanticVersion,
+                    wasmVer.wasm,
+                    "SNS ICRC-2 Ledger - Auto-sync from SNS canister - Hash: " # versionHex,
+                    true, // SNS versions are considered stable
+                    null
+                );
+
+                switch (registerResult) {
+                    case (#ok()) {
+                        Debug.print("TokenFactory: Registered SNS WASM version " #
+                                   Nat.toText(semanticVersion.major) # "." #
+                                   Nat.toText(semanticVersion.minor) # "." #
+                                   Nat.toText(semanticVersion.patch) # " with hash " # versionHex);
+                    };
+                    case (#err(err)) {
+                        Debug.print("TokenFactory: Failed to register SNS WASM version: " # err);
+                        // Don't fail the whole operation, just log it
+                    };
+                };
+            };
+
             #ok("WASM saved successfully")
         } catch (error) {
             #err("Failed to save WASM: " # Error.message(error))
@@ -356,10 +428,41 @@ persistent actor TokenFactoryCanister {
         
         snsWasmVersion := Blob.fromArray(hash);
         snsWasmData := flattenWasmChunks(wasmChunks.toArray());
-        
+
+        // VERSION MANAGEMENT: Register manual WASM upload with version manager
+        let versionHex = Hex.encode(hash);
+        let now = Time.now();
+        let semanticVersion = {
+            major = 2; // Manual uploads start with major version 2 to distinguish from SNS
+            minor = Nat64.toNat(Nat64.fromIntWrap(now / 1_000_000_000)) % 1000;
+            patch = Nat64.toNat(Nat64.fromIntWrap(now % 1_000_000_000));
+        };
+
+        let registerResult = versionManager.uploadWASMVersion(
+            caller, // The admin who uploaded
+            semanticVersion,
+            snsWasmData,
+            "Manual ICRC-2 Ledger Upload - Hash: " # versionHex,
+            true, // Manual uploads are considered stable once approved
+            null
+        );
+
+        switch (registerResult) {
+            case (#ok()) {
+                Debug.print("TokenFactory: Registered manual WASM version " #
+                           Nat.toText(semanticVersion.major) # "." #
+                           Nat.toText(semanticVersion.minor) # "." #
+                           Nat.toText(semanticVersion.patch) # " with hash " # versionHex);
+            };
+            case (#err(err)) {
+                Debug.print("TokenFactory: Failed to register manual WASM version: " # err);
+                // Don't fail the upload, just log the version registration issue
+            };
+        };
+
         // Clear chunks after successful upload
         wasmChunks.clear();
-        
+
         #ok("Manual WASM added successfully. Size: " # Nat.toText(snsWasmData.size()) # " bytes")
     };
     
@@ -640,7 +743,41 @@ persistent actor TokenFactoryCanister {
             isVerified = false; // Factory-First V2: Admin must verify manually
         };
         tokens := Trie.put(tokens, textKey(Principal.toText(canisterId)), Text.equal, tokenInfo).0;
-        
+
+        // VERSION MANAGEMENT: Register contract with current factory version
+        // For Token Factory, we use the latest stable version from version manager if available
+        let contractVersion = switch (versionManager.getLatestStableVersion()) {
+            case (?latestVersion) {
+                // Use latest uploaded version if available
+                latestVersion
+            };
+            case null {
+                // Fallback to initial version if no WASM versions uploaded yet
+                // For Token Factory, we create a version based on the WASM hash being used
+                let fallbackVersion = { major = 1; minor = 0; patch = 0 };
+
+                // Register the current SNS WASM as a version in the version manager
+                let wasmVersionHex = Hex.encode(Blob.toArray(snsWasmVersion));
+                ignore versionManager.uploadWASMVersion(
+                    Principal.fromActor(TokenFactoryCanister), // caller
+                    fallbackVersion, // version
+                    snsWasmData, // wasm blob
+                    "SNS ICRC-2 Ledger - Hash: " # wasmVersionHex, // release notes
+                    true, // isStable
+                    null // minUpgradeVersion
+                );
+
+                fallbackVersion
+            };
+        };
+
+        versionManager.registerContract(canisterId, contractVersion, false);
+        Debug.print("TokenFactory: Registered contract " # Principal.toText(canisterId) #
+                   " with version " # Nat.toText(contractVersion.major) # "." #
+                   Nat.toText(contractVersion.minor) # "." #
+                   Nat.toText(contractVersion.patch) # " (WASM hash: " #
+                   Hex.encode(Blob.toArray(snsWasmVersion)) # ")");
+
         // Factory-First V2: Update user indexes (use tokenOwner from config)
         let tokenOwner = Option.get(pendingRecord.deploymentConfig.tokenOwner, pendingRecord.caller);
         addToCreatorIndex(tokenOwner, canisterId);
@@ -1225,27 +1362,177 @@ persistent actor TokenFactoryCanister {
         #ok(())
     };
     
-    // ================ ADMIN FUNCTIONS ================
-    
-    public shared({ caller }) func addAdmin(adminPrincipal : Text) : async Result.Result<(), Text> {
-        if (not isAdmin(caller)) {
-            return #err("Unauthorized: Only admins can add admins");
+    // ================ BACKEND-MANAGED ADMIN SYSTEM ================
+
+    // Backend sync endpoint - Only backend can set admins
+    public shared({caller}) func setAdmins(newAdmins: [Principal]) : async Result.Result<(), Text> {
+        if (caller != BACKEND_CANISTER) {
+            return #err("Unauthorized: Only backend can set admins");
         };
-        
-        let newAdmins = Array.filter<Text>(admins, func(admin) = admin != adminPrincipal);
-        admins := Array.append(newAdmins, [adminPrincipal]);
+
+        admins := newAdmins;
+        Debug.print("Admins synced from backend: " # debug_show(newAdmins));
+
         #ok()
     };
-    
-    public shared({ caller }) func removeAdmin(adminPrincipal : Text) : async Result.Result<(), Text> {
-        if (not isAdmin(caller)) {
-            return #err("Unauthorized: Only admins can remove admins");
-        };
-        
-        admins := Array.filter<Text>(admins, func(admin) = admin != adminPrincipal);
-        #ok()
+
+    // Query current admins
+    public query func getAdmins() : async [Principal] {
+        admins
     };
-    
+
+    // Check if caller is admin
+    public query({caller}) func checkIsAdmin() : async Bool {
+        isAdmin(caller)
+    };
+
+    // ================ VERSION MANAGEMENT ================
+
+    // WASM Upload - Chunked (for large files >2MB)
+    public shared({caller}) func uploadWASMChunk(chunk: [Nat8]) : async Result.Result<Nat, Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upload WASM chunks");
+        };
+
+        versionManager.uploadWASMChunk(chunk)
+    };
+
+    public shared({caller}) func finalizeWASMUpload(
+        version: VersionManager.Version,
+        releaseNotes: Text,
+        isStable: Bool,
+        minUpgradeVersion: ?VersionManager.Version,
+        externalHash: Blob
+    ) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can finalize WASM upload");
+        };
+
+        versionManager.finalizeWASMUpload(caller, version, releaseNotes, isStable, minUpgradeVersion, externalHash)
+    };
+
+    public shared({caller}) func cancelWASMUpload() : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can cancel WASM upload");
+        };
+
+        versionManager.clearWASMChunks()
+    };
+
+    // WASM Upload - Direct (for small files <2MB)
+    public shared({caller}) func uploadWASMVersion(
+        version: VersionManager.Version,
+        wasm: Blob,
+        releaseNotes: Text,
+        isStable: Bool,
+        minUpgradeVersion: ?VersionManager.Version,
+        externalHash: Blob
+    ) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upload WASM");
+        };
+
+        versionManager.uploadWASMVersion(caller, version, wasm, releaseNotes, isStable, minUpgradeVersion, externalHash)
+    };
+
+    // Hash Verification Functions
+    public query func getWASMHash(version: VersionManager.Version) : async ?Blob {
+        versionManager.getWASMHash(version)
+    };
+
+    // Contract Upgrade Functions
+    public shared({caller}) func upgradeContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        upgradeArgs: Blob
+    ) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upgrade contracts");
+        };
+
+        // Check upgrade eligibility
+        switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok()) {};
+        };
+
+        // Perform chunked upgrade
+        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
+
+        switch (result) {
+            case (#ok()) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
+                Debug.print("✅ Upgraded contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+            };
+            case (#err(msg)) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                Debug.print("❌ Failed to upgrade contract: " # msg);
+            };
+        };
+
+        result
+    };
+
+    public shared({caller}) func rollbackContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        rollbackArgs: Blob
+    ) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can rollback contracts");
+        };
+
+        // Perform rollback upgrade
+        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, rollbackArgs);
+
+        switch (result) {
+            case (#ok()) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #RolledBack("Manual rollback"));
+                Debug.print("✅ Rolled back contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+            };
+            case (#err(msg)) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                Debug.print("❌ Failed to rollback contract: " # msg);
+            };
+        };
+
+        result
+    };
+
+    // Version Query Functions
+    public query func listAvailableVersions() : async [VersionManager.WASMVersion] {
+        versionManager.listVersions()
+    };
+
+    public query func getWASMVersion(version: VersionManager.Version) : async ?VersionManager.WASMVersion {
+        versionManager.getWASMMetadata(version)
+    };
+
+    public query func getContractVersion(contractId: Principal) : async ?VersionManager.ContractVersion {
+        versionManager.getContractVersion(contractId)
+    };
+
+    public query func getLatestStableVersion() : async ?VersionManager.Version {
+        versionManager.getLatestStableVersion()
+    };
+
+    public query func canUpgrade(
+        contractId: Principal,
+        toVersion: VersionManager.Version
+    ) : async Result.Result<Bool, Text> {
+        switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
+            case (#ok()) { #ok(true) };
+            case (#err(msg)) { #err(msg) };
+        }
+    };
+
+    // Helper function
+    private func _versionToText(v: VersionManager.Version) : Text {
+        Nat.toText(v.major) # "." # Nat.toText(v.minor) # "." # Nat.toText(v.patch)
+    };
+
+    // ================ WHITELIST MANAGEMENT ================
+
     public shared({ caller }) func addToWhitelist(backend : Principal) : async Result.Result<(), Text> {
         if (not isAdmin(caller)) {
             return #err("Unauthorized: Only admins can manage whitelist");
@@ -1292,8 +1579,9 @@ persistent actor TokenFactoryCanister {
         #ok()
     };
     
-    public query func getAdmins() : async [Text] {
-        admins
+    // Legacy: Kept for backward compatibility, but now returns empty as admins are Principal-based
+    public query func getAdminsText() : async [Text] {
+        []
     };
     
     public query func getWhitelistedBackends() : async [Principal] {
@@ -1450,9 +1738,9 @@ persistent actor TokenFactoryCanister {
             return #err("Unauthorized: Only deployer/controller can bootstrap backend setup");
         };
         
-        // Add backend to whitelist and admin
+        // Add backend to whitelist
         whitelistTrie := Trie.put(whitelistTrie, principalKey(backendPrincipal), Principal.equal, true).0;
-        admins := Array.append(admins, [Principal.toText(backendPrincipal)]);
+        // Note: Admins are now managed by backend via setAdmins()
         
         #ok()
     };

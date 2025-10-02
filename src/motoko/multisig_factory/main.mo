@@ -16,10 +16,14 @@ import Nat "mo:base/Nat";
 import Nat32 "mo:base/Nat32";
 import Int "mo:base/Int";
 import Float "mo:base/Float";
+import Blob "mo:base/Blob";
 
 import MultisigTypes "../shared/types/MultisigTypes";
 import MultisigContract "./MultisigContract";
 import ICManagement "../shared/utils/IC";
+
+// Import VersionManager for version management
+import VersionManager "../common/VersionManager";
 
 persistent actor MultisigFactory {
 
@@ -79,9 +83,28 @@ persistent actor MultisigFactory {
         Text.hash
     );
 
-    // Access control
+    // Backend-Managed Admin System
     private var admins: [Principal] = [];
+    private let BACKEND_CANISTER : Principal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"); // Backend canister ID
+
+    // Whitelist management
     private var whitelistedBackends: [Principal] = [];
+
+    // VERSION MANAGEMENT: Stable storage for VersionManager
+    private var versionManagerStable : {
+        wasmVersions: [(Text, VersionManager.WASMVersion)];
+        contractVersions: [(Principal, VersionManager.ContractVersion)];
+        compatibilityMatrix: [VersionManager.UpgradeCompatibility];
+        latestStableVersion: ?VersionManager.Version;
+    } = {
+        wasmVersions = [];
+        contractVersions = [];
+        compatibilityMatrix = [];
+        latestStableVersion = null;
+    };
+
+    // Version Management Runtime State
+    private transient var versionManager = VersionManager.VersionManagerState();
 
     // Constants
     private let MIN_CYCLES_FOR_WALLET = 1_000_000_000_000; // 1T cycles
@@ -96,14 +119,15 @@ persistent actor MultisigFactory {
 
     // ============== ACCESS CONTROL ==============
 
+    private func _isAdmin(caller: Principal) : Bool {
+        Principal.isController(caller) or
+        Array.find(admins, func(p: Principal) : Bool { p == caller }) != null
+    };
+
     private func isAuthorized(caller: Principal): Bool {
         // Check if caller is admin
-        if (Principal.isController(caller)) {
+        if (_isAdmin(caller)) {
             return true;
-        };
-
-        for (admin in admins.vals()) {
-            if (admin == caller) return true;
         };
 
         // Check if caller is whitelisted backend
@@ -112,22 +136,6 @@ persistent actor MultisigFactory {
         };
 
         false
-    };
-
-    public shared(msg) func addAdmin(newAdmin: Principal): async Result.Result<(), Text> {
-        if (not isAuthorized(msg.caller)) {
-            return #err("Unauthorized: Only admins can add new admins");
-        };
-
-        // Check if already admin
-        for (admin in admins.vals()) {
-            if (admin == newAdmin) {
-                return #err("Principal is already an admin");
-            };
-        };
-
-        admins := Array.append(admins, [newAdmin]);
-        #ok()
     };
 
     public shared(msg) func addToWhitelist(backend: Principal): async Result.Result<(), Text> {
@@ -156,6 +164,30 @@ persistent actor MultisigFactory {
 
     public shared(msg) func removeFromWhitelist(backend: Principal): async Result.Result<(), Text> {
         await removeWhitelistedBackend(backend)
+    };
+
+    // ============== BACKEND-MANAGED ADMIN SYSTEM ==============
+
+    // Backend Admin Management - Sync endpoint
+    public shared({caller}) func setAdmins(newAdmins: [Principal]) : async Result.Result<(), Text> {
+        if (caller != BACKEND_CANISTER) {
+            return #err("Unauthorized: Only backend can set admins");
+        };
+
+        admins := newAdmins;
+        Debug.print("Admins synced from backend: " # debug_show(newAdmins));
+
+        #ok()
+    };
+
+    // Query current admins
+    public query func getAdmins() : async [Principal] {
+        admins
+    };
+
+    // Check if caller is admin
+    public query({caller}) func isAdmin() : async Bool {
+        _isAdmin(caller)
     };
 
     // ============== WALLET CREATION ==============
@@ -219,6 +251,24 @@ persistent actor MultisigFactory {
             });
             Debug.print("MultisigFactory: Created MultisigContract actor");
             let canisterId = Principal.fromActor(multisigWallet);
+
+            // VERSION MANAGEMENT: Register contract with current factory version
+            let contractVersion = switch (versionManager.getLatestStableVersion()) {
+                case (?latestVersion) {
+                    // Use latest uploaded version if available
+                    latestVersion
+                };
+                case null {
+                    // Fallback to initial version if no WASM versions uploaded yet
+                    { major = 1; minor = 0; patch = 0 }
+                };
+            };
+
+            versionManager.registerContract(canisterId, contractVersion, false);
+            Debug.print("MultisigFactory: Registered contract with version " #
+                       Nat.toText(contractVersion.major) # "." #
+                       Nat.toText(contractVersion.minor) # "." #
+                       Nat.toText(contractVersion.patch));
 
             // Register the wallet
             let registry: WalletRegistry = {
@@ -409,6 +459,151 @@ persistent actor MultisigFactory {
         #err("Upgrade functionality not yet implemented")
     };
 
+    // ============== VERSION MANAGEMENT ==============
+
+    // WASM Upload - Chunked (for large files >2MB)
+    public shared({caller}) func uploadWASMChunk(chunk: [Nat8]) : async Result.Result<Nat, Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upload WASM chunks");
+        };
+
+        versionManager.uploadWASMChunk(chunk)
+    };
+
+    public shared({caller}) func finalizeWASMUpload(
+        version: VersionManager.Version,
+        releaseNotes: Text,
+        isStable: Bool,
+        minUpgradeVersion: ?VersionManager.Version,
+        externalHash: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can finalize WASM upload");
+        };
+
+        versionManager.finalizeWASMUpload(caller, version, releaseNotes, isStable, minUpgradeVersion, externalHash)
+    };
+
+    public shared({caller}) func cancelWASMUpload() : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can cancel WASM upload");
+        };
+
+        versionManager.clearWASMChunks()
+    };
+
+    // WASM Upload - Direct (for small files <2MB)
+    public shared({caller}) func uploadWASMVersion(
+        version: VersionManager.Version,
+        wasm: Blob,
+        releaseNotes: Text,
+        isStable: Bool,
+        minUpgradeVersion: ?VersionManager.Version,
+        externalHash: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upload WASM");
+        };
+
+        versionManager.uploadWASMVersion(caller, version, wasm, releaseNotes, isStable, minUpgradeVersion, externalHash)
+    };
+
+    // Hash Verification Functions
+    public query func getWASMHash(version: VersionManager.Version) : async ?Blob {
+        versionManager.getWASMHash(version)
+    };
+
+    // Contract Upgrade Functions
+    public shared({caller}) func upgradeContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        upgradeArgs: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upgrade contracts");
+        };
+
+        // Check upgrade eligibility
+        switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok()) {};
+        };
+
+        // Perform chunked upgrade
+        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
+
+        switch (result) {
+            case (#ok()) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
+                Debug.print("✅ Upgraded contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+            };
+            case (#err(msg)) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                Debug.print("❌ Failed to upgrade contract: " # msg);
+            };
+        };
+
+        result
+    };
+
+    public shared({caller}) func rollbackContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        rollbackArgs: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can rollback contracts");
+        };
+
+        // Perform rollback upgrade
+        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, rollbackArgs);
+
+        switch (result) {
+            case (#ok()) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #RolledBack("Manual rollback"));
+                Debug.print("✅ Rolled back contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+            };
+            case (#err(msg)) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                Debug.print("❌ Failed to rollback contract: " # msg);
+            };
+        };
+
+        result
+    };
+
+    // Version Query Functions
+    public query func listAvailableVersions() : async [VersionManager.WASMVersion] {
+        versionManager.listVersions()
+    };
+
+    public query func getWASMVersion(version: VersionManager.Version) : async ?VersionManager.WASMVersion {
+        versionManager.getWASMMetadata(version)
+    };
+
+    public query func getContractVersion(contractId: Principal) : async ?VersionManager.ContractVersion {
+        versionManager.getContractVersion(contractId)
+    };
+
+    public query func getLatestStableVersion() : async ?VersionManager.Version {
+        versionManager.getLatestStableVersion()
+    };
+
+    public query func canUpgrade(
+        contractId: Principal,
+        toVersion: VersionManager.Version
+    ) : async Result.Result<Bool, Text> {
+        switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
+            case (#ok()) { #ok(true) };
+            case (#err(msg)) { #err(msg) };
+        }
+    };
+
+    // Helper function
+    private func _versionToText(v: VersionManager.Version) : Text {
+        Nat.toText(v.major) # "." # Nat.toText(v.minor) # "." # Nat.toText(v.patch)
+    };
+
     // ============== CYCLES MANAGEMENT ==============
 
     public query func getCyclesBalance(): async Nat {
@@ -432,10 +627,17 @@ persistent actor MultisigFactory {
 
     system func preupgrade() {
         walletsEntries := Iter.toArray(wallets.entries());
+
+        // Save Version Manager state
+        versionManagerStable := versionManager.toStable();
+
         Debug.print("MultisigFactory: Pre-upgrade, saving " # debug_show(walletsEntries.size()) # " wallets");
     };
 
     system func postupgrade() {
+        // Restore Version Manager state
+        versionManager.fromStable(versionManagerStable);
+
         walletsEntries := [];
         Debug.print("MultisigFactory: Post-upgrade, restored " # debug_show(wallets.size()) # " wallets");
     };
