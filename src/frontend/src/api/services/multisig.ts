@@ -52,7 +52,7 @@ class MultisigService {
     const config = {
       name: formData.name || 'Unnamed Wallet',
       description: description ? [description] : [], // opt Text: present = [value], absent = []
-      threshold: formData.threshold || 2,
+      threshold: BigInt(formData.threshold || 2), // Must be bigint
       signers: (formData.signers || []).map((s: any) => ({
         principal: Principal.fromText(s.principal),
         name: s.name ? [s.name] : [], // opt text: present = [value], absent = []
@@ -114,13 +114,24 @@ class MultisigService {
 
       // CORRECT FLOW: Frontend → Backend (payment validation) → Factory → Deploy
       console.log('Calling backend.deployMultisig with config:', config);
+      console.log('Config details:', {
+        threshold: config.threshold,
+        thresholdType: typeof config.threshold,
+        maxProposalLifetime: config.maxProposalLifetime,
+        maxProposalLifetimeType: typeof config.maxProposalLifetime,
+        signers: config.signers.map((s: any) => ({
+          principal: s.principal.toString(),
+          name: s.name,
+          role: s.role
+        }))
+      });
       const result = await actor.deployMultisig(config, []);
 
       console.log('Backend deployment result:', result);
 
-      if ('Ok' in result) {
+      if ('ok' in result) {
         // Backend returns DeploymentResult__1: { canisterId: principal; walletId: WalletId }
-        const deploymentResult = result.Ok as DeploymentResult__1;
+        const deploymentResult = result.ok as DeploymentResult__1;
 
         console.log('Deployment successful, canisterId:', deploymentResult.canisterId.toString());
         // Ignore walletId - we only use canisterId as primary key
@@ -206,47 +217,16 @@ class MultisigService {
   // Contract methods
   async getWalletInfo(canisterId: string): Promise<ApiResponse<any>> {
     try {
-      const authStore = useAuthStore();
-      if (!authStore.principal) {
-        throw new Error('Not authenticated');
-      }
+      // CONTRACT-FIRST: Query wallet contract directly (no factory, no auth required for public wallets)
+      const contractActor = await this.getContractQueryActor(canisterId);
+      const contractInfo = await contractActor.getWalletInfo();
 
-      // FACTORY-FIRST: Get wallet from factory first
-      const factoryWallets = await multisigFactoryService.getMyCreatedWallets(
-        authStore.principal,
-        100, // Get more to search
-        0
-      );
-
-      // Find wallet by canisterId
-      const wallet = factoryWallets.wallets.find(w => w.canisterId.toString() === canisterId);
-
-      if (!wallet) {
-        throw new Error('Wallet not found in factory index');
-      }
-
-      // Try to get detailed info from contract, but fallback to factory data
-      try {
-        const contractActor = await this.getContractQueryActor(canisterId);
-        const contractInfo = await contractActor.getWalletInfo();
-
-        return {
-          success: true,
-          data: {
-            ...wallet,
-            contractState: contractInfo
-          }
-        };
-      } catch (contractError) {
-        console.warn('Contract query failed, using factory data:', contractError);
-
-        // Fallback to factory data only
-        return {
-          success: true,
-          data: wallet
-        };
-      }
+      return {
+        success: true,
+        data: contractInfo
+      };
     } catch (error) {
+      console.error('Failed to fetch wallet info:', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Failed to fetch wallet info'

@@ -220,21 +220,27 @@ export class MultisigFactoryService {
 
       // First try to get wallet by canisterId (preferred method)
       try {
-        // Import Principal to convert string to Principal for the new method
         const { Principal } = await import('@dfinity/principal');
         const principalId = Principal.fromText(identifier);
         const resultByCanister = await (actor as any).getWalletByCanisterId(principalId);
-        if (resultByCanister) {
-          return resultByCanister;
+
+        // Motoko optional: [] = None, [value] = Some
+        if (Array.isArray(resultByCanister) && resultByCanister.length > 0) {
+          return resultByCanister[0];
         }
       } catch (canisterError) {
-        console.log('Could not find wallet by canisterId, trying WalletId lookup...');
+        // Continue to fallback
       }
 
       // Fallback: try WalletId lookup (for backward compatibility)
       const result = await actor.getWallet(identifier);
-      // Motoko optional returns null for None, [value] for Some
-      return result ?? null;
+
+      // Motoko optional: [] = None, [value] = Some
+      if (Array.isArray(result) && result.length > 0) {
+        return result[0];
+      }
+
+      return null;
     } catch (error) {
       console.error('Error fetching wallet:', error);
       throw error;

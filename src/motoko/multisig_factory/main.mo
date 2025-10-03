@@ -247,16 +247,13 @@ persistent actor MultisigFactory {
             return #err(#InsufficientCycles);
         };
 
-        // Generate wallet ID
-        let walletId = generateWalletId(config, actualCreator);
-        Debug.print("MultisigFactory: Generated wallet ID " # walletId);
         try {
             // Add cycles for deployment
             Cycles.add(requiredCycles);
 
-            // Create MultisigContract actor
+            // Create MultisigContract actor with temporary ID (will be replaced with canisterId)
             let initArgs: MultisigUpgradeTypes.MultisigInitArgs = #InitialSetup({
-                id = walletId;
+                id = ""; // Temporary - will be set to canisterId in contract initialization
                 config = config;
                 creator = actualCreator;
                 factory = Principal.fromActor(MultisigFactory);
@@ -265,6 +262,7 @@ persistent actor MultisigFactory {
             let multisigWallet = await MultisigContract.MultisigContract(initArgs);
             Debug.print("MultisigFactory: Created MultisigContract actor");
             let canisterId = Principal.fromActor(multisigWallet);
+            let walletId = Principal.toText(canisterId); // Use canisterId as walletId
 
             // VERSION MANAGEMENT: Register contract with current factory version
             let contractVersion = switch (versionManager.getLatestStableVersion()) {
@@ -284,7 +282,7 @@ persistent actor MultisigFactory {
                        Nat.toText(contractVersion.minor) # "." #
                        Nat.toText(contractVersion.patch));
 
-            // Register the wallet
+            // Register the wallet (using canisterId as walletId)
             let registry: WalletRegistry = {
                 id = walletId;
                 canisterId = canisterId;
@@ -310,8 +308,7 @@ persistent actor MultisigFactory {
                 };
             };
 
-            Debug.print("MultisigFactory: Successfully deployed wallet " # walletId #
-                       " to canister " # Principal.toText(canisterId));
+            Debug.print("MultisigFactory: Successfully deployed wallet with canisterId: " # Principal.toText(canisterId));
             Debug.print("Indexed: creator=" # Principal.toText(actualCreator) #
                        ", signers=" # debug_show(config.signers.size()));
 
@@ -412,13 +409,21 @@ persistent actor MultisigFactory {
 
     // Get wallet by canisterId (preferred method for frontend)
     public query func getWalletByCanisterId(canisterId: Principal): async ?WalletRegistry {
-        // Find wallet by canisterId
-        for ((_, wallet) in wallets.entries()) {
-            if (wallet.canisterId == canisterId) {
-                return ?wallet;
+        let canisterIdText = Principal.toText(canisterId);
+
+        // First, try direct lookup (for new wallets where walletId == canisterId)
+        switch (wallets.get(canisterIdText)) {
+            case (?wallet) { return ?wallet };
+            case null {
+                // Fallback: search by canisterId field (for old wallets with "multisig-X-Y-Z" keys)
+                for ((_, wallet) in wallets.entries()) {
+                    if (wallet.canisterId == canisterId) {
+                        return ?wallet;
+                    };
+                };
+                null
             };
-        };
-        null
+        }
     };
 
     public query func getWalletsByCreator(creator: Principal): async [WalletRegistry] {

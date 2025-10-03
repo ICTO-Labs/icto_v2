@@ -1,12 +1,12 @@
 <template>
   <div class="gap-4 md:gap-6">
     <!-- Loading state -->
-    <div v-if="loading || !visibilityLoaded">
+    <div v-if="loading">
       <LoadingSkeleton type="wallet-detail" />
     </div>
 
     <!-- Access Denied state (wallet is private and user not authorized) -->
-    <div v-else-if="visibilityLoaded && userVisibility && !userVisibility.canView" 
+    <div v-else-if="factoryBasedVisibility && !factoryBasedVisibility.canView"
          class="bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400 dark:border-yellow-600 p-6 rounded-lg">
       <div class="flex items-center">
         <div class="flex-shrink-0">
@@ -43,7 +43,7 @@
     </div>
 
     <!-- Wallet content (only shown if user has access) -->
-    <div v-else-if="wallet && visibilityLoaded && userVisibility?.canView">
+    <div v-else-if="wallet && factoryBasedVisibility?.canView">
       <!-- Wallet Header -->
       <div class="mb-8">
         <div class="flex items-center justify-between">
@@ -79,7 +79,7 @@
                 </span>
                 
                 <span class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ wallet.config?.threshold || wallet.threshold }}-of-{{ wallet.signers?.length || wallet.totalSigners }} Multisig
+                  {{ wallet.config?.threshold || wallet.threshold || 0 }}-of-{{ wallet.signers?.length || wallet.config?.signers?.length || wallet.totalSigners || 0 }} Multisig
                 </span>
                 <span class="text-xs text-gray-500 dark:text-gray-500 flex items-center gap-1 bg-gray-100 rounded-full px-2.5 py-0.5">
                   {{ wallet.canisterId || wallet.id }} <CopyIcon :data="wallet.canisterId || wallet.id" class="h-3.5 w-3.5" />
@@ -113,7 +113,7 @@
             <button
               @click="showUnifiedAuditDashboard = true"
               class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-orange-600 hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 dark:focus:ring-offset-gray-900"
-              v-if="userVisibility?.isAuthorized"
+              v-if="factoryBasedVisibility?.isAuthorized"
             >
               <Shield class="h-4 w-4 mr-2" />
               Security Audit
@@ -183,7 +183,7 @@
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
           <div class="flex items-center justify-between mb-6">
             <h3 class="text-lg font-medium text-gray-900 dark:text-white">
-              Signers ({{ wallet.signers?.length || 0 }})
+              Signers ({{ wallet.signers?.length || wallet.config?.signers?.length || 0 }})
             </h3>
             <button
               @click="manageSignersVisible = true"
@@ -344,7 +344,7 @@
             <UnifiedAuditDashboard
               v-if="showUnifiedAuditDashboard"
               :canisterId="wallet.canisterId?.toString() || wallet.id"
-              :visibility="userVisibility"
+              :visibility="factoryBasedVisibility"
             />
           </div>
         </div>
@@ -435,11 +435,100 @@ const visibilityLoaded = ref(false)
 
 // Computed properties
 const walletId = computed(() => props.wallet?.canisterId?.toString() || props.wallet?.id || '')
-const canManageWallet = computed(() => {
-  if (!authStore.principal) return false
 
-  const userSigner = props.wallet.signers?.find(
-    (signer: any) => signer.principal.toString() === authStore.principal?.toString()
+// Enhanced visibility check using factory + contract data
+const factoryBasedVisibility = computed(() => {
+  if (!props.wallet || !authStore.principal) {
+    console.log('🔍 MultisigWalletDetail - Missing data:', {
+      hasWallet: !!props.wallet,
+      hasPrincipal: !!authStore.principal
+    })
+    return { isOwner: false, isSigner: false, isObserver: false, isAuthorized: false, isPublic: false, canView: false }
+  }
+
+  const userPrincipal = authStore.principal.toString()
+  console.log('🔍 MultisigWalletDetail - User principal:', userPrincipal)
+  console.log('🔍 MultisigWalletDetail - Full wallet data structure:', {
+    hasCreator: !!props.wallet.creator,
+    hasConfig: !!props.wallet.config,
+    hasContractState: !!props.wallet.contractState,
+    creator: props.wallet.creator?.toString(),
+    configKeys: props.wallet.config ? Object.keys(props.wallet.config) : [],
+    contractStateKeys: props.wallet.contractState ? Object.keys(props.wallet.contractState) : []
+  })
+
+  // Use factory data for ownership and configuration
+  const factoryCreator = props.wallet.creator
+  const factoryConfig = props.wallet.config
+  const contractState = props.wallet.contractState
+
+  // Check if user is the creator (owner) with safety checks
+  const isOwner = factoryCreator?.toString() === userPrincipal
+  console.log('🔍 MultisigWalletDetail - Is owner?', {
+    userPrincipal,
+    creator: factoryCreator?.toString(),
+    isOwner
+  })
+
+  // Check if user is a signer with safety checks
+  let isSigner = false
+  let isObserver = false
+
+  if (factoryConfig?.signers && Array.isArray(factoryConfig.signers)) {
+    const signerInfo = factoryConfig.signers.find((signer: any) =>
+      signer.principal?.toString() === userPrincipal
+    )
+
+    if (signerInfo) {
+      isSigner = !('Observer' in signerInfo.role)
+      isObserver = 'Observer' in signerInfo.role
+    }
+
+    console.log('🔍 MultisigWalletDetail - Signer check result:', {
+      signerInfo: signerInfo ? {
+        principal: signerInfo.principal?.toString(),
+        name: signerInfo.name,
+        role: signerInfo.role
+      } : null,
+      isSigner,
+      isObserver
+    })
+  }
+
+  // Check if wallet is public with safety checks
+  const isPublic = factoryConfig?.isPublic ?? false
+  console.log('🔍 MultisigWalletDetail - Is public?', isPublic)
+
+  // Contract-based permission enhancement (if available)
+  let contractEnhancedPermissions = false
+  if (contractState && typeof contractState === 'object') {
+    console.log('🔍 MultisigWalletDetail - Contract state available for enhanced permissions')
+    // TODO: Add contract-specific permission checks if needed
+    contractEnhancedPermissions = true
+  }
+
+  const isAuthorized = isOwner || isSigner || isObserver
+  const canView = isPublic || isAuthorized
+
+  const result = {
+    isOwner,
+    isSigner,
+    isObserver,
+    isAuthorized,
+    isPublic,
+    canView,
+    hasContractState: !!contractState,
+    contractEnhancedPermissions
+  }
+
+  console.log('🔍 MultisigWalletDetail - Final visibility result:', result)
+  return result
+})
+const canManageWallet = computed(() => {
+  if (!authStore.principal || !props.wallet?.config) return false
+
+  const userSigner = props.wallet.config.signers?.find(
+    (signer: any) => signer.principal?.toString() === authStore.principal?.toString()
   )
 
   return userSigner ? canSignerManage(userSigner.role) : false
@@ -511,7 +600,7 @@ const awaitingSignatureCount = computed(() => {
 })
 
 const activeSignersCount = computed(() => {
-  return props.wallet.signers?.length || 0
+  return props.wallet.signers?.length || props.wallet.config?.signers?.length || 0
 })
 
 // Methods

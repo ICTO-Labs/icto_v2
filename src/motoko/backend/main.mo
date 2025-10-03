@@ -946,44 +946,21 @@ persistent actor Backend {
         switch (flowResult) {
             case (#err(msg)) { return #err(msg) };
             case (#ok(result)) {
+                Debug.print("✅ Flow completed, result: " # debug_show(result));
 
-                // Post-deployment state updates specific to multisig deployment
-                ignore UserService.recordDeployment(
-                    userState,
-                    caller,
-                    projectId,
-                    result.canisterId,
-                    #MultisigFactory,
-                    #Multisig({
-                        walletName = config.name;
-                        signersCount = config.signers.size();
-                        threshold = config.threshold;
-                        requiresTimelock = config.requiresTimelock;
-                        dailyLimit = config.dailyLimit;
-                        allowRecovery = config.allowRecovery;
-                        maxProposalLifetime = config.maxProposalLifetime;
-                    }),
-                    {
-                        cyclesCost = 0; // TODO
-                        deploymentFee = result.paidAmount;
-                        paymentToken = paymentState.config.acceptedTokens[0]; // Assuming first token
-                        totalCost = result.paidAmount;
-                        transactionId = result.transactionId;
-                    },
-                    {
-                        name = config.name;
-                        description = config.description;
-                        tags = [];
-                        version = "1.0.0";
-                        isPublic = false; // Multisig wallets are typically private
-                        parentProject = projectId;
-                        dependsOn = [];
-                    },
-                );
+                // NOTE: Factory-first architecture - UserService.recordDeployment is no longer needed
+                // Factory now manages all user relationships and indexes directly
 
                 // Return the specific result type expected by the frontend
+                // Use canisterId as walletId for consistency
+                // IMPORTANT: Field order must match MultisigFactoryTypes.DeploymentResult
+                let walletIdText = Principal.toText(result.canisterId);
+                Debug.print("🎯 About to return deployment result:");
+                Debug.print("  walletId: " # walletIdText);
+                Debug.print("  canisterId: " # Principal.toText(result.canisterId));
+
                 return #ok({
-                    walletId = "multisig-" # Principal.toText(result.canisterId);
+                    walletId = walletIdText;
                     canisterId = result.canisterId;
                 });
             };

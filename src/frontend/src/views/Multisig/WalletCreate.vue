@@ -787,9 +787,24 @@ const createWallet = async () => {
         // Call service directly to deploy multisig
         const result = await multisigService.createWallet(formData)
 
+        console.log('Raw result from multisigService.createWallet:', result)
+        console.log('result.data:', result.data)
+        console.log('result.data.canisterId:', result.data?.canisterId)
+        console.log('Type of canisterId:', typeof result.data?.canisterId)
+
         if (result.success && result.data) {
             // Store result for step 5 to handle
-            const canisterId = result.data.canisterId?.toString() || result.data.walletId
+            // Principal objects have .toText() method, not .toString()
+            let canisterId: string
+            if (result.data.canisterId) {
+                // Handle Principal object
+                canisterId = typeof result.data.canisterId === 'object' && 'toText' in result.data.canisterId
+                    ? result.data.canisterId.toText()
+                    : result.data.canisterId.toString()
+            } else {
+                throw new Error('No canisterId in response')
+            }
+
             deployResult.value = {
                 success: true,
                 canisterId: canisterId

@@ -48,17 +48,13 @@ import Breadcrumb from '@/components/common/Breadcrumb.vue'
 const route = useRoute()
 const router = useRouter()
 
-// Composable
-const {
-  loading,
-  error,
-  getWalletById,
-  fetchMyCreatedWallets,
-  myCreatedWallets
-} = useMultisigFactory()
+// Note: Removed useMultisigFactory - WalletDetail queries contract directly
+// Factory is only used in WalletList/Dashboard for discovery
 
 // Reactive state
 const wallet = ref<WalletInfo | null>(null)
+const loading = ref(false)
+const error = ref<string | null>(null)
 
 // Breadcrumb
 const breadcrumbItems = computed(() => [
@@ -70,26 +66,32 @@ const breadcrumbItems = computed(() => [
 const loadWalletData = async () => {
     const walletIdParam = route.params.id as string
 
-    // Clear previous error
+    // Clear previous state
     error.value = null
+    loading.value = true
 
     try {
-        // Try direct factory query using the wallet ID parameter
-        let result = await getWalletById(walletIdParam)
+        // Query directly from wallet contract canister ONLY
+        // Factory is never used in detail page - it's only for discovery/listing
+        const { multisigService } = await import('@/api/services/multisig')
+        const contractResponse = await multisigService.getWalletInfo(walletIdParam)
 
-        // If not found by canisterId, try to find wallet by canisterId in all wallets
-        if (!result) {
-            await fetchMyCreatedWallets(100, 0) // Fetch more to find the wallet
-            result = myCreatedWallets.value.find(w => w.canisterId.toString() === walletIdParam)
-        }
-
-        if (result) {
-            wallet.value = result
+        if (contractResponse.success && contractResponse.data) {
+            // Use contract data directly - it has everything we need
+            wallet.value = {
+                ...contractResponse.data,
+                // Ensure required IDs are present
+                canisterId: contractResponse.data.canisterId || walletIdParam,
+                id: contractResponse.data.id || walletIdParam
+            }
         } else {
-            error.value = 'Wallet not found'
+            error.value = 'Wallet not found or failed to load'
         }
-    } catch (err) {
-        error.value = err instanceof Error ? err.message : 'Failed to load wallet'
+    } catch (contractError) {
+        console.error('Error loading wallet data:', contractError)
+        error.value = contractError instanceof Error ? contractError.message : 'Failed to load wallet data'
+    } finally {
+        loading.value = false
     }
 }
 

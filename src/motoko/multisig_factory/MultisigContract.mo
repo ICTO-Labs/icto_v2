@@ -86,7 +86,12 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
         // ============== STATE ==============
 
         // Metadata (static or from upgrade)
-        private var walletId = init_id;
+        // Use canister's own principal as walletId for consistency
+        private var walletId = if (init_id == "") {
+            Principal.toText(Principal.fromActor(self))
+        } else {
+            init_id
+        };
         private var walletConfig = init_config;
         private var creator = init_creator;
         private var factory = init_factory;
@@ -1708,7 +1713,8 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
 
             {
                 id = walletId;
-                canisterId = Principal.fromText(walletId); // Use wallet ID as canister identifier
+                // Use the contract's own canister ID instead of trying to parse walletId as Principal
+                canisterId = Principal.fromActor(self);
                 config = walletConfig;
                 signers = Iter.toArray(signers.vals());
                 observers = Buffer.toArray(observers);
