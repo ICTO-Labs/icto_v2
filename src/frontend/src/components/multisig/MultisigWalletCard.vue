@@ -7,25 +7,31 @@
           <Wallet :size="20" />
         </div>
         <div>
-          <h3 class="font-semibold text-gray-900 dark:text-white">{{ wallet.config?.name || 'Unnamed Wallet' }}</h3>
+          <h3 class="font-semibold text-gray-900 dark:text-white">{{ mergedWallet.config?.name || 'Unnamed Wallet' }}</h3>
           <div class="flex items-center gap-2 mt-1">
             <span
               class="inline-flex items-center rounded-full px-2 py-1 text-xs font-medium"
-              :class="getStatusClasses(wallet.status)"
+              :class="getStatusClasses(mergedWallet.status)"
             >
-              {{ formatStatus(wallet.status).toUpperCase() }}
+              {{ formatStatus(mergedWallet.status).toUpperCase() }}
             </span>
-            
+
             <!-- Visibility Badge -->
-            <span v-if="wallet.config?.isPublic" 
+            <span v-if="mergedWallet.config?.isPublic"
                   class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
               <Globe :size="12" />
               Public
             </span>
-            <span v-else 
+            <span v-else
                   class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">
               <Lock :size="12" />
               Private
+            </span>
+
+            <!-- Version Badge -->
+            <span v-if="contractData?.version"
+                  class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+              v{{ contractData.version }}
             </span>
           </div>
         </div>
@@ -96,7 +102,7 @@
       <div class="flex items-center justify-between text-sm">
         <span class="text-gray-600 dark:text-gray-400">Threshold:</span>
         <span class="font-medium text-gray-900 dark:text-white">
-          {{ typeof wallet.config.threshold === 'bigint' ? Number(wallet.config.threshold) : wallet.config.threshold }} of {{ wallet.config.signers?.length || 0 }}
+          {{ typeof mergedWallet.config.threshold === 'bigint' ? Number(mergedWallet.config.threshold) : mergedWallet.config.threshold }} of {{ mergedWallet.config.signers?.length || 0 }}
         </span>
       </div>
 
@@ -105,7 +111,7 @@
         <div class="h-2 rounded-full bg-gray-200 dark:bg-gray-600">
           <div
             class="h-2 rounded-full bg-brand-500"
-            :style="{ width: `${((typeof wallet.config.threshold === 'bigint' ? Number(wallet.config.threshold) : wallet.config.threshold) / (wallet.config.signers?.length || 1)) * 100}%` }"
+            :style="{ width: `${((typeof mergedWallet.config.threshold === 'bigint' ? Number(mergedWallet.config.threshold) : mergedWallet.config.threshold) / (mergedWallet.config.signers?.length || 1)) * 100}%` }"
           ></div>
         </div>
       </div>
@@ -132,7 +138,7 @@
           <span class="text-sm text-gray-600 dark:text-gray-400">Balance</span>
         </div>
         <span class="font-medium text-gray-900 dark:text-white">
-          {{ formatAmount(0) }} ICP
+          {{ balanceDisplay }}
         </span>
       </div>
 
@@ -144,11 +150,11 @@
         <div class="flex items-center space-x-4">
           <div class="flex items-center space-x-1">
             <div class="h-2 w-2 rounded-full bg-yellow-400"></div>
-            <span class="text-xs text-gray-600 dark:text-gray-400">0</span>
+            <span class="text-xs text-gray-600 dark:text-gray-400">{{ contractData?.pendingProposals ?? 0 }}</span>
           </div>
           <div class="flex items-center space-x-1">
             <div class="h-2 w-2 rounded-full bg-green-400"></div>
-            <span class="text-xs text-gray-600 dark:text-gray-400">0</span>
+            <span class="text-xs text-gray-600 dark:text-gray-400">{{ contractData?.executedProposals ?? 0 }}</span>
           </div>
         </div>
       </div>
@@ -160,18 +166,18 @@
         </div>
         <div class="flex -space-x-1">
           <div
-            v-for="(signer, index) in (wallet.config?.signers || []).slice(0, 3)"
+            v-for="(signer, index) in (mergedWallet.config?.signers || []).slice(0, 3)"
             :key="signer.principal || index"
             class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-brand-100 text-xs font-medium text-brand-700 dark:border-gray-800 dark:bg-brand-900/20 dark:text-brand-400"
-            :title="signer.name || 'Unnamed Signer'"
+            :title="getSignerName(signer)"
           >
-            {{ (signer.name || 'S')[0].toUpperCase() }}
+            {{ getSignerInitial(signer) }}
           </div>
           <div
-            v-if="(wallet.config?.signers || []).length > 3"
+            v-if="(mergedWallet.config?.signers || []).length > 3"
             class="flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-gray-100 text-xs font-medium text-gray-600 dark:border-gray-800 dark:bg-gray-700 dark:text-gray-400"
           >
-            +{{ (wallet.config?.signers || []).length - 3 }}
+            +{{ (mergedWallet.config?.signers || []).length - 3 }}
           </div>
         </div>
       </div>
@@ -185,7 +191,7 @@
           <span class="text-xs text-gray-500 dark:text-gray-400">Last Activity</span>
         </div>
         <span class="text-xs text-gray-500 dark:text-gray-400">
-          {{ wallet.createdAt ? formatTimeAgo(Math.max(0, (typeof wallet.createdAt === 'bigint' ? Number(wallet.createdAt) : wallet.createdAt) / 1_000_000)) : 'Unknown' }}
+          {{ lastActivityDisplay }}
         </span>
       </div>
     </div>
@@ -193,7 +199,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, onMounted } from 'vue';
 import { Menu, MenuButton, MenuItems, MenuItem } from '@headlessui/vue';
 import {
   Wallet,
@@ -213,11 +219,15 @@ import { formatAmount } from '@/utils/token';
 import { formatTimeAgo } from '@/utils/time';
 import type { WalletInfo } from '@/api/services/multisigFactory';
 
-// Props
+// Props - only receive minimal factory data (id + canisterId)
 const props = defineProps<{
-  wallet: WalletInfo;
+  wallet: WalletInfo; // Factory data (basic info)
   canManageWallet?: boolean;
 }>();
+
+// Real-time contract data
+const contractData = ref<any>(null);
+const loading = ref(false);
 
 // Emits
 defineEmits<{
@@ -227,34 +237,127 @@ defineEmits<{
   manage: [wallet: WalletInfo];
 }>();
 
-// Computed
+// Load real-time data from contract using lightweight summary
+const loadContractData = async () => {
+  if (!props.wallet?.canisterId) return;
+
+  loading.value = true;
+  try {
+    const { multisigService } = await import('@/api/services/multisig');
+    // Use lightweight summary instead of full getWalletInfo
+    const response = await multisigService.getWalletSummary(props.wallet.canisterId.toString());
+
+    if (response.success && response.data) {
+      contractData.value = response.data;
+    }
+  } catch (error) {
+    console.error('Error loading contract data:', error);
+  } finally {
+    loading.value = false;
+  }
+};
+
+// Merged data: factory (basic) + contract summary (real-time)
+const mergedWallet = computed(() => {
+  if (contractData.value) {
+    // Merge summary data with factory data
+    return {
+      ...props.wallet,
+      // Map summary fields to expected structure
+      config: {
+        ...props.wallet.config,
+        name: contractData.value.name,
+        isPublic: contractData.value.isPublic,
+        threshold: contractData.value.threshold,
+        signers: props.wallet.config?.signers || [], // Keep factory signers for now
+      },
+      status: contractData.value.status,
+      createdAt: contractData.value.createdAt,
+    };
+  }
+  return props.wallet;
+});
+
+onMounted(() => {
+  loadContractData();
+});
+
+// Balance display: "10.02 ICP and 2+ tokens" (lazy load from frontend)
+const icpBalance = ref<number>(0);
+const balanceDisplay = computed(() => {
+  const tokenCount = contractData.value?.tokenCount ?? 0;
+
+  if (tokenCount > 0) {
+    return `${formatAmount(icpBalance.value)} ICP and ${tokenCount}+ token${tokenCount > 1 ? 's' : ''}`;
+  }
+
+  return `${formatAmount(icpBalance.value)} ICP`;
+});
+
+// Last Activity display (uses lastActivity from summary, fallback to createdAt)
+const lastActivityDisplay = computed(() => {
+  const lastActivity = contractData.value?.lastActivity;
+
+  if (lastActivity) {
+    const timestamp = typeof lastActivity === 'bigint' ? Number(lastActivity) : lastActivity;
+    return formatTimeAgo(Math.max(0, timestamp / 1_000_000));
+  }
+
+  // Fallback to factory createdAt
+  if (props.wallet.createdAt) {
+    const timestamp = typeof props.wallet.createdAt === 'bigint' ? Number(props.wallet.createdAt) : props.wallet.createdAt;
+    return formatTimeAgo(Math.max(0, timestamp / 1_000_000));
+  }
+
+  return 'Unknown';
+});
+
+// Security score computation (based on summary data)
 const securityScore = computed(() => {
   try {
-    // Calculate security score based on various factors
-    let score = 0;
+    if (!contractData.value) {
+      // Fallback to factory data if no summary
+      const wallet = props.wallet;
+      if (!wallet?.config) return 0;
 
-    // Safety check for config
-    if (!props.wallet?.config) return 0;
+      let score = 0;
+      const threshold = typeof wallet.config.threshold === 'bigint' ? Number(wallet.config.threshold) : wallet.config.threshold;
+      const signerCount = wallet.config.signers?.length || 0;
+      const thresholdRatio = threshold / (signerCount || 1);
+
+      if (thresholdRatio >= 0.66) score += 30;
+      else if (thresholdRatio >= 0.5) score += 20;
+      else score += 10;
+
+      if (signerCount >= 5) score += 25;
+      else if (signerCount >= 3) score += 20;
+      else score += 10;
+
+      return Math.min(score, 100);
+    }
+
+    // Use summary data for calculation
+    let score = 0;
+    const threshold = contractData.value.threshold;
+    const totalSigners = contractData.value.totalSigners;
+    const thresholdRatio = threshold / (totalSigners || 1);
 
     // Threshold strength (30 points max)
-    const threshold = typeof props.wallet.config.threshold === 'bigint' ? Number(props.wallet.config.threshold) : props.wallet.config.threshold;
-    const thresholdRatio = threshold / (props.wallet.config.signers?.length || 1);
-  if (thresholdRatio >= 0.66) score += 30;
-  else if (thresholdRatio >= 0.5) score += 20;
-  else score += 10;
+    if (thresholdRatio >= 0.66) score += 30;
+    else if (thresholdRatio >= 0.5) score += 20;
+    else score += 10;
 
-  // Number of signers (25 points max)
-  const signerCount = props.wallet.config.signers?.length || 0;
-  if (signerCount >= 5) score += 25;
-  else if (signerCount >= 3) score += 20;
-  else score += 10;
+    // Number of signers (25 points max)
+    if (totalSigners >= 5) score += 25;
+    else if (totalSigners >= 3) score += 20;
+    else score += 10;
 
-  // Security features (45 points max)
-  if (props.wallet.config.requiresTimelock) score += 15;
-  if (props.wallet.config.allowRecovery) score += 15;
-  if (props.wallet.config.requiresConsensusForChanges) score += 15;
+    // Security features (45 points max) - Use factory config for advanced features
+    if (props.wallet.config?.requiresTimelock) score += 15;
+    if (props.wallet.config?.allowRecovery) score += 15;
+    if (props.wallet.config?.requiresConsensusForChanges) score += 15;
 
-  return Math.min(score, 100);
+    return Math.min(score, 100);
   } catch (error) {
     console.error('MultisigWalletCard - Error calculating security score:', error);
     return 0;
@@ -299,5 +402,23 @@ const getSecurityScoreColor = (score: number): string => {
   if (score >= 80) return 'text-green-600 dark:text-green-400';
   if (score >= 60) return 'text-yellow-600 dark:text-yellow-400';
   return 'text-red-600 dark:text-red-400';
+};
+
+// Helper to get signer name (handle Motoko optional)
+const getSignerName = (signer: any): string => {
+  if (!signer) return 'Unnamed Signer';
+
+  // Handle Motoko optional: [] | [string]
+  if (Array.isArray(signer.name)) {
+    return signer.name.length > 0 ? signer.name[0] : 'Unnamed Signer';
+  }
+
+  return signer.name || 'Unnamed Signer';
+};
+
+// Helper to get signer initial
+const getSignerInitial = (signer: any): string => {
+  const name = getSignerName(signer);
+  return name[0].toUpperCase();
 };
 </script>

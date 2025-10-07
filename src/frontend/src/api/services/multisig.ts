@@ -234,6 +234,30 @@ class MultisigService {
     }
   }
 
+  /**
+   * Get lightweight wallet summary for card views
+   * Optimized: No ledger queries, frontend lazy loads balances
+   */
+  async getWalletSummary(canisterId: string): Promise<ApiResponse<any>> {
+    try {
+      // CONTRACT-FIRST: Query wallet contract directly (lightweight, no auth required)
+      const contractActor = await this.getContractQueryActor(canisterId);
+      // Type cast for newly added method until declarations are regenerated
+      const summary = await (contractActor as any).getWalletSummary();
+
+      return {
+        success: true,
+        data: summary
+      };
+    } catch (error) {
+      console.error('Failed to fetch wallet summary:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to fetch wallet summary'
+      };
+    }
+  }
+
   async createTransferProposal(
     canisterId: string,
     recipient: string,

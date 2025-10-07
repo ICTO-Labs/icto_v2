@@ -81,8 +81,11 @@
                 <span class="text-xs text-gray-500 dark:text-gray-400">
                   {{ wallet.config?.threshold || wallet.threshold || 0 }}-of-{{ wallet.signers?.length || wallet.config?.signers?.length || wallet.totalSigners || 0 }} Multisig
                 </span>
-                <span class="text-xs text-gray-500 dark:text-gray-500 flex items-center gap-1 bg-gray-100 rounded-full px-2.5 py-0.5">
+                <span class="text-xs text-gray-500 dark:text-gray-500 flex items-center gap-1 bg-gray-100 dark:bg-gray-700 rounded-full px-2.5 py-0.5">
                   {{ wallet.canisterId || wallet.id }} <CopyIcon :data="wallet.canisterId || wallet.id" class="h-3.5 w-3.5" />
+                </span>
+                <span v-if="wallet.versionString || wallet.version" class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded-full px-2.5 py-0.5">
+                  v{{ wallet.versionString || wallet.version }}
                 </span>
               </div>
             </div>

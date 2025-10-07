@@ -68,7 +68,7 @@ export class MultisigFactoryService {
 
   /**
    * Get wallets where user is signer
-   * Note: Backend doesn't have signerIndex yet, filtering client-side
+   * Uses backend index for secure, efficient queries
    * @param user User principal
    * @param limit Number of items per page (default: 20)
    * @param offset Page offset (default: 0)
@@ -80,21 +80,12 @@ export class MultisigFactoryService {
   ): Promise<PaginatedResponse> {
     try {
       const actor = this.getActor(false);
-      const allWallets = await actor.getAllWallets();
-
-      // Filter wallets where user is a signer
-      const signerWallets = allWallets.filter(wallet =>
-        wallet.config.signers.some(signer =>
-          signer.principal.toString() === user.toString()
-        )
-      );
-
-      // Apply pagination
-      const paginatedWallets = signerWallets.slice(offset, offset + limit);
+      // Use backend index-based query (secure - only returns user's wallets)
+      const response = await actor.getMySignerWallets(user, BigInt(limit), BigInt(offset));
 
       return {
-        wallets: paginatedWallets,
-        total: BigInt(signerWallets.length),
+        wallets: response.wallets,
+        total: response.total,
       };
     } catch (error) {
       console.error('Error fetching signer wallets:', error);
@@ -104,7 +95,7 @@ export class MultisigFactoryService {
 
   /**
    * Get wallets where user is observer
-   * Note: Observer index not yet implemented, filtering client-side
+   * Uses backend index for secure, efficient queries
    * @param user User principal
    * @param limit Number of items per page (default: 20)
    * @param offset Page offset (default: 0)
@@ -116,22 +107,12 @@ export class MultisigFactoryService {
   ): Promise<PaginatedResponse> {
     try {
       const actor = this.getActor(false);
-      const allWallets = await actor.getAllWallets();
-
-      // Filter wallets where user is an observer
-      const observerWallets = allWallets.filter(wallet =>
-        wallet.config.signers.some(signer =>
-          signer.principal.toString() === user.toString() &&
-          'Observer' in signer.role
-        )
-      );
-
-      // Apply pagination
-      const paginatedWallets = observerWallets.slice(offset, offset + limit);
+      // Use backend index-based query (secure - only returns user's wallets)
+      const response = await actor.getMyObserverWallets(user, BigInt(limit), BigInt(offset));
 
       return {
-        wallets: paginatedWallets,
-        total: BigInt(observerWallets.length),
+        wallets: response.wallets,
+        total: response.total,
       };
     } catch (error) {
       console.error('Error fetching observer wallets:', error);
@@ -141,6 +122,7 @@ export class MultisigFactoryService {
 
   /**
    * Get all wallets for user (created + signer + observer, deduplicated)
+   * Uses backend index for secure, efficient queries
    * @param user User principal
    * @param limit Number of items per page (default: 20)
    * @param offset Page offset (default: 0)
@@ -152,28 +134,12 @@ export class MultisigFactoryService {
   ): Promise<PaginatedResponse> {
     try {
       const actor = this.getActor(false);
-      const allWallets = await actor.getAllWallets();
-
-      // Filter wallets where user has any role
-      const userWallets = allWallets.filter(wallet => {
-        const isCreator = wallet.creator.toString() === user.toString();
-        const isSigner = wallet.config.signers.some(signer =>
-          signer.principal.toString() === user.toString()
-        );
-        return isCreator || isSigner;
-      });
-
-      // Deduplicate by canisterId
-      const uniqueWallets = Array.from(
-        new Map(userWallets.map(w => [w.canisterId.toString(), w])).values()
-      );
-
-      // Apply pagination
-      const paginatedWallets = uniqueWallets.slice(offset, offset + limit);
+      // Use backend index-based query (secure - deduplicates and paginates)
+      const response = await actor.getMyAllWallets(user, BigInt(limit), BigInt(offset));
 
       return {
-        wallets: paginatedWallets,
-        total: BigInt(uniqueWallets.length),
+        wallets: response.wallets,
+        total: response.total,
       };
     } catch (error) {
       console.error('Error fetching all wallets:', error);
@@ -183,6 +149,7 @@ export class MultisigFactoryService {
 
   /**
    * Get public wallets (anyone can discover)
+   * Uses backend filter for secure queries
    * @param limit Number of items per page (default: 20)
    * @param offset Page offset (default: 0)
    */
@@ -192,17 +159,12 @@ export class MultisigFactoryService {
   ): Promise<PaginatedResponse> {
     try {
       const actor = this.getActor(true); // Anonymous query for public data
-      const allWallets = await actor.getAllWallets();
-
-      // Filter public wallets
-      const publicWallets = allWallets.filter(wallet => wallet.config.isPublic);
-
-      // Apply pagination
-      const paginatedWallets = publicWallets.slice(offset, offset + limit);
+      // Use backend filter (secure - only returns public wallets)
+      const response = await actor.getPublicWallets(BigInt(limit), BigInt(offset));
 
       return {
-        wallets: paginatedWallets,
-        total: BigInt(publicWallets.length),
+        wallets: response.wallets,
+        total: response.total,
       };
     } catch (error) {
       console.error('Error fetching public wallets:', error);
