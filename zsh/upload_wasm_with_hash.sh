@@ -431,15 +431,15 @@ select_upload_method() {
 
     WASM_SIZE=$(wc -c < "$WASM_PATH")
 
-    # Force chunked upload for files > 500KB to avoid "Argument list too long"
+    # Force chunked upload for files > 300KB to avoid "Argument list too long"
     # IC message limit is 2MB but command line args have lower limits
-    if [ $WASM_SIZE -gt 500000 ]; then
-        print_warning "WASM size ($WASM_SIZE bytes) exceeds 500KB"
+    if [ $WASM_SIZE -gt 300000 ]; then
+        print_warning "WASM size ($WASM_SIZE bytes) exceeds 300KB"
         print_info "Chunked upload will be used automatically (command line limit)"
         UPLOAD_METHOD="chunked"
     else
         echo "Available upload methods:"
-        echo "  1) Direct upload (< 500KB, single call)"
+        echo "  1) Direct upload (< 300KB, single call)"
         echo "  2) Chunked upload (for larger files)"
         echo ""
 
@@ -483,8 +483,8 @@ upload_direct() {
 upload_chunked() {
     print_header "Uploading WASM (Chunked Method)"
 
-    # Chunk size: 1.5MB for safety (command line + IC limits)
-    CHUNK_SIZE=1572864  # 1.5MB in bytes
+    # Chunk size: 800KB for safety (IC limit: 1MB)
+    CHUNK_SIZE=819200  # 800KB in bytes - well under 1MB IC limit
 
     # Create temp directory for chunks
     TEMP_DIR=$(mktemp -d)

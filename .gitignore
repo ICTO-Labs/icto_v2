@@ -58,6 +58,5 @@ QWEN.md
 /blob-report/
 /playwright/.cache/
 
-.env
-.env.development
-.env.production
+# Ignore all env files
+**/.env*
