@@ -26,6 +26,7 @@ import Error "mo:base/Error";
 import Blob "mo:base/Blob";
 import Int "mo:base/Int";
 import Nat "mo:base/Nat";
+import Nat8 "mo:base/Nat8";
 import Buffer "mo:base/Buffer";
 import Order "mo:base/Order";
 import Text "mo:base/Text";
@@ -464,8 +465,48 @@ module VersionManager {
             };
 
             Debug.print("🔄 Starting chunked upgrade for " # Principal.toText(contractId));
-            Debug.print("📦 Total chunks: " # Nat.toText(chunks.size()));
+            Debug.print("📦 Total stored chunks: " # Nat.toText(chunks.size()));
             Debug.print("🔐 Using stored hash: " # debug_show(storedHash));
+
+            // Check chunk sizes and split if necessary (IC limit: 1MB = 1048576 bytes)
+            let MAX_CHUNK_SIZE = 1_048_576; // 1MB
+            var uploadChunks: [Blob] = [];
+
+            for (chunk in chunks.vals()) {
+                if (chunk.size() > MAX_CHUNK_SIZE) {
+                    Debug.print("⚠️ Chunk size " # Nat.toText(chunk.size()) # " exceeds IC limit, splitting...");
+
+                    // Split oversized chunk into smaller chunks
+                    var offset = 0;
+                    var chunkNum = 1;
+
+                    // Convert once to array for efficient access
+                    let chunkArray = Blob.toArray(chunk);
+
+                    while (offset < chunkArray.size()) {
+                        let remaining = chunkArray.size() - offset;
+                        let currentSize = if (remaining > MAX_CHUNK_SIZE) { MAX_CHUNK_SIZE } else { remaining };
+
+                        // Extract slice more efficiently using Array.tabulate
+                        let subChunkArray = Array.tabulate<Nat8>(currentSize, func(i) {
+                            chunkArray[offset + i]
+                        });
+
+                        let subChunkBlob = Blob.fromArray(subChunkArray);
+                        uploadChunks := Array.append(uploadChunks, [subChunkBlob]);
+
+                        Debug.print("📦 Created sub-chunk " # Nat.toText(chunkNum) # ": " # Nat.toText(currentSize) # " bytes");
+
+                        offset += currentSize;
+                        chunkNum += 1;
+                    };
+                } else {
+                    // Chunk is within limit, use as-is
+                    uploadChunks := Array.append(uploadChunks, [chunk]);
+                };
+            };
+
+            Debug.print("📤 Final upload chunks: " # Nat.toText(uploadChunks.size()));
 
             // IC management canister
             let ic = actor("aaaaa-aa") : actor {
@@ -494,8 +535,9 @@ module VersionManager {
                 var chunkHashes: [ChunkHash] = [];
                 var chunkIndex = 0;
 
-                for (chunk in chunks.vals()) {
-                    Debug.print("📤 Uploading chunk " # Nat.toText(chunkIndex + 1) # "/" # Nat.toText(chunks.size()));
+                for (chunk in uploadChunks.vals()) {
+                    Debug.print("📤 Uploading chunk " # Nat.toText(chunkIndex + 1) # "/" # Nat.toText(uploadChunks.size()) #
+                              " (" # Nat.toText(chunk.size()) # " bytes)");
 
                     let chunkHash = await ic.upload_chunk({
                         canister_id = contractId;

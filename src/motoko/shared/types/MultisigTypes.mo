@@ -65,7 +65,8 @@ module {
         // Metadata
         createdAt: Int;
         createdBy: Principal;
-        version: Nat;
+        version: Nat; // Numeric version (deprecated, use versionString)
+        versionString: Text; // Semantic version (e.g., "1.0.0")
     };
 
     public type SignerInfo = {

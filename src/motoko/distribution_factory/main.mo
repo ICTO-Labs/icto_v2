@@ -22,6 +22,7 @@ import DistributionUpgradeTypes "../shared/types/DistributionUpgradeTypes";
 
 // Import VersionManager for version management
 import VersionManager "../common/VersionManager";
+import IUpgradeable "../common/IUpgradeable";
 persistent actor class DistributionFactory() = this {
     
     // ================ STABLE VARIABLES ================
@@ -1034,10 +1035,11 @@ persistent actor class DistributionFactory() = this {
     };
 
     // Contract Upgrade Functions
+    /// Execute upgrade with auto state capture
+    /// Factory automatically captures contract state and performs upgrade
     public shared({caller}) func upgradeContract(
         contractId: Principal,
-        toVersion: VersionManager.Version,
-        upgradeArgs: Blob
+        toVersion: VersionManager.Version
     ) : async Result.Result<(), Text> {
         if (not _isAdmin(caller)) {
             return #err("Unauthorized: Only admins can upgrade contracts");
@@ -1049,13 +1051,70 @@ persistent actor class DistributionFactory() = this {
             case (#ok()) {};
         };
 
-        // Perform chunked upgrade
+        // Get reference to the contract (cast to IUpgradeable)
+        let contract : IUpgradeable.IUpgradeable = actor(Principal.toText(contractId));
+
+        // Check if contract is ready for upgrade
+        try {
+            switch (await contract.canUpgrade()) {
+                case (#err(msg)) {
+                    return #err("Contract not ready for upgrade: " # msg)
+                };
+                case (#ok()) {};
+            };
+        } catch (e) {
+            return #err("Failed to check upgrade readiness: " # Error.message(e));
+        };
+
+        // Auto-capture current state
+        let upgradeArgs = try {
+            let argsBlob = await contract.getUpgradeArgs();
+            Debug.print("✅ Auto-captured state for contract " # Principal.toText(contractId));
+
+            // Deserialize the upgrade args, wrap in variant, and re-serialize
+            let ?args: ?DistributionUpgradeTypes.DistributionUpgradeArgs = from_candid(argsBlob) else {
+                return #err("Failed to deserialize upgrade args");
+            };
+            let wrappedArgs: DistributionUpgradeTypes.DistributionInitArgs = #Upgrade(args);
+            to_candid(wrappedArgs)
+        } catch (e) {
+            return #err("Failed to capture contract state: " # Error.message(e))
+        };
+
+        // Perform the upgrade
         let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
 
         switch (result) {
             case (#ok()) {
                 versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
                 Debug.print("✅ Upgraded contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+
+                // NEW: Factory-driven version update pattern
+                // After successful upgrade, call updateVersion on the contract
+                try {
+                    // Cast to DistributionContract type to access updateVersion function
+                    let distributionContract : actor {
+                        updateVersion: shared (IUpgradeable.Version, Principal) -> async Result.Result<(), Text>;
+                        getVersion: shared query () -> async IUpgradeable.Version;
+                    } = actor(Principal.toText(contractId));
+
+                    // Call updateVersion with factory principal as caller
+                    let factoryPrincipal = Principal.fromActor(this);
+                    let updateResult = await distributionContract.updateVersion(toVersion, factoryPrincipal);
+
+                    switch (updateResult) {
+                        case (#ok()) {
+                            Debug.print("✅ Factory successfully updated distribution contract version to " # _versionToText(toVersion));
+                        };
+                        case (#err(errMsg)) {
+                            Debug.print("⚠️ Warning: Failed to update distribution contract version via factory: " # errMsg);
+                            // Note: This is not critical as the upgrade itself succeeded
+                        };
+                    };
+                } catch (e) {
+                    Debug.print("⚠️ Warning: Could not call updateVersion on upgraded distribution contract: " # Error.message(e));
+                    // Note: This is not critical as the upgrade itself succeeded
+                };
             };
             case (#err(msg)) {
                 versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));

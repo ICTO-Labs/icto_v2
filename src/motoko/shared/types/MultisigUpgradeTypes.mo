@@ -4,6 +4,7 @@
 import Principal "mo:base/Principal";
 import Time "mo:base/Time";
 import MultisigTypes "./MultisigTypes";
+import IUpgradeable "../../common/IUpgradeable";
 
 module {
     /// Runtime state snapshot for upgrade
@@ -61,6 +62,9 @@ module {
 
         // Current runtime state (DYNAMIC - captured at upgrade time)
         runtimeState: MultisigRuntimeState;
+
+        // Target version for upgrade (set by factory, optional for backward compatibility)
+        targetVersion: ?IUpgradeable.Version;
     };
 
     /// Init args variant type for actor constructor

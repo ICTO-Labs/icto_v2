@@ -256,6 +256,9 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         whitelistStable := [];
         blacklistStable := [];
         Debug.print("DistributionContract: Postupgrade completed");
+
+        // Signal upgrade completion for factory detection
+        Debug.print("UPGRADE_COMPLETED:" # Principal.toText(Principal.fromActor(self)) # ":" # debug_show(contractVersion));
     };
 
     // ================ HELPER FUNCTIONS ================
@@ -629,6 +632,28 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     /// Get current contract version
     public query func getVersion() : async IUpgradeable.Version {
         contractVersion
+    };
+
+    /// Update contract version (factory only)
+    /// Only the factory can call this function to update version after upgrade
+    public func updateVersion(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
+        // Factory authentication - only factory can update version
+        switch (factoryCanisterId) {
+            case (?factoryPrincipal) {
+                if (caller != factoryPrincipal) {
+                    return #err("Unauthorized: Only factory can update version");
+                };
+            };
+            case null {
+                return #err("Unauthorized: No factory configured");
+            };
+        };
+
+        // Update version
+        contractVersion := newVersion;
+        Debug.print("✅ DistributionContract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
+
+        #ok(())
     };
 
     /// Comprehensive health check

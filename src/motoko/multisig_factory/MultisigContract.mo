@@ -33,6 +33,8 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
 
         // ============== TYPES ==============
 
+        Debug.print("🚀 MultisigContract constructor called with initArgs: " # debug_show(initArgs));
+
         private type ProposalEntry = (MultisigTypes.ProposalId, MultisigTypes.Proposal);
         private type EventEntry = (Text, MultisigTypes.WalletEvent);
         private type SignerEntry = (Principal, MultisigTypes.SignerInfo);
@@ -111,8 +113,24 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
             case (?state) { state.lastActivity };
         };
 
+        // Store target version for postupgrade (stable variable)
+        private stable var targetVersionForUpgrade: ?IUpgradeable.Version = switch (initArgs) {
+            case (#InitialSetup(_)) { null };
+            case (#Upgrade(upgrade)) { upgrade.targetVersion };
+        };
+
         // Contract version for upgrade tracking
-        private var contractVersion: IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
+        private var contractVersion: IUpgradeable.Version = switch (initArgs) {
+            case (#InitialSetup(_)) { { major = 1; minor = 0; patch = 0 } };  // Fresh deployment
+            case (#Upgrade(upgrade)) {
+                // For upgrades, start with current version and let postupgrade handle the update
+                let currentPatch = upgrade.runtimeState.version;
+                { major = 1; minor = 0; patch = currentPatch }
+            };
+        };
+
+        Debug.print("🚀 MultisigContract initialized with version: " # debug_show(contractVersion) #
+                   " (upgrade mode: " # debug_show(switch (initArgs) { case (#InitialSetup(_)) { "fresh" }; case (#Upgrade(_)) { "upgrade" } }) # ")");
 
         // Signers and permissions - STABLE for upgrades
         private var signersEntries: [SignerEntry] = switch (upgradeState) {
@@ -1711,6 +1729,11 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
                 };
             };
 
+            // Format version as semantic version string
+            let versionString = Nat.toText(contractVersion.major) # "." #
+                               Nat.toText(contractVersion.minor) # "." #
+                               Nat.toText(contractVersion.patch);
+
             {
                 id = walletId;
                 // Use the contract's own canister ID instead of trying to parse walletId as Principal
@@ -1733,7 +1756,60 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
                 securityFlags = securityFlags;
                 createdAt = createdAt;
                 createdBy = creator;
-                version = version;
+                version = version; // Numeric version (deprecated)
+                versionString = versionString; // Semantic version
+            }
+        };
+
+        /// Lightweight summary for card/list views (optimized for performance)
+        /// Returns essential info WITHOUT querying ledgers - frontend lazy loads balances
+        public query func getWalletSummary(): async {
+            name: Text;
+            isPublic: Bool;
+            status: MultisigTypes.WalletStatus;
+            threshold: Nat;
+            totalSigners: Nat;
+            pendingProposals: Nat;
+            executedProposals: Nat;
+            tokenCount: Nat; // Number of watched tokens (excluding ICP)
+            watchedAssets: [MultisigTypes.AssetType]; // For frontend to lazy load balances
+            lastActivity: Time.Time; // Falls back to createdAt if no activity
+            createdAt: Time.Time;
+            version: Text; // Semantic version string (e.g., "1.0.0")
+        } {
+            // Count pending proposals
+            var pendingCount: Nat = 0;
+            for ((_, proposal) in proposals.entries()) {
+                if (proposal.status == #Pending) {
+                    pendingCount += 1;
+                };
+            };
+
+            // Determine last activity (fallback to createdAt)
+            let actualLastActivity = if (lastActivity == 0) {
+                createdAt
+            } else {
+                lastActivity
+            };
+
+            // Format version as semantic version string
+            let versionString = Nat.toText(contractVersion.major) # "." #
+                               Nat.toText(contractVersion.minor) # "." #
+                               Nat.toText(contractVersion.patch);
+
+            {
+                name = walletConfig.name;
+                isPublic = walletConfig.isPublic;
+                status = status;
+                threshold = walletConfig.threshold;
+                totalSigners = signers.size();
+                pendingProposals = pendingCount;
+                executedProposals = executedProposals;
+                tokenCount = tokensArray.size(); // Count of non-ICP tokens
+                watchedAssets = watchedAssets; // Frontend will lazy load balances for these
+                lastActivity = actualLastActivity;
+                createdAt = createdAt;
+                version = versionString; // Semantic version for quick check
             }
         };
 
@@ -1855,7 +1931,7 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
                 // Current runtime state
                 runtimeState = {
                     status = status;
-                    version = version;
+                    version = contractVersion.patch;  // Use current patch version
                     lastActivity = lastActivity;
 
                     // Signers and permissions (from HashMaps → Arrays)
@@ -1888,6 +1964,9 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
                     eventsEntries = Iter.toArray(events.entries());
                     nextEventId = nextEventId;
                 };
+
+                // Target version (will be overwritten by factory)
+                targetVersion = ?contractVersion;
             };
 
             // Serialize to Candid blob
@@ -1924,6 +2003,21 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
         /// Get current contract version
         public query func getVersion() : async IUpgradeable.Version {
             contractVersion
+        };
+
+        /// Update contract version (factory only)
+        /// Only the factory can call this function to update version after upgrade
+        public func updateVersion(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
+            // Factory authentication - only factory can update version
+            if (caller != factory) {
+                return #err("Unauthorized: Only factory can update version");
+            };
+
+            // Update version
+            contractVersion := newVersion;
+            Debug.print("✅ Contract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
+
+            #ok(())
         };
 
         /// Comprehensive health check
@@ -3020,7 +3114,7 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
             Debug.print("MultisigContract: Pre-upgrade completed for wallet " # walletId);
         };
 
-        system func postupgrade(){
+        system func postupgrade() {
             // Do NOT clear stable variables - they are already restored automatically
             // signersEntries, proposalsEntries, eventsEntries are now stable and preserved
             
@@ -3048,15 +3142,32 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
 
             observers := Buffer.fromArray<Principal>(observersArray);
 
+            // Update contract version using stored target version
+            switch (targetVersionForUpgrade) {
+                case (?targetVersion) {
+                    contractVersion := targetVersion;
+                    Debug.print("✅ Updated contract version to: " # debug_show(targetVersion));
+                };
+                case null {
+                    // Backward compatibility: auto-increment if no target version provided
+                    let currentPatch = contractVersion.patch;
+                    contractVersion := { major = 1; minor = 0; patch = currentPatch + 1 };
+                    Debug.print("⚠️ Auto-incremented contract version to: " # debug_show(contractVersion));
+                };
+            };
+
             // Initialize wallet if this is first deployment (no signers)
             if (signers.size() == 0) {
                 initializeWallet();
             };
 
-            Debug.print("MultisigContract: Post-upgrade completed for wallet " # walletId # " with " # 
-                       debug_show(signers.size()) # " signers, " # 
-                       debug_show(proposals.size()) # " proposals, " # 
-                       debug_show(events.size()) # " events");
+            Debug.print("MultisigContract: Post-upgrade completed for wallet " # walletId # " with " #
+                       debug_show(signers.size()) # " signers, " #
+                       debug_show(proposals.size()) # " proposals, " #
+                       debug_show(events.size()) # " events, version: " # debug_show(contractVersion));
+
+            // Signal upgrade completion for factory detection
+            Debug.print("UPGRADE_COMPLETED:" # walletId # ":" # Principal.toText(Principal.fromActor(self)) # ":" # debug_show(contractVersion));
         };
 
         // Initialize wallet on contract deployment

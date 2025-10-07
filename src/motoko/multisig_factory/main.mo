@@ -579,7 +579,11 @@ persistent actor MultisigFactory {
         }
     };
 
+    /// ⚠️ DEPRECATED: Security risk - exposes all wallets including private ones
+    /// Use: getMyAllWallets(), getMyCreatedWallets(), getMySignerWallets(), getPublicWallets() instead
+    /// This function will be removed in future versions
     public query func getAllWallets(): async [WalletRegistry] {
+        Debug.print("⚠️ WARNING: getAllWallets() is deprecated and will be removed. Use specific query functions instead.");
         Iter.toArray(wallets.vals())
     };
 
@@ -793,11 +797,11 @@ persistent actor MultisigFactory {
         }
     };
 
-    /// Step 2: Execute upgrade with captured state
+    /// Execute upgrade with auto state capture
+    /// Factory automatically captures contract state and performs upgrade
     public shared({caller}) func upgradeContract(
         contractId: Principal,
-        toVersion: VersionManager.Version,
-        upgradeArgs: Blob
+        toVersion: VersionManager.Version
     ) : async Result.Result<(), Text> {
         if (not _isAdmin(caller)) {
             return #err("Unauthorized: Only admins can upgrade contracts");
@@ -809,13 +813,78 @@ persistent actor MultisigFactory {
             case (#ok()) {};
         };
 
-        // Perform chunked upgrade
+        // Get reference to the contract (cast to IUpgradeable)
+        let contract : IUpgradeable.IUpgradeable = actor(Principal.toText(contractId));
+
+        // Check if contract is ready for upgrade
+        try {
+            switch (await contract.canUpgrade()) {
+                case (#err(msg)) {
+                    return #err("Contract not ready for upgrade: " # msg)
+                };
+                case (#ok()) {};
+            };
+        } catch (e) {
+            return #err("Failed to check upgrade readiness: " # Error.message(e));
+        };
+
+        // Auto-capture current state
+        let upgradeArgs = try {
+            let argsBlob = await contract.getUpgradeArgs();
+            Debug.print("✅ Auto-captured state for contract " # Principal.toText(contractId));
+
+            // Deserialize the upgrade args, update target version, wrap in variant, and re-serialize
+            let ?args: ?MultisigUpgradeTypes.MultisigUpgradeArgs = from_candid(argsBlob) else {
+                return #err("Failed to deserialize upgrade args");
+            };
+
+            // Update target version to the new version (backward compatible)
+            Debug.print("📦 FACTORY: Upgrading contract to version: " # _versionToText(toVersion));
+            let updatedArgs = {
+                args with targetVersion = ?toVersion
+            };
+
+            let wrappedArgs: MultisigUpgradeTypes.MultisigInitArgs = #Upgrade(updatedArgs);
+            Debug.print("📤 FACTORY: Upgrade args prepared with targetVersion: " # _versionToText(toVersion));
+            to_candid(wrappedArgs)
+        } catch (e) {
+            return #err("Failed to capture contract state: " # Error.message(e))
+        };
+
+        // Perform the upgrade
         let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
 
         switch (result) {
             case (#ok()) {
                 versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
                 Debug.print("✅ Upgraded contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+
+                // NEW: Factory-driven version update pattern
+                // After successful upgrade, call updateVersion on the contract
+                try {
+                    // Cast to MultisigContract type to access updateVersion function
+                    let multisigContract : actor {
+                        updateVersion: shared (IUpgradeable.Version, Principal) -> async Result.Result<(), Text>;
+                        getVersion: shared query () -> async IUpgradeable.Version;
+                    } = actor(Principal.toText(contractId));
+
+                    // Call updateVersion with factory principal as caller
+                    let factoryPrincipal = Principal.fromActor(MultisigFactory);
+                    let updateResult = await multisigContract.updateVersion(toVersion, factoryPrincipal);
+
+                    switch (updateResult) {
+                        case (#ok()) {
+                            Debug.print("✅ Factory successfully updated contract version to " # _versionToText(toVersion));
+                        };
+                        case (#err(errMsg)) {
+                            Debug.print("⚠️ Warning: Failed to update contract version via factory: " # errMsg);
+                            // Note: This is not critical as the upgrade itself succeeded
+                        };
+                    };
+                } catch (e) {
+                    Debug.print("⚠️ Warning: Could not call updateVersion on upgraded contract: " # Error.message(e));
+                    // Note: This is not critical as the upgrade itself succeeded
+                };
             };
             case (#err(msg)) {
                 versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));

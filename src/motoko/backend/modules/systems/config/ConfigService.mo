@@ -60,6 +60,11 @@ module ConfigService {
         ignore set(state, "token_factory.fee", "100000000", backendId);
         ignore set(state, "token_factory.initial_cycles", "200000000", backendId);
 
+        // Multisig factory
+        ignore set(state, "multisig_factory.enabled", "true", backendId);
+        ignore set(state, "multisig_factory.fee", "50000000", backendId); // 0.5 ICP
+        ignore set(state, "multisig_factory.initial_cycles", "200000000", backendId);
+
         // Template deployer
         ignore set(state, "template_deployer.enabled", "false", backendId);
         ignore set(state, "template_deployer.fee", "100000000", backendId);
@@ -71,7 +76,7 @@ module ConfigService {
         ignore set(state, "lock_deployer.initial_cycles", "200000000", backendId);
 
         // Distribution
-        ignore set(state, "distribution_factory.enabled", "false", backendId);
+        ignore set(state, "distribution_factory.enabled", "true", backendId);
         ignore set(state, "distribution_factory.fee", "100000000", backendId);
         ignore set(state, "distribution_factory.initial_cycles", "200000000", backendId);
 
