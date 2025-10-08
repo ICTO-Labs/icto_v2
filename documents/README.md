@@ -26,6 +26,7 @@ This documentation is designed for developers, contributors, and AI agents worki
 | Document | Description | Audience |
 |----------|-------------|----------|
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture overview, factory-first design | All developers |
+| [BACKEND_FACTORY_INTEGRATION.md](./BACKEND_FACTORY_INTEGRATION.md) | Backend-Factory integration, whitelist security, API calls | Backend devs, AI agents |
 | [WORKFLOW.md](./WORKFLOW.md) | User flows, data flows, system interactions | Frontend & Backend devs |
 
 ---

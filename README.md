@@ -80,53 +80,100 @@ A decentralized platform for token operations, multi-signature wallets, DAOs, to
 
 ### Factory-First Design
 
-ICTO V2 implements a revolutionary **factory-first architecture** where each factory is an autonomous service that:
+ICTO V2 implements a revolutionary **factory-first architecture** where:
 
-- **Manages its own storage** with O(1) indexed lookups
-- **Deploys and controls contracts** via dual-controller pattern
-- **Maintains user indexes** (creator, participant, observer)
-- **Handles upgrades** with automatic version management
-- **Synchronizes state** through contract callbacks
+- **Backend** acts as a payment gateway and coordinator
+- **Factories** are autonomous services that manage their own data
+- **Storage Services** provide isolated audit and payment tracking
+- **Whitelist Security** ensures only backend can deploy contracts
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                       Backend (Lean ~50MB)                      │
-│  • Payment validation & coordination                            │
-│  • Authentication & authorization                               │
-│  • Factory registry management                                  │
-└──────┬────────────────────────┬────────────────────────────────┘
-       │                        │
-       │ Coordinates            │ Delegates storage
-       │                        │
-       ▼                        ▼
-┌─────────────┐         ┌──────────────────┐
-│   Audit     │         │     Invoice      │
-│  Storage    │         │     Storage      │
-├─────────────┤         ├──────────────────┤
-│• Audit logs │         │• Payment records │
-│• Event trail│         │• ICRC-2 history  │
-│• Immutable  │         │• Refund tracking │
-└─────────────┘         └──────────────────┘
-
-    ┌────────┴─────────┬─────────────┬─────────────┬─────────────┐
-    │                  │             │             │             │
-    ▼                  ▼             ▼             ▼             ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│Distribution  │  │  Multisig    │  │    Token     │  │     DAO      │
-│  Factory     │  │   Factory    │  │   Factory    │  │   Factory    │
-├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤
-│• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│
-│• User data   │  │• User data   │  │• User data   │  │• User data   │
-│• Direct query│  │• Direct query│  │• Direct query│  │• Direct query│
-│• Callbacks   │  │• Callbacks   │  │• Callbacks   │  │• Callbacks   │
-└──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-       │                 │                 │                 │
-   Deploys           Deploys           Deploys           Deploys
-   Manages           Manages           Manages           Manages
-       │                 │                 │                 │
-       ▼                 ▼                 ▼                 ▼
-   Contracts         Contracts         Contracts         Contracts
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Backend (Lean ~50MB)                              │
+│  • Payment validation via ICRC-2                                         │
+│  • Deployment coordination                                               │
+│  • Authentication & authorization                                        │
+│  • Factory registry & whitelist management                               │
+│  • Configuration management (service fees, enabled/disabled)             │
+└─────┬────────────────────────┬──────────────────────────────────────────┘
+      │                        │
+      │ Delegates              │ Coordinates & Monitors
+      │ storage                │
+      ▼                        ▼
+┌─────────────┐         ┌─────────────────────────────────────────────────┐
+│   Audit     │         │          Factory Registry                        │
+│  Storage    │         │  • Whitelist verification                        │
+├─────────────┤         │  • Factory health monitoring                     │
+│• Audit logs │         │  • Service status tracking                       │
+│• Event trail│         └─────────┬───────────────────────────────────────┘
+│• Immutable  │                   │
+└─────────────┘                   │ Backend calls factories via whitelist
+                                  │
+┌─────────────┐                   │
+│   Invoice   │                   │
+│  Storage    │◄──────────────────┘
+├─────────────┤         │
+│• Payment rec│         │ 1. createContract(owner, args, payment)
+│• ICRC-2 hist│         │ 2. setupWhitelist(backendId)
+│• Refund     │         │ 3. getMyContracts(user) [query]
+└─────────────┘         │ 4. getFactoryHealth() [monitor]
+                        │
+    ┌───────────────────┼────────────────┬──────────────┬──────────────┐
+    │                   │                │              │              │
+    │ Whitelisted       │ Whitelisted    │ Whitelisted  │ Whitelisted  │
+    │ Backend           │ Backend        │ Backend      │ Backend      │
+    ▼                   ▼                ▼              ▼              ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│Distribution  │  │  Multisig    │  │    Token     │  │     DAO      │  │  Launchpad   │
+│  Factory     │  │   Factory    │  │   Factory    │  │   Factory    │  │   Factory    │
+├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤
+│• Whitelisted │  │• Whitelisted │  │• Whitelisted │  │• Whitelisted │  │• Whitelisted │
+│  backend     │  │  backend     │  │  backend     │  │  backend     │  │  backend     │
+│• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│
+│• User data   │  │• User data   │  │• User data   │  │• User data   │  │• User data   │
+│• Direct query│  │• Direct query│  │• Direct query│  │• Direct query│  │• Direct query│
+│• Callbacks   │  │• Callbacks   │  │• Callbacks   │  │• Callbacks   │  │• Callbacks   │
+│• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       │                 │                 │                 │                 │
+   Deploys &         Deploys &         Deploys &         Deploys &         Deploys &
+   Manages           Manages           Manages           Manages           Manages
+       │                 │                 │                 │                 │
+       ▼                 ▼                 ▼                 ▼                 ▼
+  Distribution      Multisig          Token             DAO            Launchpad
+  Contracts         Contracts         Contracts         Contracts      Contracts
+       │                 │                 │                 │                 │
+       └─────────────────┴─────────────────┴─────────────────┴─────────────────┘
+                                          │
+                                          │ Callbacks to factory
+                                          │ • notifyParticipantAdded(user)
+                                          │ • notifyStatusChanged(status)
+                                          │ • notifyVisibilityChanged(isPublic)
+                                          │
+                                          └─────► Factory indexes updated
 ```
+
+**Key Connections:**
+
+1. **Backend → Factories** (Write - whitelist required)
+   - Deploy contracts via `createContract()`
+   - Setup whitelists via `setupWhitelist()`
+   - Update configurations
+
+2. **Frontend → Factories** (Read - direct query)
+   - O(1) user lookups via `getMyContracts()`
+   - Public contract listings
+   - Contract details
+
+3. **Contracts → Factories** (Callbacks - state sync)
+   - Update participant indexes
+   - Sync contract status changes
+   - Update visibility settings
+
+4. **Backend Monitoring**
+   - Factory health checks
+   - Microservice status
+   - System-wide health
 
 ### Key Benefits
 
@@ -174,14 +221,21 @@ ICTO V2 implements a revolutionary **factory-first architecture** where each fac
    ./setup-icto-v2.sh
    ```
 
+   **Note on Admin Setup:**
+   - The deploying principal becomes both **admin** and **super admin** automatically
+   - Admin: Can modify configurations via `adminSetConfigValue`
+   - Super Admin: Can add/remove other admins
+   - Your principal will have full control of the backend canister
+
    The setup script will:
    - ✅ Deploy all factory canisters
    - ✅ Deploy backend and storage services
+   - ✅ Generate DID files for dynamic contracts
    - ✅ Configure microservices
    - ✅ Set up whitelists
    - ✅ Add cycles to factories
    - ✅ Load WASM templates
-   - ✅ Configure service fees
+   - ✅ Configure service fees via `adminSetConfigValue`
    - ✅ Generate frontend .env files (via setupEnv.js)
    - ✅ Run health checks
 
@@ -313,6 +367,57 @@ icto_v2/
 ---
 
 ## 🧪 Development
+
+### Quick Reference - Backend Commands
+
+**Service Fee Management:**
+```bash
+# Get service fee for a factory (automatically appends ".fee")
+dfx canister call backend getServiceFee "(\"token_factory\")"
+dfx canister call backend getServiceFee "(\"multisig_factory\")"
+dfx canister call backend getServiceFee "(\"distribution_factory\")"
+dfx canister call backend getServiceFee "(\"dao_factory\")"
+dfx canister call backend getServiceFee "(\"launchpad_factory\")"
+
+# Set service fee (admin only - requires admin privileges)
+dfx canister call backend adminSetConfigValue "(\"token_factory.fee\", \"100000000\")"
+
+# Enable/disable service (admin only)
+dfx canister call backend adminSetConfigValue "(\"token_factory.enabled\", \"true\")"
+```
+
+**Admin Management:**
+```bash
+# Check who deployed (becomes admin and super admin automatically)
+dfx identity get-principal
+
+# Add a new admin (super admin only)
+dfx canister call backend addAdmin "(principal \"xxxxx-xxxxx-xxxxx-xxxxx-xxx\")"
+
+# Remove an admin (super admin only)
+dfx canister call backend removeAdmin "(principal \"xxxxx-xxxxx-xxxxx-xxxxx-xxx\")"
+```
+
+**System Health:**
+```bash
+# Check overall system status
+dfx canister call backend getSystemStatus "()"
+
+# Check all microservices health
+dfx canister call backend getMicroserviceHealth "()"
+
+# Check if microservices are set up
+dfx canister call backend getMicroserviceSetupStatus "()"
+```
+
+**Factory Information:**
+```bash
+# Get token factory WASM info
+dfx canister call token_factory getCurrentWasmInfo "()"
+
+# Get canister IDs
+dfx canister call backend getCanisterIds "()"
+```
 
 ### Quick Reference - NPM Workspaces
 

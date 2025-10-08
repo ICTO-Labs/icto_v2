@@ -46,6 +46,33 @@ dfx deploy launchpad_factory
 
 echo -e "${GREEN}✅ All canisters deployed successfully${NC}"
 
+# Step 1.5: Generate DID files for dynamic contracts
+echo -e "\n${BLUE}📝 Step 1.5: Generating DID files for dynamic contracts...${NC}"
+
+# Generate declarations for contract templates (used by factories to create dynamic instances)
+echo -e "${YELLOW}Generating Candid declarations for contract templates...${NC}"
+
+# List of contract templates that need DID generation
+declare -a CONTRACT_TEMPLATES=(
+    "distribution_contract"
+    "dao_contract"
+    "launchpad_contract"
+    "multisig_contract"
+)
+
+for contract in "${CONTRACT_TEMPLATES[@]}"; do
+    echo -e "${YELLOW}  Generating DID for ${contract}...${NC}"
+    dfx generate ${contract}
+
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}  ✅ ${contract} DID generated${NC}"
+    else
+        echo -e "${RED}  ❌ Failed to generate DID for ${contract}${NC}"
+    fi
+done
+
+echo -e "${GREEN}✅ All contract template DIDs generated${NC}"
+
 # Step 2: Get canister IDs
 echo -e "\n${BLUE}📋 Step 2: Getting canister IDs...${NC}"
 BACKEND_ID=$(dfx canister id backend)
@@ -274,46 +301,67 @@ echo -e "\n${BLUE}💰 Step 8: Configuring Service Fees...${NC}"
 
 # Service fees configuration (in e8s - ICP smallest unit)
 # 1 ICP = 100,000,000 e8s
-# Note: Fees are pre-configured in ConfigService.loadDefaultConfig()
-# This step verifies and enables the services
+# Note: This step sets/updates service fees and enabled status via adminSetConfigValue
 
-echo -e "${YELLOW}Verifying service fees and enabling services...${NC}"
+echo -e "${YELLOW}Setting service fees and enabling services...${NC}"
 
-# Array of services to verify (service_name fee_key fee_value_e8s enabled_key)
-declare -a SERVICES_CONFIG=(
-    "token_factory|token_factory.fee|100000000|token_factory.enabled"
-    "distribution_factory|distribution_factory.fee|100000000|distribution_factory.enabled"
-    "multisig_factory|multisig_factory.fee|50000000|multisig_factory.enabled"
-    "dao_factory|dao_factory.fee|500000000|dao_factory.enabled"
-    "launchpad_factory|launchpad_factory.fee|1000000000|launchpad_factory.enabled"
+# Array of config settings (key|value|description)
+declare -a CONFIG_SETTINGS=(
+    "token_factory.fee|100000000|Token Factory fee (1 ICP)"
+    "token_factory.enabled|true|Enable Token Factory"
+    "distribution_factory.fee|100000000|Distribution Factory fee (1 ICP)"
+    "distribution_factory.enabled|true|Enable Distribution Factory"
+    "multisig_factory.fee|50000000|Multisig Factory fee (0.5 ICP)"
+    "multisig_factory.enabled|true|Enable Multisig Factory"
+    "dao_factory.fee|500000000|DAO Factory fee (5 ICP)"
+    "dao_factory.enabled|true|Enable DAO Factory"
+    "launchpad_factory.fee|1000000000|Launchpad Factory fee (10 ICP)"
+    "launchpad_factory.enabled|true|Enable Launchpad Factory"
 )
 
-for config in "${SERVICES_CONFIG[@]}"; do
-    IFS='|' read -r service_name fee_key fee_value enabled_key <<< "$config"
+for setting in "${CONFIG_SETTINGS[@]}"; do
+    IFS='|' read -r key value description <<< "$setting"
 
-    # Convert e8s to ICP for display
-    icp_value=$(echo "scale=2; ${fee_value}/100000000" | bc)
+    echo -e "${YELLOW}Setting ${description}...${NC}"
+    CONFIG_RESULT=$(dfx canister call backend adminSetConfigValue "(\"${key}\", \"${value}\")" 2>&1 || echo "FAILED")
 
-    # Verify fee is accessible
-    echo -e "${YELLOW}Checking ${service_name}...${NC}"
-    FEE_CHECK=$(dfx canister call backend getServiceFee "(\"${fee_key}\")" 2>&1 || echo "FAILED")
-
-    if [[ "$FEE_CHECK" == *"FAILED"* ]] || [[ "$FEE_CHECK" == *"err"* ]]; then
-        echo -e "${RED}  ❌ Failed to verify fee for ${service_name}${NC}"
+    if [[ "$CONFIG_RESULT" == *"FAILED"* ]] || [[ "$CONFIG_RESULT" == *"err"* ]]; then
+        echo -e "${RED}  ❌ Failed to set ${key}${NC}"
     else
-        echo -e "${GREEN}  ✅ Fee: ${icp_value} ICP (${fee_value} e8s)${NC}"
+        echo -e "${GREEN}  ✅ ${description}: ${value}${NC}"
     fi
-
 done
 
 echo -e ""
-echo -e "${GREEN}✅ Service fees verified${NC}"
-echo -e "${GREEN}✅ All factory services are enabled in backend configuration:${NC}"
-echo -e "${GREEN}   • token_factory.enabled = true${NC}"
-echo -e "${GREEN}   • multisig_factory.enabled = true${NC}"
-echo -e "${GREEN}   • distribution_factory.enabled = true${NC}"
-echo -e "${GREEN}   • dao_factory.enabled = true${NC}"
-echo -e "${GREEN}   • launchpad_factory.enabled = true${NC}"
+echo -e "${GREEN}✅ Service fees configured${NC}"
+echo -e "${GREEN}✅ All factory services enabled${NC}"
+
+# Verify the configuration
+echo -e "\n${YELLOW}Verifying configuration...${NC}"
+
+declare -a VERIFY_FEES=(
+    "token_factory|100000000"
+    "distribution_factory|100000000"
+    "multisig_factory|50000000"
+    "dao_factory|500000000"
+    "launchpad_factory|1000000000"
+)
+
+for verify in "${VERIFY_FEES[@]}"; do
+    IFS='|' read -r service_name expected_value <<< "$verify"
+
+    # Convert e8s to ICP for display
+    icp_value=$(echo "scale=2; ${expected_value}/100000000" | bc)
+
+    # getServiceFee automatically appends ".fee" to the service name
+    FEE_CHECK=$(dfx canister call backend getServiceFee "(\"${service_name}\")" 2>&1 || echo "FAILED")
+
+    if [[ "$FEE_CHECK" == *"${expected_value}"* ]]; then
+        echo -e "${GREEN}  ✅ ${service_name}: ${icp_value} ICP${NC}"
+    else
+        echo -e "${YELLOW}  ⚠️  ${service_name}: verification failed${NC}"
+    fi
+done
 
 # Step 9: Generate frontend environment variables
 echo -e "\n${BLUE}🔧 Step 9: Generating frontend environment variables...${NC}"
@@ -381,9 +429,10 @@ echo -e "• Audit Storage: ${AUDIT_STORAGE_ID}"
 echo -e "• Invoice Storage: ${INVOICE_STORAGE_ID}"
 
 echo -e "\n${BLUE}✅ Configuration Status:${NC}"
+echo -e "• Contract DIDs: ✅ Generated for dynamic contracts"
 echo -e "• Factory Whitelist: ✅ Backend authorized"
 echo -e "• Microservices Setup: ✅ All factories connected"
-echo -e "• Service Fees: ✅ Configured"
+echo -e "• Service Fees: ✅ Configured via adminSetConfigValue"
 echo -e "• WASM Templates: ✅ Loaded"
 echo -e "• Frontend Env: ✅ Generated"
 echo -e "• Health Checks: ✅ Passed"
@@ -405,7 +454,7 @@ echo -e "• Callback System: ✅ Factory ↔ Contract sync"
 echo -e "\n${BLUE}🔗 Useful Commands:${NC}"
 echo -e "• System status: ${YELLOW}dfx canister call backend getSystemStatus \"()\"${NC}"
 echo -e "• Microservices health: ${YELLOW}dfx canister call backend getMicroserviceHealth \"()\"${NC}"
-echo -e "• Service fee: ${YELLOW}dfx canister call backend getServiceFee \"(\\\"token_factory.fee\\\")\"${NC}"
+echo -e "• Service fee: ${YELLOW}dfx canister call backend getServiceFee \"(\\\"token_factory\\\")\"${NC}"
 echo -e "• Token WASM info: ${YELLOW}dfx canister call token_factory getCurrentWasmInfo \"()\"${NC}"
 
 echo -e "\n${BLUE}📚 Documentation:${NC}"

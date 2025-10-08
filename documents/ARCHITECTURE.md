@@ -59,34 +59,96 @@ Distributions      Multisigs      Tokens        DAOs
 ### After: Factory-First Architecture (V2)
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                       Backend (Lean ~50MB)                      │
-│  - Payment validation only                                      │
-│  - Deployment coordination                                      │
-│  - Authentication & authorization                               │
-└────────────┬───────────────────────────────────────────────────┘
-             │ Coordinates deployment
-             │
-    ┌────────┴─────────┬─────────────┬─────────────┬─────────────┐
-    │                  │             │             │             │
-    ▼                  ▼             ▼             ▼             ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│Distribution  │  │  Multisig    │  │    Token     │  │     DAO      │
-│  Factory     │  │   Factory    │  │   Factory    │  │   Factory    │
-├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤
-│• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│
-│• User data   │  │• User data   │  │• User data   │  │• User data   │
-│• Direct query│  │• Direct query│  │• Direct query│  │• Direct query│
-│• Callbacks   │  │• Callbacks   │  │• Callbacks   │  │• Callbacks   │
-│• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│
-└──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-       │                 │                 │                 │
-   Deploys &         Deploys &         Deploys &         Deploys &
-   Manages           Manages           Manages           Manages
-       │                 │                 │                 │
-       ▼                 ▼                 ▼                 ▼
-   Contracts         Contracts         Contracts         Contracts
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        Backend (Lean ~50MB)                              │
+│  • Payment validation via ICRC-2                                         │
+│  • Deployment coordination                                               │
+│  • Authentication & authorization                                        │
+│  • Factory registry & whitelist management                               │
+│  • Configuration management (service fees, enabled/disabled)             │
+└─────┬────────────────────────┬──────────────────────────────────────────┘
+      │                        │
+      │ Delegates              │ Coordinates & Monitors
+      │ storage                │
+      ▼                        ▼
+┌─────────────┐         ┌─────────────────────────────────────────────────┐
+│   Audit     │         │          Factory Registry                        │
+│  Storage    │         │  • Whitelist verification                        │
+├─────────────┤         │  • Factory health monitoring                     │
+│• Audit logs │         │  • Service status tracking                       │
+│• Event trail│         └─────────┬───────────────────────────────────────┘
+│• Immutable  │                   │
+└─────────────┘                   │ Backend calls factories via whitelist
+                                  │
+┌─────────────┐                   │
+│   Invoice   │                   │
+│  Storage    │◄──────────────────┘
+├─────────────┤         │
+│• Payment rec│         │ 1. createContract(owner, args, payment)
+│• ICRC-2 hist│         │ 2. setupWhitelist(backendId)
+│• Refund     │         │ 3. getMyContracts(user) [query]
+└─────────────┘         │ 4. getFactoryHealth() [monitor]
+                        │
+    ┌───────────────────┼────────────────┬──────────────┬──────────────┐
+    │                   │                │              │              │
+    │ Whitelisted       │ Whitelisted    │ Whitelisted  │ Whitelisted  │
+    │ Backend           │ Backend        │ Backend      │ Backend      │
+    ▼                   ▼                ▼              ▼              ▼
+┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
+│Distribution  │  │  Multisig    │  │    Token     │  │     DAO      │  │  Launchpad   │
+│  Factory     │  │   Factory    │  │   Factory    │  │   Factory    │  │   Factory    │
+├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤  ├──────────────┤
+│• Whitelisted │  │• Whitelisted │  │• Whitelisted │  │• Whitelisted │  │• Whitelisted │
+│  backend     │  │  backend     │  │  backend     │  │  backend     │  │  backend     │
+│• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│  │• O(1) indexes│
+│• User data   │  │• User data   │  │• User data   │  │• User data   │  │• User data   │
+│• Direct query│  │• Direct query│  │• Direct query│  │• Direct query│  │• Direct query│
+│• Callbacks   │  │• Callbacks   │  │• Callbacks   │  │• Callbacks   │  │• Callbacks   │
+│• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│  │• Version Mgmt│
+└──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
+       │                 │                 │                 │                 │
+   Deploys &         Deploys &         Deploys &         Deploys &         Deploys &
+   Manages           Manages           Manages           Manages           Manages
+       │                 │                 │                 │                 │
+       ▼                 ▼                 ▼                 ▼                 ▼
+  Distribution      Multisig          Token             DAO            Launchpad
+  Contracts         Contracts         Contracts         Contracts      Contracts
+       │                 │                 │                 │                 │
+       └─────────────────┴─────────────────┴─────────────────┴─────────────────┘
+                                          │
+                                          │ Callbacks to factory
+                                          │ • notifyParticipantAdded(user)
+                                          │ • notifyStatusChanged(status)
+                                          │ • notifyVisibilityChanged(isPublic)
+                                          │
+                                          └─────► Factory indexes updated
 ```
+
+**Key Connections:**
+
+1. **Backend → Factories** (Write operations - requires whitelist)
+   - `createContract(owner, args, payment)` - Deploy new contracts
+   - `setupWhitelist(backendId)` - Initialize factory whitelist
+   - `updateFactoryConfig(config)` - Update factory settings
+
+2. **Frontend → Factories** (Read operations - direct query)
+   - `getMyContracts(user)` - O(1) user lookup (bypass backend)
+   - `getPublicContracts()` - List public contracts
+   - `getContractInfo(contractId)` - Contract details
+
+3. **Contracts → Factories** (Callbacks - state sync)
+   - `notifyParticipantAdded(user, contract)` - Update participant index
+   - `notifyStatusChanged(contract, status)` - Update contract status
+   - `notifyVisibilityChanged(contract, isPublic)` - Update visibility
+
+4. **Backend → Storage Services** (Audit & Payment)
+   - `logEvent(event)` - Write to Audit Storage
+   - `recordPayment(payment)` - Write to Invoice Storage
+
+5. **Backend Monitoring**
+   - `getFactoryHealth()` - Check factory status
+   - `getMicroserviceSetupStatus()` - Verify configurations
+   - `getSystemStatus()` - Overall system health
 
 **Benefits:**
 - ✅ 95% reduction in backend storage
@@ -262,38 +324,86 @@ User Request
     ▼
 Frontend
     │
-    │ 1. Create deployment request
+    │ 1. Create deployment request with payment approval
     ▼
 Backend (Payment Gateway)
     │
-    │ 2. Validate payment
-    │ 3. Deduct ICP/cycles
-    │ 4. Write audit log → Audit Storage
-    │ 5. Write payment record → Invoice Storage
+    │ 2. Verify caller authorization
+    │ 3. Validate ICRC-2 payment approval
+    │ 4. Check service enabled: getConfigValue("token_factory.enabled")
+    │ 5. Get service fee: getServiceFee("token_factory")
+    │ 6. Deduct payment via ICRC-2 transferFrom
+    │ 7. Write payment record → Invoice Storage (whitelisted write)
+    │ 8. Write audit log → Audit Storage (whitelisted write)
     ▼
-Factory
+Backend calls Factory (Whitelist Check)
     │
-    │ 6. Create contract instance
-    │ 7. Add factory as controller
-    │ 8. Update indexes (creator)
-    │ 9. Register version (1.0.0)
+    │ 9. Backend → Factory.createContract(owner, args)
+    │    Factory verifies: caller == whitelisted backend
+    ▼
+Factory (Deployment)
+    │
+    │ 10. Load WASM template from stable storage
+    │ 11. Create canister via IC Management Canister
+    │ 12. Install contract code
+    │ 13. Add factory + owner as dual controllers
+    │ 14. Initialize contract state
+    │ 15. Update creator index: creatorIndex.add(owner, contractId)
+    │ 16. Register version: versionRegistry.add(contractId, v1.0.0)
+    │ 17. Add to deployed contracts: deployedContracts.add(contractId)
     ▼
 Contract Deployed ✅
     │
-    │ 10. Callback to factory
+    │ 18. Contract → Factory.notifyDeploymentComplete()
+    │     (Callback from contract to factory)
     ▼
-Factory indexes updated
+Factory Updates Indexes
     │
-    │ 11. Log deployment event → Audit Storage
+    │ 19. Confirm contract in indexes
+    │ 20. Update factory statistics
+    │ 21. Return contract Principal to backend
     ▼
-Complete ✅
+Backend Finalizes
+    │
+    │ 22. Backend → Audit Storage: logDeploymentSuccess(contractId)
+    │ 23. Backend → Invoice Storage: updatePaymentStatus(txId, "completed")
+    │ 24. Return success response to frontend
+    ▼
+Frontend Updates UI ✅
 ```
 
-**Storage Service Integration:**
-- ✅ **Audit Storage**: Logs all deployment events, user actions, system events
-- ✅ **Invoice Storage**: Records all payment transactions, ICRC-2 approvals, refunds
-- ✅ **Independent**: Storage services operate separately from backend
-- ✅ **Secure**: Only whitelisted backend can write to storage services
+**Key Integration Points:**
+
+1. **Backend → Storage Services** (Whitelisted Write)
+   - `Audit Storage.logEvent(event)` - System events, user actions
+   - `Invoice Storage.recordPayment(payment)` - Payment transactions
+   - Only backend can write (whitelist enforced)
+
+2. **Backend → Factories** (Whitelisted Deployment)
+   - `Factory.createContract(owner, args)` - Deploy new contract
+   - Only whitelisted backend can deploy (security gate)
+   - Factory verifies caller == backend Principal
+
+3. **Factory → Management Canister** (Contract Creation)
+   - `create_canister()` - Allocate new canister
+   - `install_code()` - Deploy WASM template
+   - `update_settings()` - Set dual controllers
+
+4. **Contract → Factory** (Callback Sync)
+   - `notifyDeploymentComplete()` - Confirm deployment
+   - `notifyParticipantAdded(user)` - Update participant index
+   - Factory verifies caller is deployed contract
+
+**Security Flow:**
+```
+Frontend (User)
+    ↓ (No direct access to factories)
+Backend (Payment Gate + Whitelist Check)
+    ↓ (Verified whitelisted caller)
+Factory (Deployment + Index Management)
+    ↓ (Dual controllers: Factory + Owner)
+Contract (User owns, Factory can upgrade)
+```
 
 ### Query Flow (Read Path)
 
@@ -301,41 +411,163 @@ Complete ✅
 User Request
     │
     ▼
-Frontend
+Frontend (Direct Factory Query - Bypass Backend)
     │
-    │ 1. Query directly (bypass backend)
+    │ 1. Frontend → Factory.getMyContracts(userPrincipal)
+    │    No backend involved (direct query)
+    │    No payment required (read-only)
     ▼
-Factory.getMyContracts(user)
+Factory Query Processing
     │
-    │ 2. O(1) Trie lookup
-    │ 3. Return contract list
+    │ 2. O(1) Trie lookup in creatorIndex
+    │ 3. O(1) Trie lookup in participantIndex (if applicable)
+    │ 4. Combine results (user's contracts)
+    │ 5. Fetch contract metadata
+    │ 6. Return [ContractInfo] array
     ▼
-Frontend
+Frontend Receives Data (0.5-1 second) ✅
     │
-    │ 4. Parallel queries to contracts
+    │ 7. Display contract list
+    │ 8. User selects a contract
     ▼
-Display Dashboard (1-2 seconds) ✅
+Frontend → Contract.getDetails() (Parallel Queries)
+    │
+    │ 9. Query contract state directly
+    │ 10. Query contract participants
+    │ 11. Query contract transactions/history
+    │ 12. All queries run in parallel
+    ▼
+Display Dashboard Complete (1-2 seconds) ✅
 ```
+
+**Query Optimization:**
+
+1. **No Backend Bottleneck**
+   - Frontend queries factories directly
+   - Backend not involved in read operations
+   - Parallel queries to multiple factories
+
+2. **O(1) Index Lookups**
+   ```motoko
+   // Factory index lookup (O(1) complexity)
+   public query func getMyContracts(user: Principal) : async [ContractInfo] {
+       let asCreator = Trie.get(creatorIndex, principalKey(user), Principal.equal);
+       let asParticipant = Trie.get(participantIndex, principalKey(user), Principal.equal);
+
+       // Combine and return contract details
+       combineResults(asCreator, asParticipant)
+   }
+   ```
+
+3. **Parallel Contract Queries**
+   - Frontend queries multiple contracts simultaneously
+   - No sequential bottleneck
+   - Fast dashboard rendering
+
+**Performance Comparison:**
+
+| Operation | V1 (Centralized) | V2 (Factory-First) |
+|-----------|------------------|-------------------|
+| Backend query | O(n) iteration through all contracts | N/A (bypassed) |
+| Factory query | N/A | O(1) Trie lookup |
+| Time | 2-3 seconds | 0.5-1 second |
+| Cycles | 50M cycles | 10M cycles |
 
 ### Callback Flow (State Updates)
 
 ```
-Contract State Change
+User Action (Contract State Change)
     │
-    │ Example: User added as signer
+    │ Example: Add new signer to multisig wallet
     ▼
-Contract.addSigner(newSigner)
+Frontend → Contract.addSigner(newSigner)
     │
-    │ 1. Update internal state
-    │ 2. Notify factory
+    │ 1. Contract verifies caller authorization
+    │ 2. Update internal signers list
+    │ 3. Update contract state
     ▼
-Factory.notifySignerAdded(signer)
+Contract Calls Factory (Callback)
     │
-    │ 3. Verify caller is deployed contract
-    │ 4. Update signer index (O(1))
+    │ 4. Contract → Factory.notifySignerAdded(contractId, newSigner)
+    │    Factory receives callback
     ▼
-Factory indexes updated ✅
+Factory Callback Handler
+    │
+    │ 5. Verify caller Principal
+    │    if (caller != deployedContract) { reject }
+    │ 6. Verify contract exists in deployedContracts
+    │ 7. Update signerIndex: Trie.put(signerIndex, newSigner, contractId)
+    │ 8. Update contract metadata cache
+    ▼
+Factory Indexes Updated ✅
+    │
+    │ 9. NewSigner can now query: getMyContracts(newSigner)
+    │    Returns: [contractId] via O(1) lookup
+    ▼
+Real-time Sync Complete ✅
 ```
+
+**Callback Security:**
+
+```motoko
+// Factory callback handler with security checks
+public shared({caller}) func notifySignerAdded(
+    contractId: Principal,
+    newSigner: Principal
+) : async Result.Result<(), Text> {
+    // 1. Verify caller is deployed contract
+    if (not isDeployedContract(caller)) {
+        return #err("Unauthorized: Caller is not a deployed contract");
+    };
+
+    // 2. Verify contractId matches caller
+    if (not Principal.equal(caller, contractId)) {
+        return #err("Invalid: Contract ID mismatch");
+    };
+
+    // 3. Update signer index (O(1) operation)
+    signerIndex := addToIndex(signerIndex, newSigner, contractId);
+
+    // 4. Log callback event
+    await auditStorage.logEvent({
+        event = "SignerAdded";
+        contract = contractId;
+        user = newSigner;
+        timestamp = Time.now();
+    });
+
+    #ok()
+}
+```
+
+**Callback Types by Factory:**
+
+1. **Multisig Factory**
+   - `notifySignerAdded(contract, user)` - Update signerIndex
+   - `notifySignerRemoved(contract, user)` - Remove from signerIndex
+   - `notifyObserverAdded(contract, user)` - Update observerIndex
+   - `notifyVisibilityChanged(contract, isPublic)` - Update publicContracts
+
+2. **Distribution Factory**
+   - `notifyRecipientAdded(contract, user)` - Update recipientIndex
+   - `notifyRecipientRemoved(contract, user)` - Remove from recipientIndex
+   - `notifyStatusChanged(contract, status)` - Update contract status
+
+3. **DAO Factory**
+   - `notifyMemberAdded(contract, user)` - Update memberIndex
+   - `notifyMemberRemoved(contract, user)` - Remove from memberIndex
+   - `notifyProposalCreated(contract, proposalId)` - Track proposals
+
+4. **Token Factory**
+   - `notifyTransfer(contract, from, to, amount)` - Update holder index
+   - `notifyMint(contract, to, amount)` - Add to holder index
+   - `notifyBurn(contract, from, amount)` - Update holder index
+
+**Benefits:**
+- ✅ Real-time index synchronization
+- ✅ No manual index updates required
+- ✅ Automatic state propagation
+- ✅ Security verified at callback level
 
 ---
 
