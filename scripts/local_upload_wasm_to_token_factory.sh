@@ -50,7 +50,14 @@ print_help() {
 
 validate_parameters() {
     echo -e "${YELLOW}==> Validating parameters...${NC}"
-    
+
+    # Export DFX_WARNING to suppress mainnet plaintext identity warning
+    export DFX_WARNING=-mainnet_plaintext_identity
+
+    echo -e "${YELLOW}⚠️  SECURITY NOTICE: Using plaintext identity for IC mainnet calls${NC}"
+    echo -e "${BLUE}   For production, use: dfx identity new <secure-identity>${NC}"
+    echo ""
+
     # Check if WASM file exists
     if [ ! -f "$WASM_FILE" ]; then
         echo -e "${RED}❌ Error: WASM file '$WASM_FILE' not found!${NC}"
@@ -201,24 +208,32 @@ finalize_wasm_upload() {
 
 verify_upload() {
     echo -e "${YELLOW}==> Verifying WASM upload...${NC}"
-    
+
     # Get updated WASM info
     wasm_info=$(dfx canister --network=$env call token_factory getCurrentWasmInfo)
     echo -e "${GREEN}Updated WASM info: $wasm_info${NC}"
-    
+
     # Check if hash matches
     if echo "$wasm_info" | grep -q "$(echo $WASM_HASH | tr '[:upper:]' '[:lower:]')"; then
         echo -e "${GREEN}✅ WASM hash verified successfully!${NC}"
     else
         echo -e "${YELLOW}⚠️  Hash verification: please check manually${NC}"
     fi
-    
+
     # Test health check
     echo -e "${YELLOW}Testing health check...${NC}"
     health_result=$(dfx canister --network=$env call token_factory healthCheck)
-    
+
     if echo "$health_result" | grep -q "true"; then
         echo -e "${GREEN}✅ Token factory health check passed${NC}"
+
+        # Clean up local WASM file after successful upload and verification
+        if [ -f "$WASM_FILE" ]; then
+            echo ""
+            echo -e "${YELLOW}Cleaning up local WASM file...${NC}"
+            rm -f "$WASM_FILE"
+            echo -e "${GREEN}✅ Local WASM file removed (will re-download on next run if needed)${NC}"
+        fi
     else
         echo -e "${RED}❌ Token factory health check failed: $health_result${NC}"
     fi

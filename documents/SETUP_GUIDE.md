@@ -320,13 +320,96 @@ dfx canister call <service> addToWhitelist "(principal \"<backend_id>\")"
 
 ### Step 6: Load WASM into Token Factory
 **What it does:**
-- Fetches SNS WASM for token deployment
-- Stores in token_factory stable storage
+- **IC Network**: Triggers automatic WASM fetch from SNS-W canister
+- **Local Network**: Downloads blessed WASM from mainnet SNS-W and uploads manually
+
+> **📚 About SNS-W (SNS Wasm Modules Canister):**
+> The WASMs run by SNS canisters are approved by the NNS (Network Nervous System) and published on an NNS canister called the SNS Wasm modules canister (SNS-W). This means that all SNS DAOs run code that is pre-approved by the NNS and they all run the same code (some SNS instances might be a few versions behind). When we fetch WASM from SNS-W, we are using **blessed SNS versions** that have passed NNS governance approval.
+>
+> **SNS-W Canister ID:** `qaa6y-5yaaa-aaaaa-aaafa-cai` (mainnet)
+>
+> This ensures Token Factory deploys ICRC tokens with trusted, standardized, and NNS-approved code.
+
+> **⚠️ Security Notice:**
+> This step uses `DFX_WARNING=-mainnet_plaintext_identity` to suppress warnings when calling IC mainnet. This is acceptable for local development and testing but **NOT recommended for production**. For production deployments, use a secure identity:
+> ```bash
+> dfx identity new production-identity
+> dfx identity use production-identity
+> ```
+
+**Network Detection:**
+The script automatically detects the network environment and selects the appropriate approach.
+
+**IC Network Flow:**
+1. Calls `getLatestWasmVersion()` on token_factory
+2. Token factory automatically fetches latest blessed SNS ICRC Ledger WASM from SNS-W
+3. WASM is stored in factory stable storage
+
+**Local Network Flow:**
+1. **Fetch Latest Version**: Calls SNS-W canister `qaa6y-5yaaa-aaaaa-aaafa-cai` on mainnet
+2. **Extract Hash**: Retrieves latest "Ledger" version hash from `get_latest_sns_version_pretty`
+3. **Download WASM**: Uses `get_wasm` to download blessed WASM blob from SNS-W
+4. **Save Locally**: Saves to `sns_icrc_wasm_v2.wasm` (git-ignored to avoid storing large files)
+5. **Upload in Chunks**: Breaks WASM into 100KB chunks and uploads via `uploadChunk`
+6. **Finalize**: Calls `addWasm` with version hash to complete upload
+
+**Why Two Approaches?**
+- **IC**: Can directly call SNS-W, faster and simpler
+- **Local**: Requires manual download from mainnet SNS-W, then local upload
+
+**WASM Details:**
+- **Source**: SNS-W (SNS Wasm modules canister - mainnet)
+- **Type**: NNS-approved ICRC-1/ICRC-2 compliant Ledger
+- **Approval**: Blessed by NNS governance
+- **Size**: ~300KB (varies by version)
+- **Chunk Size**: 100KB per upload
+- **Storage**: Token Factory stable variables
+
+**Commands:**
+```bash
+# IC Network - Fetch blessed WASM from SNS-W
+dfx canister call token_factory getLatestWasmVersion --network ic
+
+# Local Network (manual) - Download from SNS-W
+# 1. Fetch blessed versions from SNS-W canister
+dfx canister call qaa6y-5yaaa-aaaaa-aaafa-cai get_latest_sns_version_pretty "(null)" --network ic
+
+# 2. Download blessed WASM (hex hash from step 1)
+dfx canister call qaa6y-5yaaa-aaaaa-aaafa-cai get_wasm "(record { hash = vec { ... } })" --network ic --output idl
+
+# 3. Upload chunks (automated by script)
+dfx canister call token_factory uploadChunk "(vec { 0x... })"
+
+# 4. Finalize upload with hash verification
+dfx canister call token_factory addWasm "(vec { ... })"
+```
 
 **Verification:**
 ```bash
+# Check current WASM info
 dfx canister call token_factory getCurrentWasmInfo "()"
+
+# Expected output:
+# (
+#   record {
+#     hash = vec { ... };
+#     size = 300_000 : nat64;
+#     uploadedAt = 1_234_567_890 : int;
+#   }
+# )
 ```
+
+**File Cleanup:**
+After successful upload and verification, the local WASM file (`sns_icrc_wasm_v2.wasm`) is automatically deleted. This ensures:
+- Fresh WASM download on next setup (always gets latest version)
+- No stale WASM files accumulating in the directory
+- Automatic version updates without manual intervention
+
+**Troubleshooting:**
+- **IC Network**: If `getLatestWasmVersion` fails, check IC connection
+- **Local Network**: If SNS canister unreachable, check internet connection
+- **Upload fails**: Clear chunks buffer with `clearChunks` and retry
+- **WASM file persists**: File is only deleted after successful verification; if verification fails, file remains for debugging
 
 ---
 

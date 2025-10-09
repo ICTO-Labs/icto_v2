@@ -44,11 +44,18 @@ setup_env(){
 
 deploy_token_factory_v2(){
     echo -e "${GREEN}==> Preparing ICTO V2 Token Factory...${NC}"
-    
+
+    # Export DFX_WARNING to suppress mainnet plaintext identity warning
+    export DFX_WARNING=-mainnet_plaintext_identity
+
+    echo -e "${YELLOW}⚠️  SECURITY NOTICE: Using plaintext identity for IC mainnet calls${NC}"
+    echo -e "${BLUE}   For production, use: dfx identity new <secure-identity>${NC}"
+    echo ""
+
     # SNS WASM version hash (latest ICRC ledger)
     hex="a35575419aa7867702a5344c6d868aa190bb682421e77137d0514398f1506952"
     sns_icrc_wasm_file="sns_icrc_wasm_v2.wasm"
-    
+
     # Convert hex to vec nat8 for Candid
     vec_nat8_hex=$(echo $hex | sed 's/\(..\)/\1 /g' | tr ' ' '\n' | while read -r byte; do
         printf "%d;" $((16#$byte))
@@ -57,9 +64,9 @@ deploy_token_factory_v2(){
     # Check if local WASM file exists
     if [ ! -f "$sns_icrc_wasm_file" ]; then
         echo -e "${YELLOW}WASM file does not exist, downloading from SNS WASM canister...${NC}"
-        
-        # Call get_wasm to get the WASM from mainnet SNS canister
-        result=$(dfx canister --network ic call qaa6y-5yaaa-aaaaa-aaafa-cai get_wasm "(record { hash = vec { $vec_nat8_hex } })" --output idl)
+
+        # Call get_wasm to get the WASM from mainnet SNS canister (auto-confirm with echo "y")
+        result=$(echo "y" | dfx canister --network ic call qaa6y-5yaaa-aaaaa-aaafa-cai get_wasm "(record { hash = vec { $vec_nat8_hex } })" --output idl)
         
         # Check if WASM was found
         has_wasm=$(echo "$result" | grep -q "opt record" && echo "true" || echo "false")
@@ -129,7 +136,14 @@ deploy_token_factory_v2(){
         echo -e "${YELLOW}Verifying WASM upload...${NC}"
         wasm_info=$(dfx canister --network=$env call token_factory getCurrentWasmInfo)
         echo -e "${GREEN}WASM Info: $wasm_info${NC}"
-        
+
+        # Clean up local WASM file after successful upload and verification
+        if [ -f "$sns_icrc_wasm_file" ]; then
+            echo -e "${YELLOW}Cleaning up local WASM file...${NC}"
+            rm -f "$sns_icrc_wasm_file"
+            echo -e "${GREEN}✅ Local WASM file removed (will re-download on next run if needed)${NC}"
+        fi
+
     else
         echo -e "${RED}No WASM file available, skipping token factory deployment${NC}"
         exit 1

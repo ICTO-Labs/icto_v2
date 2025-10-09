@@ -36,7 +36,7 @@ A decentralized platform for token operations, multi-signature wallets, DAOs, to
 
 | Factory | Description | Status |
 |---------|-------------|--------|
-| **Token Factory** | Deploy ICRC-1/2 compliant tokens with SNS-compatible WASM | ✅ Production |
+| **Token Factory** | Deploy ICRC-1/2 compliant tokens with blessed SNS-W WASM | ✅ Production |
 | **Multisig Factory** | Create multi-signature wallets with customizable policies | ✅ Production |
 | **Distribution Factory** | Token distribution with vesting, airdrops, and locks | ✅ Production |
 | **DAO Factory** | Deploy decentralized governance structures | 🚧 In Progress |
@@ -195,6 +195,14 @@ ICTO V2 implements a revolutionary **factory-first architecture** where:
 - [Node.js](https://nodejs.org/) >= 18.x
 - [npm](https://www.npmjs.com/) or [yarn](https://yarnpkg.com/)
 
+> **⚠️ Security Best Practice:**
+> For production deployments to IC mainnet, create a secure identity:
+> ```bash
+> dfx identity new production-identity
+> dfx identity use production-identity
+> ```
+> The default identity is stored in plaintext and should only be used for local development.
+
 ### Installation
 
 1. **Clone the repository**
@@ -268,13 +276,26 @@ ICTO V2 implements a revolutionary **factory-first architecture** where:
    - ✅ **Step 3:** Get canister IDs
    - ✅ **Step 4:** Add cycles to factories
    - ✅ **Step 5:** Configure whitelists
-   - ✅ **Step 6:** Load WASM templates
+   - ✅ **Step 6:** Load WASM templates (auto-detects IC/local network)
    - ✅ **Step 7:** Setup microservices
    - ✅ **Step 8:** Run health checks
    - ✅ **Step 9:** Configure service fees
    - ✅ **Step 10:** Generate frontend .env files
    - ✅ **Step 11:** System readiness verification
    - ✅ **Step 12:** Display final summary
+
+   **Step 6 Details - WASM Loading:**
+   - **IC Network**: Automatically fetches latest SNS ICRC Ledger WASM from mainnet
+   - **Local Network**: Downloads WASM from mainnet SNS canister and uploads in chunks
+   - Uses **blessed SNS versions from SNS-W** (SNS Wasm modules canister)
+
+   > **📚 About SNS-W (SNS Wasm Modules Canister):**
+   > The WASMs used for token deployment are approved by the NNS (Network Nervous System) and published on the SNS Wasm modules canister (SNS-W). This ensures that all SNS DAOs and ICRC tokens run code that is pre-approved by the NNS, providing a trusted and standardized deployment process. When we fetch WASM from SNS-W, we are using blessed versions that have passed NNS governance approval.
+   >
+   > **Canister ID:** `qaa6y-5yaaa-aaaaa-aaafa-cai` (mainnet SNS-W)
+
+   > **⚠️ Security Notice:**
+   > The setup script uses `DFX_WARNING=-mainnet_plaintext_identity` to suppress warnings when calling IC mainnet from local development. This is acceptable for development and testing but **NOT recommended for production deployments**. For production, always use a secure identity created with `dfx identity new <secure-identity>`.
 
 5. **Start the frontend**
    ```bash
@@ -454,6 +475,13 @@ dfx canister call token_factory getCurrentWasmInfo "()"
 
 # Get canister IDs
 dfx canister call backend getCanisterIds "()"
+
+# Token Factory WASM Management (mainnet IC only)
+dfx canister call token_factory getLatestWasmVersion --network ic
+
+# Local development: Use setup script Step 6 for automatic WASM download/upload
+./setup-icto-v2.sh
+# Select: 6 (Load WASM into Token Factory)
 ```
 
 ### Quick Reference - NPM Workspaces

@@ -299,14 +299,199 @@ step_6_load_wasm() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
 
-    WASM_FETCH_RESULT=$(dfx canister call token_factory getCurrentWasmInfo "()" 2>&1 || echo "FAILED")
-
-    if [[ "$WASM_FETCH_RESULT" == *"FAILED"* ]] || [[ "$WASM_FETCH_RESULT" == *"err"* ]]; then
-        echo -e "${YELLOW}⚠️  WASM fetch failed - token_factory may need manual WASM upload${NC}"
-        echo "$WASM_FETCH_RESULT"
-    else
-        echo -e "${GREEN}✅ WASM loaded successfully into token_factory${NC}"
+    # Detect network (check if running on IC or local)
+    NETWORK="local"
+    if dfx ping ic >/dev/null 2>&1; then
+        read -p "Are you deploying to IC mainnet? (y/n) [n]: " use_ic
+        if [[ "$use_ic" == "y" || "$use_ic" == "Y" ]]; then
+            NETWORK="ic"
+        fi
     fi
+
+    echo -e "${CYAN}Network detected: ${NETWORK}${NC}"
+    echo ""
+
+    if [[ "$NETWORK" == "ic" ]]; then
+        # IC Network: Trigger auto-fetch from SNS WASM canister
+        echo -e "${YELLOW}Triggering automatic WASM fetch from SNS canister...${NC}"
+        FETCH_RESULT=$(dfx canister call token_factory getLatestWasmVersion --network ic 2>&1 || echo "FAILED")
+
+        if [[ "$FETCH_RESULT" == *"ok"* ]]; then
+            echo -e "${GREEN}✅ WASM fetched successfully from SNS canister${NC}"
+            success_msg=$(echo "$FETCH_RESULT" | sed -n 's/.*ok.*"\([^"]*\)".*/\1/p')
+            echo -e "${GREEN}Result: $success_msg${NC}"
+        elif [[ "$FETCH_RESULT" == *"Already using latest version"* ]]; then
+            echo -e "${GREEN}✅ Already using latest WASM version${NC}"
+        else
+            echo -e "${RED}❌ Failed to fetch WASM: $FETCH_RESULT${NC}"
+            return 1
+        fi
+    else
+        # Local Network: Download and upload manually
+        echo -e "${YELLOW}Local network detected - manual WASM download and upload required${NC}"
+        echo ""
+
+        WASM_FILE="sns_icrc_wasm_v2.wasm"
+
+        # Export DFX_WARNING to suppress mainnet plaintext identity warning
+        export DFX_WARNING=-mainnet_plaintext_identity
+
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo -e "${YELLOW}⚠️  SECURITY NOTICE:${NC}"
+        echo -e "${CYAN}This script uses plaintext identity for IC mainnet calls.${NC}"
+        echo -e "${CYAN}This is acceptable for local development and testing.${NC}"
+        echo -e "${CYAN}For production deployments, use a secure identity with:${NC}"
+        echo -e "${CYAN}  dfx identity new <secure-identity>${NC}"
+        echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+        echo ""
+
+        # Step 1: Get latest SNS version
+        echo -e "${YELLOW}Step 1: Fetching latest SNS ICRC Ledger version...${NC}"
+        SNS_VERSIONS=$(echo "y" | dfx canister call qaa6y-5yaaa-aaaaa-aaafa-cai get_latest_sns_version_pretty --network ic "(null)" 2>&1 || echo "FAILED")
+
+        if [[ "$SNS_VERSIONS" == *"FAILED"* ]]; then
+            echo -e "${RED}❌ Failed to fetch SNS versions from mainnet${NC}"
+            echo "$SNS_VERSIONS"
+            return 1
+        fi
+
+        # Extract Ledger hash from response
+        LEDGER_HASH=$(echo "$SNS_VERSIONS" | grep -A1 '"Ledger"' | grep -v '"Ledger"' | sed 's/.*"\([a-f0-9]*\)".*/\1/')
+
+        if [[ -z "$LEDGER_HASH" ]]; then
+            echo -e "${RED}❌ Could not extract Ledger hash from SNS response${NC}"
+            return 1
+        fi
+
+        echo -e "${GREEN}✅ Latest Ledger WASM hash: ${LEDGER_HASH}${NC}"
+        echo ""
+
+        # Step 2: Download WASM if not exists or hash changed
+        if [ ! -f "$WASM_FILE" ]; then
+            echo -e "${YELLOW}Step 2: Downloading WASM file from SNS canister...${NC}"
+
+            # Convert hex to vec nat8 format
+            vec_nat8_hex=$(echo $LEDGER_HASH | sed 's/\(.\{2\}\)/\1 /g' | tr ' ' '\n' | while read -r byte; do
+                if [ ! -z "$byte" ]; then
+                    printf "%d;" $((16#$byte))
+                fi
+            done | sed 's/;$//')
+
+            # Fetch WASM from SNS canister (auto-confirm with echo "y")
+            echo -e "${CYAN}Calling SNS WASM canister to get WASM blob...${NC}"
+            WASM_RESULT=$(echo "y" | dfx canister call qaa6y-5yaaa-aaaaa-aaafa-cai get_wasm "(record { hash = vec { $vec_nat8_hex } })" --network ic --output idl 2>&1 || echo "FAILED")
+
+            if [[ "$WASM_RESULT" == *"opt record"* ]]; then
+                # Extract and save WASM blob
+                echo -e "${CYAN}Extracting WASM blob...${NC}"
+                wasm_blob=$(echo "$WASM_RESULT" | sed -n 's/.*blob "\([^"]*\)".*/\1/p')
+
+                if [[ -n "$wasm_blob" ]]; then
+                    echo "$wasm_blob" | xxd -r -p > "$WASM_FILE"
+                    FILE_SIZE=$(stat -f%z "$WASM_FILE" 2>/dev/null || stat -c%s "$WASM_FILE" 2>/dev/null)
+                    echo -e "${GREEN}✅ WASM saved to $WASM_FILE (${FILE_SIZE} bytes)${NC}"
+                else
+                    echo -e "${RED}❌ Failed to extract WASM blob${NC}"
+                    return 1
+                fi
+            else
+                echo -e "${RED}❌ Failed to fetch WASM from SNS canister${NC}"
+                echo "$WASM_RESULT"
+                return 1
+            fi
+        else
+            echo -e "${GREEN}✅ WASM file already exists: $WASM_FILE${NC}"
+        fi
+        echo ""
+
+        # Step 3: Upload WASM in chunks
+        echo -e "${YELLOW}Step 3: Uploading WASM to Token Factory...${NC}"
+
+        MAX_CHUNK_SIZE=$((100 * 1024))  # 100KB chunks
+        FILE_SIZE=$(stat -f%z "$WASM_FILE" 2>/dev/null || stat -c%s "$WASM_FILE" 2>/dev/null)
+        CHUNK_COUNT=$(( (FILE_SIZE + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE ))
+
+        echo -e "${CYAN}File size: ${FILE_SIZE} bytes${NC}"
+        echo -e "${CYAN}Uploading in ${CHUNK_COUNT} chunks...${NC}"
+        echo ""
+
+        # Clear existing chunks buffer
+        echo -e "${YELLOW}Clearing chunks buffer...${NC}"
+        dfx canister call token_factory clearChunks >/dev/null 2>&1 || true
+
+        # Upload chunks
+        for ((chunk=0; chunk<CHUNK_COUNT; chunk++))
+        do
+            echo -e "${YELLOW}  Uploading chunk $((chunk + 1))/${CHUNK_COUNT}...${NC}"
+
+            byteStart=$((chunk * MAX_CHUNK_SIZE))
+
+            # Extract chunk and convert to Candid vec format
+            chunk_data=$(dd if="$WASM_FILE" bs=1 skip=$byteStart count=$MAX_CHUNK_SIZE 2>/dev/null | \
+            xxd -p -c 1 | \
+            awk '{printf "0x%s; ", $1}' | \
+            sed 's/; $//' | \
+            awk '{print "(vec {" $0 "})"}')
+
+            # Upload chunk
+            upload_result=$(dfx canister call token_factory uploadChunk "$chunk_data" 2>&1 || echo "FAILED")
+
+            if [[ "$upload_result" == *"ok"* ]]; then
+                echo -e "${GREEN}  ✅ Chunk $((chunk + 1)) uploaded${NC}"
+            else
+                echo -e "${RED}  ❌ Failed to upload chunk $((chunk + 1))${NC}"
+                return 1
+            fi
+        done
+
+        echo -e "${GREEN}✅ All chunks uploaded${NC}"
+        echo ""
+
+        # Step 4: Finalize upload
+        echo -e "${YELLOW}Step 4: Finalizing WASM upload...${NC}"
+
+        # Convert hash to vec nat8 format
+        vec_nat8_hex=$(echo $LEDGER_HASH | sed 's/\(.\{2\}\)/\1 /g' | tr ' ' '\n' | while read -r byte; do
+            if [ ! -z "$byte" ]; then
+                printf "%d;" $((16#$byte))
+            fi
+        done | sed 's/;$//')
+
+        finalize_result=$(dfx canister call token_factory addWasm "(vec { $vec_nat8_hex })" 2>&1 || echo "FAILED")
+
+        if [[ "$finalize_result" == *"ok"* ]]; then
+            echo -e "${GREEN}✅ WASM upload finalized successfully${NC}"
+            success_msg=$(echo "$finalize_result" | sed -n 's/.*ok.*"\([^"]*\)".*/\1/p')
+            if [[ -n "$success_msg" ]]; then
+                echo -e "${GREEN}Result: $success_msg${NC}"
+            fi
+        else
+            echo -e "${RED}❌ Failed to finalize WASM upload${NC}"
+            echo "$finalize_result"
+            return 1
+        fi
+    fi
+
+    # Verify WASM upload
+    echo ""
+    echo -e "${YELLOW}Verifying WASM upload...${NC}"
+    WASM_INFO=$(dfx canister call token_factory getCurrentWasmInfo "()" 2>&1 || echo "FAILED")
+
+    if [[ "$WASM_INFO" == *"FAILED"* ]]; then
+        echo -e "${YELLOW}⚠️  Could not verify WASM info${NC}"
+    else
+        echo -e "${GREEN}✅ WASM verification successful${NC}"
+        echo -e "${CYAN}WASM Info: $WASM_INFO${NC}"
+
+        # Clean up local WASM file after successful upload and verification
+        if [[ "$NETWORK" == "local" ]] && [[ -f "$WASM_FILE" ]]; then
+            echo ""
+            echo -e "${YELLOW}Cleaning up local WASM file...${NC}"
+            rm -f "$WASM_FILE"
+            echo -e "${GREEN}✅ Local WASM file removed (will re-download on next setup if needed)${NC}"
+        fi
+    fi
+
     echo ""
     sleep 2
     return 0
