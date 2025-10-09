@@ -8,6 +8,13 @@
                 </h3>
                 <div class="flex items-center space-x-2">
                     <button
+                        @click="showReceiveModal = true"
+                        class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-600"
+                    >
+                        <QrCodeIcon class="h-4 w-4 mr-1" />
+                        Receive
+                    </button>
+                    <button
                         @click="refreshBalances"
                         :disabled="loading"
                         class="inline-flex items-center px-3 py-1.5 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-600"
@@ -221,6 +228,81 @@
             </div>
         </div>
     </div>
+
+    <!-- Receive/Deposit Modal -->
+    <div v-if="showReceiveModal" class="fixed inset-0 z-50 overflow-y-auto">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Backdrop -->
+            <div class="fixed inset-0 bg-black/30 transition-opacity" @click="showReceiveModal = false"></div>
+
+            <!-- Modal -->
+            <div class="inline-block align-bottom bg-white dark:bg-gray-800 rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-md sm:w-full relative">
+                <div class="bg-white dark:bg-gray-800 px-4 pt-5 pb-4 sm:p-6">
+                    <!-- Header -->
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-medium text-gray-900 dark:text-white">Receive Assets</h3>
+                        <button @click="showReceiveModal = false" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                            <XIcon class="w-6 h-6" />
+                        </button>
+                    </div>
+
+                    <!-- QR Code -->
+                    <div class="flex flex-col items-center space-y-4">
+                        <div class="bg-white p-4 rounded-lg border-2 border-gray-200">
+                            <QrcodeVue
+                                :value="walletId"
+                                :size="200"
+                                level="H"
+                            />
+                        </div>
+
+                        <!-- Wallet Canister ID -->
+                        <div class="w-full">
+                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                Wallet Canister ID
+                            </label>
+                            <div class="flex items-center space-x-2">
+                                <div class="flex-1 px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md">
+                                    <p class="text-sm font-mono text-gray-900 dark:text-white break-all">
+                                        {{ walletId }}
+                                    </p>
+                                </div>
+                                <button
+                                    @click="copyToClipboard(walletId)"
+                                    class="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    :title="copiedCanisterId ? 'Copied!' : 'Copy to clipboard'"
+                                >
+                                    <CheckIcon v-if="copiedCanisterId" class="h-5 w-5 text-green-600" />
+                                    <CopyIcon v-else class="h-5 w-5" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Instructions -->
+                        <div class="w-full bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                            <h4 class="text-sm font-medium text-blue-900 dark:text-blue-300 mb-2">
+                                How to deposit assets:
+                            </h4>
+                            <ul class="text-sm text-blue-800 dark:text-blue-400 space-y-1 list-disc list-inside">
+                                <li>Scan the QR code with your wallet app</li>
+                                <li>Or copy the canister ID and use it as the recipient address</li>
+                                <li>Send ICP, ICRC-1 tokens, or NFTs to this address</li>
+                                <li>Your balance will update automatically</li>
+                            </ul>
+                        </div>
+
+                        <!-- Close Button -->
+                        <button
+                            @click="showReceiveModal = false"
+                            class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600"
+                        >
+                            Close
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </template>
 
 <script setup lang="ts">
@@ -240,8 +322,12 @@ import {
     XIcon,
     CoinsIcon,
     CircleDollarSignIcon,
-    ImageIcon
+    ImageIcon,
+    QrCodeIcon,
+    CopyIcon,
+    CheckIcon
 } from 'lucide-vue-next'
+import QrcodeVue from 'qrcode.vue'
 
 // Props
 interface Props {
@@ -260,6 +346,8 @@ const loading = ref(false)
 const showAddAsset = ref(false)
 const addingAsset = ref(false)
 const assets = ref<any[]>([])
+const showReceiveModal = ref(false)
+const copiedCanisterId = ref(false)
 
 const newAsset = ref({
     type: '',
@@ -334,6 +422,20 @@ const formatBalance = (balance: bigint, decimals: number = 8): string => {
 const formatCanisterId = (canisterId: string | null): string => {
     if (!canisterId) return 'Native ICP'
     return `${canisterId.slice(0, 8)}...${canisterId.slice(-6)}`
+}
+
+const copyToClipboard = async (text: string) => {
+    try {
+        await navigator.clipboard.writeText(text)
+        copiedCanisterId.value = true
+        toast.success('Copied to clipboard')
+        setTimeout(() => {
+            copiedCanisterId.value = false
+        }, 2000)
+    } catch (error) {
+        console.error('Failed to copy:', error)
+        toast.error('Failed to copy to clipboard')
+    }
 }
 
 const loadStoredAssets = async (): Promise<any[]> => {

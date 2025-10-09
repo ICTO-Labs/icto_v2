@@ -11,45 +11,56 @@
 				<!-- Token Info -->
 				<TokenBalance :token="token" />
 
-				<!-- Principal ID -->
-				<div class="space-y-2">
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-						Your Principal ID
-					</label>
-					<div class="relative">
-						<input
-							type="text"
-							:value="authStore.principal"
-							
-							class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2.5 pr-16 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-						/>
-						<LabelCopyIcon :data="authStore.principal" :class="`absolute right-2 top-1/2 -translate-y-1/2`" />
-					</div>
+				<!-- Address Type Tabs -->
+				<div class="flex gap-2 p-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
+					<button
+						@click="addressType = 'principal'"
+						:class="[
+							'flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors',
+							addressType === 'principal'
+								? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+								: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+						]"
+					>
+						Principal ID
+					</button>
+					<button
+						@click="addressType = 'account'"
+						:class="[
+							'flex-1 px-4 py-2 text-sm font-medium rounded-md transition-colors',
+							addressType === 'account'
+								? 'bg-white dark:bg-gray-800 text-blue-600 dark:text-blue-400 shadow-sm'
+								: 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
+						]"
+					>
+						Account ID
+					</button>
 				</div>
 
-				<!-- Account ID -->
-				<div class="space-y-2">
-					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
-						Your Account ID
-					</label>
-					<div class="relative">
-						<input
-							type="text"
-							:value="authStore.address"
-							readonly
-							class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2.5 pr-16 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-						/>
-						<LabelCopyIcon :data="authStore.address" :class="`absolute right-2 top-1/2 -translate-y-1/2`" />
-					</div>
-				</div>
-
-				<!-- QR Code (Optional) -->
+				<!-- QR Code -->
 				<div class="flex justify-center">
-					<div class="p-4 bg-white rounded-lg">
-						<!-- Add QR code component here if needed -->
-						<div class="w-48 h-48 bg-gray-200 rounded-lg flex items-center justify-center">
-							<span class="text-gray-500">QR Code</span>
-						</div>
+					<div class="p-4 bg-white dark:bg-gray-100 rounded-lg border-2 border-gray-200 dark:border-gray-300">
+						<QrcodeVue
+							:value="currentAddress"
+							:size="192"
+							level="H"
+						/>
+					</div>
+				</div>
+
+				<!-- Address Display -->
+				<div class="space-y-2">
+					<label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+						{{ addressLabel }}
+					</label>
+					<div class="relative">
+						<input
+							type="text"
+							:value="currentAddress"
+							readonly
+							class="block w-full rounded-lg border border-gray-300 bg-gray-50 px-4 py-2.5 pr-16 text-gray-900 dark:border-gray-600 dark:bg-gray-700 dark:text-white font-mono text-sm"
+						/>
+						<LabelCopyIcon :data="currentAddress" :class="`absolute right-2 top-1/2 -translate-y-1/2`" />
 					</div>
 				</div>
 
@@ -67,7 +78,7 @@
 
 <script setup lang="ts">
 // @ts-nocheck
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useModalStore } from '@/stores/modal'
 import { useAuthStore } from '@/stores/auth'
 import type { Token } from '@/types/token'
@@ -78,14 +89,30 @@ import { copyToClipboard } from '@/utils/common'
 import { LabelCopyIcon } from '@/icons'
 import TokenBalance from '@/components/token/TokenBalance.vue'
 import TokenLogo from '@/components/token/TokenLogo.vue'
+import QrcodeVue from 'qrcode.vue'
 const modalStore = useModalStore()
 const authStore = useAuthStore()
+
+// Address type selection (Principal or Account)
+const addressType = ref<'principal' | 'account'>('principal')
 
 // Get token from modal store
 const token = computed(() => {
 	const modalData = modalStore.state?.receiveToken?.data
 	if (!modalData) return null
 	return modalData.token || null
+})
+
+// Get current address based on selected type
+const currentAddress = computed(() => {
+	return addressType.value === 'principal'
+		? authStore.principal?.toString() || ''
+		: authStore.address || ''
+})
+
+// Get label for current address type
+const addressLabel = computed(() => {
+	return addressType.value === 'principal' ? 'Principal ID' : 'Account ID'
 })
 
 
