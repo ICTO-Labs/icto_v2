@@ -216,9 +216,43 @@ ICTO V2 implements a revolutionary **factory-first architecture** where:
 
 4. **Deploy all canisters**
    ```bash
-   # Use the automated setup script
+   # Use the interactive setup script
    chmod +x setup-icto-v2.sh
    ./setup-icto-v2.sh
+   ```
+
+   **Interactive Menu Options:**
+
+   The setup script provides an interactive menu where you can:
+   - **[0-12]** Run specific steps individually or continue to the end
+   - **[99]** Run complete setup (all steps automatically)
+   - **[q]** Exit the script
+
+   **Execution Modes:**
+   - **Mode 1:** Run selected step only
+   - **Mode 2:** Run from selected step to the end (default - just press Enter)
+
+   **Auto Mode (Non-Interactive):**
+   ```bash
+   ./setup-icto-v2.sh --auto
+   ```
+
+   **Example Usage:**
+   ```
+   # Fresh deployment
+   Choice: 99  (Runs all steps 0-12)
+
+   # Resume from step 5
+   Choice: 5
+   Mode: [Enter]  (Default: run to end)
+
+   # Only reconfigure fees
+   Choice: 9
+   Mode: 1  (Run step 9 only)
+
+   # Clean restart
+   Choice: 0
+   Mode: 2  (Clean start, then run all)
    ```
 
    **Note on Admin Setup:**
@@ -227,17 +261,20 @@ ICTO V2 implements a revolutionary **factory-first architecture** where:
    - Super Admin: Can add/remove other admins
    - Your principal will have full control of the backend canister
 
-   The setup script will:
-   - ✅ Deploy all factory canisters
-   - ✅ Deploy backend and storage services
-   - ✅ Generate DID files for dynamic contracts
-   - ✅ Configure microservices
-   - ✅ Set up whitelists
-   - ✅ Add cycles to factories
-   - ✅ Load WASM templates
-   - ✅ Configure service fees via `adminSetConfigValue`
-   - ✅ Generate frontend .env files (via setupEnv.js)
-   - ✅ Run health checks
+   The setup script includes:
+   - ✅ **Step 0:** Clean DFX start (optional)
+   - ✅ **Step 1:** Deploy all factory canisters
+   - ✅ **Step 2:** Generate DID files for dynamic contracts
+   - ✅ **Step 3:** Get canister IDs
+   - ✅ **Step 4:** Add cycles to factories
+   - ✅ **Step 5:** Configure whitelists
+   - ✅ **Step 6:** Load WASM templates
+   - ✅ **Step 7:** Setup microservices
+   - ✅ **Step 8:** Run health checks
+   - ✅ **Step 9:** Configure service fees
+   - ✅ **Step 10:** Generate frontend .env files
+   - ✅ **Step 11:** System readiness verification
+   - ✅ **Step 12:** Display final summary
 
 5. **Start the frontend**
    ```bash
