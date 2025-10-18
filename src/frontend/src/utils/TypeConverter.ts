@@ -339,6 +339,8 @@ export class TypeConverter {
     return typeMap[saleType] || { FairLaunch: null }
   }
 
+  // REMOVED: stringToVisibility method - using SaleType mapping instead
+
   /**
    * Convert string to AllocationMethod variant
    */

@@ -876,10 +876,60 @@
             </div>
           </div>
         </div>
+
+        <!-- Liquidity Validation Issues -->
+        <div v-if="liquidityValidation.issues.length > 0" class="mt-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+          <div class="flex items-start space-x-2">
+            <AlertTriangleIcon class="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" />
+            <div class="flex-1">
+              <h4 class="text-sm font-medium text-red-800 dark:text-red-200 mb-2">🚨 Critical Liquidity Issues:</h4>
+              <ul class="text-sm text-red-700 dark:text-red-300 space-y-1">
+                <li v-for="issue in liquidityValidation.issues" :key="issue" class="flex items-start">
+                  <span class="w-1.5 h-1.5 bg-red-400 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+                  <span>{{ issue }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
+
+        <!-- Liquidity Warnings (Non-blocking) -->
+        <div v-if="liquidityValidation.warnings.length > 0" class="mt-6 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+          <div class="flex items-start space-x-2">
+            <AlertTriangleIcon class="h-5 w-5 text-yellow-600 dark:text-yellow-400 mt-0.5 flex-shrink-0" />
+            <div class="flex-1">
+              <h4 class="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-2">⚠️ Liquidity Warnings:</h4>
+              <ul class="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
+                <li v-for="warning in liquidityValidation.warnings" :key="warning" class="flex items-start">
+                  <span class="w-1.5 h-1.5 bg-yellow-400 rounded-full mr-2 mt-2 flex-shrink-0"></span>
+                  <span>{{ warning }}</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <!-- Step 4: Launch Overview & Terms -->
+      <!-- Step 4: Post-Launch Options -->
       <div v-if="currentStep === 4" class="p-6">
+        <PostLaunchOptions
+          :allocation="{
+            team_percentage: formData.distribution.team.percentage || 0,
+            marketing_percentage: getMarketingPercentage(),
+            dex_liquidity_percentage: 10, // Default DEX liquidity
+            unallocated_percentage: getUnallocatedPercentage()
+          }"
+          :governance-model="governanceModel"
+          :dao-config="daoConfig"
+          :multisig-config="multisigConfig"
+          @update:governance-model="governanceModel = $event"
+          @update:dao-config="daoConfig = $event"
+          @update:multisig-config="multisigConfig = $event"
+        />
+      </div>
+
+      <!-- Step 5: Launch Overview & Terms -->
+      <div v-if="currentStep === 5" class="p-6">
         <h2 class="text-xl font-semibold text-gray-900 dark:text-white mb-6">Launch Overview & Terms</h2>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
           Review your launch configuration and accept the terms and conditions before launching your project.
@@ -1285,6 +1335,7 @@ import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import TokenAllocation from '@/components/launchpad/TokenAllocation.vue'
 import RaisedFundsAllocation from '@/components/launchpad/RaisedFundsAllocation.vue'
 import LaunchpadTemplateSelector from '@/components/launchpad/LaunchpadTemplateSelector.vue'
+import PostLaunchOptions from '@/components/launchpad/PostLaunchOptions.vue'
 import PieChart from '@/components/common/PieChart.vue'
 import FundAllocationOverview from '@/components/launchpad/FundAllocationOverview.vue'
 import { InputMask, ICTOMasks } from '@/utils/inputMask'
@@ -1419,6 +1470,7 @@ const steps = [
   { id: 'project', title: 'Project Info', description: 'Basic project details' },
   { id: 'token', title: 'Token & Sale Setup', description: 'Token config, sale parameters & timeline' },
   { id: 'allocation', title: 'Token & Raised Funds', description: 'Token distribution & raised funds allocation with Multi-DEX' },
+  { id: 'governance', title: 'Post-Launch Options', description: 'Governance model & asset management' },
   { id: 'overview', title: 'Launch Overview', description: 'Review & launch' }
 ]
 
@@ -1434,6 +1486,19 @@ const tokenLogoError = ref('')
 const csvFileName = ref('')
 const csvFileInput = ref<HTMLInputElement | null>(null)
 const previewRaisedAmount = ref(0)
+
+// Governance model state
+const governanceModel = ref<'dao_treasury' | 'multisig_wallet' | 'no_governance'>('no_governance')
+const daoConfig = ref({
+  proposal_threshold: 51,
+  quorum: 30,
+  voting_period: 7 * 24 * 60 * 60 // 7 days
+})
+const multisigConfig = ref({
+  signers: [] as Array<{ principal: string; percentage: number; name?: string }>,
+  threshold: 2,
+  propose_duration: 24 * 60 * 60 // 24 hours
+})
 
 // Generate unique IDs for form elements
 const uniqueIds = {
@@ -1461,6 +1526,12 @@ const formData = ref({
       name: 'Team',
       percentage: 15, // Default 15%
       totalAmount: '',
+      vestingSchedule: {
+        cliffDays: 365, // Default 1 year cliff
+        durationDays: 1460, // Default 4 year vesting
+        releaseFrequency: 'monthly' as 'daily' | 'weekly' | 'monthly' | 'quarterly',
+        immediateRelease: 0 // Default 0% immediate release
+      },
       recipients: [] as {
         principal: string
         percentage: number
@@ -2691,16 +2762,61 @@ const canProceed = computed(() => {
       return step2ValidationErrors.value.length === 0 && timelineValidation.value.length === 0
     case 3: // Token & Raised Funds Allocation (includes Multi-DEX)
       return step3ValidationErrors.value.length === 0 && liquidityValidation.value.issues.length === 0
-    case 4: // Launch Overview & Timeline - Final step
+    case 4: // Post-Launch Options (Governance Model)
+      return governanceValidation.value.valid
+    case 5: // Launch Overview & Timeline - Final step
       return acceptTerms.value
     default:
       return true
   }
 })
 
+// Governance model validation
+const governanceValidation = computed(() => {
+  if (governanceModel.value === 'dao_treasury') {
+    const issues = []
+    if (daoConfig.value.proposal_threshold < 1 || daoConfig.value.proposal_threshold > 100) {
+      issues.push('Proposal threshold must be between 1% and 100%')
+    }
+    if (daoConfig.value.quorum < 1 || daoConfig.value.quorum > 100) {
+      issues.push('Quorum must be between 1% and 100%')
+    }
+    return { valid: issues.length === 0, issues }
+  }
+
+  if (governanceModel.value === 'multisig_wallet') {
+    const issues = []
+    if (multisigConfig.value.signers.length < 2) {
+      issues.push('At least 2 signers are required')
+    }
+    if (multisigConfig.value.threshold < 2 || multisigConfig.value.threshold > multisigConfig.value.signers.length) {
+      issues.push('Threshold must be between 2 and total signers')
+    }
+    return { valid: issues.length === 0, issues }
+  }
+
+  return { valid: true, issues: [] }
+})
+
 const canLaunch = computed(() => {
   return canProceed.value && acceptTerms.value
 })
+
+// Helper functions for PostLaunchOptions
+const getMarketingPercentage = () => {
+  const marketingAllocation = formData.value.distribution.others.find(alloc =>
+    alloc.name.toLowerCase().includes('marketing')
+  )
+  return marketingAllocation?.percentage || 0
+}
+
+const getUnallocatedPercentage = () => {
+  const teamPercentage = formData.value.distribution.team.percentage || 0
+  const marketingPercentage = getMarketingPercentage()
+  const dexLiquidityPercentage = 10 // Default DEX liquidity
+  const totalAllocated = teamPercentage + marketingPercentage + dexLiquidityPercentage
+  return Math.max(0, 100 - totalAllocated)
+}
 
 // Helper function to get all allocations as array for compatibility
 const getAllAllocationsAsArray = () => {

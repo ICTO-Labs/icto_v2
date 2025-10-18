@@ -321,3 +321,11 @@ export const distributionFactoryActor = ({ anon = false, requiresSigning = false
 export const multisigFactoryActor = ({ anon = false, requiresSigning = false }: { anon?: boolean, requiresSigning?: boolean }) => {
     return pnp.getActor<CanisterType["MULTISIG_FACTORY"]>({ canisterId: canisters.multisig_factory.canisterId!, idl: canisters.multisig_factory.idl, anon, requiresSigning });
 }
+
+export const daoFactoryActor = ({ anon = false, requiresSigning = false }: { anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["DAO_FACTORY"]>({ canisterId: canisters.dao_factory.canisterId!, idl: canisters.dao_factory.idl, anon, requiresSigning });
+}
+
+export const launchpadFactoryActor = ({ anon = false, requiresSigning = false }: { anon?: boolean, requiresSigning?: boolean }) => {
+    return pnp.getActor<CanisterType["LAUNCHPAD_FACTORY"]>({ canisterId: canisters.launchpad_factory.canisterId!, idl: canisters.launchpad_factory.idl, anon, requiresSigning });
+}

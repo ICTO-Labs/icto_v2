@@ -92,19 +92,39 @@ const router = createRouter({
     },
     {
       path: '/',
-      name: 'Ecommerce',
-      component: () => import('../views/Ecommerce.vue'),
+      name: 'Dashboard',
+      component: () => import('../views/Dashboard/DashboardView.vue'),
       meta: {
         title: 'Dashboard',
       },
     },
     {
-      path: '/tokens',
-      name: 'Tokens',
+      path: '/ecommerce',
+      name: 'Ecommerce',
+      component: () => import('../views/Ecommerce.vue'),
+      meta: {
+        title: 'Ecommerce Dashboard',
+      },
+    },
+    {
+      path: '/token',
+      name: 'TokenIndex',
       component: () => import('../views/Token/TokenIndex.vue'),
       meta: {
         title: 'Tokens Center',
       },
+    },
+    {
+      path: '/token/create',
+      name: 'TokenCreate',
+      component: () => import('../views/Token/TokenIndex.vue'),
+      meta: {
+        title: 'Create Token',
+      },
+    },
+    {
+      path: '/tokens',
+      redirect: '/token'
     },
     {
       path: '/tokens/:id',
@@ -393,6 +413,15 @@ const router = createRouter({
       path: '/launchpad/create',
       name: 'LaunchpadCreate',
       component: () => import('@/views/Launchpad/LaunchpadCreate.vue'),
+      meta: {
+        title: 'Launch New Project',
+        requiresAuth: true,
+      },
+    },
+    {
+      path: '/launchpad/create_v2',
+      name: 'LaunchpadCreateV2',
+      component: () => import('@/views/Launchpad/LaunchpadCreateV2.vue'),
       meta: {
         title: 'Launch New Project',
         requiresAuth: true,

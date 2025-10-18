@@ -1,12 +1,12 @@
 <template>
   <div class="space-y-4">
     <!-- Header -->
-    <div class="flex items-center justify-between mb-4">
+    <!-- <div class="flex items-center justify-between mb-4">
       <div>
         <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-1">Token Distribution Allocation</h4>
         <p class="text-xs text-gray-500 dark:text-gray-400">Configure how tokens will be distributed across 4 fixed categories</p>
       </div>
-    </div>
+    </div> -->
 
     <!-- Allocation Progress - Moved to top -->
     <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
@@ -36,34 +36,26 @@
       </div>
     </div>
 
-    <!-- Liquidity Pool Info Card (Configured in Raised Funds Allocation) -->
-    <div class="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-4 mb-4">
-      <div class="flex items-center justify-between mb-2">
-        <h5 class="font-medium text-orange-900 dark:text-orange-100">Liquidity Pool Allocation</h5>
-        <span class="text-lg font-bold text-orange-600 dark:text-orange-400">
-          {{ formatTokenAmount(lpAllocationMethod === 'token-supply' ? lpTokenSupplyAmount : lpRaisedTokenAmount) }}
-        </span>
-      </div>
-      <div class="text-sm space-y-1">
-        <div class="flex justify-between">
-          <span class="text-orange-700 dark:text-orange-300">Method:</span>
-          <span class="font-medium text-orange-800 dark:text-orange-200">
-            {{ lpAllocationMethod === 'token-supply' ? 'Token Supply Based' : 'Raised Funds Based' }}
-          </span>
+    <!-- Liquidity Pool Info - Configured in Step 3 -->
+    <!-- <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4 mb-4">
+      <div class="flex items-start space-x-3">
+        <div class="flex-shrink-0">
+          <svg class="h-5 w-5 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
         </div>
-        <div class="flex justify-between" v-if="lpAllocationMethod === 'token-supply'">
-          <span class="text-orange-700 dark:text-orange-300">Percentage:</span>
-          <span class="font-medium text-orange-800 dark:text-orange-200">{{ lpTokenPercentage }}%</span>
-        </div>
-        <div class="flex justify-between" v-else>
-          <span class="text-orange-700 dark:text-orange-300">From Raised:</span>
-          <span class="font-medium text-orange-800 dark:text-orange-200">{{ lpRaisedPercentage }}%</span>
-        </div>
-        <div class="text-xs text-orange-600 dark:text-orange-400 pt-2 border-t border-orange-300 dark:border-orange-600">
-          💡 Configure liquidity method and DEX settings in Raised Funds Allocation section
+        <div class="flex-1">
+          <h5 class="font-medium text-blue-900 dark:text-blue-100 mb-1">DEX Liquidity Pool Allocation</h5>
+          <p class="text-sm text-blue-700 dark:text-blue-300">
+            DEX liquidity is automatically calculated from <strong>Raised Funds Allocation</strong> in Step 3 (Allocation Configuration).
+            The token amount will be determined based on the percentage you allocate to DEX liquidity from your raised funds.
+          </p>
+          <p class="text-xs text-blue-600 dark:text-blue-400 mt-2">
+            ➜ Configure DEX liquidity percentage and multi-DEX distribution in <strong>Step 3</strong>
+          </p>
         </div>
       </div>
-    </div>
+    </div> -->
 
     <!-- Fixed Categories Accordion -->
     <div class="space-y-2">
@@ -97,10 +89,11 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Total amount:</label>
-                <input
+                <money3
+                  v-bind="MONEY3_OPTIONS"
                   v-model="distributionData.sale.totalAmount"
                   @input="updateSaleFromAmount"
-                  type="text"
+                  placeholder="0"
                   class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
                 />
               </div>
@@ -108,7 +101,6 @@
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Description:</label>
                 <input
                   v-model="distributionData.sale.description"
-                  @input="emitUpdate"
                   type="text"
                   placeholder="Tokens available for public sale"
                   class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800"
@@ -429,92 +421,17 @@
 
             <!-- Recipients Section -->
             <div>
-              <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center space-x-2">
-                  <h6 class="text-sm font-medium text-gray-700 dark:text-gray-300">Team Recipients</h6>
-                  <span class="text-sm text-gray-500 dark:text-gray-400">({{ distributionData.team.recipients.length }} participants)</span>
-                </div>
-                <button
-                  @click="addTeamMember"
-                  type="button"
-                  class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors"
-                >
-                  Add Recipient
-                </button>
-              </div>
-
-              <div v-if="distributionData.team.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
-                ⚠️ At least one recipient is required for team allocation
-              </div>
-
-              <!-- Recipients Table -->
-              <div v-else class="overflow-x-auto">
-                <table class="w-full border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                  <thead class="bg-gray-50 dark:bg-gray-800">
-                    <tr>
-                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Token Amount *
-                      </th>
-                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Principal *
-                      </th>
-                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Name/Notes
-                      </th>
-                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                        Action
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-                    <tr v-for="(recipient, index) in distributionData.team.recipients" :key="`team-${index}`" class="hover:bg-gray-50 dark:hover:bg-gray-800">
-                      <td class="px-4 py-3">
-                        <input
-                          v-model="recipient.amount"
-                          type="text"
-                          placeholder="10,000"
-                          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
-                          :class="{ 'border-red-500': !isValidTokenAmount(recipient.amount || '') && recipient.amount }"
-                        />
-                        <p v-if="!isValidTokenAmount(recipient.amount || '') && recipient.amount" class="text-xs text-red-600 mt-1">
-                          Invalid token amount
-                        </p>
-                      </td>
-                      <td class="px-4 py-3">
-                        <input
-                          v-model="recipient.principal"
-                          type="text"
-                          placeholder="Principal ID"
-                          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
-                          :class="{ 'border-red-500': !isValidPrincipal(recipient.principal || '') && recipient.principal }"
-                        />
-                        <p v-if="!isValidPrincipal(recipient.principal || '') && recipient.principal" class="text-xs text-red-600 mt-1">
-                          Invalid principal format
-                        </p>
-                      </td>
-                      <td class="px-4 py-3">
-                        <input
-                          v-model="recipient.name"
-                          type="text"
-                          placeholder="Optional name"
-                          class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800"
-                        />
-                      </td>
-                      <td class="px-4 py-3 whitespace-nowrap">
-                        <button
-                          @click="removeTeamMember(index)"
-                          type="button"
-                          class="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300"
-                        >
-                          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                          </svg>
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+              <RecipientManagementV2
+                v-model="distributionData.team.recipients"
+                title="Team Recipients"
+                help-text="Configure principals who will receive team token allocation."
+                empty-message="⚠️ At least one team recipient is required for non-zero team allocation"
+                allocation-type="tokens"
+                value-type="amount"
+                :token-symbol="saleToken?.symbol || 'Token'"
+                @add-recipient="addTeamMember"
+                @remove-recipient="removeTeamMember"
+              />
             </div>
           </div>
         </div>
@@ -670,8 +587,8 @@
                   </button>
                 </div>
 
-                <div v-if="category.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-800 dark:text-yellow-200">
-                  ⚠️ At least one recipient is required for {{ category.name || 'custom' }} allocation
+                <div v-if="category.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border-2 border-dashed border-yellow-300 dark:border-yellow-700 rounded-lg text-sm text-yellow-800 dark:text-yellow-200">
+                  ⚠️ At least one recipient is required for non-zero {{ category.name || 'custom' }} allocation
                 </div>
 
                 <!-- Recipients Table -->
@@ -750,12 +667,11 @@
     </div>
 
     <!-- Total Supply and Chart Section -->
-    <div class="mt-6 text-center">
+    <!-- <div class="mt-6 text-center">
       <div class="text-lg font-medium text-gray-900 dark:text-white mb-2">
         Total Supply: <span class="text-blue-600 dark:text-blue-400">{{ formatTokenAmount(totalSupply) }}</span>
       </div>
       
-      <!-- Progress Bar -->
       <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 mb-4">
         <div 
           class="bg-blue-600 h-2 rounded-full transition-all duration-300"
@@ -767,11 +683,11 @@
         Allocated: {{ allocationPercentage.toFixed(1) }}% 
         ({{ formatTokenAmount(totalAllocated) }} / {{ formatTokenAmount(totalSupply) }})
       </div>
-    </div>
+    </div> -->
 
     <!-- Validation Messages -->
-    <div v-if="validationErrors.length > 0" class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
-      <h6 class="text-sm font-medium text-red-900 dark:text-red-100 mb-2">Validation Errors</h6>
+    <div v-if="validationErrors.length > 0" class="bg-red-50 dark:bg-red-900/20 border-2 border-dashed border-red-300 dark:border-red-700 rounded-lg p-4">
+      <h6 class="text-sm font-medium text-red-900 dark:text-red-100 mb-2">⚠️ Validation Errors</h6>
       <ul class="list-disc list-inside text-sm text-red-700 dark:text-red-300 space-y-1">
         <li v-for="error in validationErrors" :key="error">{{ error }}</li>
       </ul>
@@ -783,8 +699,10 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { Plus, X, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import VestingScheduleConfig from './VestingScheduleConfig.vue'
+import RecipientManagementV2 from '@/components/launchpad_v2/RecipientManagementV2.vue'
 import type { VestingSchedule } from '@/types/launchpad'
-
+import { useLaunchpadForm } from '@/composables/useLaunchpadForm'
+import { MONEY3_OPTIONS } from '@/config/constants'
 interface TeamRecipient {
   principal: string
   percentage: number
@@ -841,59 +759,23 @@ interface DistributionData {
 }
 
 interface Props {
-  modelValue?: DistributionData
-  totalSupply: number
-  totalSaleAmount?: number
-  totalLiquidityToken?: number
-  dexEnabled?: boolean
-  simulatedRaisedAmount?: number // For raised funds based calculation
-  softCap?: number
-  hardCap?: number
-  dexConfig?: any // DEX configuration object
-  // LP Allocation props (controlled from MultiDexConfig)
+  saleTokenSymbol?: string // Only keep display props, not data
+  // LP Allocation props (controlled from MultiDexConfig) - these are calculated externally
   lpAllocationMethodProp?: 'token-supply' | 'raised-funds'
   lpTokenPercentageProp?: number
   lpRaisedPercentageProp?: number
 }
 
-interface Emits {
-  (e: 'update:modelValue', value: DistributionData): void
-  (e: 'update:dexConfig', config: {
-    enabled: boolean
-    tokenPrice: number
-    lockDuration: number
-    liquidityPercentage?: number
-    liquidityAmount?: number
-  }): void
-}
-
-const props = defineProps<Props>()
-const emit = defineEmits<Emits>()
-
-// Local state
-const distributionData = ref<DistributionData>({
-  sale: {
-    name: 'Sale',
-    percentage: 61,
-    totalAmount: '250000',
-    description: 'Tokens available for public sale'
-  },
-  team: {
-    name: 'Team',
-    percentage: 7,
-    totalAmount: '30000',
-    recipients: [],
-    description: 'Team allocation'
-  },
-  liquidityPool: {
-    name: 'Liquidity Pool',
-    percentage: 31,
-    totalAmount: '127500',
-    autoCalculated: true,
-    description: 'Auto-calculated from DEX configuration'
-  },
-  others: []
+const props = withDefaults(defineProps<Props>(), {
+  saleTokenSymbol: 'TOKEN'
 })
+
+// Use composable for data - single source of truth
+const launchpadForm = useLaunchpadForm()
+const { formData, simulatedAmount, estimatedTokenPrice } = launchpadForm
+
+// Direct reference to distribution data from composable (no local copy!)
+const distributionData = computed(() => formData.value.distribution)
 
 // Accordion state - Sale expanded by default, others collapsed
 const openAccordions = ref({
@@ -903,9 +785,56 @@ const openAccordions = ref({
   others: false
 })
 
-// Vesting toggle states
-const saleVestingEnabled = ref(false)
-const teamVestingEnabled = ref(true) // Team should have vesting by default
+// Vesting toggle states - initialized from composable data
+const saleVestingEnabled = computed({
+  get: () => {
+    const schedule = distributionData.value?.sale?.vestingSchedule
+    return !!(schedule && Object.keys(schedule).length > 0)
+  },
+  set: (value) => {
+    if (!value) {
+      // Remove vesting when disabled
+      if (distributionData.value?.sale) {
+        delete distributionData.value.sale.vestingSchedule
+      }
+    } else {
+      // Initialize default vesting when enabled
+      if (distributionData.value?.sale) {
+        distributionData.value.sale.vestingSchedule = {
+          cliffDays: 0,
+          durationDays: 0,
+          releaseFrequency: 'monthly',
+          immediatePercentage: 100
+        }
+      }
+    }
+  }
+})
+
+const teamVestingEnabled = computed({
+  get: () => {
+    const schedule = distributionData.value?.team?.vestingSchedule
+    return !!(schedule && Object.keys(schedule).length > 0)
+  },
+  set: (value) => {
+    if (!value) {
+      // Remove vesting when disabled
+      if (distributionData.value?.team) {
+        delete distributionData.value.team.vestingSchedule
+      }
+    } else {
+      // Initialize default vesting when enabled
+      if (distributionData.value?.team) {
+        distributionData.value.team.vestingSchedule = {
+          cliffDays: 365,
+          durationDays: 1460,
+          releaseFrequency: 'monthly',
+          immediatePercentage: 0
+        }
+      }
+    }
+  }
+})
 
 // Liquidity Pool allocation method (synced with MultiDexConfig)
 const lpAllocationMethod = ref<'token-supply' | 'raised-funds'>(props.lpAllocationMethodProp || 'token-supply')
@@ -932,36 +861,43 @@ const getOtherCategoryTotalAmount = (categoryIndex: number) => {
   }, 0).toString()
 }
 
+// Get data from composable
+const tokenSymbol = computed(() => formData.value?.saleToken?.symbol || 'Token')
+const totalSupply = computed(() => Number(formData.value?.saleToken?.totalSupply) || 100000000)
+const totalSaleAmount = computed(() => Number(formData.value?.saleParams?.totalSaleAmount) || 0)
+const softCap = computed(() => Number(formData.value?.saleParams?.softCap) || 0)
+const hardCap = computed(() => Number(formData.value?.saleParams?.hardCap) || 0)
+
 // LP Allocation calculations
 const lpTokenSupplyAmount = computed(() => {
-  return (props.totalSupply * lpTokenPercentage.value) / 100
+  return (totalSupply.value * lpTokenPercentage.value) / 100
 })
 
 const lpRaisedFundsAmount = computed(() => {
-  return ((props.simulatedRaisedAmount || 0) * lpRaisedPercentage.value) / 100
+  return ((simulatedAmount.value || 0) * lpRaisedPercentage.value) / 100
 })
 
 const lpRaisedTokenAmount = computed(() => {
   // This would be calculated based on the token price or ratio
   // For now, we'll use a simple calculation - in real scenario, this would come from
   // the sale price calculation
-  const tokenPrice = (props.simulatedRaisedAmount || 0) / (props.totalSaleAmount || 1)
+  const tokenPrice = (simulatedAmount.value || 0) / (totalSaleAmount.value || 1)
   return lpRaisedFundsAmount.value / tokenPrice
 })
 
 const estimatedIcpForTokenSupply = computed(() => {
   // Estimate ICP needed based on simulated raised amount and sale allocation
-  const currentSimulated = props.simulatedRaisedAmount || 0
+  const currentSimulated = simulatedAmount.value || 0
   if (currentSimulated === 0) return 0
-  
-  const tokenPrice = currentSimulated / (props.totalSaleAmount || 1)
+
+  const tokenPrice = currentSimulated / (totalSaleAmount.value || 1)
   return lpTokenSupplyAmount.value * tokenPrice
 })
 
 const estimatedIcpMinMax = computed(() => {
-  const softCapTokenPrice = (props.softCap || 0) / (props.totalSaleAmount || 1)
-  const hardCapTokenPrice = (props.hardCap || 0) / (props.totalSaleAmount || 1)
-  
+  const softCapTokenPrice = (softCap.value || 0) / (totalSaleAmount.value || 1)
+  const hardCapTokenPrice = (hardCap.value || 0) / (totalSaleAmount.value || 1)
+
   return {
     min: lpTokenSupplyAmount.value * softCapTokenPrice,
     max: lpTokenSupplyAmount.value * hardCapTokenPrice
@@ -973,14 +909,7 @@ const formatAmount = (amount: number): string => {
   return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)
 }
 
-// Initialize from props
-watch(() => props.modelValue, (newValue) => {
-  if (newValue) {
-    distributionData.value = { ...newValue }
-  }
-}, { immediate: true })
-
-// Sync LP allocation props from MultiDexConfig
+// Sync LP allocation props from MultiDexConfig (only for display, not data)
 watch(() => props.lpAllocationMethodProp, (newMethod) => {
   if (newMethod) {
     lpAllocationMethod.value = newMethod
@@ -1004,21 +933,21 @@ const totalAllocated = computed(() => {
   const saleAmount = parseFloat(distributionData.value.sale.totalAmount) || 0
   const teamAmount = parseFloat(distributionData.value.team.totalAmount) || 0
   // Use computed LP amount from allocation method
-  const lpAmount = lpAllocationMethod.value === 'token-supply' 
-    ? lpTokenSupplyAmount.value 
+  const lpAmount = lpAllocationMethod.value === 'token-supply'
+    ? lpTokenSupplyAmount.value
     : lpRaisedTokenAmount.value
-  const othersAmount = distributionData.value.others.reduce((sum, category) => 
+  const othersAmount = distributionData.value.others.reduce((sum, category) =>
     sum + (parseFloat(category.totalAmount) || 0), 0
   )
   return saleAmount + teamAmount + lpAmount + othersAmount
 })
 
 const allocationPercentage = computed(() => {
-  return props.totalSupply > 0 ? (totalAllocated.value / props.totalSupply) * 100 : 0
+  return totalSupply.value > 0 ? (totalAllocated.value / totalSupply.value) * 100 : 0
 })
 
 const remainingTokens = computed(() => {
-  return props.totalSupply - totalAllocated.value
+  return totalSupply.value - totalAllocated.value
 })
 
 const validationErrors = computed(() => {
@@ -1042,26 +971,26 @@ const toggleAccordion = (section: keyof typeof openAccordions.value) => {
 
 const updateSaleFromAmount = () => {
   const amount = parseFloat(distributionData.value.sale.totalAmount) || 0
-  distributionData.value.sale.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
-  emitUpdate()
+  distributionData.value.sale.percentage = totalSupply.value > 0 ? (amount / totalSupply.value) * 100 : 0
+  // No need to emit - composable is reactive
 }
 
 const updateTeamFromAmount = () => {
   const amount = parseFloat(distributionData.value.team.totalAmount) || 0
-  distributionData.value.team.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
-  emitUpdate()
+  distributionData.value.team.percentage = totalSupply.value > 0 ? (amount / totalSupply.value) * 100 : 0
+  // No need to emit - composable is reactive
 }
 
 const updateOtherFromAmount = (index: number) => {
   const category = distributionData.value.others[index]
   const amount = parseFloat(category.totalAmount) || 0
-  category.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
-  emitUpdate()
+  category.percentage = totalSupply.value > 0 ? (amount / totalSupply.value) * 100 : 0
+  // No need to emit - composable is reactive
 }
 
 const updateLiquidityAllocation = () => {
   let amount = 0
-  
+
   if (lpAllocationMethod.value === 'token-supply') {
     // Based on token supply percentage
     amount = lpTokenSupplyAmount.value
@@ -1071,19 +1000,17 @@ const updateLiquidityAllocation = () => {
     // Based on raised funds percentage
     amount = lpRaisedTokenAmount.value
     distributionData.value.liquidityPool.totalAmount = amount.toString()
-    distributionData.value.liquidityPool.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
+    distributionData.value.liquidityPool.percentage = totalSupply.value > 0 ? (amount / totalSupply.value) * 100 : 0
   }
-  
+
   distributionData.value.liquidityPool.autoCalculated = true
-  emitUpdate()
+  // No need to emit - composable is reactive
 }
 
 const updateLiquidityFromAmount = () => {
-  if (!props.dexEnabled) {
-    const amount = parseFloat(distributionData.value.liquidityPool.totalAmount) || 0
-    distributionData.value.liquidityPool.percentage = props.totalSupply > 0 ? (amount / props.totalSupply) * 100 : 0
-    emitUpdate()
-  }
+  const amount = parseFloat(distributionData.value.liquidityPool.totalAmount) || 0
+  distributionData.value.liquidityPool.percentage = totalSupply.value > 0 ? (amount / totalSupply.value) * 100 : 0
+  // No need to emit - composable is reactive
 }
 
 const addTeamMember = () => {
@@ -1093,17 +1020,19 @@ const addTeamMember = () => {
     amount: '',
     name: ''
   })
-  emitUpdate()
+  // No need to emit - composable is reactive
 }
 
 const removeTeamMember = (index: number) => {
   distributionData.value.team.recipients.splice(index, 1)
-  emitUpdate()
+  // No need to emit - composable is reactive
 }
 
 const addQuickAllocation = (name: string, percentage: number) => {
   const id = `other-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-  const amount = ((props.totalSupply * percentage) / 100).toString()
+  // Fix BigInt serialization: Always parse to Number first
+  const totalSupplyNum = Number(totalSupply.value) || 0
+  const amount = ((totalSupplyNum * percentage) / 100).toString()
   distributionData.value.others.push({
     id,
     name,
@@ -1113,7 +1042,7 @@ const addQuickAllocation = (name: string, percentage: number) => {
     recipients: [],
     vestingEnabled: false
   })
-  emitUpdate()
+  // No need to emit - composable is reactive
 }
 
 const addOtherCategory = () => {
@@ -1127,12 +1056,12 @@ const addOtherCategory = () => {
     recipients: [],
     vestingEnabled: false
   })
-  emitUpdate()
+  // No need to emit - composable is reactive
 }
 
 const removeOtherCategory = (index: number) => {
   distributionData.value.others.splice(index, 1)
-  emitUpdate()
+  // No need to emit - composable is reactive
 }
 
 const addCategoryRecipient = (categoryIndex: number) => {
@@ -1142,26 +1071,12 @@ const addCategoryRecipient = (categoryIndex: number) => {
     amount: '',
     name: ''
   })
-  emitUpdate()
+  // No need to emit - composable is reactive
 }
 
 const removeCategoryRecipient = (categoryIndex: number, recipientIndex: number) => {
   distributionData.value.others[categoryIndex].recipients.splice(recipientIndex, 1)
-  emitUpdate()
-}
-
-const emitUpdate = () => {
-  emit('update:modelValue', distributionData.value)
-}
-
-const emitDexConfig = () => {
-  emit('update:dexConfig', {
-    enabled: dexEnabled.value,
-    tokenPrice: dexTokenPrice.value,
-    lockDuration: dexLockDuration.value,
-    liquidityPercentage: lpAllocationMethod.value === 'token-supply' ? lpTokenPercentage.value : undefined,
-    liquidityAmount: lpAllocationMethod.value === 'token-supply' ? lpTokenSupplyAmount.value : lpRaisedTokenAmount.value
-  })
+  // No need to emit - composable is reactive
 }
 
 // Validation functions
@@ -1193,25 +1108,21 @@ watch(() => distributionData.value.others, () => {
   })
 }, { deep: true })
 
-// Watch for LP allocation method changes (avoid recursive updates)
+// Watch for LP allocation method changes
 watch(lpAllocationMethod, () => {
   updateLiquidityAllocation()
-  nextTick(() => emitDexConfig())
 })
 
 watch([lpTokenPercentage, lpRaisedPercentage], () => {
   updateLiquidityAllocation()
-  nextTick(() => emitDexConfig())
 })
 
-// Watch for DEX config changes
-watch([dexEnabled, dexTokenPrice, dexLockDuration], () => {
-  nextTick(() => emitDexConfig())
-}, { deep: true })
-
-// Watch for external changes (reactive to simulation and props)
-watch(() => [props.simulatedRaisedAmount, props.totalLiquidityToken, props.totalSaleAmount], () => {
-  updateLiquidityAllocation()
+// Watch for changes in totalSaleAmount from composable to update sale allocation
+watch(totalSaleAmount, (newAmount) => {
+  if (newAmount && newAmount !== parseFloat(distributionData.value.sale.totalAmount)) {
+    distributionData.value.sale.totalAmount = newAmount.toString()
+    updateSaleFromAmount()
+  }
 }, { immediate: true })
 
 // Initialize

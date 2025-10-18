@@ -1,27 +1,13 @@
 <template>
   <div class="space-y-4">
-    <div class="flex items-center justify-between">
-      <div>
-        <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Vesting Schedule</label>
-        <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-          Configure token release schedule for {{ allocationName || 'this allocation' }}
-        </p>
-      </div>
-      <div class="flex items-center space-x-2">
-        <input
-          v-model="vestingEnabled"
-          @change="handleVestingToggle"
-          type="checkbox"
-          :id="vestingEnabledId"
-          class="w-4 h-4 text-yellow-600 bg-gray-100 border-gray-300 rounded focus:ring-yellow-500 dark:focus:ring-yellow-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
-        />
-        <label :for="vestingEnabledId" class="text-xs font-medium text-gray-700 dark:text-gray-300">
-          Enable Vesting
-        </label>
-      </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-700 dark:text-gray-300">Vesting Schedule</label>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+        Configure token release schedule for {{ allocationName || 'this allocation' }}
+      </p>
     </div>
 
-    <div v-if="vestingEnabled" class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
+    <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4 space-y-4">
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         <!-- Initial Unlock Percentage -->
         <div>
@@ -169,17 +155,12 @@
         </div>
       </div>
     </div>
-
-    <div v-else class="text-center py-4 text-xs text-gray-500 dark:text-gray-400">
-      No vesting schedule - all tokens will be released immediately
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, watch } from 'vue'
 import type { VestingSchedule, VestingFrequency } from '@/types/launchpad'
-import { useUniqueId } from '@/composables/useUniqueId'
 import Select from '@/components/common/Select.vue'
 
 interface Props {
@@ -194,11 +175,7 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-// Generate unique IDs for form elements
-const vestingEnabledId = useUniqueId('vesting-enabled')
-
 // Local state
-const vestingEnabled = ref(false)
 const cliffDays = ref(0)
 const durationDays = ref(0)
 const customPeriodDays = ref(7)
@@ -276,7 +253,6 @@ const getFrequencyDisplay = (): string => {
 // Initialize from props
 watch(() => props.modelValue, (newValue) => {
   if (newValue) {
-    vestingEnabled.value = true
     vestingData.value = {
       initialUnlock: newValue.initialUnlock || 0,
       cliff: newValue.cliff || BigInt(0),
@@ -286,7 +262,6 @@ watch(() => props.modelValue, (newValue) => {
     cliffDays.value = Number(newValue.cliff || 0) / (24 * 60 * 60 * 1000000000) // Convert nanoseconds to days
     durationDays.value = Number(newValue.duration || 0) / (24 * 60 * 60 * 1000000000) // Convert nanoseconds to days
   } else {
-    vestingEnabled.value = false
     vestingData.value = {
       initialUnlock: 0,
       cliff: BigInt(0),
@@ -300,17 +275,13 @@ watch(() => props.modelValue, (newValue) => {
 
 // Methods
 const updateVesting = () => {
-  if (vestingEnabled.value) {
-    const schedule: VestingSchedule = {
-      initialUnlock: Number(vestingData.value.initialUnlock) || 0,
-      cliff: vestingData.value.cliff,
-      duration: vestingData.value.duration,
-      frequency: convertToVestingFrequency(vestingData.value.frequency)
-    }
-    emit('update:modelValue', schedule)
-  } else {
-    emit('update:modelValue', null)
+  const schedule: VestingSchedule = {
+    initialUnlock: Number(vestingData.value.initialUnlock) || 0,
+    cliff: vestingData.value.cliff,
+    duration: vestingData.value.duration,
+    frequency: convertToVestingFrequency(vestingData.value.frequency)
   }
+  emit('update:modelValue', schedule)
 }
 
 const applyTemplate = (template: string) => {
@@ -348,15 +319,6 @@ const applyTemplate = (template: string) => {
   updateCliffFromDays()
   updateDurationFromDays()
   updateVesting()
-}
-
-const handleVestingToggle = () => {
-  if (vestingEnabled.value) {
-    // Apply default vesting
-    applyTemplate('public')
-  } else {
-    emit('update:modelValue', null)
-  }
 }
 
 const updateCliffFromDays = () => {

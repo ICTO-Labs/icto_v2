@@ -1,4 +1,5 @@
-import type { Principal } from "@dfinity/principal";
+import type { Principal as PrincipalType } from "@dfinity/principal";
+import { Principal } from "@dfinity/principal";
 export default function delay (ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms))
 }
@@ -7,7 +8,7 @@ export const shortAccount = (accountId: string) => {
     if (!accountId) return accountId;
     return `${accountId.slice(0, 8)}...${accountId.slice(-8)}`;
 }
-export const shortPrincipal = (principal: string | Principal) => {
+export const shortPrincipal = (principal: string | PrincipalType) => {
     if (!principal) return principal;
     const parts = (
         typeof principal === "string" ? principal : principal.toText()
@@ -39,7 +40,7 @@ export const getVariantKey = (obj: Record<string, any>): string | undefined => {
         return undefined;
     }
 }
-export const getFirstLetter = (principal: string | Principal) => {
+export const getFirstLetter = (principal: string | PrincipalType) => {
     return (
         typeof principal === "string" ? principal : principal.toText()
     ).slice(0, 2).toUpperCase();
@@ -71,4 +72,16 @@ export const parseWithBigInt = (str: string): any => {
     return JSON.parse(str, (_, value) =>
         typeof value === "string" && /^\d+$/.test(value) ? BigInt(value) : value
     );
+}
+
+/**
+* Validate Principal string
+*/
+export const isValidPrincipal = (principalString: string): boolean => {
+    try {
+        Principal.fromText(principalString)
+        return true
+    } catch {
+        return false
+    }
 }

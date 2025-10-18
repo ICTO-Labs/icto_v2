@@ -98,7 +98,7 @@ export class LaunchpadFactoryService {
    * @param limit Number of items per page (default: 20)
    * @param offset Page offset (default: 0)
    */
-  async getMyParticipating Sales(
+  async getMyParticipatingSales(
     user: Principal,
     limit: number = 20,
     offset: number = 0

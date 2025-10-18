@@ -86,39 +86,17 @@
             <span class="text-gray-700 dark:text-gray-300 text-xs">{{ formatNumber(allocation.amount) }}</span>
           </div>
 
-          <!-- DAO Treasury (Root Category) -->
+          <!-- Remaining (Root Category) -->
           <div v-if="treasuryAmount > 0" class="flex justify-between items-center p-2 bg-gray-50 dark:bg-gray-700 rounded">
             <div class="flex items-center">
               <div class="w-3 h-3 rounded-full bg-gray-400 mr-2"></div>
-              <span class="text-gray-600 dark:text-gray-300">DAO Treasury ({{ treasuryPercentage.toFixed(1) }}%)</span>
+              <span class="text-gray-600 dark:text-gray-300">Remaining ({{ treasuryPercentage.toFixed(1) }}%)</span>
             </div>
             <span class="text-gray-700 dark:text-gray-300">{{ formatNumber(treasuryAmount) }}</span>
           </div>
         </div>
       </div>
     </div>
-     <!-- DEX Configuration -->
-     <div v-if="dexConfig && Object.keys(dexConfig).length > 0" class="bg-white dark:bg-gray-800 rounded-lg p-4">
-            <h4 class="font-semibold text-gray-900 dark:text-white mb-3">DEX Configuration <span class="text-xs text-blue-600 border border-blue-600 rounded-full px-2 py-1">{{ dexConfig.autoList ? 'Auto-listing' : 'Manual listing' }}</span></h4>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-              <div class="flex justify-between">
-                <span class="text-gray-600 dark:text-gray-400">Primary Platform:</span>
-                <span class="font-medium">{{ dexConfig.platform || 'Not specified' }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-gray-600 dark:text-gray-400">Liquidity Allocation:</span>
-                <span class="font-medium">{{ dexConfig.liquidityPercentage || 0 }}% of raised funds</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-gray-600 dark:text-gray-400">Liquidity Lock Days:</span>
-                <span class="font-medium">{{ dexConfig.liquidityLockDays || 0 }} days</span>
-              </div>
-              <div class="flex justify-between">
-                <span class="text-gray-600 dark:text-gray-400">LP Token Recipient:</span>
-                <span class="text-sm text-blue-600">{{ dexConfig.lpTokenRecipient || 'Not specified' }}</span>
-              </div>
-            </div>
-          </div>
   </div>
 </template>
 
@@ -145,12 +123,6 @@ const props = defineProps({
   }
 })
 
-// Access dexConfig for template with fallback
-const dexConfig = computed(() => {
-  // Prioritize dexConfig from allocation data, fallback to props
-  return props.allocation?.dexConfig || props.dexConfig || {}
-})
-
 // Chart colors
 const CHART_COLORS = [
   '#ef4444', // Platform Fee - Red
@@ -160,19 +132,32 @@ const CHART_COLORS = [
   '#8b5cf6', // Custom 2 - Purple
   '#f59e0b', // Custom 3 - Yellow
   '#ec4899', // Custom 4 - Pink
-  '#6b7280'  // DAO Treasury - Gray
+  '#6b7280'  // Remaining - Gray
 ]
 
 // Platform Fee Calculations
 const platformFeeAmount = computed(() => props.simulatedAmount * (props.platformFeeRate / 100))
 const platformFeePercentage = computed(() => props.platformFeeRate)
 
-// DEX Calculations (Fixed percentages, dynamic amounts)
-const dexAllocations = computed(() => {
-  if (!props.allocation?.dexConfig?.autoList || !props.allocation?.availableDexs) return []
+// ✅ V2: DEX Display Config (Frontend only)
+const DEX_DISPLAY_CONFIG = {
+  'icpswap': { name: 'ICPSwap' },
+  'kongswap': { name: 'KongSwap' },
+  'sonic': { name: 'Sonic DEX' },
+  'icdex': { name: 'ICDex' }
+}
 
-  const enabledDexs = props.allocation.availableDexs.filter(dex => dex.enabled)
-  const dexLiquidityPercentage = Number(props.allocation.dexConfig.liquidityPercentage) || 0
+// ✅ V2: DEX Calculations from allocations array
+const dexAllocations = computed(() => {
+  // Use platforms from dexConfig
+  const platforms = props.allocation?.dexConfig?.platforms || []
+  if (platforms.length === 0) return []
+
+  const enabledDexs = platforms.filter(dex => dex.enabled)
+
+  // ✅ V2: Get DEX liquidity allocation from allocations array
+  const dexLiquidityAllocation = props.allocation?.allocations?.find(a => a.id === 'dex_liquidity')
+  const dexLiquidityPercentage = Number(dexLiquidityAllocation?.percentage) || 0
 
   return enabledDexs.map(dex => {
     const dexShare = (dex.allocationPercentage || 0) / 100
@@ -181,7 +166,7 @@ const dexAllocations = computed(() => {
 
     return {
       id: dex.id,
-      name: dex.name,
+      name: DEX_DISPLAY_CONFIG[dex.id]?.name || dex.id, // ✅ Lookup display name
       percentage: dexPercentage,
       amount: dexAmount
     }
@@ -196,13 +181,15 @@ const totalDexAmount = computed(() =>
   dexAllocations.value.reduce((sum, dex) => sum + dex.amount, 0)
 )
 
-// Team Calculations (Fixed percentages, dynamic amounts)
+// ✅ V2: Team Calculations from allocations array
 const teamAllocations = computed(() => {
-  if (!props.allocation?.teamRecipients || props.allocation.teamRecipients.length === 0) return []
+  // ✅ V2: Get team allocation from allocations array
+  const teamAllocation = props.allocation?.allocations?.find(a => a.id === 'team')
+  if (!teamAllocation || !teamAllocation.recipients || teamAllocation.recipients.length === 0) return []
 
-  const teamPercentage = Number(props.allocation.teamAllocationPercentage) || 0
+  const teamPercentage = Number(teamAllocation.percentage) || 0
 
-  return props.allocation.teamRecipients
+  return teamAllocation.recipients
     .filter(recipient => recipient.percentage > 0)
     .map(recipient => {
       const recipientShare = (recipient.percentage || 0) / 100
@@ -225,12 +212,17 @@ const totalTeamAmount = computed(() =>
   teamAllocations.value.reduce((sum, recipient) => sum + recipient.amount, 0)
 )
 
-// Custom Allocations (Fixed percentages, dynamic amounts)
+// ✅ V2: Custom Allocations from allocations array
 const customAllocations = computed(() => {
-  if (!props.allocation?.customAllocations) return []
+  if (!props.allocation?.allocations) return []
 
-  return props.allocation.customAllocations
-    .filter(allocation => allocation && allocation.percentage > 0)
+  // ✅ V2: Filter out standard allocations, keep only custom ones
+  return props.allocation.allocations
+    .filter(allocation =>
+      allocation &&
+      allocation.percentage > 0 &&
+      !['team', 'marketing', 'dex_liquidity'].includes(allocation.id)
+    )
     .map(allocation => ({
       id: allocation.id,
       name: allocation.name,
@@ -239,7 +231,7 @@ const customAllocations = computed(() => {
     }))
 })
 
-// DAO Treasury (Remaining amount)
+// Remaining amount (unallocated funds)
 const treasuryAmount = computed(() => {
   const allocated = platformFeeAmount.value + totalDexAmount.value + totalTeamAmount.value +
     customAllocations.value.reduce((sum, alloc) => sum + alloc.amount, 0)
@@ -289,9 +281,9 @@ const chartData = computed(() => {
     colors.push(CHART_COLORS[3 + index] || CHART_COLORS[CHART_COLORS.length - 1])
   })
 
-  // DAO Treasury
+  // Remaining
   if (treasuryAmount.value > 0) {
-    labels.push('DAO Treasury')
+    labels.push('Remaining')
     data.push(treasuryPercentage.value)
     values.push(treasuryAmount.value)
     colors.push(CHART_COLORS[CHART_COLORS.length - 1])

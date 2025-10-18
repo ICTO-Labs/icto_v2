@@ -16,6 +16,7 @@ export type {
   SaleToken,
   PurchaseToken,
   SaleParams,
+  SaleVisibility,
   Timeline,
   DistributionCategory,
   DEXConfig,
@@ -35,13 +36,84 @@ export type {
   Result_1,
   Result_2,
   VestingFrequency
-} from '../../../declarations/launchpad_contract/launchpad_contract.did'
+} from '../../../declarations/launchpad_factory/launchpad_factory.did'
 // Frontend-specific interfaces that extend or adapt the Candid types
+// ============= THIRD-PARTY INTEGRATIONS =============
+
+/**
+ * BlockID - Third-party identity verification service
+ * Similar to Gitcoin Passport on Internet Computer
+ *
+ * Purpose: Verify wallet authenticity through multiple verification methods
+ * to prove "human" rather than "bot" identity
+ *
+ * Service Provider: BlockID Protocol (https://blockid.cc)
+ * Verification Methods:
+ * - Social media verification (Twitter, Discord, etc.)
+ * - On-chain activity analysis
+ * - Reputation scoring
+ * - Multi-factor authentication
+ *
+ * Score Range: 0-100
+ * - 0-20: New/unverified account (likely bot)
+ * - 21-50: Basic verification
+ * - 51-80: Good reputation
+ * - 81-100: Highly trusted account
+ */
+export interface BlockIdConfig {
+  enabled: boolean                // Enable BlockID verification requirement
+  minScore: number                // Minimum score required (0-100)
+  providerCanisterId?: string     // BlockID service canister ID
+  verificationMethods?: string[]  // Required verification methods
+  bypassForWhitelisted?: boolean  // Allow whitelisted users to bypass BlockID
+}
+
+/**
+ * Whitelist Scoring Configuration
+ * Determines participant eligibility based on multiple criteria
+ */
+export interface WhitelistScoringConfig {
+  enabled: boolean
+
+  // Account Age Scoring
+  accountAge?: {
+    enabled: boolean
+    minAccountAgeInBlocks: number  // e.g., 100000 blocks ≈ 1 year
+    scoreWeight: number            // Weight in total score (0-100)
+  }
+
+  // Stake/Balance Scoring
+  stakeRequirement?: {
+    enabled: boolean
+    minStakeAmount: string         // Minimum ICP/token stake
+    tokenCanisterId?: string       // Which token to check
+    scoreWeight: number
+  }
+
+  // NFT Holder Scoring
+  nftRequirement?: {
+    enabled: boolean
+    requiredCollections: string[]  // NFT canister IDs
+    scoreWeight: number
+  }
+
+  // Transaction History Scoring
+  activityScore?: {
+    enabled: boolean
+    minTransactionCount: number
+    scoreWeight: number
+  }
+
+  // Total minimum score to qualify
+  minTotalScore: number
+}
+
+// ✅ ALIGNED WITH BACKEND: LaunchpadTypes.mo L224-L240
 export interface VestingSchedule {
-  'duration' : Time,
-  'initialUnlock' : number,
-  'cliff' : Time,
-  'frequency' : VestingFrequency,
+  cliffDays: number              // Backend: Nat (cliff period in days)
+  durationDays: number           // Backend: Nat (total vesting duration in days)
+  releaseFrequency: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'immediate' | 'linear' // Backend: VestingFrequency
+  immediateRelease: number       // Backend: Nat8 (percentage unlocked immediately 0-100) - RENAMED from immediatePercentage
 }
 export interface LaunchpadFormData {
   // Project Information - Sync with ProjectInfo
@@ -64,7 +136,7 @@ export interface LaunchpadFormData {
     tags: string[]
     category: string
     metadata?: Array<[string, string]>
-    blockIdRequired: number
+    // ❌ REMOVED: blockIdRequired - Moved to saleParams.blockIdConfig
   }
   
   // Sale Token Configuration - Sync with TokenInfo
@@ -99,6 +171,10 @@ export interface LaunchpadFormData {
   saleParams: {
     saleType: 'FairLaunch' | 'PrivateSale' | 'IDO' | 'Auction' | 'Lottery'
     allocationMethod: 'FirstComeFirstServe' | 'ProRata' | 'Lottery' | 'Weighted'
+
+    // ✅ NEW: Sale Visibility Configuration
+    visibility: 'Public' | 'WhitelistOnly' | 'Private'  // Controls discoverability and access
+
     totalSaleAmount: string
     softCap: string
     hardCap: string
@@ -106,17 +182,43 @@ export interface LaunchpadFormData {
     minContribution: string
     maxContribution?: string
     maxParticipants?: number
-    requiresWhitelist: boolean
+
+    // Whitelist Configuration
+    requiresWhitelist: boolean  // Auto-set to true for 'WhitelistOnly' and 'Private'
+    whitelistMode: 'Closed' | 'OpenRegistration'  // Auto-set to 'Closed' for 'Private'
+
+    // KYC Requirements
     requiresKYC: boolean
-    blockIdRequired: number
+    kycProvider?: string
+
+    // ✅ NEW: BlockID Third-party Service Integration
+    blockIdConfig?: BlockIdConfig  // Replaced blockIdRequired: number
+
+    // ✅ NEW: Whitelist Scoring System
+    whitelistScoring?: WhitelistScoringConfig
+
+    // Restrictions
     restrictedRegions: string[]
-    whitelistMode: 'Closed' | 'OpenRegistration'
+
+    // Whitelist Entries with enhanced scoring info
     whitelistEntries: Array<{
       principal: string
       allocation?: string
       tier?: number
+
+      // ✅ NEW: Scoring information
+      blockIdScore?: number        // Score from BlockID service (0-100)
+      whitelistScore?: number      // Calculated whitelist score
+      scoreBreakdown?: {           // Detailed score breakdown
+        accountAge?: number
+        stakeAmount?: number
+        nftHolder?: boolean
+        activityScore?: number
+      }
+
       registeredAt?: string
       approvedAt?: string
+      approvedBy?: string          // Admin who approved (for private sales)
     }>
   }
   
@@ -206,61 +308,48 @@ export interface LaunchpadFormData {
     }
   }
   
-  // Multi-DEX Support - Sync with MultiDEXConfig
+  // ✅ SIMPLIFIED: Multi-DEX Support - backend handles config details
+  // Frontend only sends DEX IDs, backend looks up name/logo/fees from config
   multiDexConfig?: {
     platforms: Array<{
-      id: string
-      name: string
-      enabled: boolean
-      allocationPercentage: number
-      calculatedTokenLiquidity: string
-      calculatedPurchaseLiquidity: string
-      fees: {
-        listing: string
-        transaction: number
-      }
+      id: string                      // Backend: Text ("icpswap", "kongswap", "sonic", etc.)
+      enabled: boolean                // Backend: Bool
+      allocationPercentage: number    // Backend: Nat8 (0-100) - % of total DEX liquidity
+      calculatedTokenLiquidity: string  // Backend: Nat (calculated token amount)
+      calculatedPurchaseLiquidity: string // Backend: Nat (calculated purchase token amount)
     }>
-    totalLiquidityAllocation: string
-    distributionStrategy: 'Equal' | 'Weighted' | 'Priority'
+    totalLiquidityAllocation: string  // Backend: Nat
+    distributionStrategy: 'Equal' | 'Weighted' | 'Priority' // Backend: DEXDistributionStrategy
   }
   
-  // Raised Funds Allocation - Sync with RaisedFundsAllocation
+  // ✅ ALIGNED WITH BACKEND: LaunchpadTypes.mo L180-L220
+  // V2 Dynamic Allocation Array Structure
   raisedFundsAllocation: {
-    teamAllocation: number
-    developmentFund: number
-    marketingFund: number
-    liquidityFund: number
-    reserveFund: number
-    teamRecipients: Array<{
-      principal: string
-      percentage: number
-      vestingSchedule?: VestingSchedule
-      description?: string
-    }>
-    developmentRecipients: Array<{
-      principal: string
-      percentage: number
-      vestingSchedule?: VestingSchedule
-      description?: string
-    }>
-    marketingRecipients: Array<{
-      principal: string
-      percentage: number
-      vestingSchedule?: VestingSchedule
-      description?: string
-    }>
-    customAllocations: Array<{
-      name: string
-      percentage: number
+    allocations: Array<{
+      id: string                 // Backend: Text ("team", "marketing", "dex_liquidity", "custom_xxx")
+      name: string               // Backend: Text (display name)
+      amount: string             // Backend: Nat (calculated amount in e8s) - string for large numbers
+      percentage: number         // Backend: Nat8 (0-100)
       recipients: Array<{
-        principal: string
-        percentage: number
-        vestingSchedule?: VestingSchedule
-        description?: string
+        principal: string        // Backend: Principal
+        percentage: number       // Backend: Nat8 (percentage within allocation 0-100)
+        name?: string           // Backend: ?Text
+        vestingEnabled: boolean  // Backend: Bool
+        vestingSchedule?: VestingSchedule // Backend: ?VestingSchedule
+        description?: string     // Backend: ?Text
       }>
-      vestingSchedule?: VestingSchedule
-      description?: string
     }>
+
+    // ✅ SIMPLIFIED: DEX Config - only IDs, backend handles details
+    dexConfig: {
+      platforms: Array<{
+        id: string              // DEX identifier: 'icpswap', 'kongswap', 'sonic', etc.
+        enabled: boolean
+        allocationPercentage: number
+        calculatedTokenLiquidity: number
+        calculatedPurchaseLiquidity: number
+      }>
+    }
   }
   
   // Affiliate Program - Sync with AffiliateConfig

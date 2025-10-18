@@ -52,3 +52,20 @@ export const TOKEN_FACTORY = {
     minTokenDecimals: 0,
     maxTokenDecimals: 18,
 }
+
+export const MONEY3_OPTIONS = {
+    masked: false,
+    prefix: '',
+    suffix: '',
+    thousands: ',',
+    decimal: '.',
+    precision: 0,
+    disableNegative: false,
+    disabled: false,
+    min: null,
+    max: null,
+    allowBlank: false,
+    minimumNumberOfCharacters: 0,
+    shouldRound: true,
+    focusOnRight: false,
+}
