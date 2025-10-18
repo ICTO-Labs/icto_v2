@@ -60,3 +60,5 @@ QWEN.md
 
 # Ignore all env files
 **/.env*
+.ai-devkit.json
+AGENTS.md
