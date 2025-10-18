@@ -259,18 +259,18 @@ const menuGroups = [
         path: "/distribution",
       },
 
-      {
-        name: "Lock",
-        icon: LockIcon,
-        subItems: [
-          { name: "Lock Elements", path: "/lock-elements", pro: false },
-        ],
-      },
-      {
-        name: "Airdrop",
-        icon: GoalIcon,
-        subItems: [{ name: "Airdrop Elements", path: "/airdrop-elements", pro: false }],
-      },
+      // {
+      //   name: "Lock",
+      //   icon: LockIcon,
+      //   subItems: [
+      //     { name: "Lock Elements", path: "/lock-elements", pro: false },
+      //   ],
+      // },
+      // {
+      //   name: "Airdrop",
+      //   icon: GoalIcon,
+      //   subItems: [{ name: "Airdrop Elements", path: "/airdrop-elements", pro: false }],
+      // },
       {
         name: "Launchpad",
         icon: RocketIcon,
@@ -289,7 +289,7 @@ const menuGroups = [
       {
         icon: PlugInIcon,
         name: "Mini DAO",
-        path: "/mini-dao",
+        path: "/dao",
       },
       {
         icon: CodeSquareIcon,
