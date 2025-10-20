@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <!-- Enable BlockID Toggle -->
+    <!-- Enable ICTO Passport Toggle -->
     <div class="flex items-center justify-between p-4 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/20 dark:to-purple-900/20 rounded-lg border border-indigo-200 dark:border-indigo-800">
       <div class="flex items-start flex-1">
         <div class="w-12 h-12 bg-indigo-100 dark:bg-indigo-900/30 rounded-lg flex items-center justify-center mr-4 flex-shrink-0">
@@ -10,17 +10,17 @@
         </div>
         <div class="flex-1">
           <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-1">
-            BlockID Verification
+            ICTO Passport Verification
           </h3>
           <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">
             Third-party identity verification service to prevent bot participation
           </p>
           <a
-            href="https://blockid.cc"
+            href="https://passport.icto.app"
             target="_blank"
             class="inline-flex items-center text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300"
           >
-            Learn more about BlockID
+            Learn more about ICTO Passport
             <svg class="w-4 h-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
             </svg>
@@ -28,23 +28,23 @@
         </div>
       </div>
       <Switch
-        v-model="blockIdConfig.enabled"
-        :class="blockIdConfig.enabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'"
+        v-model="ictoPassportConfig.enabled"
+        :class="ictoPassportConfig.enabled ? 'bg-indigo-600' : 'bg-gray-200 dark:bg-gray-700'"
         class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ml-4"
       >
         <span
-          :class="blockIdConfig.enabled ? 'translate-x-6' : 'translate-x-1'"
+          :class="ictoPassportConfig.enabled ? 'translate-x-6' : 'translate-x-1'"
           class="inline-block h-4 w-4 transform rounded-full bg-white transition"
         />
       </Switch>
     </div>
 
-    <!-- BlockID Configuration (when enabled) -->
-    <div v-if="blockIdConfig.enabled" class="space-y-6 animate-fadeIn">
+    <!-- ICTO Passport Configuration (when enabled) -->
+    <div v-if="ictoPassportConfig.enabled" class="space-y-6 animate-fadeIn">
       <!-- Minimum Score Requirement -->
       <div class="bg-white dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
         <label class="block text-sm font-medium text-gray-900 dark:text-white mb-3">
-          Minimum BlockID Score Required
+          Minimum ICTO Passport Score Required
         </label>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
           Set the minimum verification score (0-100) that participants must have to join your sale
@@ -60,18 +60,18 @@
             </div>
             <div class="text-right">
               <span class="text-sm font-semibold inline-block px-3 py-1 rounded-full" :class="[
-                blockIdConfig.minScore >= 81 ? 'text-green-800 dark:text-green-200 bg-green-100 dark:bg-green-900/30' :
-                blockIdConfig.minScore >= 51 ? 'text-blue-800 dark:text-blue-200 bg-blue-100 dark:bg-blue-900/30' :
-                blockIdConfig.minScore >= 21 ? 'text-yellow-800 dark:text-yellow-200 bg-yellow-100 dark:bg-yellow-900/30' :
+                ictoPassportConfig.minScore >= 81 ? 'text-green-800 dark:text-green-200 bg-green-100 dark:bg-green-900/30' :
+                ictoPassportConfig.minScore >= 51 ? 'text-blue-800 dark:text-blue-200 bg-blue-100 dark:bg-blue-900/30' :
+                ictoPassportConfig.minScore >= 21 ? 'text-yellow-800 dark:text-yellow-200 bg-yellow-100 dark:bg-yellow-900/30' :
                 'text-red-800 dark:text-red-200 bg-red-100 dark:bg-red-900/30'
               ]">
-                {{ blockIdConfig.minScore }}
+                {{ ictoPassportConfig.minScore }}
               </span>
             </div>
           </div>
 
           <input
-            v-model.number="blockIdConfig.minScore"
+            v-model.number="ictoPassportConfig.minScore"
             type="range"
             min="0"
             max="100"
@@ -99,7 +99,7 @@
         <!-- Score Level Explanation -->
         <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
           <div class="p-4 rounded-lg border" :class="[
-            blockIdConfig.minScore >= 81 ? 'border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+            ictoPassportConfig.minScore >= 81 ? 'border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
           ]">
             <div class="flex items-center mb-2">
               <div class="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
@@ -111,7 +111,7 @@
           </div>
 
           <div class="p-4 rounded-lg border" :class="[
-            blockIdConfig.minScore >= 51 && blockIdConfig.minScore < 81 ? 'border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+            ictoPassportConfig.minScore >= 51 && ictoPassportConfig.minScore < 81 ? 'border-blue-300 bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
           ]">
             <div class="flex items-center mb-2">
               <div class="w-3 h-3 rounded-full bg-blue-500 mr-2"></div>
@@ -123,7 +123,7 @@
           </div>
 
           <div class="p-4 rounded-lg border" :class="[
-            blockIdConfig.minScore >= 21 && blockIdConfig.minScore < 51 ? 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+            ictoPassportConfig.minScore >= 21 && ictoPassportConfig.minScore < 51 ? 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 dark:border-yellow-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
           ]">
             <div class="flex items-center mb-2">
               <div class="w-3 h-3 rounded-full bg-yellow-500 mr-2"></div>
@@ -135,7 +135,7 @@
           </div>
 
           <div class="p-4 rounded-lg border" :class="[
-            blockIdConfig.minScore < 21 ? 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
+            ictoPassportConfig.minScore < 21 ? 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-800' : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
           ]">
             <div class="flex items-center mb-2">
               <div class="w-3 h-3 rounded-full bg-red-500 mr-2"></div>
@@ -170,25 +170,25 @@
         <div class="flex items-center justify-between">
           <div class="flex-1">
             <label class="block text-sm font-medium text-gray-900 dark:text-white mb-1">
-              Bypass BlockID for Whitelisted Users
+              Bypass ICTO Passport for Whitelisted Users
             </label>
             <p class="text-sm text-gray-600 dark:text-gray-400">
-              Allow manually whitelisted addresses to participate without BlockID verification
+              Allow manually whitelisted addresses to participate without ICTO Passport verification
             </p>
           </div>
           <Switch
-            v-model="blockIdConfig.bypassForWhitelisted"
-            :class="blockIdConfig.bypassForWhitelisted ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'"
+            v-model="ictoPassportConfig.bypassForWhitelisted"
+            :class="ictoPassportConfig.bypassForWhitelisted ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'"
             class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ml-4"
           >
             <span
-              :class="blockIdConfig.bypassForWhitelisted ? 'translate-x-6' : 'translate-x-1'"
+              :class="ictoPassportConfig.bypassForWhitelisted ? 'translate-x-6' : 'translate-x-1'"
               class="inline-block h-4 w-4 transform rounded-full bg-white transition"
             />
           </Switch>
         </div>
 
-        <div v-if="blockIdConfig.bypassForWhitelisted" class="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+        <div v-if="ictoPassportConfig.bypassForWhitelisted" class="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
           <div class="flex items-start">
             <svg class="w-5 h-5 text-yellow-500 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
@@ -196,7 +196,7 @@
             <div class="flex-1">
               <p class="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-1">Security Note</p>
               <p class="text-sm text-yellow-700 dark:text-yellow-300">
-                Whitelisted users can skip BlockID verification. Ensure you trust manually added addresses.
+                Whitelisted users can skip ICTO Passport verification. Ensure you trust manually added addresses.
               </p>
             </div>
           </div>
@@ -272,7 +272,7 @@ import { useLaunchpadForm } from '@/composables/useLaunchpadForm'
 
 const { formData } = useLaunchpadForm()
 
-const blockIdConfig = computed(() => formData.value.saleParams.blockIdConfig || {
+const ictoPassportConfig = computed(() => formData.value.saleParams.ictoPassportConfig || {
   enabled: false,
   minScore: 50,
   providerCanisterId: undefined,

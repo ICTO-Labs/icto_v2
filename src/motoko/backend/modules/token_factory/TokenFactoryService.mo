@@ -33,7 +33,7 @@ module TokenFactoryService {
         caller: Principal,
         tokenConfig: TokenFactoryTypes.TokenConfig,
         deploymentConfig: TokenFactoryTypes.DeploymentConfig,
-        configState: ConfigTypes.State,
+        _configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : Result.Result<TokenFactoryTypes.PreparedDeployment, Text> {
 

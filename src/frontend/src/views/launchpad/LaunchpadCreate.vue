@@ -192,19 +192,19 @@
             <h3 class="text-lg font-semibold text-yellow-900 dark:text-yellow-100 mb-4">Verification & Compliance</h3>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <!-- BlockID Verification -->
+              <!-- ICTO Passport Verification -->
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  BlockID Required <HelpTooltip>Minimum BlockID level required for participants. Higher levels indicate more verified users with established identity and reputation. If you don't want to use BlockID, leave it as 0.</HelpTooltip>
+                  ICTO Passport Required <HelpTooltip>Minimum ICTO Passport level required for participants. Higher levels indicate more verified users with established identity and reputation. If you don't want to use ICTO Passport, leave it as 0.</HelpTooltip>
                 </label>
                 <input
-                  v-model="formData.projectInfo.blockIdRequired"
+                  v-model="formData.projectInfo.minICTOPassportScore"
                   type="number"
                   min="0"
                   placeholder="e.g.0, 1, 2, 3, 4, 5"
                   class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
                 />
-                <p class="text-xs text-gray-500 mt-1">Higher BlockID levels reduce bot participation and increase user quality</p>
+                <p class="text-xs text-gray-500 mt-1">Higher ICTO Passport levels reduce bot participation and increase user quality</p>
               </div>
 
               <!-- KYC Provider -->
@@ -1605,7 +1605,7 @@ const formData = ref({
     isKYCed: false,
     isAudited: false,
     metadata: [],
-    blockIdRequired: 0
+    minICTOPassportScore: 0
   } as any,
   saleToken: {
     name: '',
@@ -1643,7 +1643,7 @@ const formData = ref({
     maxParticipants: '',
     requiresWhitelist: false,
     requiresKYC: false,
-    blockIdRequired: BigInt(0),
+    minICTOPassportScore: BigInt(0),
     restrictedRegions: [],
     whitelistAddresses: [] as { principal: string; allocation?: string }[],
     whitelistMode: 'closed' as string

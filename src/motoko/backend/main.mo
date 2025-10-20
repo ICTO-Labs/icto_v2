@@ -1,6 +1,5 @@
 import Principal "mo:base/Principal";
 import Result "mo:base/Result";
-import Time "mo:base/Time";
 import Trie "mo:base/Trie";
 import Array "mo:base/Array";
 import Error "mo:base/Error";
@@ -10,7 +9,6 @@ import Text "mo:base/Text";
 import Buffer "mo:base/Buffer";
 import Nat "mo:base/Nat";
 import Debug "mo:base/Debug";
-import Queue "mo:core/Queue";
 import HashMap "mo:base/HashMap";
 
 // System Modules
@@ -44,7 +42,10 @@ import DAOFactoryInterface "./modules/dao_factory/DAOFactoryInterface";
 import MultisigFactoryService "./modules/multisig_factory/MultisigFactoryService";
 import MultisigFactoryTypes "./modules/multisig_factory/MultisigFactoryTypes";
 import MultisigFactoryInterface "./modules/multisig_factory/MultisigFactoryInterface";
-// Launchpad, Lock modules are used via the Microservice module
+import LaunchpadFactoryService "./modules/launchpad_factory/LaunchpadFactoryService";
+import LaunchpadFactoryTypes "./modules/launchpad_factory/LaunchpadFactoryTypes";
+import LaunchpadFactoryInterface "./modules/launchpad_factory/LaunchpadFactoryInterface";
+// Lock module is used via the Microservice module
 
 // Shared Types
 import Common "./shared/types/Common";
@@ -87,7 +88,6 @@ persistent actor Backend {
     private transient var multisigFactoryState : MultisigFactoryTypes.ServiceState = MultisigFactoryService.initState();
     private transient var factoryRegistryState : FactoryRegistryTypes.State = FactoryRegistryService.initState();
     private transient var tokenSymbolRegistry : Trie.Trie<Text, Principal> = Trie.empty();
-    private transient var defaultTokens : [Common.TokenInfo] = [];
     private transient var factoryAdminsMap : HashMap.HashMap<Principal, [Principal]> = HashMap.fromIter(
         factoryAdmins.vals(),
         10,
@@ -341,6 +341,17 @@ persistent actor Backend {
                         maxProposalLifetime = request.config.maxProposalLifetime;
                         emergencyContacts = [];
                     });
+                    case (#Launchpad(config)) #Launchpad({
+                        projectName = config.projectInfo.name;
+                        saleTokenSymbol = config.saleToken.symbol;
+                        purchaseTokenSymbol = config.purchaseToken.symbol;
+                        totalSaleAmount = config.saleParams.totalSaleAmount;
+                        softCap = config.saleParams.softCap;
+                        hardCap = config.saleParams.hardCap;
+                        saleType = debug_show (config.saleParams.saleType);
+                        requiresWhitelist = config.saleParams.requiresWhitelist;
+                        affiliateEnabled = config.affiliateConfig.enabled;
+                    });
                 };
                 status = #Initiated;
                 payload = debug_show (payload);
@@ -490,6 +501,32 @@ persistent actor Backend {
                         };
                     };
                 };
+                case (#Launchpad(config)) {
+                    Debug.print("Preparing Launchpad deployment");
+                    Debug.print("🚥 Launchpad Config: " # debug_show (config));
+                    let preparedCallResult = await LaunchpadFactoryService.prepareDeployment(
+                        (), // Launchpad factory doesn't need internal state
+                        caller,
+                        config,
+                        configState,
+                        microserviceState,
+                    );
+
+                    Debug.print("⚠️ Prepared Call Result: " # debug_show (preparedCallResult));
+
+                    switch (preparedCallResult) {
+                        case (#err(msg)) { #err(msg) };
+                        case (#ok(call)) {
+                            Debug.print("⚠️ Launchpad Call: " # debug_show (call));
+                            let deployerActor = actor (Principal.toText(call.canisterId)) : LaunchpadFactoryInterface.LaunchpadFactoryActor;
+                            let result = await deployerActor.createLaunchpad(call.args);
+                            switch (result) {
+                                case (#ok(res)) { #ok(res.canisterId) };
+                                case (#err(msg)) { #err(msg) };
+                            };
+                        };
+                    };
+                };
             };
         };
 
@@ -525,6 +562,7 @@ persistent actor Backend {
                     case (#CreateTemplate) { ?#Template };
                     case (#CreateDAO) { ?#DAO };
                     case (#CreateMultisig) { ?#Multisig };
+                    case (#CreateLaunchpad) { ?#Launchpad };
                     case _ { null };
                 };
                 
@@ -556,6 +594,13 @@ persistent actor Backend {
                                 ?{
                                     name = ?request.config.name;
                                     description = request.config.description;
+                                    version = null;
+                                }
+                            };
+                            case (#Launchpad(config)) {
+                                ?{
+                                    name = ?config.projectInfo.name;
+                                    description = ?config.projectInfo.description;
                                     version = null;
                                 }
                             };
@@ -967,6 +1012,43 @@ persistent actor Backend {
         };
     };
 
+    public shared ({ caller }) func deployLaunchpad(
+        config : LaunchpadFactoryTypes.LaunchpadConfig,
+        projectId : ?ProjectTypes.ProjectId
+    ) : async Result.Result<{ launchpadId: Text; canisterId: Principal }, Text> {
+
+        // Basic validation
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated to deploy a launchpad.");
+        };
+
+        // All complex logic is now delegated to the standard flow
+        let flowResult = await _handleStandardDeploymentFlow(
+            caller,
+            #CreateLaunchpad, // The specific ActionType for auditing and fees
+            projectId,
+            #Launchpad(config),
+        );
+
+        switch (flowResult) {
+            case (#err(msg)) { return #err(msg) };
+            case (#ok(result)) {
+                Debug.print("✅ Launchpad deployment flow completed, result: " # debug_show(result));
+
+                // Return the specific result type expected by the frontend
+                let launchpadIdText = Principal.toText(result.canisterId);
+                Debug.print("🎯 About to return launchpad deployment result:");
+                Debug.print("  launchpadId: " # launchpadIdText);
+                Debug.print("  canisterId: " # Principal.toText(result.canisterId));
+
+                return #ok({
+                    launchpadId = launchpadIdText;
+                    canisterId = result.canisterId;
+                });
+            };
+        };
+    };
+
 
     // ==================================================================================================
     // ADMIN & HEALTH-CHECK
@@ -985,7 +1067,7 @@ persistent actor Backend {
     public shared ({ caller }) func setCanisterIds(canisterIds : MicroserviceTypes.CanisterIds) : async () {
         // 1. Authorization Check
         switch (_onlyAdmin(caller)) {
-            case (#err(msg)) {
+            case (#err(_msg)) {
                 // Log failure and return
                 Debug.print("setCanisterIds: Admin access required");
                 ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("setCanisterIds: Admin access required"), null, null, null, null);
@@ -1132,7 +1214,7 @@ persistent actor Backend {
     public shared ({ caller }) func forceResetMicroserviceSetup() : async () {
         // Authorization Check
         switch (_onlySuperAdmin(caller)) {
-            case (#err(msg)) {
+            case (#err(_msg)) {
                 ignore await AuditService.logAction(auditState, caller, #AccessDenied, #RawData("forceResetMicroserviceSetup: Super-admin access required"), null, null, null, null);
                 return;
             };
@@ -1175,7 +1257,7 @@ persistent actor Backend {
     };
 
     //Get all refund requests
-    public shared ({ caller }) func adminGetRefundRequests(userId : ?Common.UserId) : async [PaymentTypes.RefundRequest] {
+    public shared ({ caller = _ }) func adminGetRefundRequests(userId : ?Common.UserId) : async [PaymentTypes.RefundRequest] {
         // if (not _isAdmin(caller)) { return []; };
         return PaymentService.getRefundRequests(paymentState, userId);
     };
@@ -1906,6 +1988,8 @@ persistent actor Backend {
                     case (#DistributionRecipient) { userMap.distributions };
                     case (#LaunchpadParticipant) { userMap.launchpads };
                     case (#DAOMember) { userMap.daos };
+                    case (#DAOOwner) { userMap.daos };
+                    case (#DAOEmergencyContact) { userMap.daos };
                     case (#MultisigSigner) { userMap.multisigs };
                 };
                 #Ok(canisters)

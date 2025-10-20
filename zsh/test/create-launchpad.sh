@@ -146,7 +146,7 @@ record {
         tags = vec { "DeFi"; "Test"; "ICO" };
         category = variant { DeFi };
         metadata = vec {};
-        blockIdRequired = 1000 : nat64;
+        minICTOPassportScore = 1000 : nat64;
     };
     saleToken = record {
         canisterId = null;
@@ -184,7 +184,7 @@ record {
         maxParticipants = opt 1000 : opt nat;
         requiresWhitelist = false;
         requiresKYC = false;
-        blockIdRequired = 1000 : nat64;
+        minICTOPassportScore = 1000 : nat64;
         restrictedRegions = vec {};
         whitelistMode = variant { OpenRegistration };
         whitelistEntries = vec {};

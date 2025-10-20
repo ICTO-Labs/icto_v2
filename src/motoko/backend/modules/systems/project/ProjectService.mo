@@ -12,7 +12,7 @@ module ProjectService {
     // ==================================================================================================
 
     // --- STATE MANAGEMENT ---
-    public func initState(owner: Principal) : ProjectTypes.State {
+    public func initState(_owner: Principal) : ProjectTypes.State {
         ProjectTypes.emptyState()
     };
 

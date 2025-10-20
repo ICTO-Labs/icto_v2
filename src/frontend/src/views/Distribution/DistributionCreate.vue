@@ -487,7 +487,7 @@
 													Security Recommendation
 												</h6>
 												<p class="text-sm text-amber-700 dark:text-amber-300">
-													We recommend enabling BlockID and set a minimum score to prevent malicious users/bots from claiming tokens at settings section.
+													We recommend enabling ICTO Passport and set a minimum score to prevent malicious users/bots from claiming tokens at settings section.
 												</p>
 											</div>
 										</div>
@@ -936,17 +936,17 @@
 											<p class="mt-2 text-xs text-gray-500">Principal that can manage this distribution (MiniDAO, SNS, etc.)</p>
 										</div> -->
 									
-									<!-- BlockID Optional Configuration -->
+									<!-- ICTO Passport Optional Configuration -->
 									
 										<BaseSwitch
 											v-model="formData.useBlockId"
-											label="Require BlockID score check for eligibility"
+											label="Require ICTO Passport score check for eligibility"
 											label-position="right"
 										/>
 										
 										<!-- Block ID Score Input (conditional) -->
 										<div v-if="formData.useBlockId" class="mt-2">
-											<input v-model.number="formData.blockIdScore" type="number" required min="0"
+											<input v-model.number="formData.ictoPassportScore" type="number" required min="0"
 												placeholder="50"
 												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm text-sm" />
 											<p class="mt-2 text-xs text-gray-500">Minimum Block ID score required for eligibility</p>
@@ -1490,7 +1490,7 @@ const formData = reactive<DistributionFormData>({
 		canisterId: '',
 		minCount: 1
 	},
-	blockIdScore: 0,
+	ictoPassportScore: 0,
 	recipientMode: { SelfService: null },
 	maxRecipients: undefined,
 
@@ -1696,7 +1696,7 @@ const canProceed = computed(() => {
 			let allValid = basicValid && tokenValid
 			
 			if (formData.useBlockId) {
-				allValid = allValid && formData?.blockIdScore && formData?.blockIdScore > 0
+				allValid = allValid && formData?.ictoPassportScore && formData?.ictoPassportScore > 0
 			}
 			
 			return allValid
@@ -2033,7 +2033,7 @@ const buildDistributionConfig = () => {
 		// Include token/NFT holder configurations
 		tokenHolderConfig: formData.tokenHolderConfig,
 		nftHolderConfig: formData.nftHolderConfig,
-		blockIdScore: formData.blockIdScore,
+		ictoPassportScore: formData.ictoPassportScore,
 		recipientMode: formData.recipientMode,
 		maxRecipients: formData.maxRecipients,
 		vestingSchedule: buildVestingSchedule(),
@@ -2159,7 +2159,7 @@ const closeSuccessModal = () => {
 		allowCancel: true,
 		allowModification: false,
 		whitelistAddresses: [],
-		blockIdScore: 0
+		ictoPassportScore: 0
 	})
 	currentStep.value = 0
 }

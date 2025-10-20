@@ -62,7 +62,7 @@ export function useLaunchpadForm() {
         isKYCed: false,
         isAudited: false,
         metadata: [],
-        blockIdRequired: 0
+        minICTOPassportScore: 0
       },
 
       // Enhanced token configuration
@@ -117,13 +117,13 @@ export function useLaunchpadForm() {
         requiresKYC: false,
         kycProvider: '',
 
-        // ✅ NEW: BlockID Third-party Service (disabled by default)
-        blockIdConfig: {
+        // ✅ NEW: ICTO Passport Third-party Service (disabled by default)
+        ictoPassportConfig: {
           enabled: false,
           minScore: 50,  // Default: basic verification required
           providerCanisterId: undefined,
           verificationMethods: [],
-          bypassForWhitelisted: true  // Allow whitelisted users to skip BlockID
+          bypassForWhitelisted: true  // Allow whitelisted users to skip ICTO Passport
         },
 
         // ✅ NEW: Whitelist Scoring (disabled by default)
@@ -139,7 +139,7 @@ export function useLaunchpadForm() {
           principal: string
           allocation?: string
           tier?: number
-          blockIdScore?: number
+          ictoPassportScore?: number
           whitelistScore?: number
           scoreBreakdown?: {
             accountAge?: number

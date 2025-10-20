@@ -1,8 +1,55 @@
 # Launchpad Factory - Type Migration Guide
 
-**Date:** 2025-10-17
-**Version:** V2 Migration
+**Date:** 2025-10-20 (Updated)
+**Version:** V2.1 Migration
 **Status:** 🔄 Ready for Implementation
+
+---
+
+## 🚨 BREAKING: LaunchpadSaleToken Type Addition (2025-10-20)
+
+### ✅ Completed - No Action Required
+
+**What Changed:**
+Created a new `LaunchpadSaleToken` type to properly model the launchpad lifecycle where the sale token is deployed AFTER soft cap is reached, not at creation.
+
+**Type Definition:**
+```motoko
+// NEW: Launchpad-specific sale token (canisterId optional)
+public type LaunchpadSaleToken = {
+    canisterId: ?Principal;  // Optional - deployed after soft cap
+    symbol: Text;
+    name: Text;
+    decimals: Nat8;
+    totalSupply: Nat;
+    transferFee: Nat;
+    logo: ?Text;
+    description: ?Text;
+    website: ?Text;
+    standard: Text;
+};
+
+// UNCHANGED: Regular TokenInfo (all other factories)
+public type TokenInfo = {
+    canisterId: Principal;  // Required - must exist
+    // ... same fields as LaunchpadSaleToken
+};
+```
+
+**Impact:**
+- ✅ **Frontend:** No changes needed - `saleToken.canisterId?: string` already correct
+- ✅ **Backend:** Types updated, build successful
+- ✅ **TypeConverter:** Already sends empty array `[]` for optional canisterId
+- ✅ **Other Factories:** No breaking changes - continue using `TokenInfo`
+
+**Why This Change:**
+The launchpad flow is unique:
+1. Create launchpad → sale token doesn't exist yet
+2. Sale period → users buy with purchase token
+3. Reach soft cap → deploy sale token
+4. Distribute tokens
+
+Using `TokenInfo` with required `canisterId` was forcing an anti-pattern of providing fake/placeholder canister IDs at creation time.
 
 ---
 
@@ -487,7 +534,7 @@ export function transformToBackendConfig(formData: LaunchpadFormData): any {
       maxParticipants: formData.saleParams.maxParticipants || null,
       requiresWhitelist: formData.saleParams.requiresWhitelist,
       requiresKYC: formData.saleParams.requiresKYC,
-      blockIdRequired: BigInt(formData.saleParams.blockIdRequired),
+      minICTOPassportScore: BigInt(formData.saleParams.minICTOPassportScore),
       restrictedRegions: formData.saleParams.restrictedRegions,
       whitelistMode: mapWhitelistModeToVariant(formData.saleParams.whitelistMode),
       whitelistEntries: formData.saleParams.whitelistEntries.map(entry => ({

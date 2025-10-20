@@ -20,6 +20,7 @@ import { useSwal } from '@/composables/useSwal2'
 import { toast } from 'vue-sonner'
 import { handleApproveResult } from '@/utils/icrc'
 import { formatICP } from '@/utils/dashboard'
+import { TypeConverter } from '@/utils/TypeConverter'
 import type {
   PaymentConfig,
   PaymentState,
@@ -357,12 +358,14 @@ export function useLaunchpadPayment() {
 
   /**
    * Convert LaunchpadFormData to LaunchpadConfig (backend format)
+   * Uses TypeConverter to properly handle optional fields for Candid
    */
   const convertFormDataToConfig = (formData: any): LaunchpadConfig => {
-    // This conversion depends on the exact shape of LaunchpadConfig from the backend
-    // For now, assuming formData is already in the correct format or close to it
-    // In a real implementation, you'd need to map all fields correctly
-    return formData as LaunchpadConfig
+    // TypeConverter handles conversion of optional fields to Candid format:
+    // - Empty strings ("") → []
+    // - Values ("value") → ["value"]
+    // - This prevents Candid serialization errors
+    return TypeConverter.formDataToLaunchpadConfig(formData)
   }
 
   // ============= RETRY LOGIC =============

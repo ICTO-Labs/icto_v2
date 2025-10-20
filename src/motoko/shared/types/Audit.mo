@@ -168,9 +168,15 @@ module {
     };
     
     public type LaunchpadActionData = {
-        launchpadName: Text;
-        daoEnabled: Bool;
-        votingConfig: Text;
+        projectName: Text;
+        saleTokenSymbol: Text;
+        purchaseTokenSymbol: Text;
+        totalSaleAmount: Nat;
+        softCap: Nat;
+        hardCap: Nat;
+        saleType: Text;
+        requiresWhitelist: Bool;
+        affiliateEnabled: Bool;
     };
     
     public type PaymentActionData = {

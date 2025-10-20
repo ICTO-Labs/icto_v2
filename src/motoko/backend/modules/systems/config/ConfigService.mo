@@ -15,7 +15,7 @@ import ConfigTypes "./ConfigTypes";
 
 module ConfigService {
 
-    private func buildTrie<K,V>(entries: [(K,V)], hash: K -> Nat32, equal: (K,K) -> Bool) : Trie.Trie<K,V> {
+    private func _buildTrie<K,V>(entries: [(K,V)], hash: K -> Nat32, equal: (K,K) -> Bool) : Trie.Trie<K,V> {
         var trie = Trie.empty<K,V>();
         for ((k, v) in entries.vals()) {
             trie := Trie.put(trie, {key=k; hash=hash(k)}, equal, v).0;

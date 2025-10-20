@@ -667,6 +667,8 @@ module FactoryRegistryService {
                     case (#LaunchpadParticipant) { ?#Launchpad };
                     case (#DAOMember) { ?#DAO };
                     case (#MultisigSigner) { ?#Multisig };
+                    case (#DAOOwner) { ?#DAO };
+                    case (#DAOEmergencyContact) { ?#DAO };
                 };
                 
                 switch (expectedDeploymentType) {

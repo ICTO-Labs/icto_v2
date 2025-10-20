@@ -1,8 +1,179 @@
 # Launchpad Factory - Development Changelog
 
 **Module:** Launchpad Factory
-**Current Version:** 1.0.0
-**Last Updated:** 2025-01-11
+**Current Version:** 1.0.1
+**Last Updated:** 2025-10-20
+
+### 2025-10-20 - Create LaunchpadSaleToken Type (Breaking Change Avoidance)
+
+**Status:** ✅ Completed
+**Type:** Refactor / Type System Enhancement
+**Priority:** High
+
+**Task Checklist:**
+- [x] Create new LaunchpadSaleToken type with optional canisterId
+- [x] Update LaunchpadConfig to use LaunchpadSaleToken for saleToken field
+- [x] Update LaunchpadFactoryTypes.mo backend type definition
+- [x] Keep TokenInfo unchanged (backward compatibility for other factories)
+- [x] Update frontend TypeConverter to send empty array [] for saleToken.canisterId
+- [x] Update backend validation to skip saleToken.canisterId validation
+- [x] Build and generate backend declarations
+- [x] Update documentation
+
+**Summary:**
+Created a separate `LaunchpadSaleToken` type to properly model the launchpad flow where the sale token is deployed AFTER the launchpad reaches soft cap, not during creation. This avoids breaking changes to the shared `TokenInfo` type which is used by all other factories (Distribution, Token, DAO, Multisig) where canisterId is always required. The launchpad is unique in that the sale token doesn't exist yet at creation time.
+
+**Launchpad Flow:**
+1. Create Launchpad → sale token does NOT exist yet (canisterId = null)
+2. Sale period → users contribute with purchase token
+3. Reach soft cap → deploy sale token (canisterId set)
+4. Distribute tokens to participants
+
+**Type Definitions:**
+
+```motoko
+// Shared type - used by all factories (canisterId always required)
+public type TokenInfo = {
+    canisterId: Principal;  // Required
+    symbol: Text;
+    name: Text;
+    // ... other fields
+};
+
+// Launchpad-specific type - canisterId optional
+public type LaunchpadSaleToken = {
+    canisterId: ?Principal;  // Optional - null until deployed
+    symbol: Text;
+    name: Text;
+    // ... other fields (same as TokenInfo)
+};
+
+// LaunchpadConfig uses both types appropriately
+public type LaunchpadConfig = {
+    saleToken: LaunchpadSaleToken;  // Optional canisterId
+    purchaseToken: TokenInfo;       // Required canisterId (users buy with this)
+    // ... other fields
+};
+```
+
+**Files Modified:**
+- `src/motoko/shared/types/LaunchpadTypes.mo` - Added LaunchpadSaleToken type (line 34-46)
+- `src/motoko/shared/types/LaunchpadTypes.mo` - Updated LaunchpadConfig.saleToken to use LaunchpadSaleToken (line 490)
+- `src/motoko/backend/modules/launchpad_factory/LaunchpadFactoryTypes.mo` - Updated saleToken type (line 17)
+- `src/motoko/backend/modules/launchpad_factory/LaunchpadFactoryService.mo` - Removed saleToken.canisterId validation (line 93-95)
+- `src/frontend/src/utils/TypeConverter.ts` - Already correct (sends empty array for optional canisterId)
+
+**Breaking Changes:** None - This change avoids breaking existing factories by creating a separate type
+
+**Backward Compatibility:**
+- All existing factories (Distribution, Token, DAO, Multisig) continue using `TokenInfo` with required canisterId
+- Only Launchpad uses the new `LaunchpadSaleToken` type
+- No migration needed for existing contracts
+
+**Frontend Changes:**
+- Frontend types already correct: `saleToken.canisterId?: string` (optional)
+- TypeConverter correctly sends `canisterId: []` (empty array = null in Candid)
+- No breaking changes to frontend code
+
+**Build Status:**
+✅ Backend build successful
+✅ Declarations generated
+✅ Type system validated
+
+**Notes:**
+- This is the correct modeling of the launchpad lifecycle
+- Avoids the anti-pattern of requiring a non-existent canister ID at creation
+- Maintains type safety while supporting the unique launchpad flow
+- User correctly identified the issue: "Nếu như dùng chung thì việc sửa tokenInfo sẽ là break change lớn"
+
+---
+
+### 2025-10-20 - Rename BlockID to ICTO Passport (Full Codebase)
+
+**Status:** ✅ Completed
+**Type:** Refactor
+**Priority:** Medium
+
+**Task Checklist:**
+- [x] Design professional naming convention for ICTO Passport
+- [x] Create automated rename script
+- [x] Rename component file: BlockIdScoreConfig → ICTOPassportScoreConfig
+- [x] Update all frontend types (ICTOPassportConfig)
+- [x] Update all backend Motoko types
+- [x] Update variable names (blockIdConfig → ictoPassportConfig)
+- [x] Update all component imports
+- [x] Update documentation and markdown files
+- [x] Create comprehensive naming convention guide
+- [x] Fix space issues: ICTO PassportScore → ICTOPassportScore
+- [x] Rename blockIdRequired → minICTOPassportScore
+
+**Summary:**
+Renamed "BlockID" to "ICTO Passport" across entire codebase to avoid confusion with blockchain block IDs and align with ICTO's unified service ecosystem (similar to Gitcoin Passport). This is a naming-only refactor with no functional changes. Updated 22+ files including frontend components, types, composables, backend Motoko types, and documentation. Fixed critical space issues in variant/function names (ICTO PassportScore → ICTOPassportScore). Renamed legacy field blockIdRequired → minICTOPassportScore for clarity and consistency.
+
+**Naming Convention:**
+- Components: `ICTOPassportScoreConfig.vue` (PascalCase)
+- Types: `ICTOPassportConfig` (PascalCase)
+- Variables: `ictoPassportConfig` (camelCase)
+- Constants: `ICTO_PASSPORT_MIN_SCORE` (UPPER_SNAKE_CASE)
+- CSS: `.icto-passport-badge` (kebab-case)
+
+**Files Modified (22 total):**
+- **Frontend Components (4):** ICTOPassportScoreConfig.vue, SaleVisibilityConfig.vue, TokenSaleSetupStep.vue, VerificationStep.vue
+- **Frontend Types (4):** backend.ts, distribution.ts, launchpad.ts, motoko-backend.ts
+- **Frontend Composables (1):** useLaunchpadForm.ts
+- **Frontend Utils (2):** distribution.ts, distribution_old.ts
+- **Frontend Views (2):** DistributionCreate.vue, LaunchpadCreate.vue
+- **Frontend Data (1):** launchpadTemplates.ts
+- **Backend Types (2):** DistributionTypes.mo, LaunchpadTypes.mo
+- **Backend Validation (1):** LaunchpadFactoryValidation.mo
+- **Backend Factories (1):** DistributionContract.mo
+- **Documentation (4):** CHANGELOG.md, IMPLEMENTATION_STATUS_2025-10-18.md, SESSION_SUMMARY_2025-10-18.md, README_WHITELIST_SYSTEM.md
+
+**Breaking Changes:** None - naming convention migration only, all functionality identical
+
+**Documentation:**
+- Created comprehensive guide: `ICTO_PASSPORT_NAMING_CONVENTION.md`
+- Includes usage examples, migration checklist, verification steps
+
+**Script:**
+- Created: `zsh/rename_blockid_to_ictopassport.sh`
+- Automated bulk rename with backup creation
+- Safe sed-based replacements preserving context
+
+---
+
+### 2025-10-20 - Critical Bug Fixes: Backend Function Call & Template Binding
+
+**Status:** ✅ Completed
+**Type:** Bug Fix
+**Priority:** Critical
+
+**Task Checklist:**
+- [x] Fix backend function call mismatch (deployLaunchpad → createLaunchpad)
+- [x] Fix LaunchOverviewStep template binding syntax (formData.value → formData)
+- [x] Add debug console logging for formData state tracking
+- [x] Verify data flow from composable to Overview step
+
+**Summary:**
+Fixed critical deployment error where frontend was calling `actor.deployLaunchpad()` but backend function is `createLaunchpad()`. Also fixed LaunchOverviewStep template bindings that were using `formData.value` instead of `formData` - Vue auto-unwraps refs in templates, so double-unwrapping caused all data to show as "Not specified". Data was present in formData but not displaying due to incorrect template syntax.
+
+**Root Causes:**
+1. **Backend Function Mismatch:** LaunchpadService was calling non-existent `deployLaunchpad()` instead of `createLaunchpad()`
+2. **Template Binding Error:** Used `formData.value?.projectInfo?.name` in template instead of `formData?.projectInfo?.name`. Vue automatically unwraps refs in templates, so `.value` caused double-unwrapping → undefined.
+
+**Files Modified:**
+- `src/frontend/src/api/services/launchpad.ts:99` (fixed function call)
+- `src/frontend/src/components/launchpad_v2/LaunchOverviewStep.vue` (fixed 6 template bindings)
+- `src/frontend/src/components/launchpad_v2/ProjectSetupStep.vue` (added debug logging)
+
+**Breaking Changes:** None
+
+**Notes:**
+- Console logs confirmed formData has correct values: `projectInfo.name = "Basic Information"`, `saleType = "FairLaunch"`
+- Issue was purely template syntax - data binding works correctly with composable pattern
+- Debug logs can be removed after verification
+
+---
 
 ### 2025-10-18 - Complete Whitelist Management System Implementation
 
@@ -19,7 +190,7 @@
 - [x] Test integration and fix mapping issues
 
 **Summary:**
-Implemented complete whitelist management system with CSV import and manual entry capabilities. Integrated BlockID verification components into Step 1 of the launchpad creation flow. Added proper SaleVisibility to SaleType backend mapping for compatibility.
+Implemented complete whitelist management system with CSV import and manual entry capabilities. Integrated ICTO Passport verification components into Step 1 of the launchpad creation flow. Added proper SaleVisibility to SaleType backend mapping for compatibility.
 
 **Files Modified:**
 - `src/frontend/src/components/launchpad_v2/WhitelistImport.vue` (created)

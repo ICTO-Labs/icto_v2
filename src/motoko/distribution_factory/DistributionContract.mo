@@ -18,7 +18,7 @@ import DistributionUpgradeTypes "../shared/types/DistributionUpgradeTypes";
 import IUpgradeable "../common/IUpgradeable";
 import Timer "mo:base/Timer";
 import ICRC "../shared/types/ICRC";
-import BlockID "../shared/utils/BlockID";
+import ICTOPassport "../shared/utils/ICTOPassport";
 import Prim "mo:⛔";
 
 persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.DistributionInitArgs) = self {
@@ -151,10 +151,10 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     private var timerId: Nat = 0;
     private var tokenCanister: ?ICRC.ICRCLedger = null;
 
-    // BlockID integration
+    // ICTO Passport integration
     private let BLOCK_ID_CANISTER_ID = "3c7yh-4aaaa-aaaap-qhria-cai";
     private let BLOCK_ID_APPLICATION = "block-id";
-    private let blockID: BlockID.Self = actor(BLOCK_ID_CANISTER_ID);
+    private let passportInterface: ICTOPassport.Self = actor(BLOCK_ID_CANISTER_ID);
 
     // Factory integration for relationship updates (Factory Storage Standard)
     private var factoryCanisterId: ?Principal = init_factory_canister;
@@ -345,8 +345,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             case (#NFTHolder(nftConfig)) {
                 await _checkNFTHolding(participant, nftConfig)
             };
-            case (#BlockIDScore(minScore)) {
-                await _checkBlockIDScore(participant, minScore)
+            case (#ICTOPassportScore(minScore)) {
+                await _checkICTOPassportScore(participant, minScore)
             };
             case (#Hybrid(hybridConfig)) {
                 await _checkHybridEligibility(participant, hybridConfig)
@@ -366,10 +366,10 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         true
     };
     
-    private func _checkBlockIDScore(participant: Principal, minScore: Nat) : async Bool {
+    private func _checkICTOPassportScore(participant: Principal, minScore: Nat) : async Bool {
         try {
             if (minScore == 0) return true;
-            let score = await blockID.getWalletScore(participant, BLOCK_ID_APPLICATION);
+            let score = await passportInterface.getWalletScore(participant, BLOCK_ID_APPLICATION);
             score.totalScore >= minScore;
         } catch (_) {
             false;
@@ -1045,7 +1045,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             return #err("Claim amount exceeds maximum per transaction");
         };
 
-        // Check BlockID score if required
+        // Check ICTO Passport score if required
         let isEligible = await _checkEligibility(caller);
         if (not isEligible) {
             return #err("Not eligible for this distribution");

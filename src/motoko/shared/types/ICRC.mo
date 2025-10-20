@@ -390,7 +390,7 @@ module {
         })
     };
     
-    public func textToAccount(text : Text) : ?Account {
+    public func textToAccount(_text : Text) : ?Account {
         // Simple implementation - can be enhanced
         // Note: This is a simplified version - in production use proper validation
         null // TODO: Implement proper text to principal conversion

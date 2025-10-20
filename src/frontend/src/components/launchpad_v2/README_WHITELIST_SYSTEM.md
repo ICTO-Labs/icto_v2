@@ -98,7 +98,7 @@ interface WhitelistEntry {
   principal: string           // Wallet address
   allocation?: string         // Max tokens they can purchase
   tier?: number              // Priority tier (1-10)
-  blockIdScore?: number      // BlockID verification score
+  ictoPassportScore?: number      // ICTO Passport verification score
   whitelistScore?: number    // Internal scoring
   scoreBreakdown?: {         // Detailed score breakdown
     accountAge?: number
@@ -179,7 +179,7 @@ The backend contract will:
 
 ## Future Enhancements
 
-- [ ] Integration with BlockID for automatic scoring
+- [ ] Integration with ICTO Passport for automatic scoring
 - [ ] Whitelist scoring system with multiple criteria
 - [ ] Bulk operations (approve all, reject all)
 - [ ] Whitelist templates for common use cases

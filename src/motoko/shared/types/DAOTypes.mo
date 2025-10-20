@@ -617,7 +617,7 @@ module DAOTypes {
     };
 
     // Convert backend DAOConfig to factory BasicDaoStableStorage
-    public func toFactoryInitArgs(config: DAOConfig, owner: Principal, customSecurity: ?CustomSecurityParams) : BasicDaoStableStorage {
+    public func toFactoryInitArgs(config: DAOConfig, _owner: Principal, customSecurity: ?CustomSecurityParams) : BasicDaoStableStorage {
         let tokenConfig: TokenConfig = {
             canisterId = config.tokenCanisterId;
             symbol = ""; // Will be fetched from token canister

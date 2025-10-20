@@ -118,10 +118,10 @@ module MultisigFactoryService {
 
     // Prepares deployment call to Multisig factory canister
     public func prepareDeployment(
-        state: MultisigFactoryTypes.ServiceState, // Service state for tracking
+        _state: MultisigFactoryTypes.ServiceState, // Service state for tracking
         caller: Principal,
         config: MultisigTypes.WalletConfig,
-        configState: ConfigTypes.State,
+        _configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : Result.Result<
         {
@@ -177,7 +177,7 @@ module MultisigFactoryService {
 
     // ============== VALIDATION HELPERS ==============
 
-    private func validateConfig(config: MultisigTypes.WalletConfig): Result.Result<(), Text> {
+    private func _validateConfig(config: MultisigTypes.WalletConfig): Result.Result<(), Text> {
         validateWalletConfig(config)
     };
 
@@ -251,7 +251,7 @@ module MultisigFactoryService {
 
     public func generateWalletId(config: MultisigTypes.WalletConfig, creator: Principal): Text {
         let timestamp = Int.abs(Time.now());
-        let creatorText = Principal.toText(creator);
+        let _creatorText = Principal.toText(creator);
         let nameHash = debug_show(config.name.size() * 31 + config.threshold);
 
         "multisig-" # nameHash # "-" # debug_show(timestamp % 1000000)

@@ -77,7 +77,7 @@ export type EligibilityTypeMotoko =
     | { Whitelist: Principal[] }
     | { TokenHolder: TokenHolderConfigMotoko }
     | { NFTHolder: NFTHolderConfigMotoko }
-    | { BlockIDScore: bigint }
+    | { ICTOPassportScore: bigint }
     | { Hybrid: { conditions: EligibilityTypeMotoko[], logic: EligibilityLogicMotoko } };
 
 export type EligibilityLogicMotoko = 

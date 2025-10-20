@@ -14,7 +14,7 @@ export interface TokenInfo {
 
 export type { DistributionConfig, DistributionConfig as DistributionDetails, DistributionStats, Result };
 export type { EligibilityType, DeploymentRecord, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic };
-// export type EligibilityType = 'Open' | 'Whitelist' | 'TokenHolder' | 'NFTHolder' | 'BlockIDScore' | 'Hybrid';
+// export type EligibilityType = 'Open' | 'Whitelist' | 'TokenHolder' | 'NFTHolder' | 'ICTOPassportScore' | 'Hybrid';
 // export type RecipientMode = 'Fixed' | 'Dynamic' | 'SelfService';
 export type VestingType = 'Instant' | 'Linear' | 'Cliff' | 'Single' | 'SteppedCliff' | 'Custom';
 // export type UnlockFrequency = 'Continuous' | 'Daily' | 'Weekly' | 'Monthly' | 'Quarterly' | 'Yearly' | 'Custom';
@@ -143,7 +143,7 @@ export interface DistributionFormData {
   whitelistAddresses?: string[] | { principal: string; amount: number; note?: string; }[];
   tokenHolderConfig?: Partial<TokenHolderConfig>;
   nftHolderConfig?: Partial<NFTHolderConfig>;
-  blockIdScore?: number;
+  ictoPassportScore?: number;
   recipientMode: RecipientMode;
   maxRecipients?: number;
   

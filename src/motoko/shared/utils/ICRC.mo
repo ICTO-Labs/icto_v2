@@ -260,7 +260,7 @@ module {
         Nat.toText(whole) # "." # Nat.toText(fraction)
     };
     
-    public func parseAmount(amountText: Text, decimals: Nat8) : ?Nat {
+    public func parseAmount(amountText: Text, _decimals: Nat8) : ?Nat {
         // Simple parsing - should be enhanced with proper decimal handling
 
         switch (Nat.fromText(amountText)) {

@@ -22,7 +22,7 @@ module UserService {
 
     // --- STATE MANAGEMENT ---
 
-    public func initState(owner: Principal) : UserTypes.State {
+    public func initState(_owner: Principal) : UserTypes.State {
         UserTypes.emptyState()
     };
 
@@ -64,7 +64,7 @@ module UserService {
     // --- UTILS ---
 
     private func textKey(x : Text) : Trie.Key<Text> = { hash = Text.hash(x); key = x };
-    private func principalKey(p: Principal) : Trie.Key<Text> = textKey(Principal.toText(p));
+    private func _principalKey(p: Principal) : Trie.Key<Text> = textKey(Principal.toText(p));
 
     // --- USER PROFILE MANAGEMENT ---
 

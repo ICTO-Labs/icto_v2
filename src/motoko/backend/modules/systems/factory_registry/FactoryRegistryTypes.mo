@@ -134,6 +134,9 @@ module FactoryRegistryTypes {
             case (#CreateDistribution) { "CreateDistribution" };
             case (#CreateToken) { "CreateToken" };
             case (#CreateTemplate) { "CreateTemplate" };
+            case (#CreateDAO) { "CreateDAO" };
+            case (#CreateMultisig) { "CreateMultisig" };
+            case (#CreateLaunchpad) { "CreateLaunchpad" };
             case (#ServiceFee(serviceName)) { "ServiceFee:" # serviceName };
             case (#CreateProject) { "CreateProject" };
             case (#UpdateProject) { "UpdateProject" };

@@ -29,11 +29,11 @@ Overall Launchpad Factory Progress:      ██████░░░░░░░
 **New Interfaces:**
 
 ```typescript
-// BlockID Third-Party Service Integration
-export interface BlockIdConfig {
+// ICTO Passport Third-Party Service Integration
+export interface ICTOPassportConfig {
   enabled: boolean
   minScore: number                // 0-100 score requirement
-  providerCanisterId?: string     // blockid.cc service
+  providerCanisterId?: string     // ictopassport.io service
   verificationMethods?: string[]
   bypassForWhitelisted?: boolean
 }
@@ -53,7 +53,7 @@ saleParams: {
   visibility: 'Public' | 'WhitelistOnly' | 'Private'
   requiresWhitelist: boolean  // Auto-set
   whitelistMode: 'Closed' | 'OpenRegistration'  // Auto-set
-  blockIdConfig?: BlockIdConfig
+  ictoPassportConfig?: ICTOPassportConfig
   whitelistScoring?: WhitelistScoringConfig
   // ... existing fields
 }
@@ -87,14 +87,14 @@ saleParams: {
 
 ---
 
-#### B. BlockIdScoreConfig.vue ✅
+#### B. ICTOPassportScoreConfig.vue ✅
 
-**Location:** `src/frontend/src/components/launchpad_v2/BlockIdScoreConfig.vue`
+**Location:** `src/frontend/src/components/launchpad_v2/ICTOPassportScoreConfig.vue`
 **Lines of Code:** 420
 **Status:** ✅ Complete - Ready for integration
 
 **Features:**
-- Enable/Disable toggle with BlockID branding
+- Enable/Disable toggle with ICTO Passport branding
 - Interactive score slider (0-100)
 - Color-coded score levels (Red/Yellow/Blue/Green)
 - Detailed score explanations
@@ -104,7 +104,7 @@ saleParams: {
 
 **Next Steps:**
 - Integrate into LaunchpadCreateV2.vue Step 2 (Sale Configuration)
-- Connect to BlockID service when available
+- Connect to ICTO Passport service when available
 - Add score validation logic
 
 ---
@@ -402,7 +402,7 @@ export function useLaunchpadPayment() {
 ### Phase 1: Complete ✅
 - Type System: 1 hour ✅
 - SaleVisibilityConfig: 2 hours ✅
-- BlockIdScoreConfig: 2 hours ✅
+- ICTOPassportScoreConfig: 2 hours ✅
 - Documentation: 3 hours ✅
 **Total Phase 1:** 8 hours ✅
 
@@ -438,10 +438,10 @@ export function useLaunchpadPayment() {
    - ⏳ Need to align request/response types
    - ⏳ Need to test payment verification
 
-3. **BlockID Service**
-   - ⏳ Need: BlockID canister ID
+3. **ICTO Passport Service**
+   - ⏳ Need: ICTO Passport canister ID
    - ⏳ Need: Score query endpoint
-   - ⏳ Fallback: Disable BlockID if unavailable
+   - ⏳ Fallback: Disable ICTO Passport if unavailable
 
 ### Frontend Dependencies
 
@@ -480,14 +480,14 @@ export function useLaunchpadPayment() {
 ## 🎉 Key Achievements (This Session)
 
 1. ✅ **Comprehensive Type System**
-   - BlockID integration types
+   - ICTO Passport integration types
    - Whitelist scoring types
    - Sale visibility types
    - Payment cost types
 
 2. ✅ **Beautiful UI Components**
    - SaleVisibilityConfig with 3-mode selection
-   - BlockIdScoreConfig with interactive slider
+   - ICTOPassportScoreConfig with interactive slider
    - Auto-configuration logic
    - Responsive design
 

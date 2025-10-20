@@ -44,7 +44,7 @@ record {
         tags = vec { "Test" };
         category = variant { Other };
         metadata = vec {};
-        blockIdRequired = 1000 : nat64;
+        minICTOPassportScore = 1000 : nat64;
     };
     saleToken = record {
         canisterId = null;
@@ -82,7 +82,7 @@ record {
         maxParticipants = null;
         requiresWhitelist = false;
         requiresKYC = false;
-        blockIdRequired = 1000 : nat64;
+        minICTOPassportScore = 1000 : nat64;
         restrictedRegions = vec {};
         whitelistMode = variant { OpenRegistration };
         whitelistEntries = vec {};
@@ -244,7 +244,7 @@ record {
             ("audit_score", "95");
             ("security_rating", "A+");
         };
-        blockIdRequired = 1000 : nat64;
+        minICTOPassportScore = 1000 : nat64;
     };
     saleToken = record {
         canisterId = null;
@@ -282,7 +282,7 @@ record {
         maxParticipants = opt 500 : opt nat;
         requiresWhitelist = true;
         requiresKYC = true;
-        blockIdRequired = 1000 : nat64;
+        minICTOPassportScore = 1000 : nat64;
         restrictedRegions = vec { "US"; "CN" };
         whitelistMode = variant { Closed };
         whitelistEntries = vec {

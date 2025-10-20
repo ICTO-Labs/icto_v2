@@ -109,7 +109,7 @@ export type EligibilityTypeBackend =
     | { Whitelist: string[] }  // Principal strings
     | { TokenHolder: TokenHolderConfigBackend }
     | { NFTHolder: NFTHolderConfigBackend }
-    | { BlockIDScore: bigint }
+    | { ICTOPassportScore: bigint }
     | { Hybrid: { conditions: EligibilityTypeBackend[], logic: EligibilityLogicBackend } }
 
 export type EligibilityLogicBackend = 

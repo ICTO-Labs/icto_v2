@@ -16,19 +16,19 @@
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Project Name:</span>
-              <span class="font-medium">{{ formData.value?.projectInfo?.name || 'Not specified' }}</span>
+              <span class="font-medium">{{ formData?.projectInfo?.name || 'Not specified' }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Category:</span>
-              <span class="font-medium">{{ formData.value?.projectInfo?.category || 'Not specified' }}</span>
+              <span class="font-medium">{{ formData?.projectInfo?.category || 'Not specified' }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Token Name:</span>
-              <span class="font-medium">{{ formData.value?.saleToken?.name || 'Not specified' }}</span>
+              <span class="font-medium">{{ formData?.saleToken?.name || 'Not specified' }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Token Symbol:</span>
-              <span class="font-medium">{{ formData.value?.saleToken?.symbol || 'Not specified' }}</span>
+              <span class="font-medium">{{ formData?.saleToken?.symbol || 'Not specified' }}</span>
             </div>
           </div>
         </div>
@@ -38,15 +38,15 @@
           <div class="space-y-2 text-sm">
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Sale Type:</span>
-              <span class="font-medium">{{ formData.value?.saleParams?.saleType }}</span>
+              <span class="font-medium">{{ formData?.saleParams?.saleType }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Soft Cap:</span>
-              <span class="font-medium">{{ formatNumber(formData.value?.saleParams?.softCap) }} {{ purchaseTokenSymbol }}</span>
+              <span class="font-medium">{{ formatNumber(formData?.saleParams?.softCap) }} {{ purchaseTokenSymbol }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Hard Cap:</span>
-              <span class="font-medium">{{ formatNumber(formData.value?.saleParams?.hardCap) }} {{ purchaseTokenSymbol }}</span>
+              <span class="font-medium">{{ formatNumber(formData?.saleParams?.hardCap) }} {{ purchaseTokenSymbol }}</span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-600 dark:text-gray-400">Token Price Range:</span>
@@ -67,7 +67,7 @@
               :show-values="true"
               :value-unit="saleTokenSymbol"
               center-label="Total Supply"
-              :total-value="Number(formData.value?.saleToken?.totalSupply) || 0"
+              :total-value="Number(formData?.saleToken?.totalSupply) || 0"
             />
           </div>
 
@@ -159,15 +159,15 @@
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
         <div>
           <div class="text-gray-600 dark:text-gray-400">Sale Start</div>
-          <div class="font-medium">{{ formatDate(formData.value?.timeline?.saleStart) }}</div>
+          <div class="font-medium">{{ formatDate(formData?.timeline?.saleStart) }}</div>
         </div>
         <div>
           <div class="text-gray-600 dark:text-gray-400">Sale End</div>
-          <div class="font-medium">{{ formatDate(formData.value?.timeline?.saleEnd) }}</div>
+          <div class="font-medium">{{ formatDate(formData?.timeline?.saleEnd) }}</div>
         </div>
         <div>
           <div class="text-gray-600 dark:text-gray-400">Claim Start</div>
-          <div class="font-medium">{{ formatDate(formData.value?.timeline?.claimStart) }}</div>
+          <div class="font-medium">{{ formatDate(formData?.timeline?.claimStart) }}</div>
         </div>
       </div>
     </div>
@@ -232,7 +232,7 @@
 
     <!-- Deployment Cost Breakdown -->
     <CostBreakdownPreview
-      :needs-token-deployment="formData.value?.deployNewToken || false"
+      :needs-token-deployment="formData?.deployNewToken || false"
       :enable-d-a-o="communityGovernanceEnabled"
       class="mb-8"
     />
@@ -309,6 +309,12 @@ const {
   platformFeePercentage,
   simulatedAmount
 } = launchpadForm
+
+// DEBUG: Log formData when component mounts
+console.log('[LaunchOverviewStep] 🔍 Component mounted, formData:', formData.value)
+console.log('[LaunchOverviewStep] 📝 Project Name:', formData.value?.projectInfo?.name)
+console.log('[LaunchOverviewStep] 📝 Sale Type:', formData.value?.saleParams?.saleType)
+console.log('[LaunchOverviewStep] 📝 Distribution:', formData.value?.distribution)
 
 // Local state
 const uniqueIds = {

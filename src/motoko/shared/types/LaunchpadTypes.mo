@@ -30,6 +30,21 @@ module LaunchpadTypes {
         standard: Text; // "ICRC-1", "ICRC-2", etc.
     };
 
+    // ================ LAUNCHPAD-SPECIFIC TOKEN TYPE ================
+    // Separate type for launchpad sale token (deployed AFTER soft cap)
+    public type LaunchpadSaleToken = {
+        canisterId: ?Principal;      // Optional - null until deployed after soft cap
+        symbol: Text;
+        name: Text;
+        decimals: Nat8;
+        totalSupply: Nat;
+        transferFee: Nat;
+        logo: ?Text;
+        description: ?Text;
+        website: ?Text;
+        standard: Text; // "ICRC-1", "ICRC-2", etc.
+    };
+
     // ================ PROJECT & LAUNCHPAD CONFIGURATION ================
 
     public type ProjectInfo = {
@@ -51,7 +66,7 @@ module LaunchpadTypes {
         tags: [Text]; // ["DeFi", "Gaming", "NFT", etc.]
         category: ProjectCategory;
         metadata: ?[(Text, Text)]; // Additional key-value metadata
-        blockIdRequired: Nat; // Minimum BlockID score requirement
+        minICTOPassportScore: Nat; // Minimum ICTO Passport score requirement (0-100)
     };
 
     public type ProjectCategory = {
@@ -122,7 +137,7 @@ module LaunchpadTypes {
         maxParticipants: ?Nat;        // Maximum number of participants
         requiresWhitelist: Bool;      // Whether whitelist is required
         requiresKYC: Bool;           // Whether KYC is required
-        blockIdRequired: Nat;         // Minimum BlockID score (0 = no requirement)
+        minICTOPassportScore: Nat;         // Minimum ICTO Passport score (0 = no requirement)
         restrictedRegions: [Text];    // ISO country codes
         whitelistMode: WhitelistMode; // Whitelist registration mode
         whitelistEntries: [WhitelistEntry]; // Whitelist entries
@@ -472,8 +487,8 @@ module LaunchpadTypes {
         projectInfo: ProjectInfo;
         
         // Token Configuration
-        saleToken: TokenInfo;         // Token being sold
-        purchaseToken: TokenInfo;     // Token used for purchase (ICP, ckBTC, etc.)
+        saleToken: LaunchpadSaleToken; // Token being sold (deployed AFTER soft cap)
+        purchaseToken: TokenInfo;      // Token used for purchase (ICP, ckBTC, etc.) - must exist
         
         // Sale Configuration  
         saleParams: SaleParams;

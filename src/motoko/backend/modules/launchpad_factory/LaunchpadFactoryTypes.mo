@@ -14,8 +14,8 @@ module LaunchpadFactoryTypes {
         projectInfo: LaunchpadTypes.ProjectInfo;
         
         // Token Configuration
-        saleToken: LaunchpadTypes.TokenInfo;
-        purchaseToken: LaunchpadTypes.TokenInfo;
+        saleToken: LaunchpadTypes.LaunchpadSaleToken; // Use LaunchpadSaleToken for sale token
+        purchaseToken: LaunchpadTypes.TokenInfo;      // Use TokenInfo for purchase token
         
         // Sale Configuration  
         saleParams: LaunchpadTypes.SaleParams;

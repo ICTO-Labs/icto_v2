@@ -63,6 +63,7 @@ module Types {
         #CreateDistribution;
         #CreateDAO;
         #CreateMultisig;
+        #CreateLaunchpad;
         
         // Pipeline Actions
         #StartPipeline;
@@ -151,9 +152,15 @@ module Types {
     };
     
     public type LaunchpadActionData = {
-        launchpadName: Text;
-        daoEnabled: Bool;
-        votingConfig: Text;
+        projectName: Text;
+        saleTokenSymbol: Text;
+        purchaseTokenSymbol: Text;
+        totalSaleAmount: Nat;
+        softCap: Nat;
+        hardCap: Nat;
+        saleType: Text;
+        requiresWhitelist: Bool;
+        affiliateEnabled: Bool;
     };
     
     public type DAOActionData = {
@@ -220,6 +227,7 @@ module Types {
             #Distribution: DistributionActionData;
             #DAO: DAOActionData;
             #Multisig: MultisigActionData;
+            #Launchpad: LaunchpadActionData;
             #Other: Text;
         };
         status: ActionStatus;

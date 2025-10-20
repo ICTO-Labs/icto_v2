@@ -214,9 +214,9 @@ module LaunchpadFactoryValidation {
             case null {};
         };
 
-        // Validate BlockID requirement
-        if (saleParams.blockIdRequired > 1000) {
-            return #err("BlockID score requirement too high (max 1000)");
+        // Validate ICTO Passport requirement
+        if (saleParams.minICTOPassportScore > 1000) {
+            return #err("ICTO Passport score requirement too high (max 1000)");
         };
 
         #ok(())

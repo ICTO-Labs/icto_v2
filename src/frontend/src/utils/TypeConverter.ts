@@ -3,7 +3,7 @@
  * Handles the complex type mapping for launchpad data
  */
 import { Principal } from '@dfinity/principal'
-import type { LaunchpadFormData } from '../services/LaunchpadService'
+import type { LaunchpadFormData } from '../types/launchpad'
 
 export class TypeConverter {
   /**
@@ -30,16 +30,67 @@ export class TypeConverter {
   }
 
   /**
+   * Safely convert value to Nat8 (0-255)
+   */
+  private static toNat8(value: any): number {
+    if (value === '' || value === null || value === undefined) {
+      return 0
+    }
+
+    let num: number
+    if (typeof value === 'string') {
+      num = parseFloat(value)
+      if (isNaN(num)) return 0
+    } else if (typeof value === 'bigint') {
+      num = Number(value)
+    } else {
+      num = Number(value)
+      if (isNaN(num)) return 0
+    }
+
+    // Ensure within Nat8 range (0-255)
+    const result = Math.floor(num)
+    return Math.max(0, Math.min(255, result))
+  }
+
+  /**
+   * Safely convert value to Float for Motoko
+   */
+  private static toFloat(value: any): number {
+    if (value === '' || value === null || value === undefined) {
+      return 0.0
+    }
+
+    let num: number
+    if (typeof value === 'string') {
+      num = parseFloat(value)
+      if (isNaN(num)) return 0.0
+    } else if (typeof value === 'bigint') {
+      num = Number(value)
+    } else {
+      num = Number(value)
+      if (isNaN(num)) return 0.0
+    }
+
+    return num
+  }
+
+  /**
    * Convert frontend formData to backend LaunchpadConfig
+   * Using simple distribution factory pattern
    */
   static formDataToLaunchpadConfig(formData: LaunchpadFormData): any {
-    return {
-      // Project Information
+    console.log('🚀 Converting LaunchpadConfig:', formData)
+    console.log('📊 Distribution data:', formData.distribution)
+
+    // Build base config object using distribution pattern
+    const config: any = {
+      // Basic project info (ALL required fields from Motoko)
       projectInfo: {
         name: formData.projectInfo.name,
         description: formData.projectInfo.description,
         logo: formData.projectInfo.logo ? [formData.projectInfo.logo] : [],
-        banner: [], // Optional field
+        banner: formData.projectInfo.banner ? [formData.projectInfo.banner] : [],
         website: formData.projectInfo.website ? [formData.projectInfo.website] : [],
         whitepaper: formData.projectInfo.whitepaper ? [formData.projectInfo.whitepaper] : [],
         documentation: formData.projectInfo.documentation ? [formData.projectInfo.documentation] : [],
@@ -49,16 +100,17 @@ export class TypeConverter {
         github: formData.projectInfo.github ? [formData.projectInfo.github] : [],
         isAudited: formData.projectInfo.isAudited,
         auditReport: formData.projectInfo.auditReport ? [formData.projectInfo.auditReport] : [],
-        isKYCed: formData.projectInfo.isKYCed,
-        kycProvider: [], // Optional
-        tags: formData.projectInfo.tags,
+        isKYCed: formData.projectInfo.isKYCed || false,
+        kycProvider: formData.projectInfo.kycProvider ? [formData.projectInfo.kycProvider] : [],
+        tags: formData.projectInfo.tags || [],
         category: TypeConverter.stringToProjectCategory(formData.projectInfo.category),
-        metadata: [] // Optional metadata
+        metadata: formData.projectInfo.metadata ? [formData.projectInfo.metadata] : [],
+        minICTOPassportScore: 0n // Default value
       },
 
-      // Sale Token Configuration
+      // Sale token (LaunchpadSaleToken type - will be created AFTER soft cap reached)
       saleToken: {
-        canisterId: Principal.fromText('2vxsx-fae'), // Placeholder, will be created
+        canisterId: [], // Optional - null until deployed after sale reaches soft cap
         symbol: formData.saleToken.symbol,
         name: formData.saleToken.name,
         decimals: formData.saleToken.decimals,
@@ -70,42 +122,44 @@ export class TypeConverter {
         standard: formData.saleToken.standard
       },
 
-      // Purchase Token Configuration
+      // Purchase token (TokenInfo type - must exist, users buy with this token)
       purchaseToken: {
-        canisterId: Principal.fromText(formData.purchaseToken.canisterId),
+        canisterId: Principal.fromText(formData.purchaseToken.canisterId), // Required Principal (not optional)
         symbol: formData.purchaseToken.symbol,
         name: formData.purchaseToken.name,
         decimals: formData.purchaseToken.decimals,
-        totalSupply: formData.purchaseToken.totalSupply,
-        transferFee: formData.purchaseToken.transferFee,
-        logo: [],
-        description: [],
-        website: [],
+        totalSupply: TypeConverter.toBigInt(formData.purchaseToken.totalSupply),
+        transferFee: TypeConverter.toBigInt(formData.purchaseToken.transferFee),
+        logo: formData.purchaseToken.logo ? [formData.purchaseToken.logo] : [],
+        description: formData.purchaseToken.description ? [formData.purchaseToken.description] : [],
+        website: formData.purchaseToken.website ? [formData.purchaseToken.website] : [],
         standard: formData.purchaseToken.standard
       },
 
-      // Sale Parameters
+      // Sale parameters
       saleParams: {
         saleType: TypeConverter.stringToSaleType(formData.saleParams.saleType),
         allocationMethod: TypeConverter.stringToAllocationMethod(formData.saleParams.allocationMethod),
-        totalSaleAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.totalSaleAmount)),
-        softCap: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.softCap)),
-        hardCap: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.hardCap)),
-        tokenPrice: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.tokenPrice)),
-        minContribution: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.minContribution)),
+        totalSaleAmount: TypeConverter.toBigInt(formData.saleParams.totalSaleAmount),
+        softCap: TypeConverter.toBigInt(formData.saleParams.softCap),
+        hardCap: TypeConverter.toBigInt(formData.saleParams.hardCap),
+        tokenPrice: TypeConverter.toBigInt(formData.saleParams.tokenPrice),
+        minContribution: TypeConverter.toBigInt(formData.saleParams.minContribution),
         maxContribution: formData.saleParams.maxContribution
-          ? [TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.saleParams.maxContribution))]
+          ? [TypeConverter.toBigInt(formData.saleParams.maxContribution)]
           : [],
         maxParticipants: [], // Optional
         requiresWhitelist: formData.saleParams.requiresWhitelist,
-        requiresKYC: formData.saleParams.requiresKYC,
-        blockIdRequired: 0n, // Default
-        restrictedRegions: [] // Default
+        requiresKYC: formData.saleParams.requiresKYC || false,
+        minICTOPassportScore: 0n, // Default
+        restrictedRegions: [], // Default
+        whitelistMode: { Closed: null }, // Default WhitelistMode
+        whitelistEntries: formData.saleParams.whitelistEntries || []
       },
 
-      // Timeline - Using Distribution pattern with BigInt literals
+      // Timeline (ALL required + optional fields from Motoko)
       timeline: {
-        createdAt: BigInt(Date.now()) * 1_000_000n, // Convert to nanoseconds like Distribution
+        createdAt: BigInt(Date.now()) * 1_000_000n,
         whitelistStart: formData.timeline.whitelistStart
           ? [BigInt(new Date(formData.timeline.whitelistStart).getTime()) * 1_000_000n]
           : [],
@@ -126,187 +180,200 @@ export class TypeConverter {
           : []
       },
 
-      // Token Distribution - Fixed Allocation Structure
-      distribution: [
-        // Sale allocation - no recipients (investors assigned after launch)
-        {
-          name: formData.distribution.sale.name,
-          percentage: formData.distribution.sale.percentage,
-          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.distribution.sale.totalAmount)),
-          vestingSchedule: formData.distribution.sale.vestingSchedule
-            ? [TypeConverter.convertVestingSchedule(formData.distribution.sale.vestingSchedule)]
-            : [],
-          recipients: { SaleParticipants: null }, // Empty, assigned after launch
-          description: [formData.distribution.sale.description || '']
-        },
+      // Build complete distribution array from all categories
+      distribution: (() => {
+        const categories: any[] = []
 
-        // Team allocation - fixed category with recipients
-        {
-          name: formData.distribution.team.name,
-          percentage: formData.distribution.team.percentage,
-          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.distribution.team.totalAmount)),
-          vestingSchedule: formData.distribution.team.vestingSchedule
-            ? [TypeConverter.convertVestingSchedule(formData.distribution.team.vestingSchedule)]
-            : [],
-          recipients: TypeConverter.convertRecipientConfig(formData.distribution.team.recipients),
-          description: [formData.distribution.team.description || '']
-        },
+        // 1. Sale allocation
+        if (formData.distribution.sale.percentage > 0) {
+          categories.push({
+            name: "Public Sale",
+            percentage: Math.max(0, Math.min(255, Math.floor(Number(formData.distribution.sale.percentage)))),
+            totalAmount: TypeConverter.toBigInt(formData.distribution.sale.totalAmount),
+            vestingSchedule: formData.distribution.sale.vestingSchedule
+              ? [TypeConverter.convertVestingSchedule(formData.distribution.sale.vestingSchedule)]
+              : [],
+            recipients: { SaleParticipants: null },
+            description: formData.distribution.sale.description ? [formData.distribution.sale.description] : ["Public sale allocation"]
+          })
+        }
 
-        // LP allocation - auto-calculated from DEX config
-        {
-          name: formData.distribution.liquidityPool.name,
-          percentage: formData.distribution.liquidityPool.percentage,
-          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.distribution.liquidityPool.totalAmount)),
-          vestingSchedule: formData.distribution.liquidityPool.vestingSchedule
-            ? [TypeConverter.convertVestingSchedule(formData.distribution.liquidityPool.vestingSchedule)]
-            : [],
-          recipients: { LiquidityPool: null }, // Special recipient type for LP
-          description: [formData.distribution.liquidityPool.description || '']
-        },
+        // 2. Team allocation
+        if (formData.distribution.team.percentage > 0) {
+          categories.push({
+            name: "Team",
+            percentage: Math.max(0, Math.min(255, Math.floor(Number(formData.distribution.team.percentage)))),
+            totalAmount: TypeConverter.toBigInt(formData.distribution.team.totalAmount),
+            vestingSchedule: formData.distribution.team.vestingSchedule
+              ? [TypeConverter.convertVestingSchedule(formData.distribution.team.vestingSchedule)]
+              : [],
+            recipients: { TeamAllocation: null },
+            description: formData.distribution.team.description ? [formData.distribution.team.description] : ["Team allocation"]
+          })
+        }
 
-        // Others - dynamic allocations
-        ...formData.distribution.others.map((allocation: any) => ({
-          name: allocation.name,
-          percentage: allocation.percentage,
-          totalAmount: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(allocation.totalAmount)),
-          vestingSchedule: allocation.vestingSchedule
-            ? [TypeConverter.convertVestingSchedule(allocation.vestingSchedule)]
-            : [],
-          recipients: TypeConverter.convertRecipientConfig(allocation.recipients),
-          description: [allocation.description || '']
-        }))
-      ],
+        // 3. Liquidity Pool allocation
+        if (formData.distribution.liquidityPool.percentage > 0) {
+          categories.push({
+            name: "Liquidity Pool",
+            percentage: Math.max(0, Math.min(255, Math.floor(Number(formData.distribution.liquidityPool.percentage)))),
+            totalAmount: TypeConverter.toBigInt(formData.distribution.liquidityPool.totalAmount),
+            vestingSchedule: [], // LP tokens need immediate availability
+            recipients: { LiquidityPool: null },
+            description: formData.distribution.liquidityPool.description ? [formData.distribution.liquidityPool.description] : ["DEX liquidity provision"]
+          })
+        }
 
-      // DEX Configuration
+        // 4. Other allocations (marketing, advisors, etc.)
+        if (formData.distribution.others && formData.distribution.others.length > 0) {
+          formData.distribution.others.forEach((other: any) => {
+            if (other.percentage > 0) {
+              // Map category name to RecipientConfig variant
+              let recipientType: any
+              const lowerName = other.name.toLowerCase()
+              if (lowerName.includes('marketing')) {
+                recipientType = { Marketing: null }
+              } else if (lowerName.includes('advisor')) {
+                recipientType = { Advisors: null }
+              } else if (lowerName.includes('staking')) {
+                recipientType = { Staking: null }
+              } else {
+                recipientType = { FixedList: [] } // Default for custom categories
+              }
+
+              categories.push({
+                name: other.name,
+                percentage: Math.max(0, Math.min(255, Math.floor(Number(other.percentage)))),
+                totalAmount: TypeConverter.toBigInt(other.totalAmount),
+                vestingSchedule: other.vestingSchedule
+                  ? [TypeConverter.convertVestingSchedule(other.vestingSchedule)]
+                  : [],
+                recipients: recipientType,
+                description: other.description ? [other.description] : []
+              })
+            }
+          })
+        }
+
+        // 5. Calculate unallocated and add to DAO or Multisig
+        const totalPercentage = categories.reduce((sum, cat) => sum + cat.percentage, 0)
+        const unallocatedPercentage = 100 - totalPercentage
+
+        if (unallocatedPercentage > 0) {
+          const unallocatedModel = formData.distribution.unallocatedManagement?.model || 'dao_treasury'
+
+          categories.push({
+            name: unallocatedModel === 'dao_treasury' ? "DAO Treasury Reserve" : "Multisig Reserve",
+            percentage: Math.max(0, Math.min(255, unallocatedPercentage)),
+            totalAmount: TypeConverter.toBigInt(
+              (Number(formData.saleToken.totalSupply) * unallocatedPercentage / 100).toString()
+            ),
+            vestingSchedule: [],
+            recipients: unallocatedModel === 'dao_treasury'
+              ? { TreasuryReserve: null }
+              : { TeamAllocation: null },
+            description: [unallocatedModel === 'dao_treasury'
+              ? "Unallocated tokens managed by DAO governance"
+              : "Unallocated tokens managed by multisig wallet"]
+          })
+        }
+
+        console.log('✅ Built distribution categories:', categories)
+        console.log('📈 Total percentage:', categories.reduce((sum, cat) => sum + cat.percentage, 0))
+        return categories
+      })(),
+
+      // DEX config (ALL required fields from Motoko)
       dexConfig: {
-        enabled: true,
-        platform: formData.dexConfig.platform,
-        listingPrice: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.listingPrice)),
-        totalLiquidityToken: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.totalLiquidityToken)),
-        initialLiquidityToken: TypeConverter.toBigInt(TypeConverter.tokenAmountToE8s(formData.dexConfig.totalLiquidityToken)),
-        initialLiquidityPurchase: 0n, // Will be calculated
-        liquidityLockDays: TypeConverter.toBigInt(formData.dexConfig.liquidityLockDays),
-        autoList: formData.dexConfig.autoList,
-        slippageTolerance: 5, // Default 5%
+        enabled: formData.dexConfig.enabled || false,
+        platform: formData.dexConfig.platform || "",
+        listingPrice: TypeConverter.toBigInt(formData.dexConfig.listingPrice || 0),
+        totalLiquidityToken: TypeConverter.toBigInt(formData.dexConfig.totalLiquidityToken || 0),
+        initialLiquidityToken: TypeConverter.toBigInt(formData.dexConfig.initialLiquidityToken || 0),
+        initialLiquidityPurchase: TypeConverter.toBigInt(formData.dexConfig.initialLiquidityPurchase || 0),
+        liquidityLockDays: TypeConverter.toBigInt(formData.dexConfig.liquidityLockDays || 0),
+        autoList: formData.dexConfig.autoList || false,
+        slippageTolerance: 5, // Nat8 default
+        lpTokenRecipient: formData.dexConfig.lpTokenRecipient
+          ? [Principal.fromText(formData.dexConfig.lpTokenRecipient)]
+          : [],
         fees: {
-          listingFee: 0n, // Platform specific
-          transactionFee: 3 // Default 0.3%
+          listingFee: 0n,
+          transactionFee: 3 // Nat8
         }
       },
 
-      // Multi-DEX Config (optional)
-      multiDexConfig: [], // Not implemented in frontend yet
-
-      // Raised Funds Allocation
+      // Raised funds allocation (simple)
       raisedFundsAllocation: {
-        teamAllocation: Math.floor(parseFloat(formData.raisedFundsAllocation.teamAllocation || '0')),
-        developmentFund: Math.floor(parseFloat(formData.raisedFundsAllocation.developmentFund || '0')),
-        marketingFund: Math.floor(parseFloat(formData.raisedFundsAllocation.marketingFund || '0')),
-        liquidityFund: 50, // Default 50% for liquidity
-        reserveFund: 0, // Default 0%
-        teamRecipients: formData.raisedFundsAllocation.teamRecipients.map((recipient: any) =>
-          TypeConverter.convertFundRecipient(recipient)
-        ),
-        developmentRecipients: formData.raisedFundsAllocation.developmentRecipients.map((recipient: any) =>
-          TypeConverter.convertFundRecipient(recipient)
-        ),
-        marketingRecipients: formData.raisedFundsAllocation.marketingRecipients.map((recipient: any) =>
-          TypeConverter.convertFundRecipient(recipient)
-        ),
-        customAllocations: []
+        allocations: []
       },
 
-      // Affiliate Configuration (default)
+      // Affiliate config (disabled by default)
       affiliateConfig: {
         enabled: false,
         commissionRate: 0,
         maxTiers: 1,
         tierRates: [0],
         minPurchaseForCommission: 0n,
-        paymentToken: Principal.fromText('2vxsx-fae'), // Default
+        paymentToken: Principal.fromText(import.meta.env.VITE_BACKEND_CANISTER_ID || 'rrkah-fqaaa-aaaaa-aaaaq-cai'), // Placeholder
         vestingSchedule: []
       },
 
-      // Governance Configuration (default)
+      // Governance config (disabled by default - ALL required fields from Motoko)
       governanceConfig: {
         enabled: false,
         daoCanisterId: [],
-        votingToken: Principal.fromText('2vxsx-fae'), // Will be sale token
-        proposalThreshold: 1000n,
-        quorumPercentage: 10,
+        votingToken: Principal.fromText(import.meta.env.VITE_BACKEND_CANISTER_ID || 'rrkah-fqaaa-aaaaa-aaaaq-cai'), // Will be sale token after deployment
+        proposalThreshold: 1000n, // Nat default
+        quorumPercentage: 10, // Nat8 (0-100)
         votingPeriod: 7n * 24n * 60n * 60n * 1_000_000_000n, // 7 days in nanoseconds
-        timelockDuration: 2n * 24n * 60n * 60n * 1_000_000_000n, // 2 days
+        timelockDuration: 2n * 24n * 60n * 60n * 1_000_000_000n, // 2 days in nanoseconds
         emergencyContacts: [],
         initialGovernors: [],
         autoActivateDAO: false
       },
 
-      // Security & Compliance
-      whitelist: formData.saleParams.whitelistAddresses.map((addr: any) =>
-        Principal.fromText(addr.principal)
-      ),
+      // Security
+      whitelist: [],
       blacklist: [],
       adminList: [],
 
-      // Fee Structure
-      platformFeeRate: 2, // 2% default
-      successFeeRate: 1, // 1% default
+      // Fees
+      platformFeeRate: 2,
+      successFeeRate: 1,
 
-      // Emergency Controls
+      // Emergency controls
       emergencyContacts: [],
       pausable: true,
       cancellable: true
     }
+
+    console.log('✅ Generated LaunchpadConfig:', config)
+    return config
   }
 
   /**
-   * Convert frontend vesting schedule to backend format
+   * Convert vesting schedule from frontend to backend format
    */
   private static convertVestingSchedule(vesting: any): any {
-    return {
-      cliff: BigInt(Math.floor(vesting.cliff)) * 24n * 60n * 60n * 1_000_000_000n, // days to nanoseconds
-      duration: BigInt(Math.floor(vesting.duration)) * 24n * 60n * 60n * 1_000_000_000n,
-      frequency: TypeConverter.stringToVestingFrequency(vesting.releases),
-      initialUnlock: vesting.immediateRelease || 0
-    }
-  }
-
-  /**
-   * Convert frontend fund recipient to backend format
-   */
-  private static convertFundRecipient(recipient: any): any {
-    return {
-      principal: Principal.fromText(recipient.principalId),
-      percentage: recipient.percentage,
-      vestingSchedule: recipient.vestingSchedule 
-        ? [TypeConverter.convertVestingSchedule({
-            cliff: recipient.vestingSchedule.cliffDays,
-            duration: recipient.vestingSchedule.durationDays,
-            releases: recipient.vestingSchedule.releaseFrequency,
-            immediateRelease: recipient.vestingSchedule.immediateRelease
-          })]
-        : [],
-      description: []
-    }
-  }
-
-  /**
-   * Convert recipient config to backend format
-   */
-  private static convertRecipientConfig(recipients: any[]): any {
-    if (recipients.length === 0) {
-      return { SaleParticipants: null }
+    if (!vesting) {
+      return {
+        cliffDays: 0n,
+        durationDays: 0n,
+        releaseFrequency: { Linear: null },
+        immediateRelease: 0
+      }
     }
 
     return {
-      FixedList: recipients.map(recipient => ({
-        address: Principal.fromText(recipient.principal),
-        amount: BigInt(recipient.percentage * 1_000_000), // Convert percentage to amount
-        description: [],
-        vestingOverride: []
-      }))
+      cliffDays: TypeConverter.toBigInt(vesting.cliffDays || vesting.cliff || 0),
+      durationDays: TypeConverter.toBigInt(vesting.durationDays || vesting.duration || 0),
+      releaseFrequency: TypeConverter.stringToVestingFrequency(vesting.releaseFrequency || vesting.releases),
+      immediateRelease: TypeConverter.toNat8(vesting.immediateRelease || vesting.immediatePercentage || 0)
     }
   }
+
+  // Removed complex helper methods to keep it simple like distribution factory
 
   /**
    * Convert string to ProjectCategory variant
@@ -355,23 +422,31 @@ export class TypeConverter {
   }
 
   /**
-   * Convert string to VestingFrequency variant
+   * Convert vesting frequency string to backend variant
    */
-  private static stringToVestingFrequency(frequency: string | number): any {
-    if (typeof frequency === 'number') {
-      return { Custom: BigInt(Math.floor(frequency)) }
+  private static stringToVestingFrequency(frequency: any): any {
+    if (!frequency || typeof frequency !== 'string') {
+      return { Linear: null } // Default
     }
 
-    const frequencyMap: Record<string, any> = {
-      'immediate': { Immediate: null },
-      'linear': { Linear: null },
+    const freqMap: Record<string, any> = {
+      'daily': { Daily: null },
+      'Daily': { Daily: null },
+      'weekly': { Weekly: null },
+      'Weekly': { Weekly: null },
       'monthly': { Monthly: null },
+      'Monthly': { Monthly: null },
       'quarterly': { Quarterly: null },
+      'Quarterly': { Quarterly: null },
       'yearly': { Yearly: null },
-      'daily': { Custom: 24n * 60n * 60n }, // seconds in a day
-      'weekly': { Custom: 7n * 24n * 60n * 60n } // seconds in a week
+      'Yearly': { Yearly: null },
+      'immediate': { Immediate: null },
+      'Immediate': { Immediate: null },
+      'linear': { Linear: null },
+      'Linear': { Linear: null }
     }
-    return frequencyMap[frequency.toLowerCase()] || { Linear: null }
+
+    return freqMap[frequency] || { Linear: null }
   }
 
   /**

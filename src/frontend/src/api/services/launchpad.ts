@@ -5,7 +5,6 @@ import type {
   LaunchpadDetail,
   LaunchpadStats,
   LaunchpadStatus,
-  LaunchpadInitArgs,
   ProjectInfo,
   SaleParams,
   Timeline,
@@ -43,6 +42,7 @@ export interface CreateLaunchpadRequest {
 export interface CreateLaunchpadResponse {
   success: boolean
   launchpadCanisterId?: string
+  launchpadId?: string
   error?: string
 }
 
@@ -85,23 +85,21 @@ export class LaunchpadService {
   // LAUNCHPAD MANAGEMENT
   // ==================================================================================================
 
-  async createLaunchpad(config: LaunchpadConfig): Promise<CreateLaunchpadResponse> {
+  async createLaunchpad(config: LaunchpadConfig, projectId?: string): Promise<CreateLaunchpadResponse> {
     try {
       const actor = this.getBackendActor()
-      
-      const launchpadInitArgs: LaunchpadInitArgs = {
-        id: this.generateLaunchpadId(),
-        creator: Principal.fromText(useAuthStore().principal || ''),
-        createdAt: BigInt(Date.now() * 1000000), // Convert to nanoseconds
-        config
-      }
 
-      const result = await actor.deployLaunchpad(launchpadInitArgs)
-      
+      // Call backend's deployLaunchpad function with correct params
+      const result = await actor.deployLaunchpad(
+        config,
+        projectId ? [projectId] : [] // Optional projectId as array
+      )
+
       if ('ok' in result) {
         return {
           success: true,
-          launchpadCanisterId: result.ok.canisterId.toText()
+          launchpadCanisterId: result.ok.canisterId.toText(),
+          launchpadId: result.ok.launchpadId
         }
       } else {
         return {
@@ -482,10 +480,6 @@ export class LaunchpadService {
   // ==================================================================================================
   // UTILITY METHODS
   // ==================================================================================================
-
-  private generateLaunchpadId(): string {
-    return `launchpad_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-  }
 
   private applyFilters(launchpads: LaunchpadDetail[], filters?: LaunchpadFilters): LaunchpadDetail[] {
     if (!filters) return launchpads

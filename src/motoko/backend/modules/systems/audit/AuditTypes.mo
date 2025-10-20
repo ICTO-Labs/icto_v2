@@ -85,6 +85,7 @@ module AuditTypes {
             case (#LockFactory) "lock_factory";
             case (#DAOFactory) "dao_factory";
             case (#DistributionFactory) "distribution_factory";
+            case (#MultisigFactory) "multisig_factory";
             case (#LaunchpadFactory) "launchpad_factory";
             case (#InvoiceService) "invoice_service";
             case (#Backend) "backend";

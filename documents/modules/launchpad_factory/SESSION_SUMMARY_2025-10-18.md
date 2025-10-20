@@ -13,8 +13,8 @@ This session focused on analyzing backend launchpad requirements, implementing e
 
 ### Key Accomplishments
 
-1. ✅ **Type System Enhancement** - BlockID & Whitelist Scoring Integration
-2. ✅ **UI Components** - Sale Visibility & BlockID Configuration
+1. ✅ **Type System Enhancement** - ICTO Passport & Whitelist Scoring Integration
+2. ✅ **UI Components** - Sale Visibility & ICTO Passport Configuration
 3. ✅ **Payment Documentation** - Complete Architecture & Implementation Guide
 4. ⏳ **Remaining Work** - Payment Composable & Additional UI Components
 
@@ -30,17 +30,17 @@ This session focused on analyzing backend launchpad requirements, implementing e
 
 **Changes:**
 
-#### BlockID Third-Party Service Integration
+#### ICTO Passport Third-Party Service Integration
 
 ```typescript
 /**
- * BlockID - Third-party identity verification service
- * Service Provider: BlockID Protocol (https://blockid.cc)
+ * ICTO Passport - Third-party identity verification service
+ * Service Provider: ICTO Passport Protocol (https://ictopassport.io)
  *
  * Purpose: Verify wallet authenticity through multiple verification methods
  * to prove "human" rather than "bot" identity
  */
-export interface BlockIdConfig {
+export interface ICTOPassportConfig {
   enabled: boolean
   minScore: number                // 0-100 score requirement
   providerCanisterId?: string
@@ -90,8 +90,8 @@ saleParams: {
   requiresWhitelist: boolean
   whitelistMode: 'Closed' | 'OpenRegistration'
 
-  // ✅ NEW: BlockID integration
-  blockIdConfig?: BlockIdConfig
+  // ✅ NEW: ICTO Passport integration
+  ictoPassportConfig?: ICTOPassportConfig
 
   // ✅ NEW: Whitelist scoring
   whitelistScoring?: WhitelistScoringConfig
@@ -149,15 +149,15 @@ saleParams: {
 
 ---
 
-#### B. BlockIdScoreConfig.vue ✅
+#### B. ICTOPassportScoreConfig.vue ✅
 
-**Location:** `src/frontend/src/components/launchpad_v2/BlockIdScoreConfig.vue`
+**Location:** `src/frontend/src/components/launchpad_v2/ICTOPassportScoreConfig.vue`
 
 **Features:**
 
 1. **Enable/Disable Toggle**
-   - Clear branding with BlockID logo
-   - Link to https://blockid.cc
+   - Clear branding with ICTO Passport logo
+   - Link to https://ictopassport.io
    - Service explanation
 
 2. **Score Slider (0-100)**
@@ -333,9 +333,9 @@ saleParams: {
 
 | Task | Component/File | Status |
 |------|---------------|--------|
-| 1 | Type System - BlockID Integration | ✅ Complete |
+| 1 | Type System - ICTO Passport Integration | ✅ Complete |
 | 2 | UI - SaleVisibilityConfig.vue | ✅ Complete |
-| 3 | UI - BlockIdScoreConfig.vue | ✅ Complete |
+| 3 | UI - ICTOPassportScoreConfig.vue | ✅ Complete |
 | 9 | Documentation - Payment Architecture | ✅ Complete |
 
 ### ⏳ Remaining (Tasks 4-8)
@@ -394,9 +394,9 @@ saleParams: {
 
 ## 📝 Key Decisions & Rationale
 
-### 1. BlockID as Third-Party Service
+### 1. ICTO Passport as Third-Party Service
 
-**Decision:** Integrate BlockID (blockid.cc) for identity verification
+**Decision:** Integrate ICTO Passport (ictopassport.io) for identity verification
 
 **Rationale:**
 - Similar to Gitcoin Passport model (proven UX)
@@ -407,8 +407,8 @@ saleParams: {
 
 **Implementation:**
 - Frontend UI complete
-- Backend integration pending (BlockID canister ID needed)
-- Fallback: Disable BlockID if service unavailable
+- Backend integration pending (ICTO Passport canister ID needed)
+- Fallback: Disable ICTO Passport if service unavailable
 
 ---
 
@@ -504,14 +504,14 @@ documents/modules/launchpad_factory/
 
 src/frontend/src/components/launchpad_v2/
 ├── SaleVisibilityConfig.vue       # Sale visibility toggle UI
-└── BlockIdScoreConfig.vue         # BlockID integration UI
+└── ICTOPassportScoreConfig.vue         # ICTO Passport integration UI
 ```
 
 ### Modified
 
 ```
 src/frontend/src/
-├── types/launchpad.ts              # Added BlockID & Scoring types
+├── types/launchpad.ts              # Added ICTO Passport & Scoring types
 └── composables/useLaunchpadForm.ts # Updated default configs
 ```
 
@@ -528,9 +528,9 @@ src/frontend/src/
 ### Component Rendering
 
 - ⏳ SaleVisibilityConfig renders correctly
-- ⏳ BlockIdScoreConfig renders correctly
+- ⏳ ICTOPassportScoreConfig renders correctly
 - ⏳ All three visibility modes display properly
-- ⏳ BlockID slider works smoothly
+- ⏳ ICTO Passport slider works smoothly
 - ⏳ Auto-configuration logic works
 
 ### Integration Tests (Pending)
@@ -711,7 +711,7 @@ await IcrcService.getIcrc2Allowance(token, owner, spender)
 ## 🙏 Acknowledgments
 
 **User Requirements:**
-- BlockID integration clarification (blockid.cc)
+- ICTO Passport integration clarification (ictopassport.io)
 - Service fee backend pattern
 - Composable pattern for reusability
 - Documentation-first approach
@@ -728,11 +728,11 @@ await IcrcService.getIcrc2Allowance(token, owner, spender)
 
 ### Completed ✅
 
-- [x] BlockID types defined
+- [x] ICTO Passport types defined
 - [x] Whitelist scoring types defined
 - [x] Sale visibility types defined
 - [x] SaleVisibilityConfig.vue component
-- [x] BlockIdScoreConfig.vue component
+- [x] ICTOPassportScoreConfig.vue component
 - [x] PAYMENT_ARCHITECTURE.md documentation
 - [x] PAYMENT_COMPOSABLE.md documentation
 - [x] SESSION_SUMMARY.md (this file)

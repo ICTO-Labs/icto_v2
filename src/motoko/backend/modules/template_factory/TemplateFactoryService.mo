@@ -16,9 +16,9 @@ module TemplateDeployerService {
     // Prepares the arguments for a remote call to the template_deployer canister.
     // This centralizes logic for checking service availability and configuration.
     public func prepareDeployment(
-        caller: Principal,
+        _caller: Principal,
         request: TemplateFactoryTypes.RemoteDeployRequest,
-        configState: ConfigTypes.State,
+        _configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : Result.Result<PreparedCall, Text> {
 

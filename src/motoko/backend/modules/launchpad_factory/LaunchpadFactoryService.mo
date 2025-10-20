@@ -5,6 +5,7 @@ import Time "mo:base/Time";
 import Debug "mo:base/Debug";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
+import Nat "mo:base/Nat";
 
 import ConfigTypes "../systems/config/ConfigTypes";
 import MicroserviceTypes "../systems/microservices/MicroserviceTypes";
@@ -21,10 +22,10 @@ module LaunchpadFactoryService {
 
     // Prepares deployment call to launchpad factory canister
     public func prepareDeployment(
-        state: (), // Launchpad factory doesn't need internal state
+        _state: (), // Launchpad factory doesn't need internal state
         owner: Principal,
         config: LaunchpadFactoryTypes.LaunchpadConfig,
-        configState: ConfigTypes.State,
+        _configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : async Result.Result<
         {
@@ -89,10 +90,10 @@ module LaunchpadFactoryService {
         };
 
         // Validate token configuration
-        if (Principal.isAnonymous(config.saleToken.canisterId)) {
-            return #err("Invalid sale token canister ID");
-        };
+        // NOTE: saleToken.canisterId is optional (LaunchpadSaleToken type)
+        // Will be deployed AFTER launchpad reaches soft cap
 
+        // Validate purchaseToken.canisterId (must exist for users to buy with)
         if (Principal.isAnonymous(config.purchaseToken.canisterId)) {
             return #err("Invalid purchase token canister ID");
         };
@@ -187,7 +188,7 @@ module LaunchpadFactoryService {
     // Generate launchpad deployment summary for logging
     public func generateDeploymentSummary(
         config: LaunchpadFactoryTypes.LaunchpadConfig,
-        launchpadCanisterId: Principal
+        _launchpadCanisterId: Principal
     ) : LaunchpadFactoryTypes.LaunchpadDeploymentSummary {
         {
             projectName = config.projectInfo.name;
@@ -220,6 +221,7 @@ module LaunchpadFactoryService {
             saleParams = config.saleParams;
             timeline = config.timeline;
             distribution = config.distribution;
+            tokenDistribution = null; // Optional, can be added later
             affiliateConfig = config.affiliateConfig;
             governanceConfig = config.governanceConfig;
             whitelist = config.whitelist;
@@ -230,6 +232,41 @@ module LaunchpadFactoryService {
             emergencyContacts = config.emergencyContacts;
             pausable = true;
             cancellable = true;
+            // DEX configuration - disabled by default
+            dexConfig = {
+                enabled = false;
+                platform = "";
+                listingPrice = 0;
+                totalLiquidityToken = 0;
+                initialLiquidityToken = 0;
+                initialLiquidityPurchase = 0;
+                liquidityLockDays = 0;
+                autoList = false;
+                slippageTolerance = 0;
+                lpTokenRecipient = null;
+                fees = {
+                    listingFee = 0;
+                    transactionFee = 0;
+                };
+            };
+            multiDexConfig = null; // Optional multi-DEX support
+            // Raised funds allocation - 100% to creator by default
+            raisedFundsAllocation = {
+                allocations = [{
+                    id = "creator";
+                    name = "Creator Allocation";
+                    amount = 0; // Will be calculated based on actual raise
+                    percentage = 100;
+                    recipients = [{
+                        principal = creator;
+                        percentage = 100;
+                        name = ?"Project Creator";
+                        vestingEnabled = false;
+                        vestingSchedule = null;
+                        description = ?"Project creator receives 100% of raised funds";
+                    }];
+                }];
+            };
         };
 
         {
@@ -299,7 +336,13 @@ module LaunchpadFactoryService {
     };
 
     // Get estimated total cost including cycles for a specific configuration
-    public func getEstimatedTotalCost(config: LaunchpadFactoryTypes.LaunchpadConfig) : LaunchpadFactoryTypes.LaunchpadCosts {
-        calculateDeploymentCosts(config)
+    public func getEstimatedTotalCost(config: LaunchpadFactoryTypes.LaunchpadConfig) : LaunchpadTypes.LaunchpadCosts {
+        let fees = calculateLaunchpadFees(config);
+        {
+            deploymentFee = fees.deploymentFee;
+            cycleCost = fees.cycleCost;
+            platformFee = fees.platformFee;
+            totalCost = fees.totalCost;
+        }
     };
 }

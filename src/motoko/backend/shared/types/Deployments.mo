@@ -6,6 +6,7 @@ import TemplateFactoryTypes "../../modules/template_factory/TemplateFactoryTypes
 import DistributionFactoryTypes "../../modules/distribution_factory/DistributionFactoryTypes";
 import DAOFactoryTypes "../../modules/dao_factory/DAOFactoryTypes";
 import MultisigFactoryTypes "../../modules/multisig_factory/MultisigFactoryTypes";
+import LaunchpadFactoryTypes "../../modules/launchpad_factory/LaunchpadFactoryTypes";
 
 module Deployments {
     
@@ -17,6 +18,7 @@ module Deployments {
         #Distribution: DistributionFactoryTypes.DistributionConfig;
         #DAO: DAOFactoryTypes.DAOConfig;
         #Multisig: MultisigFactoryTypes.CreateMultisigRequest;
+        #Launchpad: LaunchpadFactoryTypes.LaunchpadConfig;
     };
 
     // A standardized result returned by the unified deployment flow.

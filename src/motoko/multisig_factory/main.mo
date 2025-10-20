@@ -150,8 +150,8 @@ persistent actor MultisigFactory {
         false
     };
 
-    public shared(msg) func addToWhitelist(backend: Principal): async Result.Result<(), Text> {
-        if (not isAuthorized(msg.caller)) {
+    public shared({caller}) func addToWhitelist(backend: Principal): async Result.Result<(), Text> {
+        if (not isAuthorized(caller)) {
             return #err("Unauthorized: Only admins can whitelist backends");
         };
 
@@ -164,8 +164,8 @@ persistent actor MultisigFactory {
         whitelistedBackends
     };
 
-    public shared(msg) func removeWhitelistedBackend(backend: Principal): async Result.Result<(), Text> {
-        if (not isAuthorized(msg.caller)) {
+    public shared({caller}) func removeWhitelistedBackend(backend: Principal): async Result.Result<(), Text> {
+        if (not isAuthorized(caller)) {
             return #err("Unauthorized: Only admins can manage whitelisted backends");
         };
 
@@ -174,7 +174,7 @@ persistent actor MultisigFactory {
         #ok()
     };
 
-    public shared(msg) func removeFromWhitelist(backend: Principal): async Result.Result<(), Text> {
+    public shared({caller}) func removeFromWhitelist(backend: Principal): async Result.Result<(), Text> {
         await removeWhitelistedBackend(backend)
     };
 

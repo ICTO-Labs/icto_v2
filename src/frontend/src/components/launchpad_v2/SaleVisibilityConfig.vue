@@ -264,7 +264,7 @@
               <div>
                 <p class="text-sm font-medium text-yellow-800 dark:text-yellow-200">Auto-Approval Criteria</p>
                 <p class="text-xs text-yellow-600 dark:text-yellow-400">
-                  Based on BlockID score, registration order, or other rules
+                  Based on ICTO Passport score, registration order, or other rules
                 </p>
               </div>
             </div>
@@ -286,7 +286,7 @@
                 <p class="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-2">👤 User Self-Registration</p>
                 <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
                   <li>• Users connect wallet and register during whitelist period</li>
-                  <li>• Automatic BlockID verification (if required)</li>
+                  <li>• Automatic ICTO Passport verification (if required)</li>
                   <li>• Real-time approval status updates</li>
                   <li>• Email/notification on approval</li>
                 </ul>
@@ -307,7 +307,7 @@
               <div class="bg-white dark:bg-gray-800 rounded-lg p-3 border border-yellow-100 dark:border-yellow-800">
                 <p class="text-xs font-semibold text-yellow-700 dark:text-yellow-300 mb-2">⚡ Auto-Approval Criteria</p>
                 <ul class="text-xs text-gray-600 dark:text-gray-400 space-y-1">
-                  <li>• BlockID Score ≥ 80 (configurable)</li>
+                  <li>• ICTO Passport Score ≥ 80 (configurable)</li>
                   <li>• First-come-first-served up to limit</li>
                   <li>• Anti-sybil attack detection</li>
                   <li>• Geographic compliance check</li>
@@ -356,7 +356,7 @@
             <!-- Configuration Notes -->
             <div class="mt-3 p-2 bg-blue-100 dark:bg-blue-900/30 rounded border border-blue-200 dark:border-blue-700">
               <p class="text-xs text-blue-800 dark:text-blue-200">
-                <strong>💡 Admin Tip:</strong> You can pre-define up to 100 addresses that bypass auto-approval criteria. Set your BlockID score requirements and registration limits in the Trust & Verification section above.
+                <strong>💡 Admin Tip:</strong> You can pre-define up to 100 addresses that bypass auto-approval criteria. Set your ICTO Passport score requirements and registration limits in the Trust & Verification section above.
               </p>
             </div>
           </div>

@@ -44,10 +44,10 @@ module DistributionFactoryService {
     // --- DEPLOYMENT LOGIC ---
 
     public func prepareDeployment(
-        state: State,
+        _state: State,
         owner: Principal,
         config: DistributionFactoryTypes.DistributionConfig,
-        configState: ConfigTypes.State,
+        _configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : Result.Result<
         {
@@ -160,10 +160,10 @@ module DistributionFactoryService {
     // --- LAUNCHPAD BATCH CREATION ---
 
     public func prepareBatchDeployment(
-        state: State,
-        owner: Principal,
+        _state: State,
+        _owner: Principal,
         batchRequest: DistributionFactoryTypes.BatchDistributionRequest,
-        configState: ConfigTypes.State,
+        _configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : Result.Result<
         {

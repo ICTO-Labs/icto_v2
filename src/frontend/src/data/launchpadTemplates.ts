@@ -50,7 +50,7 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
         kycProvider: '',
         tags: [],
         category: 'DeFi',
-        blockIdRequired: 0
+        minICTOPassportScore: 0
       },
 
       // Sale Token Configuration
@@ -89,7 +89,7 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
         maxContribution: '1000',
         requiresWhitelist: false,
         requiresKYC: false,
-        blockIdRequired: 0,
+        minICTOPassportScore: 0,
         restrictedRegions: [],
         whitelistMode: 'Closed',
         whitelistEntries: []
@@ -273,7 +273,7 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
         kycProvider: '',
         tags: ['DeFi', 'DEX', 'Governance'],
         category: 'DeFi',
-        blockIdRequired: 0
+        minICTOPassportScore: 0
       },
 
       saleToken: {
@@ -306,7 +306,7 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
         maxContribution: '5000',
         requiresWhitelist: true,
         requiresKYC: true,
-        blockIdRequired: 0,
+        minICTOPassportScore: 0,
         restrictedRegions: [],
         whitelistMode: 'OpenRegistration',
         whitelistEntries: []
@@ -493,7 +493,7 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
       'Community governance',
       'Long-term vesting',
       'Anti-whale protection',
-      'BlockID verification'
+      'ICTO Passport verification'
     ],
     data: {
       projectInfo: {
@@ -511,7 +511,7 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
         kycProvider: '',
         tags: ['Community', 'Governance', 'Fair Launch'],
         category: 'SocialFi',
-        blockIdRequired: 50
+        minICTOPassportScore: 50
       },
 
       saleToken: {
@@ -544,7 +544,7 @@ export const launchpadTemplates: LaunchpadTemplate[] = [
         maxContribution: '500',
         requiresWhitelist: true,
         requiresKYC: false,
-        blockIdRequired: 50,
+        minICTOPassportScore: 50,
         restrictedRegions: [],
         whitelistMode: 'OpenRegistration',
         whitelistEntries: []

@@ -113,7 +113,7 @@ module DistributionTypes {
         #Whitelist;   // Only pre-defined recipients (from recipients field)
         #TokenHolder: TokenHolderConfig;
         #NFTHolder: NFTHolderConfig;
-        #BlockIDScore: Nat;
+        #ICTOPassportScore: Nat;
         #Hybrid: {
             conditions: [EligibilityType];
             logic: EligibilityLogic;

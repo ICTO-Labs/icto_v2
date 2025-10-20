@@ -253,7 +253,7 @@ module PaymentService {
 
     // is useful for UIs to check if approval is needed before initiating a transaction.
     public func checkPaymentApproval(
-        state: PaymentTypes.State,
+        _state: PaymentTypes.State,
         configState: ConfigTypes.State,
         user: Principal,
         backendPrincipal: Principal,
@@ -330,11 +330,11 @@ module PaymentService {
     // Internal function to handle the actual ICRC-2 transfer
     private func _processICRC2Transfer(
         user: Principal,
-        spender: Principal, // The backend principal that is approved to spend
+        _spender: Principal, // The backend principal that is approved to spend
         amount: Nat,
         paymentTokenId: Principal,
         recipient: Principal,
-        memo: ?Nat64
+        _memo: ?Nat64
     ) : async Result.Result<(Nat, ?Nat), ICRC.TransferFromError> {
         
         let icrcLedger = actor(Principal.toText(paymentTokenId)) : ICRC.ICRCLedger;
@@ -363,11 +363,11 @@ module PaymentService {
     };
 
     private func _processICRC1Transfer(
-        user: Principal,
+        _user: Principal,
         amount: Nat,
         paymentTokenId: Principal,
         recipient: Principal,
-        memo: ?Nat64
+        _memo: ?Nat64
     ) : async Result.Result<Nat, ICRC.TransferError> {
 
         let icrcLedger = actor(Principal.toText(paymentTokenId)) : ICRC.ICRCLedger;
@@ -491,7 +491,7 @@ module PaymentService {
             case (#ok((bh, _))) {
                 (true, ?Nat.toText(bh), ?bh, null);
             };
-            case (#err(err)) {
+            case (#err(_err)) {
                 // TODO: Finer error translation
                 (false, null, null, ?("ICRC-2 Transfer Failed."));
             };
@@ -564,9 +564,9 @@ module PaymentService {
             case (#Approved) "Approved";
             case (#Processing) "Processing";
             case (#Completed) "Completed";
-            case (#Failed(msg)) "Failed";
+            case (#Failed(_msg)) "Failed";
             case (#Cancelled) "Cancelled";
-            case (#Rejected(msg)) "Rejected";
+            case (#Rejected(_msg)) "Rejected";
         }
     };
 

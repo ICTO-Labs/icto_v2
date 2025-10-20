@@ -166,8 +166,8 @@
               </span>
             </div>
             <div class="flex items-center justify-between text-sm">
-              <span class="text-gray-600 dark:text-gray-400">BlockID Required:</span>
-              <span class="font-medium">{{ formData.projectInfo.blockIdRequired || 0 }}</span>
+              <span class="text-gray-600 dark:text-gray-400">ICTO Passport Required:</span>
+              <span class="font-medium">{{ formData.projectInfo.minICTOPassportScore || 0 }}</span>
             </div>
             <div class="flex items-center justify-between text-sm">
               <span class="text-gray-600 dark:text-gray-400">KYC Provider:</span>

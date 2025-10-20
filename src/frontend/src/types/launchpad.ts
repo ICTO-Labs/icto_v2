@@ -41,13 +41,13 @@ export type {
 // ============= THIRD-PARTY INTEGRATIONS =============
 
 /**
- * BlockID - Third-party identity verification service
+ * ICTO Passport - Third-party identity verification service
  * Similar to Gitcoin Passport on Internet Computer
  *
  * Purpose: Verify wallet authenticity through multiple verification methods
  * to prove "human" rather than "bot" identity
  *
- * Service Provider: BlockID Protocol (https://blockid.cc)
+ * Service Provider: ICTO Passport Protocol (https://ictopassport.io)
  * Verification Methods:
  * - Social media verification (Twitter, Discord, etc.)
  * - On-chain activity analysis
@@ -60,12 +60,12 @@ export type {
  * - 51-80: Good reputation
  * - 81-100: Highly trusted account
  */
-export interface BlockIdConfig {
-  enabled: boolean                // Enable BlockID verification requirement
+export interface ICTOPassportConfig {
+  enabled: boolean                // Enable ICTO Passport verification requirement
   minScore: number                // Minimum score required (0-100)
-  providerCanisterId?: string     // BlockID service canister ID
+  providerCanisterId?: string     // ICTO Passport service canister ID
   verificationMethods?: string[]  // Required verification methods
-  bypassForWhitelisted?: boolean  // Allow whitelisted users to bypass BlockID
+  bypassForWhitelisted?: boolean  // Allow whitelisted users to bypass ICTO Passport
 }
 
 /**
@@ -136,7 +136,7 @@ export interface LaunchpadFormData {
     tags: string[]
     category: string
     metadata?: Array<[string, string]>
-    // ❌ REMOVED: blockIdRequired - Moved to saleParams.blockIdConfig
+    // ❌ REMOVED: minICTOPassportScore - Moved to saleParams.ictoPassportConfig
   }
   
   // Sale Token Configuration - Sync with TokenInfo
@@ -191,8 +191,8 @@ export interface LaunchpadFormData {
     requiresKYC: boolean
     kycProvider?: string
 
-    // ✅ NEW: BlockID Third-party Service Integration
-    blockIdConfig?: BlockIdConfig  // Replaced blockIdRequired: number
+    // ✅ NEW: ICTO Passport Third-party Service Integration
+    ictoPassportConfig?: ICTOPassportConfig  // Replaced minICTOPassportScore: number
 
     // ✅ NEW: Whitelist Scoring System
     whitelistScoring?: WhitelistScoringConfig
@@ -207,7 +207,7 @@ export interface LaunchpadFormData {
       tier?: number
 
       // ✅ NEW: Scoring information
-      blockIdScore?: number        // Score from BlockID service (0-100)
+      ictoPassportScore?: number        // Score from ICTO Passport service (0-100)
       whitelistScore?: number      // Calculated whitelist score
       scoreBreakdown?: {           // Detailed score breakdown
         accountAge?: number

@@ -254,6 +254,10 @@ import { useLaunchpadForm } from '@/composables/useLaunchpadForm'
 // Use composable for centralized state - no more props/emit!
 const { formData: localFormData, step0ValidationErrors } = useLaunchpadForm()
 
+// DEBUG: Log formData initialization
+console.log('[ProjectSetupStep] 🔍 Component mounted, localFormData:', localFormData.value)
+console.log('[ProjectSetupStep] 📝 Project Name:', localFormData.value?.projectInfo?.name)
+
 // Local state
 const uniqueIds = {
   projectName: useUniqueId('project-name'),

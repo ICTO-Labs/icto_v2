@@ -114,9 +114,9 @@ export class DistributionUtils {
                     }
                 };
             
-            case 'BlockIDScore':
-                const blockIdScore = (config as any).blockIdScore;
-                return { BlockIDScore: BigInt(blockIdScore || 0) };
+            case 'ICTOPassportScore':
+                const ictoPassportScore = (config as any).ictoPassportScore;
+                return { ICTOPassportScore: BigInt(ictoPassportScore || 0) };
             
             case 'Hybrid':
                 // For now, return simple structure - can be enhanced later

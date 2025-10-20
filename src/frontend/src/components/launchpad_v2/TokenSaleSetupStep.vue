@@ -335,7 +335,7 @@
     <!-- Sale Visibility & Verification -->
     <div class="bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 rounded-xl p-6 shadow-sm border border-amber-200 dark:border-amber-800">
       <SaleVisibilityConfig v-model="localFormData" />
-      <BlockIdScoreConfig v-model="localFormData" />
+      <ICTOPassportScoreConfig v-model="localFormData" />
     </div>
 
     <!-- Timeline Configuration -->
@@ -422,7 +422,7 @@ import { AlertTriangleIcon, UploadIcon } from 'lucide-vue-next'
 // Component imports
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import SaleVisibilityConfig from './SaleVisibilityConfig.vue'
-import BlockIdScoreConfig from './BlockIdScoreConfig.vue'
+import ICTOPassportScoreConfig from './ICTOPassportScoreConfig.vue'
 
 // Composables
 import { useLaunchpadForm } from '@/composables/useLaunchpadForm'

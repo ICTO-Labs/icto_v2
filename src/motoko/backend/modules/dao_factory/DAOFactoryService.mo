@@ -21,10 +21,10 @@ module DAOFactoryService {
 
     // Prepares deployment call to DAO factory canister
     public func prepareDeployment(
-        state: (), // DAO factory doesn't need internal state
+        _state: (), // DAO factory doesn't need internal state
         owner: Principal,
         config: DAOFactoryTypes.DAOConfig,
-        configState: ConfigTypes.State,
+        _configState: ConfigTypes.State,
         microserviceState: MicroserviceTypes.State
     ) : async Result.Result<
         {
@@ -162,7 +162,7 @@ module DAOFactoryService {
     // Generate DAO deployment summary for logging
     public func generateDeploymentSummary(
         config: DAOFactoryTypes.DAOConfig,
-        daoCanisterId: Principal
+        _daoCanisterId: Principal
     ) : DAOFactoryTypes.DAODeploymentSummary {
         {
             daoName = config.name;
