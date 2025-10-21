@@ -282,11 +282,12 @@ persistent actor Backend {
         };
 
         // 4. Log the primary business action
-        let auditEntry = await AuditService.logAction(
-            auditState,
-            caller,
-            actionType,
-            #DeploymentData({
+        let auditEntry = try {
+            await AuditService.logAction(
+                auditState,
+                caller,
+                actionType,
+                #DeploymentData({
                 deploymentType = switch (payload) {
                     case (#Token(req)) #Token({
                         tokenName = req.tokenConfig.name;
@@ -361,6 +362,27 @@ persistent actor Backend {
             ?#Backend,
             null,
         );
+        } catch (e) {
+            // If audit logging fails, log error and continue
+            // We cannot refund because this means audit storage is down
+            // Best to continue and manually track this deployment
+            Debug.print("❌ CRITICAL: Audit logging failed: " # Error.message(e));
+            Debug.print("   Payment ID: " # debug_show(paymentResult.paymentRecordId));
+            Debug.print("   User: " # Principal.toText(caller));
+            Debug.print("   Continuing deployment - manual audit tracking required");
+
+            // Create minimal fallback entry for flow continuation
+            await AuditService.logAction(
+                auditState,
+                caller,
+                #Custom("AuditLogFailure"),
+                #RawData("Audit log failed, fallback entry created. Original action: " # debug_show(actionType)),
+                projectId,
+                paymentResult.paymentRecordId,
+                ?#Backend,
+                null,
+            )
+        };
         let auditId = auditEntry.id;
 
         // 5. Dispatch to the correct deployer based on payload
@@ -385,10 +407,16 @@ persistent actor Backend {
                                     ?Principal,
                                 ) -> async Result.Result<Principal, TokenFactoryTypes.DeploymentError>;
                             };
-                            let result = await deployerActor.deployTokenWithConfig(call.args.config, call.args.deploymentConfig, null);
-                            switch (result) {
-                                case (#ok(p)) { #ok(p) };
-                                case (#err(e)) { #err(debug_show (e)) };
+                            try {
+                                let result = await deployerActor.deployTokenWithConfig(call.args.config, call.args.deploymentConfig, null);
+                                switch (result) {
+                                    case (#ok(p)) { #ok(p) };
+                                    case (#err(e)) { #err(debug_show (e)) };
+                                };
+                            } catch (e) {
+                                let errorMsg = "Token deployment failed: " # Error.message(e);
+                                Debug.print("❌ Token deployment error: " # errorMsg);
+                                #err(errorMsg)
                             };
                         };
                     };
@@ -407,10 +435,16 @@ persistent actor Backend {
                             let deployerActor = actor (Principal.toText(call.canisterId)) : actor {
                                 deployFromTemplate : (TemplateFactoryTypes.RemoteDeployRequest) -> async Result.Result<TemplateFactoryTypes.RemoteDeployResult, Text>;
                             };
-                            let result = await deployerActor.deployFromTemplate(call.args);
-                            switch (result) {
-                                case (#ok(res)) { #ok(res.canisterId) };
-                                case (#err(msg)) { #err(msg) };
+                            try {
+                                let result = await deployerActor.deployFromTemplate(call.args);
+                                switch (result) {
+                                    case (#ok(res)) { #ok(res.canisterId) };
+                                    case (#err(msg)) { #err(msg) };
+                                };
+                            } catch (e) {
+                                let errorMsg = "Template deployment failed: " # Error.message(e);
+                                Debug.print("❌ Template deployment error: " # errorMsg);
+                                #err(errorMsg)
                             };
                         };
                     };
@@ -431,10 +465,16 @@ persistent actor Backend {
                         case (#ok(call)) {
                             Debug.print("⚠️ Call: " # debug_show (call));
                             let deployerActor = actor (Principal.toText(call.canisterId)) : DistributionFactoryInterface.DistributionFactoryActor;
-                            let result = await deployerActor.createDistribution(call.args);
-                            switch (result) {
-                                case (#ok(res)) { #ok(res.distributionCanisterId) };
-                                case (#err(msg)) { #err(msg) };
+                            try {
+                                let result = await deployerActor.createDistribution(call.args);
+                                switch (result) {
+                                    case (#ok(res)) { #ok(res.distributionCanisterId) };
+                                    case (#err(msg)) { #err(msg) };
+                                };
+                            } catch (e) {
+                                let errorMsg = "Distribution deployment failed: " # Error.message(e);
+                                Debug.print("❌ Distribution deployment error: " # errorMsg);
+                                #err(errorMsg)
                             };
                         };
                     };
@@ -457,10 +497,16 @@ persistent actor Backend {
                         case (#ok(call)) {
                             Debug.print("⚠️ DAO Call: " # debug_show (call));
                             let deployerActor = actor (Principal.toText(call.canisterId)) : DAOFactoryInterface.DAOFactoryActor;
-                            let result = await deployerActor.createDAO(call.args);
-                            switch (result) {
-                                case (#Ok(res)) { #ok(res.canisterId) };
-                                case (#Err(msg)) { #err(msg) };
+                            try {
+                                let result = await deployerActor.createDAO(call.args);
+                                switch (result) {
+                                    case (#Ok(res)) { #ok(res.canisterId) };
+                                    case (#Err(msg)) { #err(msg) };
+                                };
+                            } catch (e) {
+                                let errorMsg = "DAO deployment failed: " # Error.message(e);
+                                Debug.print("❌ DAO deployment error: " # errorMsg);
+                                #err(errorMsg)
                             };
                         };
                     };
@@ -483,20 +529,26 @@ persistent actor Backend {
                         case (#ok(call)) {
                             Debug.print("⚠️ Multisig Call: " # debug_show (call));
                             let deployerActor = actor (Principal.toText(call.canisterId)) : MultisigFactoryInterface.MultisigFactoryActor;
-                            let result = await deployerActor.createMultisigWallet(call.args.config, call.args.creator, call.args.initialCycles);
-                            switch (result) {
-                                case (#ok(res)) { #ok(res.canisterId) };
-                                case (#err(error)) { 
-                                    let errorMsg = switch (error) {
-                                        case (#InsufficientCycles) "Insufficient cycles for deployment";
-                                        case (#InvalidConfiguration(msg)) "Invalid configuration: " # msg;
-                                        case (#DeploymentFailed(msg)) "Deployment failed: " # msg;
-                                        case (#Unauthorized) "Unauthorized access";
-                                        case (#RateLimited) "Rate limit exceeded";
-                                        case (#SystemError(msg)) "System error: " # msg;
+                            try {
+                                let result = await deployerActor.createMultisigWallet(call.args.config, call.args.creator, call.args.initialCycles);
+                                switch (result) {
+                                    case (#ok(res)) { #ok(res.canisterId) };
+                                    case (#err(error)) {
+                                        let errorMsg = switch (error) {
+                                            case (#InsufficientCycles) "Insufficient cycles for deployment";
+                                            case (#InvalidConfiguration(msg)) "Invalid configuration: " # msg;
+                                            case (#DeploymentFailed(msg)) "Deployment failed: " # msg;
+                                            case (#Unauthorized) "Unauthorized access";
+                                            case (#RateLimited) "Rate limit exceeded";
+                                            case (#SystemError(msg)) "System error: " # msg;
+                                        };
+                                        #err(errorMsg)
                                     };
-                                    #err(errorMsg)
                                 };
+                            } catch (e) {
+                                let errorMsg = "Multisig deployment failed: " # Error.message(e);
+                                Debug.print("❌ Multisig deployment error: " # errorMsg);
+                                #err(errorMsg)
                             };
                         };
                     };
@@ -519,10 +571,16 @@ persistent actor Backend {
                         case (#ok(call)) {
                             Debug.print("⚠️ Launchpad Call: " # debug_show (call));
                             let deployerActor = actor (Principal.toText(call.canisterId)) : LaunchpadFactoryInterface.LaunchpadFactoryActor;
-                            let result = await deployerActor.createLaunchpad(call.args);
-                            switch (result) {
-                                case (#ok(res)) { #ok(res.canisterId) };
-                                case (#err(msg)) { #err(msg) };
+                            try {
+                                let result = await deployerActor.createLaunchpad(call.args);
+                                switch (result) {
+                                    case (#Ok(res)) { #ok(res.canisterId) };
+                                    case (#Err(msg)) { #err(msg) };
+                                };
+                            } catch (e) {
+                                let errorMsg = "Launchpad deployment failed: " # Error.message(e);
+                                Debug.print("❌ Launchpad deployment error: " # errorMsg);
+                                #err(errorMsg)
                             };
                         };
                     };

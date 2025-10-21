@@ -119,14 +119,20 @@
                   >
                   <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
                 </label>
-                <label 
+                <label
                   @click="saleVestingEnabled = !saleVestingEnabled"
                   class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
                 >
                   Enable Vesting Schedule
                 </label>
               </div>
-              <VestingScheduleConfig 
+
+              <!-- Feedback when vesting is disabled -->
+              <small v-if="!saleVestingEnabled" class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
+                💡 Tokens will be unlocked 100% immediately after TGE
+              </small>
+
+              <VestingScheduleConfig
                 v-if="saleVestingEnabled"
                 v-model="distributionData.sale.vestingSchedule"
                 allocation-name="Sale"
@@ -405,14 +411,20 @@
                   >
                   <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-green-300 dark:peer-focus:ring-green-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-green-600"></div>
                 </label>
-                <label 
+                <label
                   @click="teamVestingEnabled = !teamVestingEnabled"
                   class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
                 >
                   Enable Vesting Schedule
                 </label>
               </div>
-              <VestingScheduleConfig 
+
+              <!-- Feedback when vesting is disabled -->
+              <small v-if="!teamVestingEnabled" class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
+                💡 Tokens will be unlocked 100% immediately after TGE
+              </small>
+
+              <VestingScheduleConfig
                 v-if="teamVestingEnabled"
                 v-model="distributionData.team.vestingSchedule"
                 allocation-name="Team"
@@ -425,7 +437,7 @@
                 v-model="distributionData.team.recipients"
                 title="Team Recipients"
                 help-text="Configure principals who will receive team token allocation."
-                empty-message="⚠️ At least one team recipient is required for non-zero team allocation"
+                empty-message="At least one team recipient is required for non-zero team allocation"
                 allocation-type="tokens"
                 value-type="amount"
                 :token-symbol="saleToken?.symbol || 'Token'"
@@ -557,14 +569,20 @@
                     >
                     <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
                   </label>
-                  <label 
+                  <label
                     @click="category.vestingEnabled = !category.vestingEnabled"
                     class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
                   >
                     Enable Vesting Schedule
                   </label>
                 </div>
-                <VestingScheduleConfig 
+
+                <!-- Feedback when vesting is disabled -->
+                <small v-if="!category.vestingEnabled" class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
+                  💡 Tokens will be unlocked 100% immediately after TGE
+                </small>
+
+                <VestingScheduleConfig
                   v-if="category.vestingEnabled"
                   v-model="category.vestingSchedule"
                   :allocation-name="category.name || 'Custom'"
@@ -588,7 +606,7 @@
                 </div>
 
                 <div v-if="category.recipients.length === 0" class="p-3 bg-yellow-50 dark:bg-yellow-900/20 border-2 border-dashed border-yellow-300 dark:border-yellow-700 rounded-lg text-sm text-yellow-800 dark:text-yellow-200">
-                  ⚠️ At least one recipient is required for non-zero {{ category.name || 'custom' }} allocation
+                  At least one recipient is required for non-zero {{ category.name || 'custom' }} allocation
                 </div>
 
                 <!-- Recipients Table -->

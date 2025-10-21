@@ -12,28 +12,31 @@ module LaunchpadFactoryTypes {
     public type LaunchpadConfig = {
         // Project Information
         projectInfo: LaunchpadTypes.ProjectInfo;
-        
+
         // Token Configuration
         saleToken: LaunchpadTypes.LaunchpadSaleToken; // Use LaunchpadSaleToken for sale token
         purchaseToken: LaunchpadTypes.TokenInfo;      // Use TokenInfo for purchase token
-        
-        // Sale Configuration  
+
+        // Sale Configuration
         saleParams: LaunchpadTypes.SaleParams;
-        
+
         // Timeline
         timeline: LaunchpadTypes.Timeline;
-        
+
         // Token Distribution
         distribution: [LaunchpadTypes.DistributionCategory];
-        
+
+        // Raised Funds Management
+        raisedFundsAllocation: LaunchpadTypes.RaisedFundsAllocation;
+
         // Advanced Features
         affiliateConfig: LaunchpadTypes.AffiliateConfig;
         governanceConfig: LaunchpadTypes.GovernanceConfig;
-        
+
         // Security & Compliance
         whitelist: [Principal];
         blacklist: [Principal];
-        
+
         // Emergency Controls
         emergencyContacts: [Principal];
     };

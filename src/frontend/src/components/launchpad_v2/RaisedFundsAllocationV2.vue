@@ -93,12 +93,17 @@
               @click="teamVestingEnabled = !teamVestingEnabled"
               class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
             >
-              ⭐ Enable Global Vesting Schedule
+              Enable Vesting Schedule
             </label>
             <HelpTooltip class="text-xs">
-              Apply vesting to all team recipients unless individually overridden
+              Apply global vesting schedule to all team recipients
             </HelpTooltip>
           </div>
+
+          <!-- Feedback when vesting is disabled -->
+          <small v-if="!teamVestingEnabled" class="text-xs text-gray-500 dark:text-gray-400 italic mt-2 block">
+            💡 All team funds will be unlocked 100% immediately after distribution
+          </small>
 
           <VestingScheduleConfig
             v-if="teamVestingEnabled"
@@ -415,6 +420,9 @@ import { useLaunchpadForm } from '@/composables/useLaunchpadForm'
 const teamExpanded = ref(true)
 const dexExpanded = ref(true)
 
+// Vesting global state - persists even when no recipients
+const teamVestingGlobalEnabled = ref(false)
+
 // Props - only keep flags and display settings
 interface Props {
   enableVesting?: boolean
@@ -505,13 +513,21 @@ const teamVestingEnabled = computed({
   get: () => {
     const teamAlloc = getTeamAllocation.value
     if (!teamAlloc) return false
+    // If no recipients yet, return global state
+    if (teamAlloc.recipients.length === 0) {
+      return teamVestingGlobalEnabled.value
+    }
     // Check if any recipient has vesting enabled
     return teamAlloc.recipients.some(r => r.vestingEnabled)
   },
   set: (val) => {
     const teamAlloc = getTeamAllocation.value
     if (!teamAlloc) return
-    // Apply vesting to all recipients
+
+    // Update global state
+    teamVestingGlobalEnabled.value = val
+
+    // Apply vesting to all recipients (if any)
     teamAlloc.recipients.forEach(r => {
       r.vestingEnabled = val
       if (val && !r.vestingSchedule) {
@@ -595,7 +611,9 @@ const addTeamRecipient = () => {
   currentRecipients.push({
     principal: '',
     percentage: 0,
-    name: ''
+    name: '',
+    vestingEnabled: teamVestingGlobalEnabled.value, // Apply global vesting state
+    vestingSchedule: teamVestingGlobalEnabled.value ? { ...DEFAULT_VESTING_SCHEDULE } : undefined
   })
   teamRecipients.value = currentRecipients
 }

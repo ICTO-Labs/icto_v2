@@ -250,28 +250,13 @@ module LaunchpadFactoryService {
                 };
             };
             multiDexConfig = null; // Optional multi-DEX support
-            // Raised funds allocation - 100% to creator by default
-            raisedFundsAllocation = {
-                allocations = [{
-                    id = "creator";
-                    name = "Creator Allocation";
-                    amount = 0; // Will be calculated based on actual raise
-                    percentage = 100;
-                    recipients = [{
-                        principal = creator;
-                        percentage = 100;
-                        name = ?"Project Creator";
-                        vestingEnabled = false;
-                        vestingSchedule = null;
-                        description = ?"Project creator receives 100% of raised funds";
-                    }];
-                }];
-            };
-        };
+            // Raised funds allocation from config or default to creator
+            raisedFundsAllocation = config.raisedFundsAllocation;
+          };
 
         {
             config = launchpadConfig;
-            creator = creator;
+            initialDeposit = null; // No initial deposit for now
         }
     };
 

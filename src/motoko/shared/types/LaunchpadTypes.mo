@@ -330,6 +330,11 @@ module LaunchpadTypes {
         description: ?Text;           // Description of this allocation
     };
 
+    public type UnallocatedManagement = {
+        #Multisig: ?Principal;      // Unallocated managed by multisig (optional canister ID)
+        #DAO: ?Principal;           // Unallocated managed by DAO (optional canister ID)
+    };
+
     public type RecipientConfig = {
         #SaleParticipants;           // Distributed to sale participants
         #FixedList: [Recipient];     // Fixed list of recipients
@@ -340,6 +345,7 @@ module LaunchpadTypes {
         #Staking;                   // Staking rewards
         #Marketing;                 // Marketing and partnerships
         #Advisors;                  // Advisor allocations
+        #Unallocated: UnallocatedManagement; // Unallocated tokens (DAO or Multisig)
     };
 
     public type Recipient = {

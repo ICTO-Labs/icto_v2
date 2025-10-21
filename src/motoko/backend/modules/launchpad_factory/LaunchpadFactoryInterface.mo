@@ -11,15 +11,19 @@ module LaunchpadFactoryInterface {
     // Arguments for creating a new launchpad
     public type CreateLaunchpadArgs = {
         config: LaunchpadTypes.LaunchpadConfig;
-        creator: Principal;
+        initialDeposit: ?Nat;
     };
 
     // Result of launchpad creation
-    public type CreateLaunchpadResult = Result.Result<{
-        launchpadId: Text;
-        canisterId: Principal;
-        createdAt: Time.Time;
-    }, Text>;
+    // IMPORTANT: Must match factory's exact return type
+    public type CreateLaunchpadResult = {
+        #Ok: {
+            launchpadId: Text;
+            canisterId: Principal;
+            estimatedCosts: LaunchpadTypes.LaunchpadCosts;
+        };
+        #Err: Text;
+    };
 
     // Arguments for launchpad operations
     public type LaunchpadOperationArgs = {

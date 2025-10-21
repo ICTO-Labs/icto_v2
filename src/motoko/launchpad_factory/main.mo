@@ -15,7 +15,7 @@ import Nat "mo:base/Nat";
 import Blob "mo:base/Blob";
 
 // Import the Launchpad Contract class
-import LaunchpadContractClass "LaunchpadContract";
+import LaunchpadContract "LaunchpadContract";
 import LaunchpadTypes "../shared/types/LaunchpadTypes";
 
 // Import VersionManager for version management
@@ -30,7 +30,7 @@ persistent actor LaunchpadFactory {
 
     // Backend-Managed Admin System
     private stable var admins : [Principal] = [];
-    private stable let BACKEND_CANISTER : Principal = Principal.fromText("rrkah-fqaaa-aaaaa-aaaaq-cai"); // Backend canister ID
+    // REMOVED: BACKEND_CANISTER hardcode - now using whitelistedBackends for all backend operations
 
     // Whitelist management
     private stable var whitelistedBackends : [(Principal, Bool)] = [];
@@ -297,14 +297,14 @@ persistent actor LaunchpadFactory {
     
     // ================ BACKEND-MANAGED ADMIN SYSTEM ================
 
-    // Backend sync endpoint - Only backend can set admins
+    // Backend sync endpoint - Only whitelisted backends can set admins
     public shared({caller}) func setAdmins(newAdmins: [Principal]) : async Result.Result<(), Text> {
-        if (caller != BACKEND_CANISTER) {
-            return #err("Unauthorized: Only backend can set admins");
+        if (not isWhitelistedBackend(caller)) {
+            return #err("Unauthorized: Only whitelisted backends can set admins");
         };
 
         admins := newAdmins;
-        Debug.print("Admins synced from backend: " # debug_show(newAdmins));
+        Debug.print("Admins synced from backend " # Principal.toText(caller) # ": " # debug_show(newAdmins));
 
         #ok()
     };
@@ -322,36 +322,87 @@ persistent actor LaunchpadFactory {
     // ================ CORE LAUNCHPAD FUNCTIONS ================
     
     public shared({caller}) func createLaunchpad(args: CreateLaunchpadArgs) : async CreateLaunchpadResult {
+        Debug.print("🚀 FACTORY: createLaunchpad called by " # Principal.toText(caller));
+
+        // Debug: Print all Principal fields in config
+        Debug.print("📋 FACTORY: Config Principal fields:");
+        Debug.print("  - purchaseToken.canisterId: " # Principal.toText(args.config.purchaseToken.canisterId));
+        Debug.print("  - affiliateConfig.paymentToken: " # Principal.toText(args.config.affiliateConfig.paymentToken));
+        Debug.print("  - governanceConfig.votingToken: " # Principal.toText(args.config.governanceConfig.votingToken));
+        switch(args.config.governanceConfig.daoCanisterId) {
+            case (?dao) Debug.print("  - governanceConfig.daoCanisterId: " # Principal.toText(dao));
+            case null Debug.print("  - governanceConfig.daoCanisterId: null");
+        };
+        switch(args.config.saleToken.canisterId) {
+            case (?token) Debug.print("  - saleToken.canisterId: " # Principal.toText(token));
+            case null Debug.print("  - saleToken.canisterId: null");
+        };
+
         // Only whitelisted backends can create launchpads
         if (not isWhitelistedBackend(caller)) {
+            Debug.print("❌ FACTORY: Caller not whitelisted");
             return #Err("Unauthorized: Only whitelisted backends can create launchpads");
         };
-        
+        Debug.print("✅ FACTORY: Caller is whitelisted");
+
         // Validate configuration
+        Debug.print("📋 FACTORY: Validating config...");
         let validationResult = validateLaunchpadConfig(args.config);
         switch (validationResult) {
-            case (#err(msg)) { return #Err(msg) };
-            case (#ok()) {};
+            case (#err(msg)) {
+                Debug.print("❌ FACTORY: Validation failed: " # msg);
+                return #Err(msg)
+            };
+            case (#ok()) {
+                Debug.print("✅ FACTORY: Config validated");
+            };
         };
-        
-        // Check cycles
-        if (Cycles.available() < CYCLES_FOR_INSTALL) {
-            return #Err("Insufficient cycles for deployment");
+
+        // Accept any cycles sent with the request (optional)
+        let received = Cycles.available();
+        if (received > 0) {
+            let accepted = Cycles.accept(received);
+            Debug.print("💰 FACTORY: Accepted " # debug_show(accepted) # " cycles from caller");
         };
-        
+
+        // Check factory's current balance (NOT cycles.available from request)
+        let currentBalance = Cycles.balance();
+        Debug.print("💰 FACTORY: Current balance: " # debug_show(currentBalance));
+        if (currentBalance < CYCLES_FOR_INSTALL) {
+            return #Err("Insufficient factory cycles for deployment. Required: " # Nat.toText(CYCLES_FOR_INSTALL) # ", Available: " # Nat.toText(currentBalance));
+        };
+        Debug.print("✅ FACTORY: Balance check passed");
+
         try {
-            let launchpadId = generateLaunchpadId();
-            Debug.print("Creating launchpad: " # launchpadId);
-            
-            // Create the canister with cycles
-            let launchpadCanister = await (with cycles = CYCLES_FOR_INSTALL) LaunchpadContractClass.LaunchpadContract<system>({
-                id = launchpadId;
-                creator = caller; // Use caller Principal, not project name
+            Debug.print("🏗️  FACTORY: Creating LaunchpadContract...");
+
+            // Create the canister with cycles first (with temporary ID)
+            let launchpadCanister = await (with cycles = CYCLES_FOR_INSTALL) LaunchpadContract.LaunchpadContract<system>({
+                id = "pending"; // Temporary, will be replaced with canister ID
+                creator = caller;
                 config = args.config;
-                createdAt = Time.now(); // Add missing createdAt field
+                createdAt = Time.now();
             });
 
+            Debug.print("✅ FACTORY: LaunchpadContract created successfully");
+            // Use canister ID as launchpad ID
             let canisterId = Principal.fromActor(launchpadCanister);
+            let launchpadId = Principal.toText(canisterId);
+            Debug.print("📍 FACTORY: Canister ID (= Launchpad ID): " # launchpadId);
+
+            // Set the canister ID as the launchpad ID
+            Debug.print("🔧 FACTORY: Setting launchpad ID...");
+            let setIdResult = await launchpadCanister.setId(launchpadId);
+            switch (setIdResult) {
+                case (#err(msg)) {
+                    Debug.print("❌ FACTORY: Failed to set ID: " # msg);
+                    return #Err("Failed to set launchpad ID: " # msg);
+                };
+                case (#ok()) {
+                    Debug.print("✅ FACTORY: Launchpad ID set successfully");
+                };
+            };
+
             let now = Time.now();
 
             // VERSION MANAGEMENT: Register contract with current factory version

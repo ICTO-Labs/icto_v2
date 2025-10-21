@@ -16,19 +16,17 @@
     <!-- Help Text -->
     <p v-if="helpText" class="text-sm text-gray-600 dark:text-gray-400">{{ helpText }}</p>
 
-    <!-- Empty State -->
-    <div v-if="recipients.length === 0" class="text-center py-8 px-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg">
-      <div class="flex flex-col items-center space-y-2">
-        <div class="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
-          <UserIcon class="h-6 w-6 text-gray-400" />
-        </div>
+    <!-- Empty State - Simple centered layout -->
+    <div v-if="recipients.length === 0" class="text-center p-3 bg-yellow-50 dark:bg-yellow-900/20 border-2 border-dashed border-yellow-300 dark:border-yellow-700 rounded-lg text-sm text-yellow-800 dark:text-yellow-200">
+      <div class="flex flex-col items-center gap-3">
+        <UserIcon class="h-8 w-8 text-gray-400" />
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ emptyMessage }}</p>
         <button
           @click="$emit('addRecipient')"
           type="button"
-          class="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 hover:bg-yellow-100 dark:hover:bg-yellow-900/30 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-yellow-500"
+          class="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md text-yellow-700 dark:text-yellow-300 bg-yellow-100 dark:bg-yellow-900/30 hover:bg-yellow-200 dark:hover:bg-yellow-900/40 transition-colors"
         >
-          <PlusIcon class="h-4 w-4 mr-2" />
+          <PlusIcon class="h-4 w-4 mr-1.5" />
           Add First Recipient
         </button>
       </div>
@@ -138,7 +136,7 @@
             </div>
 
             <!-- Notes (Full Width) -->
-            <div>
+            <!-- <div>
               <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Notes (Optional)
               </label>
@@ -148,7 +146,7 @@
                 placeholder="Additional notes about this recipient"
                 class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-800 text-sm"
               />
-            </div>
+            </div> -->
           </div>
         </div>
 

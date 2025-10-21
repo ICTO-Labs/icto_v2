@@ -78,12 +78,17 @@
             @click="localAllocation.vestingEnabled = !localAllocation.vestingEnabled"
             class="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer select-none"
           >
-            Enable Vesting
+            Enable Vesting Schedule
           </label>
           <HelpTooltip class="text-xs">
             Apply vesting schedule to this allocation category
           </HelpTooltip>
         </div>
+
+        <!-- Feedback when vesting is disabled -->
+        <small v-if="!localAllocation.vestingEnabled" class="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
+          💡 Tokens will be unlocked 100% immediately after distribution
+        </small>
       </div>
 
       <!-- Vesting Schedule Configuration -->

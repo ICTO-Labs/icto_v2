@@ -30,6 +30,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
     // ================ STABLE STATE ================
 
+    // launchpadId is the canister ID (set by factory)
     private var launchpadId : Text = initArgs.id;
     private var config : LaunchpadTypes.LaunchpadConfig = initArgs.config;
     private var creator : Principal = initArgs.creator;
@@ -89,7 +90,10 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     private var rateLimitViolations : [(Principal, Nat)] = [];
 
     // Factory Actor Interfaces
-    private let tokenFactoryActor = actor("be2us-64aaa-aaaah-qcvra-cai") : actor {
+    // TODO: Get factory IDs from config instead of hardcoding
+    // This should be passed via init args or loaded dynamically
+    // TEMPORARY FIX: Using local token_factory ID
+    private let tokenFactoryActor = actor("ulvla-h7777-77774-qaacq-cai") : actor {
         deployTokenWithConfig : (
             config: TokenFactory.TokenConfig,
             deploymentConfig: TokenFactory.DeploymentConfig,
@@ -133,6 +137,21 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     // ================ INITIALIZATION ================
+
+    /// Set the launchpad ID (called by factory after creation with canister ID)
+    public shared({caller}) func setId(newId: Text) : async Result.Result<(), Text> {
+        if (caller != factoryPrincipal) {
+            return #err("Unauthorized: Only factory can set ID");
+        };
+
+        if (installed) {
+            return #err("Cannot change ID after initialization");
+        };
+
+        launchpadId := newId;
+        Debug.print("Launchpad ID set to: " # newId);
+        #ok(())
+    };
 
     public shared({caller}) func initialize() : async Result.Result<(), Text> {
         if (caller != factoryPrincipal) {

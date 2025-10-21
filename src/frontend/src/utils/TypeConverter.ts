@@ -269,12 +269,15 @@ export class TypeConverter {
               (Number(formData.saleToken.totalSupply) * unallocatedPercentage / 100).toString()
             ),
             vestingSchedule: [],
-            recipients: unallocatedModel === 'dao_treasury'
-              ? { TreasuryReserve: null }
-              : { TeamAllocation: null },
+            // Use new Unallocated variant with optional Principal (will be deployed in pipeline)
+            recipients: {
+              Unallocated: unallocatedModel === 'dao_treasury'
+                ? { DAO: [] }      // null - DAO will be deployed after launchpad success
+                : { Multisig: [] } // null - Multisig will be deployed after launchpad success
+            },
             description: [unallocatedModel === 'dao_treasury'
-              ? "Unallocated tokens managed by DAO governance"
-              : "Unallocated tokens managed by multisig wallet"]
+              ? "Unallocated tokens to be managed by DAO (deployed after launch success)"
+              : "Unallocated tokens to be managed by Multisig (deployed after launch success)"]
           })
         }
 
