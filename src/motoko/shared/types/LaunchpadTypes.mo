@@ -66,7 +66,6 @@ module LaunchpadTypes {
         tags: [Text]; // ["DeFi", "Gaming", "NFT", etc.]
         category: ProjectCategory;
         metadata: ?[(Text, Text)]; // Additional key-value metadata
-        minICTOPassportScore: Nat; // Minimum ICTO Passport score requirement (0-100)
     };
 
     public type ProjectCategory = {

@@ -16,57 +16,143 @@ import Debug "mo:base/Debug";
 import Error "mo:base/Error";
 
 import LaunchpadTypes "../shared/types/LaunchpadTypes";
+import LaunchpadUpgradeTypes "../shared/types/LaunchpadUpgradeTypes";
 import TokenFactory "../shared/types/TokenFactory";
+import IUpgradeable "../common/IUpgradeable";
 
 // ================ LAUNCHPAD CONTRACT V2 ================
 // Actor class template for individual launchpad instances
 // Follows ICTO V2 architecture: Backend → Factory → Contract
+// Implements IUpgradeable for safe upgrades with state preservation
 
 
 
 shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
-    initArgs: LaunchpadTypes.LaunchpadInitArgs
+    initArgs: LaunchpadUpgradeTypes.LaunchpadInitArgs
 ) = this {
+
+    // ================ INITIALIZATION LOGIC ================
+    // Determine if this is a fresh deployment or an upgrade
+
+    let isUpgrade: Bool = switch (initArgs) {
+        case (#InitialSetup(_)) { false };
+        case (#Upgrade(_)) { true };
+    };
+
+    // Extract init parameters
+    let init_id: Text = switch (initArgs) {
+        case (#InitialSetup(setup)) { setup.id };
+        case (#Upgrade(upgrade)) { upgrade.runtimeState.launchpadId };
+    };
+
+    let init_config: LaunchpadTypes.LaunchpadConfig = switch (initArgs) {
+        case (#InitialSetup(setup)) { setup.config };
+        case (#Upgrade(upgrade)) { upgrade.config };
+    };
+
+    let init_creator: Principal = switch (initArgs) {
+        case (#InitialSetup(setup)) { setup.creator };
+        case (#Upgrade(upgrade)) { upgrade.runtimeState.creator };
+    };
+
+    let init_createdAt: Time.Time = switch (initArgs) {
+        case (#InitialSetup(setup)) { setup.createdAt };
+        case (#Upgrade(upgrade)) { upgrade.runtimeState.createdAt };
+    };
+
+    let upgradeState: ?LaunchpadUpgradeTypes.LaunchpadRuntimeState = switch (initArgs) {
+        case (#InitialSetup(_)) { null };
+        case (#Upgrade(upgrade)) { ?upgrade.runtimeState };
+    };
 
     // ================ STABLE STATE ================
 
-    // launchpadId is the canister ID (set by factory)
-    private var launchpadId : Text = initArgs.id;
-    private var config : LaunchpadTypes.LaunchpadConfig = initArgs.config;
-    private var creator : Principal = initArgs.creator;
-    private var factoryPrincipal : Principal = factory;
-    private var createdAt : Time.Time = initArgs.createdAt;
-    private var updatedAt : Time.Time = initArgs.createdAt;
+    // Debug: Check config received from factory
+    Debug.print("🔍 CONTRACT: LaunchpadContract constructor called");
+    Debug.print("  received multiDexConfig: " # debug_show(init_config.multiDexConfig));
 
-    private var status : LaunchpadTypes.LaunchpadStatus = #Setup;
-    private var processingState : LaunchpadTypes.ProcessingState = #Idle;
-    private var installed : Bool = false;
-    
+    // Core identity
+    private var launchpadId : Text = init_id;
+    private var config : LaunchpadTypes.LaunchpadConfig = init_config;
+    private var creator : Principal = init_creator;
+    private var factoryPrincipal : Principal = factory;
+    private var createdAt : Time.Time = init_createdAt;
+
+    // Debug: Verify stored config
+    Debug.print("🔍 CONTRACT: Stored multiDexConfig: " # debug_show(config.multiDexConfig));
+    private var updatedAt : Time.Time = switch (upgradeState) {
+        case null { init_createdAt };
+        case (?state) { state.updatedAt };
+    };
+
+    // VERSION TRACKING
+    private var contractVersion : IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
+
+    // Status
+    private var status : LaunchpadTypes.LaunchpadStatus = switch (upgradeState) {
+        case null { #Setup };
+        case (?state) { state.status };
+    };
+    private var processingState : LaunchpadTypes.ProcessingState = switch (upgradeState) {
+        case null { #Idle };
+        case (?state) { state.processingState };
+    };
+    private var installed : Bool = switch (upgradeState) {
+        case null { false };
+        case (?state) { state.installed };
+    };
+
     // Financial tracking
-    private var totalRaised : Nat = 0;
-    private var totalAllocated : Nat = 0;
-    private var participantCount : Nat = 0;
-    private var transactionCount : Nat = 0;
+    private var totalRaised : Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.totalRaised };
+    };
+    private var totalAllocated : Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.totalAllocated };
+    };
+    private var participantCount : Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.participantCount };
+    };
+    private var transactionCount : Nat = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.transactionCount };
+    };
 
     // Participants storage (Trie for efficient queries)
-    private var participantsStable : [(Text, LaunchpadTypes.Participant)] = [];
+    private var participantsStable : [(Text, LaunchpadTypes.Participant)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.participants };
+    };
     private transient var participants = Trie.empty<Text, LaunchpadTypes.Participant>();
 
     // Transactions storage
-    private var transactionsStable : [LaunchpadTypes.Transaction] = [];
+    private var transactionsStable : [LaunchpadTypes.Transaction] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.transactions };
+    };
     private transient var transactions = Buffer.fromArray<LaunchpadTypes.Transaction>(transactionsStable);
 
     // Affiliate tracking
-    private var affiliateStatsStable : [(Text, LaunchpadTypes.AffiliateStats)] = [];
+    private var affiliateStatsStable : [(Text, LaunchpadTypes.AffiliateStats)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.affiliateStats };
+    };
     private transient var affiliateStats = Trie.empty<Text, LaunchpadTypes.AffiliateStats>();
 
     // Deployed contracts after successful sale
-    private var deployedContracts : LaunchpadTypes.DeployedContracts = {
-        tokenCanister = null;
-        vestingContracts = [];
-        daoCanister = null;
-        liquidityPool = null;
-        stakingContract = null;
+    private var deployedContracts : LaunchpadTypes.DeployedContracts = switch (upgradeState) {
+        case null {
+            {
+                tokenCanister = null;
+                vestingContracts = [];
+                daoCanister = null;
+                liquidityPool = null;
+                stakingContract = null;
+            }
+        };
+        case (?state) { state.deployedContracts };
     };
 
     // Timer for automated lifecycle management
@@ -74,20 +160,44 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     private var _lastTimerSetup : Time.Time = 0;
     
     // Security & Emergency Controls
-    private var emergencyPaused : Bool = false;
-    private var emergencyReason : Text = "";
-    private var lastEmergencyAction : Time.Time = 0;
-    
+    private var emergencyPaused : Bool = switch (upgradeState) {
+        case null { false };
+        case (?state) { state.emergencyPaused };
+    };
+    private var emergencyReason : Text = switch (upgradeState) {
+        case null { "" };
+        case (?state) { state.emergencyReason };
+    };
+    private var lastEmergencyAction : Time.Time = switch (upgradeState) {
+        case null { 0 };
+        case (?state) { state.lastEmergencyAction };
+    };
+
     // Reentrancy Protection
-    private var reentrancyLock : Bool = false;
-    
+    private var reentrancyLock : Bool = switch (upgradeState) {
+        case null { false };
+        case (?state) { state.reentrancyLock };
+    };
+
     // Audit Trail
-    private var adminActions : [LaunchpadTypes.AdminAction] = [];
-    private var securityEvents : [LaunchpadTypes.SecurityEvent] = [];
-    
+    private var adminActions : [LaunchpadTypes.AdminAction] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.adminActions };
+    };
+    private var securityEvents : [LaunchpadTypes.SecurityEvent] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.securityEvents };
+    };
+
     // Rate Limiting
-    private var lastParticipationTime : [(Principal, Time.Time)] = [];
-    private var rateLimitViolations : [(Principal, Nat)] = [];
+    private var lastParticipationTime : [(Principal, Time.Time)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.lastParticipationTime };
+    };
+    private var rateLimitViolations : [(Principal, Nat)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.rateLimitViolations };
+    };
 
     // Factory Actor Interfaces
     // TODO: Get factory IDs from config instead of hardcoding
@@ -1321,5 +1431,159 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             return #err("Unauthorized: Only authorized users can view admin actions");
         };
         #ok(adminActions)
+    };
+
+    // ================ IUPGRADEABLE INTERFACE ================
+    // Following IUpgradeable pattern for safe contract upgrades
+
+    /// Get upgrade args - captures current state for safe upgrade
+    public query func getUpgradeArgs() : async Blob {
+        let upgradeData: LaunchpadUpgradeTypes.LaunchpadUpgradeArgs = {
+            // Original init args (STATIC - config never modified)
+            id = launchpadId;
+            config = config;
+            creator = creator;
+            createdAt = createdAt;
+
+            // Current runtime state (DYNAMIC - captured now)
+            runtimeState = {
+                launchpadId = launchpadId;
+                creator = creator;
+                factoryPrincipal = factoryPrincipal;
+                createdAt = createdAt;
+                updatedAt = updatedAt;
+                status = status;
+                processingState = processingState;
+                installed = installed;
+                totalRaised = totalRaised;
+                totalAllocated = totalAllocated;
+                participantCount = participantCount;
+                transactionCount = transactionCount;
+
+                // Convert Tries to Arrays for serialization
+                participants = Trie.toArray<Text, LaunchpadTypes.Participant, (Text, LaunchpadTypes.Participant)>(
+                    participants,
+                    func (k, v) = (k, v)
+                );
+                transactions = Buffer.toArray(transactions);
+                affiliateStats = Trie.toArray<Text, LaunchpadTypes.AffiliateStats, (Text, LaunchpadTypes.AffiliateStats)>(
+                    affiliateStats,
+                    func (k, v) = (k, v)
+                );
+
+                deployedContracts = deployedContracts;
+                emergencyPaused = emergencyPaused;
+                emergencyReason = emergencyReason;
+                lastEmergencyAction = lastEmergencyAction;
+                reentrancyLock = reentrancyLock;
+                adminActions = adminActions;
+                securityEvents = securityEvents;
+                lastParticipationTime = lastParticipationTime;
+                rateLimitViolations = rateLimitViolations;
+            };
+        };
+
+        to_candid(upgradeData)
+    };
+
+    /// Check if contract can be upgraded
+    public query func canUpgrade() : async Result.Result<(), Text> {
+        // Check 1: Contract must be initialized
+        if (not installed) {
+            return #err("Cannot upgrade: Contract not initialized");
+        };
+
+        // Check 2: Cannot upgrade during emergency pause
+        if (emergencyPaused) {
+            return #err("Cannot upgrade: Contract in emergency pause");
+        };
+
+        // Check 3: Cannot upgrade during active processing
+        switch (processingState) {
+            case (#Processing(_)) {
+                return #err("Cannot upgrade: Active processing in progress");
+            };
+            case (#Failed(_)) {
+                return #err("Cannot upgrade: Processing failed, resolve first");
+            };
+            case _ {};
+        };
+
+        // Check 4: Cannot upgrade if reentrancy lock is active
+        if (reentrancyLock) {
+            return #err("Cannot upgrade: Reentrancy lock active");
+        };
+
+        #ok()
+    };
+
+    /// Get current contract version
+    public query func getVersion() : async IUpgradeable.Version {
+        contractVersion
+    };
+
+    /// Update contract version (factory only)
+    /// Only the factory can call this function to update version after upgrade
+    public func updateVersion(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
+        // Factory authentication - only factory can update version
+        if (caller != factoryPrincipal) {
+            return #err("Unauthorized: Only factory can update version");
+        };
+
+        // Update version
+        contractVersion := newVersion;
+        Debug.print("✅ LaunchpadContract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
+
+        #ok(())
+    };
+
+    /// Comprehensive health check
+    public query func healthCheck() : async IUpgradeable.HealthStatus {
+        let issues = Buffer.Buffer<Text>(0);
+
+        // Check 1: Initialization status
+        if (not installed) {
+            issues.add("Contract not initialized");
+        };
+
+        // Check 2: Emergency pause status
+        if (emergencyPaused) {
+            issues.add("Contract in emergency pause: " # emergencyReason);
+        };
+
+        // Check 3: Processing state
+        switch (processingState) {
+            case (#Failed(msg)) {
+                issues.add("Processing failed: " # msg);
+            };
+            case _ {};
+        };
+
+        // Check 4: Reentrancy lock
+        if (reentrancyLock) {
+            issues.add("Reentrancy lock is active");
+        };
+
+        // Check 5: Token deployment status (if sale successful)
+        switch (status) {
+            case (#Successful) {
+                switch (deployedContracts.tokenCanister) {
+                    case null {
+                        issues.add("Token not deployed after successful sale");
+                    };
+                    case _ {};
+                };
+            };
+            case _ {};
+        };
+
+        let issueArray = Buffer.toArray(issues);
+        {
+            healthy = issueArray.size() == 0;
+            issues = issueArray;
+            lastActivity = updatedAt;
+            canisterCycles = 0; // TODO: Get actual cycles balance
+            memorySize = 0; // TODO: Get actual memory size
+        }
     };
 }

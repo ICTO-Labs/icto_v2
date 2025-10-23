@@ -229,8 +229,18 @@ const hardCapValue = computed(() => {
 
 // DEX config still needs handler for nested updates
 const handleDexConfigUpdate = (newValue: any) => {
-  if (formData.value?.raisedFundsAllocation?.dexConfig) {
-    Object.assign(formData.value.raisedFundsAllocation.dexConfig, newValue)
+  if (!formData.value?.raisedFundsAllocation) {
+    console.error('❌ raisedFundsAllocation not initialized')
+    return
   }
+
+  // ✅ FIX: Initialize dexConfig if it doesn't exist
+  if (!formData.value.raisedFundsAllocation.dexConfig) {
+    console.log('🔧 Initializing dexConfig...')
+    formData.value.raisedFundsAllocation.dexConfig = {}
+  }
+
+  Object.assign(formData.value.raisedFundsAllocation.dexConfig, newValue)
+  console.log('✅ Updated dexConfig:', formData.value.raisedFundsAllocation.dexConfig)
 }
 </script>

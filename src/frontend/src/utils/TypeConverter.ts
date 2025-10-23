@@ -104,8 +104,7 @@ export class TypeConverter {
         kycProvider: formData.projectInfo.kycProvider ? [formData.projectInfo.kycProvider] : [],
         tags: formData.projectInfo.tags || [],
         category: TypeConverter.stringToProjectCategory(formData.projectInfo.category),
-        metadata: formData.projectInfo.metadata ? [formData.projectInfo.metadata] : [],
-        minICTOPassportScore: 0n // Default value
+        metadata: formData.projectInfo.metadata ? [formData.projectInfo.metadata] : []
       },
 
       // Sale token (LaunchpadSaleToken type - will be created AFTER soft cap reached)
@@ -180,7 +179,62 @@ export class TypeConverter {
           : []
       },
 
-      // Build complete distribution array from all categories
+      // ✅ V2 Token Distribution (NEW - Required by Backend)
+      tokenDistribution: [{
+        sale: {
+          name: "Sale",
+          percentage: TypeConverter.toFloat(formData.distribution.sale.percentage),
+          totalAmount: formData.distribution.sale.totalAmount,
+          vestingSchedule: formData.distribution.sale.vestingSchedule
+            ? [TypeConverter.convertVestingSchedule(formData.distribution.sale.vestingSchedule)]
+            : [],
+          description: formData.distribution.sale.description ? [formData.distribution.sale.description] : []
+        },
+        team: {
+          name: "Team",
+          percentage: TypeConverter.toFloat(formData.distribution.team.percentage),
+          totalAmount: formData.distribution.team.totalAmount,
+          vestingSchedule: formData.distribution.team.vestingSchedule
+            ? [TypeConverter.convertVestingSchedule(formData.distribution.team.vestingSchedule)]
+            : [],
+          recipients: (formData.distribution.team.recipients || []).map((r: any) => ({
+            principal: r.principal,
+            percentage: TypeConverter.toFloat(r.percentage),
+            amount: r.amount ? [r.amount] : [],
+            name: r.name ? [r.name] : [],
+            description: r.description ? [r.description] : [],
+            vestingOverride: r.vestingOverride ? [TypeConverter.convertVestingSchedule(r.vestingOverride)] : []
+          })),
+          description: formData.distribution.team.description ? [formData.distribution.team.description] : []
+        },
+        liquidityPool: {
+          name: "Liquidity Pool",
+          percentage: TypeConverter.toFloat(formData.distribution.liquidityPool.percentage),
+          totalAmount: formData.distribution.liquidityPool.totalAmount,
+          autoCalculated: formData.distribution.liquidityPool.autoCalculated || false,
+          description: formData.distribution.liquidityPool.description ? [formData.distribution.liquidityPool.description] : []
+        },
+        others: (formData.distribution.others || []).map((other: any) => ({
+          id: other.id,
+          name: other.name,
+          percentage: TypeConverter.toFloat(other.percentage),
+          totalAmount: other.totalAmount,
+          description: other.description ? [other.description] : [],
+          recipients: (other.recipients || []).map((r: any) => ({
+            principal: r.principal,
+            percentage: TypeConverter.toFloat(r.percentage),
+            amount: r.amount ? [r.amount] : [],
+            name: r.name ? [r.name] : [],
+            description: r.description ? [r.description] : [],
+            vestingOverride: r.vestingOverride ? [TypeConverter.convertVestingSchedule(r.vestingOverride)] : []
+          })),
+          vestingSchedule: other.vestingSchedule
+            ? [TypeConverter.convertVestingSchedule(other.vestingSchedule)]
+            : []
+        }))
+      }],
+
+      // Build complete distribution array from all categories (V1 Legacy - for backward compatibility)
       distribution: (() => {
         const categories: any[] = []
 
@@ -212,19 +266,11 @@ export class TypeConverter {
           })
         }
 
-        // 3. Liquidity Pool allocation
-        if (formData.distribution.liquidityPool.percentage > 0) {
-          categories.push({
-            name: "Liquidity Pool",
-            percentage: Math.max(0, Math.min(255, Math.floor(Number(formData.distribution.liquidityPool.percentage)))),
-            totalAmount: TypeConverter.toBigInt(formData.distribution.liquidityPool.totalAmount),
-            vestingSchedule: [], // LP tokens need immediate availability
-            recipients: { LiquidityPool: null },
-            description: formData.distribution.liquidityPool.description ? [formData.distribution.liquidityPool.description] : ["DEX liquidity provision"]
-          })
-        }
+        // ❌ REMOVED: LP Pool allocation - will be allocated from unallocated tokens after launch success
+        // LP amount depends on final raised funds (softCap → hardCap), so it cannot be predetermined
+        // LP tokens will be allocated from unallocated reserves based on multiDexConfig after sale ends
 
-        // 4. Other allocations (marketing, advisors, etc.)
+        // 3. Other allocations (marketing, advisors, etc.)
         if (formData.distribution.others && formData.distribution.others.length > 0) {
           formData.distribution.others.forEach((other: any) => {
             if (other.percentage > 0) {
@@ -306,10 +352,85 @@ export class TypeConverter {
         }
       },
 
-      // Raised funds allocation (simple)
-      raisedFundsAllocation: {
-        allocations: []
-      },
+      // Multi-DEX config (optional) - ✅ FIX: Read from raisedFundsAllocation.dexConfig (source of truth)
+      multiDexConfig: (() => {
+        console.log('🔍 [TypeConverter] Checking multiDexConfig...')
+        console.log('  raisedFundsAllocation:', formData.raisedFundsAllocation)
+        console.log('  dexConfig:', formData.raisedFundsAllocation?.dexConfig)
+        console.log('  platforms:', formData.raisedFundsAllocation?.dexConfig?.platforms)
+
+        const platforms = formData.raisedFundsAllocation?.dexConfig?.platforms
+        const platformsLength = platforms?.length ?? 0
+
+        console.log(`  platforms.length: ${platformsLength}`)
+
+        if (platformsLength > 0) {
+          const result = [{
+            platforms: formData.raisedFundsAllocation!.dexConfig!.platforms!.map((platform: any) => ({
+              // ✅ CRITICAL: Field order must match LaunchpadTypes.mo DEXPlatform (lines 170-183)
+              id: platform.id,                                                      // 1. id: Text
+              name: TypeConverter.getPlatformName(platform.id),                    // 2. name: Text
+              description: platform.description ? [platform.description] : [],     // 3. description: ?Text
+              logo: platform.logo ? [platform.logo] : [],                          // 4. logo: ?Text
+              enabled: platform.enabled || false,                                  // 5. enabled: Bool
+              allocationPercentage: TypeConverter.toNat8(platform.allocationPercentage || 0), // 6. allocationPercentage: Nat8
+              calculatedTokenLiquidity: TypeConverter.toBigInt(platform.calculatedTokenLiquidity || 0), // 7. calculatedTokenLiquidity: Nat
+              calculatedPurchaseLiquidity: TypeConverter.toBigInt(platform.calculatedPurchaseLiquidity || 0), // 8. calculatedPurchaseLiquidity: Nat
+              fees: {                                                              // 9. fees: { listing: Nat; transaction: Nat8 }
+                listing: TypeConverter.toBigInt(platform.fees?.listing || 0),
+                transaction: TypeConverter.toNat8(platform.fees?.transaction || 0)
+              }
+            })),
+            distributionStrategy: TypeConverter.stringToDistributionStrategy(
+              formData.raisedFundsAllocation!.dexConfig!.distributionStrategy || 'Equal'
+            ),
+            totalLiquidityAllocation: 0n // Will be calculated after sale ends based on actual raised funds
+          }]
+          console.log('✅ [TypeConverter] multiDexConfig generated (array):', result)
+          return result
+        } else {
+          console.log('⚠️ [TypeConverter] No platforms configured, returning empty array')
+          return []
+        }
+      })(),
+
+      // Raised funds allocation - convert from formData
+      raisedFundsAllocation: (() => {
+        const allocations = (formData.raisedFundsAllocation?.allocations || []).map((alloc: any) => ({
+          id: alloc.id,
+          name: alloc.name,
+          amount: TypeConverter.toBigInt(alloc.amount || 0),
+          percentage: TypeConverter.toNat8(alloc.percentage),
+          recipients: (alloc.recipients || []).map((recipient: any) => ({
+            principal: Principal.fromText(recipient.principal),
+            percentage: TypeConverter.toNat8(recipient.percentage),
+            name: recipient.name ? [recipient.name] : [],
+            vestingEnabled: recipient.vestingEnabled || false,
+            vestingSchedule: recipient.vestingSchedule
+              ? [TypeConverter.convertVestingSchedule(recipient.vestingSchedule)]
+              : [],
+            description: recipient.description ? [recipient.description] : []
+          }))
+        }))
+
+        // Calculate unallocated percentage for raised funds
+        const totalPercentage = allocations.reduce((sum, alloc) => sum + Number(alloc.percentage), 0)
+        const unallocatedPercentage = 100 - totalPercentage
+
+        // Add unallocated fund allocation if there's remaining percentage
+        // This will be used for LP provision after sale based on multiDexConfig
+        if (unallocatedPercentage > 0) {
+          allocations.push({
+            id: 'unallocated_lp_reserve',
+            name: 'LP Provision Reserve',
+            amount: 0n, // Will be calculated after sale ends based on actual raised amount
+            percentage: TypeConverter.toNat8(Math.max(0, Math.min(255, unallocatedPercentage))),
+            recipients: [] // Empty - will be distributed to DEX pools after sale success
+          })
+        }
+
+        return { allocations }
+      })(),
 
       // Affiliate config (disabled by default)
       affiliateConfig: {
@@ -450,6 +571,33 @@ export class TypeConverter {
     }
 
     return freqMap[frequency] || { Linear: null }
+  }
+
+  /**
+   * Convert string to DEXDistributionStrategy variant
+   */
+  private static stringToDistributionStrategy(strategy: string): any {
+    const strategyMap: Record<string, any> = {
+      'Equal': { Equal: null },
+      'Priority': { Priority: null },
+      'Weighted': { Weighted: null },
+      'Custom': { Custom: null }
+    }
+    return strategyMap[strategy] || { Equal: null }
+  }
+
+  /**
+   * Get platform display name from ID
+   */
+  private static getPlatformName(platformId: string): string {
+    const platformNames: Record<string, string> = {
+      'icpswap': 'ICPSwap',
+      'kongswap': 'KongSwap',
+      'sonic': 'Sonic',
+      'icdex': 'ICDex',
+      'iclight': 'ICLight'
+    }
+    return platformNames[platformId] || platformId.charAt(0).toUpperCase() + platformId.slice(1)
   }
 
   /**

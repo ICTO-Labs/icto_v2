@@ -334,6 +334,7 @@ const emit = defineEmits<{
 
 // Local state
 const autoBalance = ref(false)
+const distributionStrategy = ref<'Equal' | 'Weighted' | 'Priority'>('Weighted') // Default strategy
 
 // ✅ V2 DISPLAY CONFIG: Frontend-only data for UI display
 // This data (name, icon, description, fees, features) is NOT sent to backend
@@ -544,7 +545,8 @@ const emitUpdate = () => {
         calculatedTokenLiquidity: dex.calculatedTokenLiquidity,
         calculatedPurchaseLiquidity: dex.calculatedPurchaseLiquidity
         // ❌ Removed: name, fees - backend handles these
-      }))
+      })),
+    distributionStrategy: distributionStrategy.value // ✅ ADD: Required by backend MultiDEXConfig
   }
 
   emit('update:modelValue', updatedConfig)

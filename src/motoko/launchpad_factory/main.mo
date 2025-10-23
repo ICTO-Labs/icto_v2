@@ -17,6 +17,7 @@ import Blob "mo:base/Blob";
 // Import the Launchpad Contract class
 import LaunchpadContract "LaunchpadContract";
 import LaunchpadTypes "../shared/types/LaunchpadTypes";
+import LaunchpadUpgradeTypes "../shared/types/LaunchpadUpgradeTypes";
 
 // Import VersionManager for version management
 import VersionManager "../common/VersionManager";
@@ -376,13 +377,20 @@ persistent actor LaunchpadFactory {
         try {
             Debug.print("🏗️  FACTORY: Creating LaunchpadContract...");
 
+            // Debug: Check config before passing to contract
+            Debug.print("🔍 FACTORY: Checking config before deployment...");
+            Debug.print("  multiDexConfig in factory input: " # debug_show(args.config.multiDexConfig));
+
             // Create the canister with cycles first (with temporary ID)
-            let launchpadCanister = await (with cycles = CYCLES_FOR_INSTALL) LaunchpadContract.LaunchpadContract<system>({
-                id = "pending"; // Temporary, will be replaced with canister ID
-                creator = caller;
-                config = args.config;
-                createdAt = Time.now();
-            });
+            // Wrap args in #InitialSetup variant for new deployment
+            let launchpadCanister = await (with cycles = CYCLES_FOR_INSTALL) LaunchpadContract.LaunchpadContract<system>(
+                #InitialSetup({
+                    id = "pending"; // Temporary, will be replaced with canister ID
+                    creator = caller;
+                    config = args.config;
+                    createdAt = Time.now();
+                })
+            );
 
             Debug.print("✅ FACTORY: LaunchpadContract created successfully");
             // Use canister ID as launchpad ID
@@ -400,6 +408,19 @@ persistent actor LaunchpadFactory {
                 };
                 case (#ok()) {
                     Debug.print("✅ FACTORY: Launchpad ID set successfully");
+                };
+            };
+
+            // Initialize the launchpad contract
+            Debug.print("🔧 FACTORY: Initializing launchpad contract...");
+            let initResult = await launchpadCanister.initialize();
+            switch (initResult) {
+                case (#err(msg)) {
+                    Debug.print("❌ FACTORY: Failed to initialize launchpad: " # msg);
+                    return #Err("Failed to initialize launchpad: " # msg);
+                };
+                case (#ok()) {
+                    Debug.print("✅ FACTORY: Launchpad contract initialized successfully");
                 };
             };
 
@@ -931,10 +952,20 @@ persistent actor LaunchpadFactory {
             return #err("Failed to check upgrade readiness: " # Error.message(e));
         };
 
-        // Launchpad contracts don't implement IUpgradeable pattern yet
-        // Use empty upgrade args for now
-        Debug.print("⚠️ Launchpad contracts don't support state capture yet, using empty upgrade args");
-        let upgradeArgs: Blob = "\00\00";
+        // Auto-capture current state
+        let upgradeArgs = try {
+            let argsBlob = await contract.getUpgradeArgs();
+            Debug.print("✅ Auto-captured state for launchpad contract " # Principal.toText(contractId));
+
+            // Deserialize the upgrade args, wrap in variant, and re-serialize
+            let ?args: ?LaunchpadUpgradeTypes.LaunchpadUpgradeArgs = from_candid(argsBlob) else {
+                return #err("Failed to deserialize upgrade args");
+            };
+            let wrappedArgs: LaunchpadUpgradeTypes.LaunchpadInitArgs = #Upgrade(args);
+            to_candid(wrappedArgs)
+        } catch (e) {
+            return #err("Failed to capture contract state: " # Error.message(e))
+        };
 
         // Perform the upgrade
         let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
@@ -944,6 +975,31 @@ persistent actor LaunchpadFactory {
             case (#ok()) {
                 versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
                 Debug.print("✅ Upgraded launchpad contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+
+                // Factory-driven version update pattern
+                // After successful upgrade, call updateVersion on the contract
+                try {
+                    // Cast to LaunchpadContract type to access updateVersion function
+                    let launchpadContract : actor {
+                        updateVersion: shared (IUpgradeable.Version, Principal) -> async Result.Result<(), Text>;
+                        getVersion: shared query () -> async IUpgradeable.Version;
+                    } = actor(Principal.toText(contractId));
+
+                    // Call updateVersion with factory principal as caller
+                    let factoryPrincipal = Principal.fromActor(LaunchpadFactory);
+                    let updateResult = await launchpadContract.updateVersion(toVersion, factoryPrincipal);
+
+                    switch (updateResult) {
+                        case (#ok()) {
+                            Debug.print("✅ Factory successfully updated launchpad contract version to " # _versionToText(toVersion));
+                        };
+                        case (#err(errMsg)) {
+                            Debug.print("⚠️ Warning: Failed to update launchpad contract version via factory: " # errMsg);
+                        };
+                    };
+                } catch (e) {
+                    Debug.print("⚠️ Warning: Could not call updateVersion on upgraded launchpad contract: " # Error.message(e));
+                };
             };
             case (#err(msg)) {
                 versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
@@ -1014,6 +1070,64 @@ persistent actor LaunchpadFactory {
     };
 
     // ================ MIGRATION FUNCTIONS ================
+
+    /// Initialize existing launchpad contracts that weren't properly initialized
+    /// This is a one-time migration function to fix contracts deployed before initialize() was added
+    public shared({ caller }) func initializeExistingContracts() : async Result.Result<Text, Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can initialize existing contracts");
+        };
+
+        var initializedCount = 0;
+        var errorCount = 0;
+
+        Debug.print("🔄 Starting initialization of existing launchpad contracts");
+
+        // Iterate through all deployed contracts
+        for ((_, launchpad) in Trie.iter(launchpadContracts)) {
+            // Try to initialize the contract
+            try {
+                let launchpadActor = actor(Principal.toText(launchpad.canisterId)) : actor {
+                    initialize: () -> async Result.Result<(), Text>;
+                    canUpgrade: () -> async Result.Result<(), Text>;
+                };
+
+                // Check if contract can be upgraded (which means it's initialized)
+                let upgradeCheck = await launchpadActor.canUpgrade();
+                switch (upgradeCheck) {
+                    case (#err(msg)) {
+                        if (Text.contains(msg, #text "Contract not initialized")) {
+                            // Contract needs initialization
+                            let initResult = await launchpadActor.initialize();
+                            switch (initResult) {
+                                case (#ok()) {
+                                    initializedCount += 1;
+                                    Debug.print("✅ Initialized launchpad contract " # Principal.toText(launchpad.canisterId));
+                                };
+                                case (#err(errMsg)) {
+                                    errorCount += 1;
+                                    Debug.print("❌ Failed to initialize launchpad contract " # Principal.toText(launchpad.canisterId) # ": " # errMsg);
+                                };
+                            };
+                        } else {
+                            Debug.print("ℹ️ Launchpad contract " # Principal.toText(launchpad.canisterId) # " has other upgrade issue: " # msg);
+                        };
+                    };
+                    case (#ok()) {
+                        Debug.print("ℹ️ Launchpad contract " # Principal.toText(launchpad.canisterId) # " already initialized");
+                    };
+                };
+            } catch (e) {
+                errorCount += 1;
+                Debug.print("❌ Failed to check launchpad contract " # Principal.toText(launchpad.canisterId) # ": " # Error.message(e));
+            };
+        };
+
+        let result = "Initialization completed: " # Nat.toText(initializedCount) # " contracts initialized, " # Nat.toText(errorCount) # " errors";
+        Debug.print("🎉 " # result);
+
+        #ok(result)
+    };
 
     /// Register all existing contracts that don't have versions yet
     /// This is a one-time migration function to fix contracts deployed before auto-registration

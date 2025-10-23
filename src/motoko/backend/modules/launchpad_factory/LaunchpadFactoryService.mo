@@ -221,7 +221,7 @@ module LaunchpadFactoryService {
             saleParams = config.saleParams;
             timeline = config.timeline;
             distribution = config.distribution;
-            tokenDistribution = null; // Optional, can be added later
+            tokenDistribution = config.tokenDistribution; // ✅ Pass from input config
             affiliateConfig = config.affiliateConfig;
             governanceConfig = config.governanceConfig;
             whitelist = config.whitelist;
@@ -249,7 +249,7 @@ module LaunchpadFactoryService {
                     transactionFee = 0;
                 };
             };
-            multiDexConfig = null; // Optional multi-DEX support
+            multiDexConfig = config.multiDexConfig; // ✅ Pass from input config
             // Raised funds allocation from config or default to creator
             raisedFundsAllocation = config.raisedFundsAllocation;
           };
