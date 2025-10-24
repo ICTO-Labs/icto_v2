@@ -328,11 +328,134 @@ create_new_version() {
     BLOB_HASH="${BLOB_HASH}\""
 
     print_info "Hash prepared for upload"
-    print_success "Version $VERSION_STRING created successfully! 🎉"
-    print_info "Note: Upload to factory would be implemented here"
+
+    # Perform actual upload to factory
+    print_info "Uploading WASM to factory..."
+
+    # Check WASM size to determine upload method
+    WASM_SIZE=$(wc -c < "$WASM_PATH")
+
+    # Force chunked upload for files > 300KB
+    if [ $WASM_SIZE -gt 300000 ]; then
+        print_info "Using chunked upload for large file ($WASM_SIZE bytes)"
+        upload_wasm_chunked "$factory_name" "$VERSION_MAJOR" "$VERSION_MINOR" "$VERSION_PATCH" "$RELEASE_NOTES" "$IS_STABLE" "$MIN_UPGRADE_VERSION" "$BLOB_HASH" "$WASM_PATH"
+    else
+        print_info "Using direct upload for smaller file ($WASM_SIZE bytes)"
+        upload_wasm_direct "$factory_name" "$VERSION_MAJOR" "$VERSION_MINOR" "$VERSION_PATCH" "$RELEASE_NOTES" "$IS_STABLE" "$MIN_UPGRADE_VERSION" "$BLOB_HASH" "$WASM_PATH"
+    fi
+
+    if [ $? -eq 0 ]; then
+        print_success "Version $VERSION_STRING created successfully! 🎉"
+        print_success "WASM uploaded to factory"
+    else
+        print_error "Failed to upload WASM to factory"
+        wait_for_enter
+        show_factory_menu "$factory_index"
+        return
+    fi
 
     wait_for_enter
     show_factory_menu "$factory_index"
+}
+
+# Upload WASM - Direct Method (for smaller files)
+upload_wasm_direct() {
+    local factory_name="$1"
+    local major="$2"
+    local minor="$3"
+    local patch="$4"
+    local release_notes="$5"
+    local is_stable="$6"
+    local min_upgrade_version="$7"
+    local blob_hash="$8"
+    local wasm_path="$9"
+
+    print_info "Executing direct upload..."
+
+    # For direct upload, we need to convert WASM to blob format
+    # This is complex and error-prone, so we'll use chunked upload instead
+    print_warning "Direct upload not implemented - using chunked upload instead"
+    upload_wasm_chunked "$factory_name" "$major" "$minor" "$patch" "$release_notes" "$is_stable" "$min_upgrade_version" "$blob_hash" "$wasm_path"
+}
+
+# Upload WASM - Chunked Method (for larger files)
+upload_wasm_chunked() {
+    local factory_name="$1"
+    local major="$2"
+    local minor="$3"
+    local patch="$4"
+    local release_notes="$5"
+    local is_stable="$6"
+    local min_upgrade_version="$7"
+    local blob_hash="$8"
+    local wasm_path="$9"
+
+    print_info "Starting chunked upload..."
+
+    # Chunk size: 800KB for safety (IC limit: 1MB)
+    CHUNK_SIZE=819200
+
+    # Create temp directory for chunks
+    TEMP_DIR=$(mktemp -d)
+
+    # Split WASM into chunks
+    print_info "Splitting WASM into chunks..."
+    split -b $CHUNK_SIZE "$wasm_path" "${TEMP_DIR}/chunk_"
+
+    # Count chunks
+    CHUNK_COUNT=$(ls ${TEMP_DIR}/chunk_* 2>/dev/null | wc -l)
+    print_info "Total chunks: $CHUNK_COUNT"
+
+    # Upload each chunk
+    CHUNK_NUM=0
+    for CHUNK_FILE in ${TEMP_DIR}/chunk_*; do
+        CHUNK_NUM=$((CHUNK_NUM + 1))
+        print_info "Uploading chunk $CHUNK_NUM/$CHUNK_COUNT..."
+
+        # Create Candid input file
+        CANDID_FILE="${TEMP_DIR}/chunk_${CHUNK_NUM}.did"
+
+        # Convert binary to Candid vec format using Python
+        python3 << PYEOF > "$CANDID_FILE"
+with open("$CHUNK_FILE", "rb") as f:
+    data = f.read()
+    bytes_list = "; ".join(f"{b}:nat8" for b in data)
+    print(f"(vec {{{bytes_list}}})")
+PYEOF
+
+        # Upload chunk using file input
+        dfx canister call $factory_name uploadWASMChunk --argument-file "$CANDID_FILE"
+
+        if [ $? -ne 0 ]; then
+            print_error "Chunk upload failed at chunk $CHUNK_NUM"
+            print_info "Cleaning up temporary files..."
+            rm -rf "$TEMP_DIR"
+            return 1
+        fi
+    done
+
+    print_success "All $CHUNK_COUNT chunks uploaded"
+
+    # Clean up chunk files
+    print_info "Cleaning up temporary files..."
+    rm -rf "$TEMP_DIR"
+
+    # Finalize upload
+    print_info "Finalizing upload with hash verification..."
+
+    dfx canister call $factory_name finalizeWASMUpload "(
+        record {
+            major = ${major}:nat;
+            minor = ${minor}:nat;
+            patch = ${patch}:nat;
+        },
+        \"${release_notes}\",
+        ${is_stable},
+        ${min_upgrade_version},
+        ${blob_hash}
+    )"
+
+    return $?
 }
 
 # Upgrade factory contract (from upgrade_contract.sh)

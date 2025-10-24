@@ -115,10 +115,10 @@ show_factory_version() {
 
     if [ $CALL_STATUS -eq 0 ]; then
         if echo "$LATEST_VERSION_OUTPUT" | grep -qi "opt"; then
-            # Extract version numbers
-            MAJOR=$(echo "$LATEST_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | head -1 | awk '{print $3}')
-            MINOR=$(echo "$LATEST_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | head -1 | awk '{print $3}')
-            PATCH=$(echo "$LATEST_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | head -1 | awk '{print $3}')
+            # Extract version numbers using more robust parsing
+            MAJOR=$(echo "$LATEST_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | awk -F' = ' '{print $2}')
+            MINOR=$(echo "$LATEST_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | awk -F' = ' '{print $2}')
+            PATCH=$(echo "$LATEST_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | awk -F' = ' '{print $2}')
 
             if [ -n "$MAJOR" ] && [ -n "$MINOR" ] && [ -n "$PATCH" ]; then
                 CURRENT_VERSION="${MAJOR}.${MINOR}.${PATCH}"
@@ -149,9 +149,9 @@ show_factory_version() {
         if [ "$VERSION_COUNT" -gt 0 ]; then
             echo "$VERSIONS_OUTPUT" | grep -A1 'version = record' | while IFS= read -r line; do
                 if echo "$line" | grep -q 'version = record'; then
-                    MAJOR=$(echo "$line" | grep -o 'major = [0-9]*' | head -1 | awk '{print $3}')
-                    MINOR=$(echo "$line" | grep -o 'minor = [0-9]*' | head -1 | awk '{print $3}')
-                    PATCH=$(echo "$line" | grep -o 'patch = [0-9]*' | head -1 | awk '{print $3}')
+                    MAJOR=$(echo "$line" | grep -o 'major = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+                    MINOR=$(echo "$line" | grep -o 'minor = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+                    PATCH=$(echo "$line" | grep -o 'patch = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
 
                     read -r next_line
                     if echo "$next_line" | grep -q 'isStable'; then
@@ -336,9 +336,9 @@ select_target_canister() {
     if [ $TARGET_VERSION_STATUS -eq 0 ]; then
         if echo "$TARGET_VERSION_OUTPUT" | grep -q "record"; then
             # Extract version numbers from target canister
-            TARGET_MAJOR=$(echo "$TARGET_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | head -1 | awk '{print $3}')
-            TARGET_MINOR=$(echo "$TARGET_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | head -1 | awk '{print $3}')
-            TARGET_PATCH=$(echo "$TARGET_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | head -1 | awk '{print $3}')
+            TARGET_MAJOR=$(echo "$TARGET_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+            TARGET_MINOR=$(echo "$TARGET_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+            TARGET_PATCH=$(echo "$TARGET_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
 
             if [ -n "$TARGET_MAJOR" ] && [ -n "$TARGET_MINOR" ] && [ -n "$TARGET_PATCH" ]; then
                 TARGET_CANISTER_VERSION="${TARGET_MAJOR}.${TARGET_MINOR}.${TARGET_PATCH}"
@@ -405,9 +405,9 @@ select_target_version() {
     if [ $? -eq 0 ]; then
         echo "$VERSIONS_OUTPUT" | grep -A1 'version = record' | while IFS= read -r line; do
             if echo "$line" | grep -q 'version = record'; then
-                MAJOR=$(echo "$line" | grep -o 'major = [0-9]*' | head -1 | awk '{print $3}')
-                MINOR=$(echo "$line" | grep -o 'minor = [0-9]*' | head -1 | awk '{print $3}')
-                PATCH=$(echo "$line" | grep -o 'patch = [0-9]*' | head -1 | awk '{print $3}')
+                MAJOR=$(echo "$line" | grep -o 'major = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+                MINOR=$(echo "$line" | grep -o 'minor = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+                PATCH=$(echo "$line" | grep -o 'patch = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
 
                 read -r next_line
                 if echo "$next_line" | grep -q 'isStable'; then
@@ -434,8 +434,10 @@ select_target_version() {
 
     if [ -z "$TARGET_VERSION_INPUT" ]; then
         TARGET_VERSION="$FACTORY_VERSION"
+        print_warning "Using factory stable version as target: $TARGET_VERSION"
     else
         TARGET_VERSION="$TARGET_VERSION_INPUT"
+        print_info "Target version selected: $TARGET_VERSION"
     fi
 
     # Parse version into components
@@ -444,6 +446,19 @@ select_target_version() {
     if [ -z "$MAJOR" ] || [ -z "$MINOR" ] || [ -z "$PATCH" ]; then
         print_error "Invalid version format. Use: MAJOR.MINOR.PATCH (e.g., 1.0.0)"
         exit 1
+    fi
+
+    # Validate version logic
+    if [ "$TARGET_CANISTER_VERSION" != "unknown" ] && [ "$TARGET_CANISTER_VERSION" = "$TARGET_VERSION" ]; then
+        print_warning "Target version is the same as current canister version"
+        read -p "Do you still want to proceed? This may reinstall the same version (Y/n): " PROCEED_SAME_VERSION
+        if [[ -z "$PROCEED_SAME_VERSION" ]] || [[ "$PROCEED_SAME_VERSION" =~ ^[Yy]$ ]]; then
+            PROCEED_SAME_VERSION="y"
+        fi
+        if [[ ! "$PROCEED_SAME_VERSION" =~ ^[Yy]$ ]]; then
+            print_info "Upgrade cancelled"
+            exit 0
+        fi
     fi
 
     # Show upgrade summary
@@ -519,9 +534,9 @@ verify_upgrade() {
 
     if [ $FACTORY_STATUS -eq 0 ]; then
         if echo "$FACTORY_VERSION_OUTPUT" | grep -q "record"; then
-            FACTORY_MAJOR=$(echo "$FACTORY_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | head -1 | awk '{print $3}')
-            FACTORY_MINOR=$(echo "$FACTORY_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | head -1 | awk '{print $3}')
-            FACTORY_PATCH=$(echo "$FACTORY_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | head -1 | awk '{print $3}')
+            FACTORY_MAJOR=$(echo "$FACTORY_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+            FACTORY_MINOR=$(echo "$FACTORY_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+            FACTORY_PATCH=$(echo "$FACTORY_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
             if [ -n "$FACTORY_MAJOR" ] && [ -n "$FACTORY_MINOR" ] && [ -n "$FACTORY_PATCH" ]; then
                 FACTORY_VERSION="${FACTORY_MAJOR}.${FACTORY_MINOR}.${FACTORY_PATCH}"
                 print_info "📋 Factory records show version: $FACTORY_VERSION"
@@ -544,19 +559,24 @@ verify_upgrade() {
 
     if [ $VERIFY_STATUS -eq 0 ]; then
         if echo "$CONTRACT_VERSION_OUTPUT" | grep -q "record"; then
-            CONTRACT_MAJOR=$(echo "$CONTRACT_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | head -1 | awk '{print $3}')
-            CONTRACT_MINOR=$(echo "$CONTRACT_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | head -1 | awk '{print $3}')
-            CONTRACT_PATCH=$(echo "$CONTRACT_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | head -1 | awk '{print $3}')
+            CONTRACT_MAJOR=$(echo "$CONTRACT_VERSION_OUTPUT" | grep -o 'major = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+            CONTRACT_MINOR=$(echo "$CONTRACT_VERSION_OUTPUT" | grep -o 'minor = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
+            CONTRACT_PATCH=$(echo "$CONTRACT_VERSION_OUTPUT" | grep -o 'patch = [0-9]*' | head -1 | awk -F' = ' '{print $2}')
             if [ -n "$CONTRACT_MAJOR" ] && [ -n "$CONTRACT_MINOR" ] && [ -n "$CONTRACT_PATCH" ]; then
                 CONTRACT_VERSION="${CONTRACT_MAJOR}.${CONTRACT_MINOR}.${CONTRACT_PATCH}"
                 print_info "🎯 Contract reports version: $CONTRACT_VERSION"
+
+                # Debug information
+                print_info "🔍 Debug verification:"
+                print_info "  Expected target version: $TARGET_VERSION"
+                print_info "  Actual contract version: $CONTRACT_VERSION"
+                print_info "  Factory records: ${FACTORY_VERSION:-"Not available"}"
 
                 if [ "$CONTRACT_VERSION" = "$TARGET_VERSION" ]; then
                     print_success "✅ Verification PASSED! Contract is now at version $CONTRACT_VERSION"
                 else
                     print_error "❌ Verification FAILED! Expected version $TARGET_VERSION, got $CONTRACT_VERSION"
                     print_warning "This indicates a potential issue with version persistence during upgrade"
-                    print_info "Factory records: ${FACTORY_VERSION:-"Not available"}"
 
                     # Ask user if they want to continue despite verification failure
                     echo ""
