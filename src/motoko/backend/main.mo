@@ -1107,6 +1107,26 @@ persistent actor Backend {
         };
     };
 
+    // Get user's ICTO Passport score (placeholder for now)
+    // TODO: Implement actual ICTO Passport score retrieval when the system is available
+    public shared query ({ caller }) func getUserPassportScore() : async Result.Result<Nat, Text> {
+        // Validation
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated.");
+        };
+
+        // Placeholder: Return 0 for now
+        // In the future, this will query the ICTO Passport canister/system
+        // to get the user's actual score
+        Debug.print("📊 Getting passport score for user: " # Principal.toText(caller));
+        
+        // TODO: Implement actual passport score retrieval
+        // Example: let passportActor = actor(passportCanisterId) : PassportInterface;
+        // let score = await passportActor.getScore(caller);
+        
+        return #ok(0);
+    };
+
 
     // ==================================================================================================
     // ADMIN & HEALTH-CHECK

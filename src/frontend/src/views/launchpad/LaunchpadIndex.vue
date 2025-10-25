@@ -2,89 +2,90 @@
   <AdminLayout>
     <!-- Header Section -->
     <div class="gap-4 md:gap-6">
-      <div class="text-center mb-8">
-        <h1 class="text-4xl font-bold text-gray-900 dark:text-white mb-4">
-          🚀 Token Launchpad
-        </h1>
-        <p class="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto mb-6">
-          Explore and participate in decentralized fundraising campaigns built on Internet Computer.
-        </p>
-        
-        <!-- Create New Launchpad Button -->
-        <div class="flex justify-center">
-          <router-link
-            to="/launchpad/create"
-            class="inline-flex items-center px-6 py-3 bg-gradient-to-r from-yellow-400 via-yellow-500 to-yellow-600 hover:from-yellow-500 hover:via-yellow-600 hover:to-yellow-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-200 ease-in-out"
+      <!-- Main Navigation -->
+      <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center space-x-2">
+          <div class="flex items-center space-x-3">
+            <div class="p-2 bg-gradient-to-r from-[#b27c10] to-[#e1b74c] rounded-lg">
+              <RocketIcon class="h-6 w-6 text-white" />
+            </div>
+            <h1 class="text-2xl font-bold bg-gradient-to-r from-gray-900 via-[#b27c10] to-[#d8a735] dark:from-white dark:via-[#eacf6f] dark:to-[#e1b74c] bg-clip-text text-transparent">
+              Token Launchpad
+            </h1>
+          </div>
+          <button
+            v-auth-required="{ message: 'Please connect your wallet to create a launchpad!', autoOpenModal: true }"
+            @click="createNew"
+            class="ml-4 inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-gradient-to-r from-[#b27c10] to-[#e1b74c] hover:from-[#d8a735] hover:to-[#eacf6f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#d8a735] dark:focus:ring-offset-gray-900 transition-all duration-200"
           >
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-            </svg>
+            <PlusIcon class="h-4 w-4 mr-2" />
             Launch New Project
-          </router-link>
+          </button>
+        </div>
+        <div class="flex items-center space-x-4">
+          <button
+            class="text-gray-500 hover:text-[#d8a735] dark:text-gray-400 dark:hover:text-[#eacf6f] transition-colors"
+            @click="refreshData"
+            :disabled="isLoading"
+          >
+            <RefreshCcwIcon
+              class="h-5 w-5"
+              :class="{ 'animate-spin': isLoading }"
+            />
+          </button>
+          <button
+            class="text-gray-500 hover:text-[#d8a735] dark:text-gray-400 dark:hover:text-[#eacf6f] transition-colors"
+            @click="openFilterModal"
+          >
+            <SlidersIcon class="h-5 w-5" />
+          </button>
         </div>
       </div>
 
-      <!-- Filter Tabs -->
-      <div class="flex flex-wrap justify-center gap-2 mb-8">
-        <button
-          v-for="tab in tabs"
-          :key="tab.value"
-          @click="activeTab = tab.value"
-          :class="[
-            'px-6 py-2 rounded-full font-medium transition-all duration-200',
-            activeTab === tab.value
-              ? 'bg-blue-600 text-white shadow-lg'
-              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
-          ]"
-        >
-          {{ tab.label }}
-          <span v-if="tab.count" class="ml-2 text-sm opacity-75">({{ tab.count }})</span>
-        </button>
-      </div>
+      <!-- Filter/Sort Toolbar -->
+      <div class="mb-6 space-y-4 sm:space-y-0 sm:flex sm:items-center sm:justify-between">
+        <div class="flex flex-col sm:flex-row sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
+          <!-- Filter Tabs -->
+          <div class="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+            <button
+              v-for="tab in tabs"
+              :key="tab.value"
+              @click="activeTab = tab.value"
+              :class="[
+                'px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+                activeTab === tab.value
+                  ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+              ]"
+            >
+              {{ tab.label }}
+              <span v-if="tab.count !== undefined" class="ml-1 text-xs opacity-75">({{ tab.count }})</span>
+            </button>
+          </div>
 
-      <!-- Filter Controls -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 mb-8">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <!-- Search -->
+          <!-- Search Input -->
           <div class="relative">
+            <SearchIcon class="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input
               v-model="searchQuery"
               type="text"
-              placeholder="Search by project name or token..."
-              class="w-full pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              placeholder="Search launchpads..."
+              class="pl-10 pr-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-[#d8a735] focus:border-transparent transition-colors"
             />
-            <svg class="absolute left-3 top-2.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
           </div>
+        </div>
 
-          <!-- Status Filter -->
-          <select
-            v-model="statusFilter"
-            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-          >
-            <option value="">All Status</option>
-            <option value="setup">Setup</option>
-            <option value="upcoming">Upcoming</option>
-            <option value="whitelist">Whitelist Open</option>
-            <option value="active">Live</option>
-            <option value="ended">Sale Ended</option>
-            <option value="distributing">Distributing</option>
-            <option value="claiming">Claiming</option>
-            <option value="completed">Completed</option>
-            <option value="successful">Successful</option>
-            <option value="failed">Failed</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-
-          <!-- Sort -->
+        <!-- Sort Dropdown -->
+        <div class="flex items-center space-x-2">
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Sort by:</label>
           <select
             v-model="sortBy"
-            class="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 bg-white dark:bg-gray-700 text-sm focus:ring-2 focus:ring-[#d8a735] focus:border-transparent transition-colors"
           >
             <option value="recent">Most Recent</option>
             <option value="endingSoon">Ending Soon</option>
             <option value="popular">Popular</option>
+            <option value="raised">Most Raised</option>
           </select>
         </div>
       </div>
@@ -135,6 +136,13 @@ import LaunchpadCard from '@/components/launchpad/LaunchpadCard.vue'
 import { useLaunchpad } from '@/composables/launchpad/useLaunchpad'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import type { LaunchpadFilters } from '@/api/services/launchpad'
+import {
+  RocketIcon,
+  PlusIcon,
+  RefreshCcwIcon,
+  SlidersIcon,
+  SearchIcon
+} from 'lucide-vue-next'
 
 const router = useRouter()
 const { launchpads, isLoading, fetchLaunchpads } = useLaunchpad()
@@ -270,8 +278,21 @@ const checkParticipated = (launchpad: any): boolean => {
 }
 
 // Methods
+const createNew = () => {
+  router.push('/launchpad/create')
+}
+
 const navigateToDetail = (launchpadId: string) => {
   router.push(`/launchpad/${launchpadId}`)
+}
+
+const refreshData = async () => {
+  await fetchLaunchpads(currentFilters.value)
+}
+
+const openFilterModal = () => {
+  // TODO: Implement filter modal
+  console.log('Open filter modal')
 }
 
 // Lifecycle

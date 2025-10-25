@@ -106,6 +106,7 @@ persistent actor LaunchpadFactory {
     
     public type CreateLaunchpadArgs = {
         config: LaunchpadTypes.LaunchpadConfig;
+        creator: Principal;  // User who is creating the launchpad
         initialDeposit: ?Nat;
     };
     
@@ -155,6 +156,32 @@ persistent actor LaunchpadFactory {
 
         // Restore Version Manager state
         versionManager.fromStable(versionManagerStable);
+
+        // SAFETY CHECK: Ensure latest stable version is set
+        // If not set after restore, initialize with factory's current version
+        switch (versionManager.getLatestStableVersion()) {
+            case null {
+                // No stable version set - initialize with factory's current deployed version
+                // This ensures new launchpads inherit the factory's version instead of defaulting to 1.0.0
+                Debug.print("⚠️ WARNING: No latest stable version found after restore");
+                Debug.print("   Initializing with factory's current version to prevent fallback to 1.0.0");
+
+                // Set factory's current version as the default stable version
+                let factoryVersion: VersionManager.Version = { major = 1; minor = 0; patch = 3 };
+                versionManager.initializeDefaultStableVersion(factoryVersion);
+
+                Debug.print("   New launchpads will now use version " #
+                           Nat.toText(factoryVersion.major) # "." #
+                           Nat.toText(factoryVersion.minor) # "." #
+                           Nat.toText(factoryVersion.patch) # " instead of 1.0.0");
+            };
+            case (?version) {
+                Debug.print("✅ Latest stable version restored: " #
+                           Nat.toText(version.major) # "." #
+                           Nat.toText(version.minor) # "." #
+                           Nat.toText(version.patch));
+            };
+        };
 
         Debug.print("LaunchpadFactory: Postupgrade completed");
     };
@@ -323,7 +350,9 @@ persistent actor LaunchpadFactory {
     // ================ CORE LAUNCHPAD FUNCTIONS ================
     
     public shared({caller}) func createLaunchpad(args: CreateLaunchpadArgs) : async CreateLaunchpadResult {
-        Debug.print("🚀 FACTORY: createLaunchpad called by " # Principal.toText(caller));
+        Debug.print("🚀 FACTORY: createLaunchpad called");
+        Debug.print("  - Backend/Caller: " # Principal.toText(caller));
+        Debug.print("  - User/Creator: " # Principal.toText(args.creator));
 
         // Debug: Print all Principal fields in config
         Debug.print("📋 FACTORY: Config Principal fields:");
@@ -386,7 +415,7 @@ persistent actor LaunchpadFactory {
             let launchpadCanister = await (with cycles = CYCLES_FOR_INSTALL) LaunchpadContract.LaunchpadContract<system>(
                 #InitialSetup({
                     id = "pending"; // Temporary, will be replaced with canister ID
-                    creator = caller;
+                    creator = args.creator;  // Use creator from args (original user, not backend)
                     config = args.config;
                     createdAt = Time.now();
                 })
@@ -456,7 +485,7 @@ persistent actor LaunchpadFactory {
             let contractRecord : LaunchpadContract = {
                 id = launchpadId;
                 canisterId = canisterId;
-                creator = caller; // Use caller Principal instead of project name
+                creator = args.creator;  // Use creator from args (original user, not backend)
                 config = args.config;
                 status = #Active;
                 createdAt = now;
@@ -478,11 +507,11 @@ persistent actor LaunchpadFactory {
                 contractRecord
             ).0;
 
-            // Index creator
-            creatorIndex := addToIndex(creatorIndex, caller, canisterId);
+            // Index creator (use args.creator, not caller which is the backend)
+            creatorIndex := addToIndex(creatorIndex, args.creator, canisterId);
 
             Debug.print("Launchpad created successfully: " # launchpadId # " at " # Principal.toText(canisterId));
-            Debug.print("Indexed: creator=" # Principal.toText(caller));
+            Debug.print("Indexed: creator=" # Principal.toText(args.creator));
 
             #Ok({
                 launchpadId = launchpadId;

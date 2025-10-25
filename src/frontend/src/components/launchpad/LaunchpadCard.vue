@@ -1,109 +1,180 @@
 <template>
-  <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md p-6 cursor-pointer hover:shadow-lg hover:scale-[1.02] transition-all duration-200" @click="$emit('click')">
-    <!-- Header with Logo and Info -->
-    <div class="flex items-center mb-4">
-      <div class="relative">
-        <img 
-          :src="projectLogo" 
-          :alt="`${launchpad.config.projectInfo.name} logo`" 
-          class="h-12 w-12 rounded-full object-cover mr-4 bg-gray-100 dark:bg-gray-700"
-          @error="handleImageError"
-        >
-        <div v-if="isParticipated" class="absolute -top-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white dark:border-gray-800"></div>
-      </div>
-      <div class="flex-1 min-w-0">
-        <h3 class="text-lg font-bold text-gray-900 dark:text-white truncate">{{ launchpad.config.projectInfo.name }}</h3>
-        <p class="text-sm text-gray-600 dark:text-gray-400">{{ launchpad.config.saleToken.symbol }}</p>
-        <div class="flex items-center mt-1">
-          <span class="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
-            {{ saleTypeDisplay }}
+  <div
+    class="group relative bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm hover:shadow-lg transition-all duration-300 cursor-pointer overflow-hidden"
+    @click="$emit('click')"
+  >
+    <!-- Gradient overlay for premium feel -->
+    <div class="absolute inset-0 bg-gradient-to-br from-[#eacf6f]/10 to-[#e1b74c]/10 dark:from-[#b27c10]/20 dark:to-[#d8a735]/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+
+    <!-- Content -->
+    <div class="relative p-6">
+      <!-- Header -->
+      <div class="flex items-start justify-between mb-4">
+        <div class="flex items-center space-x-3">
+          <TokenLogo
+            :canister-id="launchpad.canisterId.toText()"
+            :token-symbol="launchpad.config.saleToken.symbol"
+            size="md"
+          />
+          <div class="min-w-0 flex-1">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white truncate group-hover:text-[#b27c10] dark:group-hover:text-[#d8a735] transition-colors">
+              {{ launchpad.config.projectInfo.name }}
+            </h3>
+            <div class="flex items-center space-x-2 mt-1">
+              <span class="text-sm text-gray-500 dark:text-gray-400">{{ launchpad.config.saleToken.symbol }}</span>
+              <span class="text-xs px-2 py-0.5 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 rounded-full">
+                {{ saleTypeDisplay }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status Badge -->
+        <div class="flex flex-col items-end space-y-2">
+          <StatusBadge :status="launchpad.status" />
+          <span
+            v-if="participated"
+            class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
+          >
+            <CheckIcon class="h-3 w-3 mr-1" />
+            Joined
           </span>
+        </div>
+      </div>
+
+      <!-- Description -->
+      <p class="text-sm text-gray-600 dark:text-gray-300 mb-4 line-clamp-2">
+        {{ launchpad.config.projectInfo.description }}
+      </p>
+
+      <!-- Progress Bar -->
+      <div class="mb-4">
+        <div class="flex justify-between items-center mb-2">
+          <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Progress to Hardcap</span>
+          <span class="text-sm font-semibold text-[#b27c10] dark:text-[#d8a735]">{{ progressPercentage.toFixed(1) }}%</span>
+        </div>
+        <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2 overflow-hidden">
+          <div
+            :style="{ width: progressPercentage + '%' }"
+            class="h-2 rounded-full transition-all duration-500 bg-gradient-to-r from-[#b27c10] via-[#d8a735] to-[#e1b74c]"
+          ></div>
+        </div>
+        <div class="flex justify-between items-center mt-1">
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            Softcap: {{ formatICPAmount(softCapInE8s) }}
+          </span>
+          <span class="text-xs text-gray-500 dark:text-gray-400">
+            Hardcap: {{ formatICPAmount(hardCapInE8s) }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Stats Grid -->
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Raised</span>
+            <TrendingUpIcon class="h-4 w-4 text-gray-400" />
+          </div>
+          <p class="text-base font-semibold text-gray-900 dark:text-white mt-1 truncate">
+            {{ formatICPAmount(launchpad.stats.totalRaised) }}
+          </p>
+        </div>
+
+        <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Participants</span>
+            <UsersIcon class="h-4 w-4 text-gray-400" />
+          </div>
+          <p class="text-base font-semibold text-gray-900 dark:text-white mt-1">
+            {{ formatNumber(Number(launchpad.stats.participantCount)) }}
+          </p>
+        </div>
+
+        <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Token Price</span>
+            <CoinsIcon class="h-4 w-4 text-gray-400" />
+          </div>
+          <p class="text-base font-semibold text-gray-900 dark:text-white mt-1 truncate">
+            {{ tokenPrice }}
+          </p>
+        </div>
+
+        <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Time Left</span>
+            <ClockIcon class="h-4 w-4 text-gray-400" />
+          </div>
+          <p class="text-base font-semibold text-gray-900 dark:text-white mt-1 truncate">
+            {{ timeRemaining }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Tags -->
+      <div v-if="launchpad.config.projectInfo.tags.length > 0" class="flex flex-wrap gap-2 mb-4">
+        <span
+          v-for="tag in launchpad.config.projectInfo.tags.slice(0, 3)"
+          :key="tag"
+          class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-[#eacf6f]/20 text-[#b27c10] dark:text-[#d8a735]"
+        >
+          {{ tag }}
+        </span>
+        <span
+          v-if="launchpad.config.projectInfo.tags.length > 3"
+          class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400"
+        >
+          +{{ launchpad.config.projectInfo.tags.length - 3 }}
+        </span>
+      </div>
+
+      <!-- Footer -->
+      <div class="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div class="flex items-center text-sm text-gray-500 dark:text-gray-400">
+          <CalendarIcon class="h-4 w-4 mr-1" />
+          {{ formatDate(launchpad.config.timeline.saleStart) }}
+        </div>
+
+        <!-- Action indicator -->
+        <div class="flex items-center text-sm text-[#b27c10] dark:text-[#d8a735] opacity-0 group-hover:opacity-100 transition-opacity">
+          <span>View Details</span>
+          <ChevronRightIcon class="h-4 w-4 ml-1" />
         </div>
       </div>
     </div>
 
-    <!-- Status and Timeline -->
-    <div class="flex justify-between items-center mb-4">
-      <StatusBadge :status="launchpad.status" />
-      <div class="text-right">
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ timeRemaining }}</p>
-        <p class="text-xs text-gray-400 dark:text-gray-500">{{ formatDate(launchpad.config.timeline.saleEnd) }}</p>
-      </div>
-    </div>
-
-    <!-- Progress Bar -->
-    <div class="mb-4">
-      <div class="flex justify-between items-center mb-2">
-        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Progress</span>
-        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ progressPercentage.toFixed(1) }}%</span>
-      </div>
-      <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
-        <div 
-          :style="{ width: progressPercentage + '%' }" 
-          class="h-2.5 rounded-full transition-all duration-500 bg-gradient-to-r from-blue-500 to-purple-600"
-        ></div>
-      </div>
-      <div class="flex justify-between items-center mt-2">
-        <span class="text-xs text-gray-500 dark:text-gray-400">
-          Raised: {{ formatTokenAmount(launchpad.stats.totalRaised) }}
-        </span>
-        <span class="text-xs text-gray-500 dark:text-gray-400">
-          Goal: {{ formatTokenAmount(launchpad.config.saleParams.hardCap) }}
-        </span>
-      </div>
-    </div>
-
-    <!-- Stats -->
-    <div class="grid grid-cols-2 gap-4 mb-4">
-      <div class="text-center">
-        <p class="text-xs text-gray-500 dark:text-gray-400">Participants</p>
-        <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ Number(launchpad.stats.participantCount) }}</p>
-      </div>
-      <div class="text-center">
-        <p class="text-xs text-gray-500 dark:text-gray-400">Price</p>
-        <p class="text-sm font-semibold text-gray-900 dark:text-white">{{ tokenPrice }}</p>
-      </div>
-    </div>
-
-    <!-- Action Button -->
-    <button 
-      class="w-full py-2.5 font-medium rounded-lg transition-all duration-200"
-      :class="buttonClasses"
-      :disabled="isButtonDisabled"
-    >
-      {{ buttonText }}
-    </button>
+    <!-- Hover effect border -->
+    <div class="absolute inset-0 rounded-xl border-2 border-transparent group-hover:border-[#eacf6f] dark:group-hover:border-[#b27c10] transition-colors duration-300"></div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import {
+  TrendingUpIcon,
+  UsersIcon,
+  CoinsIcon,
+  ClockIcon,
+  CalendarIcon,
+  ChevronRightIcon,
+  CheckIcon
+} from 'lucide-vue-next'
 import type { LaunchpadDetail } from '@/declarations/launchpad_contract/launchpad_contract.did'
-import { useLaunchpad } from '@/composables/launchpad/useLaunchpad'
 import StatusBadge from './StatusBadge.vue'
-import { formatTokenAmount } from '@/utils/token'
+import TokenLogo from './TokenLogo.vue'
 
 interface Props {
   launchpad: LaunchpadDetail
   participated?: boolean
 }
 
-interface Emits {
-  (e: 'click'): void
-}
-
 const props = defineProps<Props>()
-defineEmits<Emits>()
-
-const { getStatusDisplay, getTimeRemaining, getProgressPercentage, formatDate } = useLaunchpad()
+defineEmits<{
+  click: []
+}>()
 
 // Computed properties
-const projectLogo = computed(() => 
-  props.launchpad.config.projectInfo.logo?.[0] || '/images/placeholder-logo.png'
-)
-
-const isParticipated = computed(() => props.participated || false)
-
 const saleTypeDisplay = computed(() => {
   const saleType = props.launchpad.config.saleParams.saleType
   if ('IDO' in saleType) return 'IDO'
@@ -114,79 +185,99 @@ const saleTypeDisplay = computed(() => {
   return 'Sale'
 })
 
-const timeRemaining = computed(() => 
-  getTimeRemaining(props.launchpad.config.timeline.saleEnd)
-)
+// Convert softcap and hardcap to e8s format
+const purchaseTokenDecimals = computed(() => Number(props.launchpad.config.purchaseToken.decimals))
 
-const progressPercentage = computed(() => 
-  getProgressPercentage(props.launchpad.stats, props.launchpad.config.saleParams.hardCap)
-)
+const softCapInE8s = computed(() => {
+  const raw = BigInt(props.launchpad.config.saleParams.softCap || '0')
+  const decimals = BigInt(purchaseTokenDecimals.value)
+  return raw * (BigInt(10) ** decimals)
+})
+
+const hardCapInE8s = computed(() => {
+  const raw = BigInt(props.launchpad.config.saleParams.hardCap || '0')
+  const decimals = BigInt(purchaseTokenDecimals.value)
+  return raw * (BigInt(10) ** decimals)
+})
+
+const progressPercentage = computed(() => {
+  const raised = Number(props.launchpad.stats.totalRaised)
+  const hardCap = Number(hardCapInE8s.value)
+
+  if (hardCap === 0) return 0
+  return Math.min((raised / hardCap) * 100, 100)
+})
 
 const tokenPrice = computed(() => {
-  const price = Number(props.launchpad.config.saleParams.tokenPrice) / Math.pow(10, 8) // Assuming 8 decimals
-  return `${price.toFixed(4)} ICP`
+  const price = Number(props.launchpad.config.saleParams.tokenPrice) / Math.pow(10, purchaseTokenDecimals.value)
+  return `${price.toFixed(4)} ${props.launchpad.config.purchaseToken.symbol}`
 })
 
-const buttonText = computed(() => {
-  const statusKey = getStatusKey(props.launchpad.status)
-  
-  switch (statusKey) {
-    case 'upcoming':
-      return 'Coming Soon'
-    case 'active':
-      return 'Participate Now'
-    case 'ended':
-      return 'Sale Ended'
-    case 'completed':
-      return 'View Results'
-    case 'failed':
-      return 'Failed'
-    case 'cancelled':
-      return 'Cancelled'
-    default:
-      return 'View Details'
-  }
-})
+const timeRemaining = computed(() => {
+  const now = Date.now()
+  const saleEnd = Number(props.launchpad.config.timeline.saleEnd) / 1_000_000
 
-const isButtonDisabled = computed(() => {
-  const statusKey = getStatusKey(props.launchpad.status)
-  return ['upcoming', 'ended', 'failed', 'cancelled'].includes(statusKey)
-})
+  if (now >= saleEnd) return 'Ended'
 
-const buttonClasses = computed(() => {
-  const statusKey = getStatusKey(props.launchpad.status)
-  const baseClasses = 'w-full py-2.5 font-medium rounded-lg transition-all duration-200'
-  
-  if (isButtonDisabled.value) {
-    return `${baseClasses} bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed`
-  }
-  
-  if (statusKey === 'active') {
-    return `${baseClasses} bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:from-blue-700 hover:to-purple-700 hover:shadow-lg`
-  }
-  
-  return `${baseClasses} bg-blue-600 text-white hover:bg-blue-700 hover:shadow-lg`
+  const diff = saleEnd - now
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+  const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+
+  if (days > 0) return `${days}d ${hours}h`
+  return `${hours}h`
 })
 
 // Helper methods
-const handleImageError = (event: Event) => {
-  const img = event.target as HTMLImageElement
-  img.src = '/images/placeholder-logo.png'
+const formatNumber = (num: number): string => {
+  if (num >= 1000000) {
+    return (num / 1000000).toFixed(1) + 'M'
+  } else if (num >= 1000) {
+    return (num / 1000).toFixed(1) + 'K'
+  }
+  return num.toString()
 }
 
-const getStatusKey = (status: any): string => {
-  if ('Setup' in status) return 'setup'
-  if ('Upcoming' in status) return 'upcoming'
-  if ('WhitelistOpen' in status) return 'whitelist'
-  if ('SaleActive' in status) return 'active'
-  if ('SaleEnded' in status) return 'ended'
-  if ('Distributing' in status) return 'distributing'
-  if ('Claiming' in status) return 'claiming'
-  if ('Completed' in status) return 'completed'
-  if ('Successful' in status) return 'successful'
-  if ('Failed' in status) return 'failed'
-  if ('Cancelled' in status) return 'cancelled'
-  if ('Emergency' in status) return 'emergency'
-  return 'unknown'
+const formatICPAmount = (amount: bigint): string => {
+  try {
+    const decimals = purchaseTokenDecimals.value
+    const divisor = BigInt(10) ** BigInt(decimals)
+    const integerPart = amount / divisor
+    const remainder = amount % divisor
+
+    const remainderStr = remainder.toString().padStart(decimals, '0')
+    const fullDecimal = `${integerPart.toString()}.${remainderStr}`
+    const value = parseFloat(fullDecimal)
+
+    const symbol = props.launchpad.config.purchaseToken.symbol
+
+    if (value >= 1000000) {
+      return `${(value / 1000000).toFixed(2)}M ${symbol}`
+    } else if (value >= 1000) {
+      return `${(value / 1000).toFixed(2)}K ${symbol}`
+    }
+
+    return `${value.toFixed(2)} ${symbol}`
+  } catch (error) {
+    console.error('Error formatting amount:', error, amount)
+    return '0.00 ' + props.launchpad.config.purchaseToken.symbol
+  }
+}
+
+const formatDate = (timestamp: bigint): string => {
+  const date = new Date(Number(timestamp) / 1000000)
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
 }
 </script>
+
+<style scoped>
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+</style>

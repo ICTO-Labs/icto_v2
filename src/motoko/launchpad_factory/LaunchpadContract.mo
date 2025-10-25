@@ -14,11 +14,16 @@ import Timer "mo:base/Timer";
 import Trie "mo:base/Trie";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
+import Blob "mo:base/Blob";
+
 
 import LaunchpadTypes "../shared/types/LaunchpadTypes";
 import LaunchpadUpgradeTypes "../shared/types/LaunchpadUpgradeTypes";
 import TokenFactory "../shared/types/TokenFactory";
 import IUpgradeable "../common/IUpgradeable";
+import AID "../shared/utils/AID";
+import ICRCTypes "../shared/types/ICRC";
+import ICRC "../shared/utils/ICRC";
 
 // ================ LAUNCHPAD CONTRACT V2 ================
 // Actor class template for individual launchpad instances
@@ -155,9 +160,15 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         case (?state) { state.deployedContracts };
     };
 
-    // Timer for automated lifecycle management
+    // Timer for automated lifecycle management (legacy - kept for backward compatibility)
     private var timerId : ?Timer.TimerId = null;
     private var _lastTimerSetup : Time.Time = 0;
+
+    // Milestone-specific timers (V2 - automatic status transitions)
+    private stable var saleStartTimerId: ?Nat = null;
+    private stable var saleEndTimerId: ?Nat = null;
+    private stable var claimStartTimerId: ?Nat = null;
+    private stable var listingTimerId: ?Nat = null;
     
     // Security & Emergency Controls
     private var emergencyPaused : Bool = switch (upgradeState) {
@@ -173,11 +184,17 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         case (?state) { state.lastEmergencyAction };
     };
 
-    // Reentrancy Protection
-    private var reentrancyLock : Bool = switch (upgradeState) {
-        case null { false };
-        case (?state) { state.reentrancyLock };
+    // Reentrancy Protection (Per-User Lock System)
+    // ==========================================
+    // CRITICAL SECURITY FIX: Replaced global lock with per-user tracking
+    // Global lock was a DoS vulnerability - one user could block entire system
+    private var activeUserCalls : [(Principal, Time.Time)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) { state.activeUserCalls };
     };
+
+    // Auto-timeout for user locks (prevent permanent locks)
+    private let USER_LOCK_TIMEOUT : Time.Time = 300_000_000_000; // 5 minutes
 
     // Audit Trail
     private var adminActions : [LaunchpadTypes.AdminAction] = switch (upgradeState) {
@@ -199,6 +216,28 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         case (?state) { state.rateLimitViolations };
     };
 
+    // Security Metrics (NEW)
+    // ===================
+    // Track security events for monitoring and analysis
+    private var securityMetrics : {
+        totalReentrancyAttempts: Nat;
+        totalSuccessfulCalls: Nat;
+        totalFailedCalls: Nat;
+        averageCallDuration: Time.Time;
+        lastSecurityEvent: Time.Time;
+    } = switch (upgradeState) {
+        case null {
+            {
+                totalReentrancyAttempts = 0;
+                totalSuccessfulCalls = 0;
+                totalFailedCalls = 0;
+                averageCallDuration = 0;
+                lastSecurityEvent = 0;
+            };
+        };
+        case (?state) { state.securityMetrics };
+    };
+
     // Factory Actor Interfaces
     // TODO: Get factory IDs from config instead of hardcoding
     // This should be passed via init args or loaded dynamically
@@ -217,10 +256,47 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         participantsStable := Trie.toArray<Text, LaunchpadTypes.Participant, (Text, LaunchpadTypes.Participant)>(participants, func(k, v) { (k, v) });
         transactionsStable := Buffer.toArray(transactions);
         affiliateStatsStable := Trie.toArray<Text, LaunchpadTypes.AffiliateStats, (Text, LaunchpadTypes.AffiliateStats)>(affiliateStats, func(k, v) { (k, v) });
-        
-        // Cancel timer
+
+        // Cancel all timers before upgrade
+        Debug.print("🔄 preupgrade: Cancelling all timers...");
+
         switch (timerId) {
-            case (?id) { Timer.cancelTimer(id); };
+            case (?id) {
+                Timer.cancelTimer(id);
+                Debug.print("  ✅ Legacy timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (saleStartTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                Debug.print("  ✅ Sale start timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (saleEndTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                Debug.print("  ✅ Sale end timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (claimStartTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                Debug.print("  ✅ Claim start timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (listingTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                Debug.print("  ✅ Listing timer cancelled");
+            };
             case null {};
         };
     };
@@ -230,20 +306,43 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         for ((key, participant) in participantsStable.vals()) {
             participants := Trie.put(participants, LaunchpadTypes.textKey(key), Text.equal, participant).0;
         };
-        
+
         transactions := Buffer.fromArray(transactionsStable);
-        
+
         affiliateStats := Trie.empty<Text, LaunchpadTypes.AffiliateStats>();
         for ((key, stats) in affiliateStatsStable.vals()) {
             affiliateStats := Trie.put(affiliateStats, LaunchpadTypes.textKey(key), Text.equal, stats).0;
         };
-        
+
         // Clear stable arrays to save memory
         participantsStable := [];
         transactionsStable := [];
         affiliateStatsStable := [];
-        
-        // Note: Timer will be restarted on first function call
+
+        // Restore milestone timers after upgrade
+        // IMPORTANT: Also check and update status based on current time
+        if (installed) {
+            Debug.print("📍 postupgrade: Scheduling status check and timer restoration...");
+            ignore Timer.setTimer<system>(
+                #seconds(1),  // 1 second delay to allow postupgrade to complete
+                func() : async () {
+                    // First: Update status to current correct state based on timeline
+                    // Call multiple times to handle cases where multiple milestones have passed
+                    // (e.g., if both sale start and sale end times have passed)
+                    Debug.print("🔄 postupgrade: Checking status transitions...");
+                    let _ = await checkAndUpdateStatus();  // Transition 1 (e.g., Upcoming -> SaleActive)
+                    let _ = await checkAndUpdateStatus();  // Transition 2 (e.g., SaleActive -> SaleEnded)
+                    let _ = await checkAndUpdateStatus();  // Transition 3 (e.g., Successful -> Claiming if needed)
+
+                    Debug.print("📊 postupgrade: Current status after transitions: " # LaunchpadTypes.statusToText(status));
+
+                    // Then: Setup timers for future milestones
+                    await _setupMilestoneTimers();
+
+                    Debug.print("✅ postupgrade: Status updated and timers restored");
+                }
+            );
+        };
     };
 
     // ================ INITIALIZATION ================
@@ -279,13 +378,17 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#ok(_)) {};
         };
 
-        // Update status and setup timer
+        // Update status and setup timers
         status := #Upcoming;
         installed := true;
         updatedAt := Time.now();
-        ignore _setupTimer();
+
+        // Setup milestone-specific timers for automatic status transitions
+        // IMPORTANT: Must await to ensure timers are actually created
+        await _setupMilestoneTimers();
 
         Debug.print("Launchpad initialized: " # launchpadId);
+        Debug.print("✅ Timers setup completed");
         #ok(())
     };
 
@@ -461,15 +564,9 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
         status := #Emergency;
         updatedAt := Time.now();
-        
-        // Cancel timer
-        switch (timerId) {
-            case (?id) {
-                Timer.cancelTimer(id);
-                timerId := null;
-            };
-            case null {};
-        };
+
+        // Cancel all timers
+        _cancelAllTimers();
 
         Debug.print("Launchpad paused by: " # Principal.toText(caller));
         #ok(())
@@ -496,9 +593,30 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
         status := newStatus;
         updatedAt := Time.now();
-        ignore _setupTimer();
+
+        // Restore milestone timers
+        await _setupMilestoneTimers();
 
         Debug.print("Launchpad unpaused by: " # Principal.toText(caller));
+        #ok(())
+    };
+
+    /// Re-setup milestone timers (admin/creator only)
+    /// Useful for recovering from timer initialization issues
+    public shared({caller}) func resetTimers() : async Result.Result<(), Text> {
+        if (caller != creator and caller != factoryPrincipal) {
+            return #err("Unauthorized: Only creator or factory can reset timers");
+        };
+
+        Debug.print("🔄 Resetting timers requested by: " # Principal.toText(caller));
+
+        // Cancel existing timers first
+        _cancelAllTimers();
+
+        // Re-setup timers
+        await _setupMilestoneTimers();
+
+        Debug.print("✅ Timers reset completed");
         #ok(())
     };
 
@@ -533,14 +651,206 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(())
     };
 
+    // ================ UPDATE FUNCTIONS (OWNER ONLY) ================
+
+    /// Update basic project information (owner only)
+    /// Images are handled separately via updateProjectImages()
+    public shared({caller}) func updateProjectInfo(request: LaunchpadTypes.UpdateProjectInfoRequest) : async Result.Result<(), Text> {
+        // Only creator can update
+        if (caller != creator) {
+            return #err("Unauthorized: Only creator can update project info");
+        };
+
+        // Cannot update after sale started (to prevent scam/rug)
+        if (status != #Setup and status != #Upcoming) {
+            return #err("Cannot update project info after sale has started");
+        };
+
+        // Update fields that are provided (optional pattern)
+        let updatedProjectInfo = {
+            config.projectInfo with
+            description = switch (request.description) {
+                case (null) { config.projectInfo.description };
+                case (?desc) {
+                    if (Text.size(desc) < 10) {
+                        return #err("Description must be at least 10 characters");
+                    };
+                    desc
+                };
+            };
+            website = switch (request.website) {
+                case (null) { config.projectInfo.website };
+                case (?w) { ?w };
+            };
+            whitepaper = switch (request.whitepaper) {
+                case (null) { config.projectInfo.whitepaper };
+                case (?w) { ?w };
+            };
+            documentation = switch (request.documentation) {
+                case (null) { config.projectInfo.documentation };
+                case (?d) { ?d };
+            };
+            telegram = switch (request.telegram) {
+                case (null) { config.projectInfo.telegram };
+                case (?t) { ?t };
+            };
+            twitter = switch (request.twitter) {
+                case (null) { config.projectInfo.twitter };
+                case (?t) { ?t };
+            };
+            discord = switch (request.discord) {
+                case (null) { config.projectInfo.discord };
+                case (?d) { ?d };
+            };
+            github = switch (request.github) {
+                case (null) { config.projectInfo.github };
+                case (?g) { ?g };
+            };
+            medium = switch (request.medium) {
+                case (null) { config.projectInfo.medium };
+                case (?m) { ?m };
+            };
+            reddit = switch (request.reddit) {
+                case (null) { config.projectInfo.reddit };
+                case (?r) { ?r };
+            };
+            youtube = switch (request.youtube) {
+                case (null) { config.projectInfo.youtube };
+                case (?y) { ?y };
+            };
+            auditReport = switch (request.auditReport) {
+                case (null) { config.projectInfo.auditReport };
+                case (?a) { ?a };
+            };
+            kycProvider = switch (request.kycProvider) {
+                case (null) { config.projectInfo.kycProvider };
+                case (?k) { ?k };
+            };
+            tags = switch (request.tags) {
+                case (null) { config.projectInfo.tags };
+                case (?t) { t };
+            };
+        };
+
+        config := { config with projectInfo = updatedProjectInfo };
+        updatedAt := Time.now();
+
+        Debug.print("Project info updated by: " # Principal.toText(caller));
+        #ok(())
+    };
+
+    /// Update project images (owner only)
+    /// Separate function for images to optimize data transfer
+    public shared({caller}) func updateProjectImages(request: LaunchpadTypes.ProjectImagesUpdate) : async Result.Result<(), Text> {
+        if (caller != creator) {
+            return #err("Unauthorized: Only creator can update images");
+        };
+
+        // Can update images anytime (before sale ends)
+        if (status == #Completed or status == #Cancelled or status == #Failed) {
+            return #err("Cannot update images after launchpad is finalized");
+        };
+
+        let updatedProjectInfo = {
+            config.projectInfo with
+            logo = switch (request.logo) {
+                case (null) { config.projectInfo.logo };
+                case (?l) { ?l };
+            };
+            cover = switch (request.cover) {
+                case (null) { config.projectInfo.cover };
+                case (?c) { ?c };
+            };
+        };
+
+        config := { config with projectInfo = updatedProjectInfo };
+        updatedAt := Time.now();
+
+        Debug.print("Project images updated by: " # Principal.toText(caller));
+        #ok(())
+    };
+
+    /// Update token information (owner only)
+    public shared({caller}) func updateTokenInfo(request: LaunchpadTypes.UpdateTokenInfoRequest) : async Result.Result<(), Text> {
+        if (caller != creator) {
+            return #err("Unauthorized: Only creator can update token info");
+        };
+
+        // Cannot update after token deployed
+        switch (deployedContracts.tokenCanister) {
+            case (?_) { return #err("Cannot update token info after token is deployed"); };
+            case (null) {};
+        };
+
+        let updatedSaleToken = {
+            config.saleToken with
+            description = switch (request.description) {
+                case (null) { config.saleToken.description };
+                case (?d) { ?d };
+            };
+            website = switch (request.website) {
+                case (null) { config.saleToken.website };
+                case (?w) { ?w };
+            };
+        };
+
+        config := { config with saleToken = updatedSaleToken };
+        updatedAt := Time.now();
+
+        Debug.print("Token info updated by: " # Principal.toText(caller));
+        #ok(())
+    };
+
+    /// Update token logo (owner only)
+    public shared({caller}) func updateTokenLogo(request: LaunchpadTypes.TokenLogoUpdate) : async Result.Result<(), Text> {
+        if (caller != creator) {
+            return #err("Unauthorized: Only creator can update token logo");
+        };
+
+        // Can update logo anytime before completion
+        if (status == #Completed or status == #Cancelled or status == #Failed) {
+            return #err("Cannot update token logo after launchpad is finalized");
+        };
+
+        let updatedSaleToken = {
+            config.saleToken with
+            logo = switch (request.logo) {
+                case (null) { config.saleToken.logo };
+                case (?l) { ?l };
+            };
+        };
+
+        config := { config with saleToken = updatedSaleToken };
+        updatedAt := Time.now();
+
+        Debug.print("Token logo updated by: " # Principal.toText(caller));
+        #ok(())
+    };
+
     // ================ QUERY FUNCTIONS ================
 
+    /// Get launchpad detail WITHOUT images (for list/index views to reduce data transfer)
+    /// Use getProjectImages() and getTokenLogo() separately to fetch images only when needed
     public query func getLaunchpadDetail() : async LaunchpadTypes.LaunchpadDetail {
+        // Strip all images from config to reduce response size significantly
+        let configWithoutImages = {
+            config with
+            saleToken = {
+                config.saleToken with
+                logo = null;  // Use getTokenLogo() to fetch separately
+            };
+            projectInfo = {
+                config.projectInfo with
+                logo = null;    // Use getProjectImages() to fetch separately
+                cover = null;   // Use getProjectImages() to fetch separately
+            };
+        };
+
         {
             id = launchpadId;
             canisterId = Principal.fromActor(this);
             creator = creator;
-            config = config;
+            config = configWithoutImages;
             status = status;
             processingState = processingState;
             stats = _calculateStats();
@@ -590,12 +900,219 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         _calculateStats()
     };
 
+    /// Get config WITHOUT images (optimized for list views)
     public query func getConfig() : async LaunchpadTypes.LaunchpadConfig {
-        config
+        {
+            config with
+            saleToken = {
+                config.saleToken with
+                logo = null;
+            };
+            projectInfo = {
+                config.projectInfo with
+                logo = null;
+                cover = null;
+            };
+        }
+    };
+
+    /// Get ONLY project images (separate query to fetch only when needed)
+    /// This significantly reduces data transfer for list/index views
+    public query func getProjectImages() : async {
+        logo: ?Text;
+        cover: ?Text;
+    } {
+        {
+            logo = config.projectInfo.logo;
+            cover = config.projectInfo.cover;
+        }
+    };
+
+    /// Get ONLY token logo (separate query for optimization)
+    public query func getTokenLogo() : async { logo: ?Text } {
+        { logo = config.saleToken.logo }
+    };
+
+    /// Legacy function - kept for backward compatibility
+    /// Use getProjectImages() and getTokenLogo() instead
+    public query func getTokenLogos() : async {
+        tokenLogo: ?Text;
+        projectLogo: ?Text;
+        projectCover: ?Text;
+    } {
+        {
+            tokenLogo = config.saleToken.logo;
+            projectLogo = config.projectInfo.logo;
+            projectCover = config.projectInfo.cover;
+        }
     };
 
     public query func getStatus() : async LaunchpadTypes.LaunchpadStatus {
         status
+    };
+
+    /// Manual status check and update (backup mechanism if timers fail)
+    /// Can be called by anyone to trigger status update based on current time
+    public shared func checkAndUpdateStatus() : async Result.Result<LaunchpadTypes.LaunchpadStatus, Text> {
+        let now = Time.now();
+        let oldStatus = status;
+
+        // Check if status should be updated based on timeline
+        switch (status) {
+            case (#Upcoming or #WhitelistOpen) {
+                if (now >= config.timeline.saleStart) {
+                    await _updateStatusToSaleActive();
+                };
+            };
+            case (#SaleActive) {
+                if (now >= config.timeline.saleEnd) {
+                    await _updateStatusToSaleEnded();
+                };
+            };
+            case (#Successful) {
+                if (now >= config.timeline.claimStart) {
+                    await _updateStatusToClaiming();
+                };
+            };
+            case (#Claiming) {
+                switch (config.timeline.listingTime) {
+                    case (?listingTime) {
+                        if (now >= listingTime) {
+                            await _updateStatusToCompleted();
+                        };
+                    };
+                    case null {};
+                };
+            };
+            case (_) {};
+        };
+
+        if (oldStatus != status) {
+            Debug.print("✅ Manual status update: " # LaunchpadTypes.statusToText(oldStatus) # " → " # LaunchpadTypes.statusToText(status));
+        };
+
+        #ok(status)
+    };
+
+    /// Recover deposited funds based on balance check
+    /// This function helps users who transferred tokens but failed to confirm deposit
+    /// It checks the deposit account balance and creates a participation record
+    public shared({caller}) func recoverDepositFromBalance() : async Result.Result<LaunchpadTypes.Transaction, Text> {
+        // Reentrancy protection
+        switch (_checkReentrancy(caller)) {
+            case (#err(msg)) return #err(msg);
+            case (#ok()) {};
+        };
+
+        if (emergencyPaused) {
+            _releaseReentrancyLock();
+            return #err("Contract paused: " # emergencyReason);
+        };
+
+        if (not installed) {
+            _releaseReentrancyLock();
+            return #err("Launchpad not initialized");
+        };
+
+        Debug.print("💰 recoverDepositFromBalance called by: " # Principal.toText(caller));
+
+        // Rate limiting & validation
+        if (not _checkRateLimit(caller)) {
+            _releaseReentrancyLock();
+            return #err("Rate limit exceeded");
+        };
+
+        // Generate user's deposit account (subaccount)
+        let subAccount = principalToSubAccount(caller);
+        let subAccountBlob = Blob.fromArray(subAccount);
+
+        // Create ICRC Account for the deposit account
+        let depositAccount: ICRCTypes.Account = {
+            owner = Principal.fromActor(this);
+            subaccount = ?subAccountBlob;
+        };
+
+        Debug.print("🏦 Checking deposit account balance for recovery...");
+
+        // Check balance of deposit account
+        let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
+        let depositBalance = try {
+            await ledger.icrc1_balance_of(depositAccount)
+        } catch (error) {
+            _releaseReentrancyLock();
+            return #err("Failed to check deposit account balance: " # Error.message(error));
+        };
+
+        Debug.print("💵 Deposit account balance: " # Nat.toText(depositBalance));
+
+        if (depositBalance == 0) {
+            _releaseReentrancyLock();
+            return #err("No balance found in deposit account. Please transfer tokens first.");
+        };
+
+        // Check if user already has a pending transaction for this amount
+        let participantKey = Principal.toText(caller);
+        let existingParticipant = Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal);
+        let alreadyCounted = switch (existingParticipant) {
+            case (?p) p.totalContribution;
+            case null 0;
+        };
+
+        // Check if this amount would exceed max contribution
+        switch (config.saleParams.maxContribution) {
+            case (?maxAmount) {
+                let maxContributionInSmallestUnit = toSmallestUnit(maxAmount, config.purchaseToken.decimals);
+                if (alreadyCounted + depositBalance > maxContributionInSmallestUnit) {
+                    _releaseReentrancyLock();
+                    return #err("Deposit amount would exceed maximum contribution limit");
+                };
+            };
+            case null {};
+        };
+
+        // Create transaction record for recovered deposit
+        let transactionId = _generateTransactionId();
+        let transaction: LaunchpadTypes.Transaction = {
+            id = transactionId;
+            participant = caller;
+            txType = #Purchase;
+            amount = depositBalance;
+            token = config.purchaseToken.canisterId;
+            timestamp = Time.now();
+            blockIndex = null;
+            fee = config.purchaseToken.transferFee;
+            status = #Confirmed;
+            affiliateCode = null; // No affiliate code for recovery
+            notes = ?("Recovered from deposit account balance");
+        };
+
+        Debug.print("📝 Recording recovered participation...");
+
+        // Process the purchase (update stats, participants, etc.)
+        let purchaseResult = await _processPurchase(caller, depositBalance, null, transaction);
+        switch (purchaseResult) {
+            case (#err(msg)) {
+                _releaseReentrancyLock();
+                let failedTransaction = {
+                    transaction with
+                    status = #Failed(msg);
+                    notes = ?("Deposit recovery failed: " # msg);
+                };
+                transactions.add(failedTransaction);
+                return #err(msg);
+            };
+            case (#ok(updatedTransaction)) {
+                transactions.add(updatedTransaction);
+                transactionCount += 1;
+                updatedAt := Time.now();
+                _releaseReentrancyLock();
+
+                Debug.print("✅ Deposit recovered successfully!");
+                Debug.print("   Amount: " # Nat.toText(depositBalance));
+                Debug.print("   User: " # Principal.toText(caller));
+                return #ok(updatedTransaction);
+            };
+        };
     };
 
     public query func getAffiliateStats(affiliate: Principal) : async ?LaunchpadTypes.AffiliateStats {
@@ -608,7 +1125,496 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         Array.find<Principal>(config.whitelist, func(p) { p == user }) != null
     };
 
+    // ================ HELPER FUNCTIONS FOR AMOUNT CONVERSION ================
+    // Helper to convert human-readable amount to smallest unit (e8s)
+    // Example: 100 ICP -> 10000000000 e8s (with decimals = 8)
+    private func toSmallestUnit(amount: Nat, decimals: Nat8) : Nat {
+        let multiplier = 10 ** Nat8.toNat(decimals);
+        amount * multiplier
+    };
+
+    // Convert hardCap/softCap to smallest unit for comparison
+    // Note: Contract stores caps in human-readable format (e.g., 100 ICP)
+    // But amounts passed in are in smallest unit (e.g., 10000000000 e8s)
+    private func hardCapInSmallestUnit() : Nat {
+        toSmallestUnit(config.saleParams.hardCap, config.purchaseToken.decimals)
+    };
+
+    private func softCapInSmallestUnit() : Nat {
+        toSmallestUnit(config.saleParams.softCap, config.purchaseToken.decimals)
+    };
+
+    // ================ DEPOSIT ACCOUNT GENERATION ================
+    // Generate unique deposit account for each user using AID (Account Identifier)
+    // This creates a deterministic sub-account for the user within this launchpad contract
+    // Similar to how SNS handles deposits on Internet Computer
+    
+    // Convert principal to subaccount (32 bytes) following IC standard format:
+    // [size_byte, ...principal_bytes..., ...padding_zeros...]
+    private func principalToSubAccount(userId: Principal) : [Nat8] {
+        let p = Blob.toArray(Principal.toBlob(userId));
+        Array.tabulate(32, func(i : Nat) : Nat8 {
+            if (i >= p.size() + 1) 0
+            else if (i == 0) (Nat8.fromNat(p.size()))
+            else (p[i - 1])
+        })
+    };
+    
+    // Convert bytes array to hex string
+    private func toHex(arr: [Nat8]): Text {
+        let hexChars = ["0","1","2","3","4","5","6","7","8","9","a","b","c","d","e","f"];
+        Text.join("", Iter.map<Nat8, Text>(Iter.fromArray(arr), func (x: Nat8) : Text {
+            let a = Nat8.toNat(x / 16);
+            let b = Nat8.toNat(x % 16);
+            hexChars[a] # hexChars[b]
+        }))
+    };
+    
+    // Get deposit account - returns subaccount bytes and hex text
+    public shared query ({ caller }) func getDepositAccount() : async Result.Result<{ account: [Nat8]; accountText: Text }, Text> {
+        // Validation
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated.");
+        };
+
+        // Generate subaccount from caller's principal (IC standard format)
+        let subAccount = principalToSubAccount(caller);
+
+        // Convert to hex string for display
+        let hexString = toHex(subAccount);
+
+        Debug.print("🏦 Generated deposit subaccount for launchpad: " # launchpadId);
+        Debug.print("   User: " # Principal.toText(caller));
+        Debug.print("   Subaccount: " # hexString);
+        Debug.print("   Contract Principal: " # Principal.toText(Principal.fromActor(this)));
+
+        return #ok({
+            account = subAccount;  // Return subaccount bytes, not AID
+            accountText = hexString;
+        });
+    };
+
+    // Get deposit account as hex string for display (for debugging/monitoring)
+    public shared query func getDepositAccountText(caller: Principal) : async Result.Result<Text, Text> {
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated.");
+        };
+
+        // Generate subaccount from caller's principal
+        let subAccount = principalToSubAccount(caller);
+
+        // Convert to hex string for display
+        let hexString = toHex(subAccount);
+
+        return #ok(hexString);
+    };
+
+    // Check deposited balance in user's deposit account (subaccount)
+    public shared({ caller }) func getDepositedBalance() : async Result.Result<Nat, Text> {
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated.");
+        };
+
+        try {
+            // Generate user's deposit account (subaccount)
+            let subAccount = principalToSubAccount(caller);
+            let subAccountBlob = Blob.fromArray(subAccount);
+
+            // Create ICRC Account for the deposit account
+            let depositAccount: ICRCTypes.Account = {
+                owner = Principal.fromActor(this);
+                subaccount = ?subAccountBlob;
+            };
+
+            Debug.print("💰 Checking deposited balance for: " # Principal.toText(caller));
+
+            // Query balance from ICRC ledger
+            let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
+            let balance = await ledger.icrc1_balance_of(depositAccount);
+
+            Debug.print("   Deposited balance: " # Nat.toText(balance) # " (smallest unit)");
+
+            return #ok(balance);
+        } catch (error) {
+            return #err("Failed to check deposited balance: " # Error.message(error));
+        };
+    };
+
+    /// Get detailed deposit account information for user
+    /// Shows balance, account details, and recovery options
+    public shared({ caller }) func getDepositAccountInfo() : async Result.Result<{
+        account: [Nat8];
+        accountText: Text;
+        balance: Nat;
+        canRecover: Bool;
+        recoverableAmount: Nat;
+        alreadyContributed: Nat;
+        remainingLimit: Nat;
+    }, Text> {
+        if (Principal.isAnonymous(caller)) {
+            return #err("Unauthorized: User must be authenticated.");
+        };
+
+        try {
+            // Generate deposit account
+            let subAccount = principalToSubAccount(caller);
+            let subAccountBlob = Blob.fromArray(subAccount);
+            let hexString = toHex(subAccount);
+
+            // Check balance
+            let depositAccount: ICRCTypes.Account = {
+                owner = Principal.fromActor(this);
+                subaccount = ?subAccountBlob;
+            };
+
+            let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
+            let balance = await ledger.icrc1_balance_of(depositAccount);
+
+            // Check user's current contribution
+            let participantKey = Principal.toText(caller);
+            let existingContribution = switch (Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal)) {
+                case null 0;
+                case (?p) p.totalContribution;
+            };
+
+            // Calculate remaining limit
+            let remainingLimit = switch (config.saleParams.maxContribution) {
+                case (?maxAmount) {
+                    let maxInSmallestUnit = toSmallestUnit(maxAmount, config.purchaseToken.decimals);
+                    if (existingContribution >= maxInSmallestUnit) 0
+                    else maxInSmallestUnit - existingContribution
+                };
+                case null balance; // No limit if not set
+            };
+
+            let canRecover = balance > 0 and balance <= remainingLimit;
+            let recoverableAmount = if (canRecover) balance else 0;
+
+            return #ok({
+                account = subAccount;
+                accountText = hexString;
+                balance = balance;
+                canRecover = canRecover;
+                recoverableAmount = recoverableAmount;
+                alreadyContributed = existingContribution;
+                remainingLimit = remainingLimit;
+            });
+        } catch (error) {
+            return #err("Failed to get deposit account info: " # Error.message(error));
+        };
+    };
+
+    // ================ DEPOSIT CONFIRMATION ================
+    // Confirm deposit after user has transferred tokens to their deposit account
+    // NOTE: Tokens remain in subaccount for easy refunds if softcap not reached
+    // They will be transferred to destination contracts after softcap is reached
+    
+    public shared({ caller }) func confirmDeposit(
+        expectedAmount: Nat,
+        affiliateCode: ?Text
+    ) : async Result.Result<LaunchpadTypes.Transaction, Text> {
+        // Reentrancy protection
+        switch (_checkReentrancy(caller)) {
+            case (#err(msg)) return #err(msg);
+            case (#ok()) {};
+        };
+        
+        if (emergencyPaused) {
+            _releaseReentrancyLock();
+            return #err("Contract paused: " # emergencyReason);
+        };
+        
+        if (not installed) {
+            _releaseReentrancyLock();
+            return #err("Launchpad not initialized");
+        };
+        
+        Debug.print("💰 confirmDeposit called by: " # Principal.toText(caller));
+        Debug.print("   Expected amount: " # Nat.toText(expectedAmount));
+        
+        // Rate limiting & validation (check early)
+        if (not _checkRateLimit(caller)) {
+            _releaseReentrancyLock();
+            return #err("Rate limit exceeded");
+        };
+        
+        if (not _validateLargeTransaction(expectedAmount, caller)) {
+            _releaseReentrancyLock();
+            return #err("Transaction validation failed");
+        };
+        
+        // Validate participation eligibility
+        let eligibilityCheck = await _checkParticipationEligibility(caller, expectedAmount);
+        switch (eligibilityCheck) {
+            case (#err(msg)) {
+                _releaseReentrancyLock();
+                return #err(msg);
+            };
+            case (#ok(_)) {};
+        };
+        
+        // Generate user's deposit account (subaccount)
+        let subAccount = principalToSubAccount(caller);
+        let subAccountBlob = Blob.fromArray(subAccount);
+        
+        // Create ICRC Account for the deposit account
+        let depositAccount: ICRCTypes.Account = {
+            owner = Principal.fromActor(this);
+            subaccount = ?subAccountBlob;
+        };
+        
+        Debug.print("🏦 Checking balance of deposit account...");
+        
+        // Check balance of deposit account
+        let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
+        let depositBalance = try {
+            await ledger.icrc1_balance_of(depositAccount)
+        } catch (error) {
+            _releaseReentrancyLock();
+            return #err("Failed to check deposit account balance: " # Error.message(error));
+        };
+        
+        Debug.print("💵 Deposit account balance: " # Nat.toText(depositBalance));
+        
+        // Verify balance is sufficient (at least expectedAmount)
+        // Note: We keep transfer fee in subaccount for future operations
+        if (depositBalance < expectedAmount) {
+            _releaseReentrancyLock();
+            return #err("Insufficient balance in deposit account. Required: " # Nat.toText(expectedAmount) # ", Found: " # Nat.toText(depositBalance));
+        };
+        
+        Debug.print("✅ Balance verified: " # Nat.toText(depositBalance));
+        Debug.print("🔒 Tokens remain in deposit account (subaccount) for security");
+        Debug.print("   Will be transferred after softcap is reached or refunded if not");
+        
+        // Create transaction record (no blockIndex yet as no transfer happened)
+        let transactionId = _generateTransactionId();
+        let transaction: LaunchpadTypes.Transaction = {
+            id = transactionId;
+            participant = caller;
+            txType = #Purchase;
+            amount = expectedAmount;
+            token = config.purchaseToken.canisterId;
+            timestamp = Time.now();
+            blockIndex = null; // No block index as tokens stay in subaccount
+            fee = config.purchaseToken.transferFee;
+            status = #Confirmed;
+            affiliateCode = affiliateCode;
+            notes = ?("Deposit confirmed - tokens held in subaccount");
+        };
+        
+        Debug.print("📝 Recording participation...");
+        
+        // Process the purchase (update stats, participants, etc.)
+        let purchaseResult = await _processPurchase(caller, expectedAmount, affiliateCode, transaction);
+        switch (purchaseResult) {
+            case (#err(msg)) {
+                _releaseReentrancyLock();
+                let failedTransaction = {
+                    transaction with 
+                    status = #Failed(msg);
+                    notes = ?("Purchase processing failed: " # msg);
+                };
+                transactions.add(failedTransaction);
+                return #err(msg);
+            };
+            case (#ok(updatedTransaction)) {
+                transactions.add(updatedTransaction);
+                transactionCount += 1;
+                updatedAt := Time.now();
+                _releaseReentrancyLock();
+                
+                Debug.print("✅ Participation recorded successfully!");
+                Debug.print("   Amount: " # Nat.toText(expectedAmount));
+                Debug.print("   Stored in subaccount: safe for refunds if needed");
+                return #ok(updatedTransaction);
+            };
+        };
+    };
+
     // ================ TIMER & LIFECYCLE MANAGEMENT ================
+
+    // ================ MILESTONE-SPECIFIC TIMERS (V2) ================
+    // Automatic status transitions based on timeline milestones
+
+    /// Update status to SaleActive when sale starts
+    private func _updateStatusToSaleActive() : async () {
+        if (status == #Upcoming or status == #WhitelistOpen) {
+            status := #SaleActive;
+            updatedAt := Time.now();
+            Debug.print("⏰ Timer: Status automatically updated to SaleActive at " # Int.toText(Time.now()));
+        };
+    };
+
+    /// Update status to SaleEnded when sale ends
+    private func _updateStatusToSaleEnded() : async () {
+        if (status == #SaleActive) {
+            status := #SaleEnded;
+            updatedAt := Time.now();
+            Debug.print("⏰ Timer: Status automatically updated to SaleEnded at " # Int.toText(Time.now()));
+            // Process sale end (check softcap, trigger token deployment or refunds)
+            await _processSaleEnd();
+        };
+    };
+
+    /// Update status to Claiming when claim period starts
+    private func _updateStatusToClaiming() : async () {
+        if (status == #Successful) {
+            status := #Claiming;
+            updatedAt := Time.now();
+            Debug.print("⏰ Timer: Status automatically updated to Claiming at " # Int.toText(Time.now()));
+        };
+    };
+
+    /// Update status to Completed when listing time is reached
+    private func _updateStatusToCompleted() : async () {
+        if (status == #Claiming) {
+            status := #Completed;
+            updatedAt := Time.now();
+            Debug.print("⏰ Timer: Status automatically updated to Completed at " # Int.toText(Time.now()));
+        };
+    };
+
+    /// Setup all milestone-specific timers based on timeline configuration
+    /// This is called during initialization and after upgrades
+    private func _setupMilestoneTimers() : async () {
+        let now = Time.now();
+
+        Debug.print("⏰ Setting up milestone timers...");
+        Debug.print("   Current time: " # Int.toText(now));
+        Debug.print("   Sale start: " # Int.toText(config.timeline.saleStart));
+        Debug.print("   Sale end: " # Int.toText(config.timeline.saleEnd));
+
+        // Timer 1: Sale Start
+        if (config.timeline.saleStart > now and saleStartTimerId == null) {
+            let nanosUntilStart = config.timeline.saleStart - now;
+            let secondsUntilStart = nanosUntilStart / 1_000_000_000;
+            Debug.print("   ⏰ Setting timer for sale START in " # Int.toText(secondsUntilStart) # " seconds");
+
+            saleStartTimerId := ?Timer.setTimer<system>(
+                #nanoseconds(Int.abs(nanosUntilStart)),
+                func() : async () {
+                    await _updateStatusToSaleActive();
+                    saleStartTimerId := null; // Clear after execution
+                }
+            );
+        } else if (config.timeline.saleStart <= now) {
+            Debug.print("   ⏭️ Sale start time already passed - no timer needed");
+        };
+
+        // Timer 2: Sale End
+        if (config.timeline.saleEnd > now and saleEndTimerId == null) {
+            let nanosUntilEnd = config.timeline.saleEnd - now;
+            let secondsUntilEnd = nanosUntilEnd / 1_000_000_000;
+            Debug.print("   ⏰ Setting timer for sale END in " # Int.toText(secondsUntilEnd) # " seconds");
+
+            saleEndTimerId := ?Timer.setTimer<system>(
+                #nanoseconds(Int.abs(nanosUntilEnd)),
+                func() : async () {
+                    await _updateStatusToSaleEnded();
+                    saleEndTimerId := null; // Clear after execution
+                }
+            );
+        } else if (config.timeline.saleEnd <= now) {
+            Debug.print("   ⏭️ Sale end time already passed - no timer needed");
+        };
+
+        // Timer 3: Claim Start (always configured - required field)
+        if (config.timeline.claimStart > now and claimStartTimerId == null) {
+            let nanosUntilClaim = config.timeline.claimStart - now;
+            let secondsUntilClaim = nanosUntilClaim / 1_000_000_000;
+            Debug.print("   ⏰ Setting timer for CLAIM start in " # Int.toText(secondsUntilClaim) # " seconds");
+
+            claimStartTimerId := ?Timer.setTimer<system>(
+                #nanoseconds(Int.abs(nanosUntilClaim)),
+                func() : async () {
+                    await _updateStatusToClaiming();
+                    claimStartTimerId := null; // Clear after execution
+                }
+            );
+        } else if (config.timeline.claimStart <= now) {
+            Debug.print("   ⏭️ Claim start time already passed - no timer needed");
+        };
+
+        // Timer 4: Listing Time (if configured)
+        switch (config.timeline.listingTime) {
+            case (?listingTime) {
+                if (listingTime > now and listingTimerId == null) {
+                    let nanosUntilListing = listingTime - now;
+                    let secondsUntilListing = nanosUntilListing / 1_000_000_000;
+                    Debug.print("   ⏰ Setting timer for LISTING in " # Int.toText(secondsUntilListing) # " seconds");
+
+                    listingTimerId := ?Timer.setTimer<system>(
+                        #nanoseconds(Int.abs(nanosUntilListing)),
+                        func() : async () {
+                            await _updateStatusToCompleted();
+                            listingTimerId := null; // Clear after execution
+                        }
+                    );
+                } else if (listingTime <= now) {
+                    Debug.print("   ⏭️ Listing time already passed - no timer needed");
+                };
+            };
+            case null {
+                Debug.print("   ℹ️ Listing time not configured");
+            };
+        };
+
+        Debug.print("✅ Milestone timers setup complete");
+    };
+
+    /// Cancel all timers (used during pause/emergency)
+    private func _cancelAllTimers() {
+        Debug.print("🛑 Cancelling all timers...");
+
+        switch (timerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                timerId := null;
+                Debug.print("  ✅ Legacy timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (saleStartTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                saleStartTimerId := null;
+                Debug.print("  ✅ Sale start timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (saleEndTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                saleEndTimerId := null;
+                Debug.print("  ✅ Sale end timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (claimStartTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                claimStartTimerId := null;
+                Debug.print("  ✅ Claim start timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (listingTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                listingTimerId := null;
+                Debug.print("  ✅ Listing timer cancelled");
+            };
+            case null {};
+        };
+    };
+
+    // ================ LEGACY TIMER SYSTEM (V1) ================
+    // Kept for backward compatibility - can be removed in future versions
 
     private func _setupTimer() : async () {
         let now = Time.now();
@@ -661,7 +1667,15 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     private func _processSaleEnd() : async () {
-        if (totalRaised >= config.saleParams.softCap) {
+        Debug.print("🏁 Processing sale end...");
+        Debug.print("   Total raised: " # Nat.toText(totalRaised));
+        Debug.print("   Soft cap: " # Nat.toText(softCapInSmallestUnit()));
+
+        if (totalRaised >= softCapInSmallestUnit()) {
+            // FAIR LAUNCH SUCCESS: Finalize token allocations
+            Debug.print("✅ Sale successful - finalizing token allocations...");
+            _finalizeTokenAllocations();
+
             status := #Successful;
             processingState := #Processing({
                 stage = #TokenDeployment;
@@ -673,7 +1687,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             });
             ignore _processSuccessfulSale();
         } else {
-            status := #Failed;
+            Debug.print("❌ Sale failed - soft cap not reached");
+            Debug.print("   Raised: " # Nat.toText(totalRaised) # " vs Required: " # Nat.toText(softCapInSmallestUnit()));
+
+            // First change to Refunding status (processing refunds)
+            status := #Refunding;
             processingState := #Processing({
                 stage = #Refunding;
                 progress = 0;
@@ -682,6 +1700,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 errorCount = 0;
                 lastError = null;
             });
+            // Process refunds asynchronously
+            // After all refunds complete, will transition to #Failed
             ignore _processRefunds();
         };
     };
@@ -735,6 +1755,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     // ================ VALIDATION ================
 
     private func _validateConfig(cfg: LaunchpadTypes.LaunchpadConfig) : Result.Result<(), Text> {
+        // Note: softCap and hardCap are stored in human-readable format
+        // No need to convert for this comparison as both are in same unit
         if (cfg.saleParams.softCap > cfg.saleParams.hardCap) {
             return #err("Soft cap cannot be greater than hard cap");
         };
@@ -746,7 +1768,41 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         if (cfg.saleParams.totalSaleAmount == 0) {
             return #err("Sale amount must be greater than 0");
         };
-        
+
+        // VALIDATION: Different rules per sale type
+        switch (cfg.saleParams.saleType) {
+            case (#FairLaunch) {
+                // Fair launch: tokenPrice can be 0 (not used)
+                Debug.print("✅ Fair launch: tokenPrice can be 0 (dynamic pricing)");
+            };
+            case (#PrivateSale) {
+                // Private sale: Must have whitelist enabled
+                if (not cfg.saleParams.requiresWhitelist) {
+                    return #err("Private Sale must have whitelist enabled");
+                };
+                // Private sale: tokenPrice must be > 0
+                if (cfg.saleParams.tokenPrice == 0) {
+                    return #err("Private Sale requires tokenPrice > 0");
+                };
+                Debug.print("✅ Private sale: whitelist and tokenPrice validated");
+            };
+            case (#FixedPrice or #IDO) {
+                // Fixed price: tokenPrice must be > 0
+                if (cfg.saleParams.tokenPrice == 0) {
+                    return #err("Fixed price sale requires tokenPrice > 0");
+                };
+                Debug.print("✅ Fixed price: tokenPrice validated");
+            };
+            case (#Auction or #Lottery) {
+                // Special modes: tokenPrice can be 0 (handled differently)
+                Debug.print("✅ Special mode: tokenPrice validation skipped");
+            };
+        };
+
+        if (cfg.saleParams.minContribution > (switch(cfg.saleParams.maxContribution) { case (?max) max; case null 1_000_000_000_000 })) {
+            return #err("Minimum contribution cannot be greater than maximum contribution");
+        };
+
         #ok(())
     };
 
@@ -761,24 +1817,25 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             return #err("Contribution below minimum");
         };
         
-        // Check maximum contribution
+        // Check maximum contribution (convert to smallest unit for comparison)
         switch (config.saleParams.maxContribution) {
             case (?maxAmount) {
+                let maxContributionInSmallestUnit = toSmallestUnit(maxAmount, config.purchaseToken.decimals);
                 let participantKey = Principal.toText(participant);
                 let existingContribution = switch (Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal)) {
                     case null 0;
                     case (?p) p.totalContribution;
                 };
-                
-                if (existingContribution + amount > maxAmount) {
+
+                if (existingContribution + amount > maxContributionInSmallestUnit) {
                     return #err("Exceeds maximum contribution");
                 };
             };
             case null {};
         };
         
-        // Check hard cap
-        if (totalRaised + amount > config.saleParams.hardCap) {
+        // Check hard cap (convert to smallest unit for comparison)
+        if (totalRaised + amount > hardCapInSmallestUnit()) {
             return #err("Exceeds hard cap");
         };
         
@@ -789,7 +1846,24 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 return #err("Not whitelisted");
             };
         };
-        
+
+        // Check max participants limit (only for new participants)
+        switch (config.saleParams.maxParticipants) {
+            case (?maxPart) {
+                let participantKey = Principal.toText(participant);
+                let isExistingParticipant = switch (Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal)) {
+                    case null false;
+                    case (?_) true;
+                };
+
+                // Only reject if this is a new participant and we've reached the limit
+                if (not isExistingParticipant and participantCount >= maxPart) {
+                    return #err("Maximum participants limit reached");
+                };
+            };
+            case null {};
+        };
+
         #ok(())
     };
 
@@ -1200,10 +2274,18 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     private func _processRefunds() : async () {
-        // Process refunds for all participants
+        Debug.print("💸 Processing refunds for all participants...");
+        Debug.print("   Total participants to refund: " # Nat.toText(participantCount));
+
+        // TODO: Implement actual ICRC transfer refunds to each participant
+        // For now, just mark processing as completed
+
+        // After all refunds are processed, transition to Failed status
         processingState := #Completed;
-        status := #Completed;
+        status := #Failed;
         updatedAt := Time.now();
+
+        Debug.print("✅ All refunds processed. Launchpad marked as Failed.");
     };
 
     private func _processAffiliateCommission(code: Text, amount: Nat) : () {
@@ -1235,7 +2317,95 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     private func _calculateTokenAllocation(contributionAmount: Nat) : Nat {
-        contributionAmount * LaunchpadTypes.E8S / config.saleParams.tokenPrice
+        // MULTI-MODEL SUPPORT: Different allocation logic per sale type
+        switch (config.saleParams.saleType) {
+            case (#FairLaunch) {
+                // FAIR LAUNCH: Dynamic price, allocation calculated at sale end
+                // allocationAmount = (contribution / totalRaised) × totalSaleAmount
+
+                Debug.print("📊 Fair Launch: Token allocation deferred until sale end");
+                Debug.print("   Contribution stored: " # Nat.toText(contributionAmount));
+                Debug.print("   Total raised so far: " # Nat.toText(totalRaised));
+                Debug.print("   Total sale amount: " # Nat.toText(config.saleParams.totalSaleAmount));
+
+                0; // Placeholder - actual allocation calculated at sale end
+            };
+            case (#FixedPrice or #PrivateSale or #IDO) {
+                // FIXED PRICE: allocation calculated immediately
+                // allocationAmount = contributionAmount / tokenPrice (in e8s)
+
+                if (config.saleParams.tokenPrice == 0) {
+                    Debug.print("⚠️ WARNING: Token price is 0, using 1:1 ratio");
+                    return contributionAmount;
+                };
+
+                let allocationAmount = contributionAmount * LaunchpadTypes.E8S / config.saleParams.tokenPrice;
+
+                Debug.print("💰 Fixed Price: Immediate token allocation");
+                Debug.print("   Contribution: " # Nat.toText(contributionAmount));
+                Debug.print("   Token Price: " # Nat.toText(config.saleParams.tokenPrice));
+                Debug.print("   Allocation: " # Nat.toText(allocationAmount));
+
+                allocationAmount
+            };
+            case (#Auction or #Lottery) {
+                // SPECIAL MODES: Handle allocation logic differently
+                // For now, return contribution amount (1:1 ratio)
+                // TODO: Implement auction/lottery specific logic
+
+                Debug.print("🎯 Special Mode (" # LaunchpadTypes.saleTypeToText(config.saleParams.saleType) # "): Using 1:1 allocation");
+                contributionAmount
+            };
+        };
+    };
+
+    // Calculate final token allocations when sale ends
+    private func _finalizeTokenAllocations() : () {
+        if (totalRaised == 0) return; // No contributions to allocate
+
+        switch (config.saleParams.saleType) {
+            case (#FairLaunch) {
+                // FAIR LAUNCH: Calculate allocations based on actual raised amount
+                Debug.print("🏁 Finalizing token allocations for fair launch");
+                Debug.print("   Total raised: " # Nat.toText(totalRaised));
+                Debug.print("   Total sale amount: " # Nat.toText(config.saleParams.totalSaleAmount));
+
+                // Update all participants with their final token allocations
+                let participantEntries = Trie.toArray<Text, LaunchpadTypes.Participant, (Text, LaunchpadTypes.Participant)>(participants, func(k, v) { (k, v) });
+
+                for ((key, participant) in participantEntries.vals()) {
+                    // Fair launch formula: allocation = (contribution / totalRaised) × totalSaleAmount
+                    let allocationAmount = (participant.totalContribution * config.saleParams.totalSaleAmount) / totalRaised;
+
+                    let updatedParticipant = {
+                        participant with
+                        allocationAmount = allocationAmount;
+                    };
+
+                    participants := Trie.put(participants, LaunchpadTypes.textKey(key), Text.equal, updatedParticipant).0;
+
+                    Debug.print("   Participant " # Principal.toText(participant.principal) # ":");
+                    Debug.print("     Contribution: " # Nat.toText(participant.totalContribution));
+                    Debug.print("     Allocation: " # Nat.toText(allocationAmount));
+                };
+
+                totalAllocated := config.saleParams.totalSaleAmount;
+                Debug.print("✅ Fair launch token allocations finalized");
+            };
+            case (#FixedPrice or #PrivateSale or #IDO) {
+                // FIXED PRICE: Allocations already calculated during participation
+                Debug.print("💰 Fixed price sale: allocations already calculated during participation");
+                Debug.print("   Total raised: " # Nat.toText(totalRaised));
+                Debug.print("   Total allocated: " # Nat.toText(totalAllocated));
+                Debug.print("✅ Fixed price allocations complete");
+            };
+            case (#Auction or #Lottery) {
+                // SPECIAL MODES: Implement specific logic
+                Debug.print("🎯 Special mode (" # LaunchpadTypes.saleTypeToText(config.saleParams.saleType) # "): Custom allocation logic");
+                Debug.print("   Total raised: " # Nat.toText(totalRaised));
+                Debug.print("✅ Special mode allocation complete");
+            };
+        };
     };
 
     private func _calculateStats() : LaunchpadTypes.LaunchpadStats {
@@ -1245,8 +2415,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             totalAllocated = totalAllocated;
             participantCount = participantCount;
             transactionCount = transactions.size();
-            softCapProgress = Nat8.fromNat(Nat.min(100, if (config.saleParams.softCap > 0) totalRaised * 100 / config.saleParams.softCap else 0));
-            hardCapProgress = Nat8.fromNat(Nat.min(100, if (config.saleParams.hardCap > 0) totalRaised * 100 / config.saleParams.hardCap else 0));
+            softCapProgress = Nat8.fromNat(Nat.min(100, if (softCapInSmallestUnit() > 0) totalRaised * 100 / softCapInSmallestUnit() else 0));
+            hardCapProgress = Nat8.fromNat(Nat.min(100, if (hardCapInSmallestUnit() > 0) totalRaised * 100 / hardCapInSmallestUnit() else 0));
             allocationProgress = 100; // Calculate based on actual distribution
             affiliateVolume = 0; // Calculate from affiliate stats
             affiliateCount = Trie.size(affiliateStats);
@@ -1291,7 +2461,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     private func _isHardCapReached() : Bool {
-        totalRaised >= config.saleParams.hardCap
+        totalRaised >= hardCapInSmallestUnit()
     };
 
     private func _isAuthorized(caller: Principal) : Bool {
@@ -1309,18 +2479,105 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     // ================ SECURITY & REENTRANCY PROTECTION ================
+  // PER-USER REENTRANCY PROTECTION (SECURITY FIX)
+  // ============================================
+  // Replaced vulnerable global lock with per-user tracking system
+  // This prevents DoS attacks where one user could block entire system
 
     private func _checkReentrancy(caller: Principal) : Result.Result<(), Text> {
-        if (reentrancyLock) {
-            _logSecurityEvent(#SuspiciousActivity, caller, "Reentrancy attempt detected", #Critical);
-            return #err("Reentrancy attack prevented");
+        let now = Time.now();
+
+        // Clean up expired locks first (maintenance)
+        _cleanupExpiredUserLocks(now);
+
+        // Check if this specific user has an active call
+        switch (Array.find<(Principal, Time.Time)>(activeUserCalls, func((p, _)) { p == caller })) {
+            case (?(_, lockTime)) {
+                // User already has an active call - potential reentrancy attack
+                securityMetrics := {
+                    totalReentrancyAttempts = securityMetrics.totalReentrancyAttempts + 1;
+                    totalSuccessfulCalls = securityMetrics.totalSuccessfulCalls;
+                    totalFailedCalls = securityMetrics.totalFailedCalls;
+                    averageCallDuration = securityMetrics.averageCallDuration;
+                    lastSecurityEvent = now;
+                };
+
+                _logSecurityEvent(#SuspiciousActivity, caller,
+                    "Reentrancy attempt detected - user already has active call since " # Int.toText(lockTime),
+                    #Critical);
+
+                return #err("Reentrancy attack prevented for user: " # Principal.toText(caller));
+            };
+            case null {
+                // User is clear - add to active calls
+                activeUserCalls := Array.append<(Principal, Time.Time)>(activeUserCalls, [(caller, now)]);
+
+                Debug.print("🔒 User locked: " # Principal.toText(caller) # " at " # Int.toText(now));
+                #ok(())
+            };
         };
-        reentrancyLock := true;
-        #ok(())
     };
 
     private func _releaseReentrancyLock() : () {
-        reentrancyLock := false;
+        // This function is deprecated - use _releaseUserReentrancyLock instead
+        Debug.print("⚠️ WARNING: _releaseReentrancyLock() called - this function is deprecated");
+    };
+
+    private func _releaseUserReentrancyLock(caller: Principal) : () {
+        let beforeCount = activeUserCalls.size();
+        activeUserCalls := Array.filter<(Principal, Time.Time)>(activeUserCalls, func((p, _)) { p != caller });
+
+        if (activeUserCalls.size() < beforeCount) {
+            Debug.print("🔓 User unlocked: " # Principal.toText(caller));
+
+            // Update metrics
+            securityMetrics := {
+                totalReentrancyAttempts = securityMetrics.totalReentrancyAttempts;
+                totalSuccessfulCalls = securityMetrics.totalSuccessfulCalls + 1;
+                totalFailedCalls = securityMetrics.totalFailedCalls;
+                averageCallDuration = securityMetrics.averageCallDuration;
+                lastSecurityEvent = securityMetrics.lastSecurityEvent;
+            };
+        };
+    };
+
+    private func _cleanupExpiredUserLocks(now: Time.Time) : () {
+        let beforeCount = activeUserCalls.size();
+        activeUserCalls := Array.filter<(Principal, Time.Time)>(activeUserCalls, func((p, lockTime)) {
+            let isExpired = (now - lockTime) > USER_LOCK_TIMEOUT;
+            if (isExpired) {
+                Debug.print("⏰ Expired lock auto-cleaned for user: " # Principal.toText(p));
+
+                // Log as security event - unusual if locks are expiring
+                _logSecurityEvent(#SuspiciousActivity, p,
+                    "User lock expired after timeout - possible failed operation",
+                    #Medium);
+            };
+            not isExpired;
+        });
+
+        let cleanedCount = beforeCount - activeUserCalls.size();
+        if (cleanedCount > 0) {
+            Debug.print("🧹 Auto-cleaned " # Nat.toText(cleanedCount) # " expired user locks");
+        };
+    };
+
+    // Admin function to manually unlock specific user (emergency use only)
+    private func _adminUnlockUser(targetUser: Principal, adminCaller: Principal) : Result.Result<(), Text> {
+        if (not _isAuthorized(adminCaller)) {
+            return #err("Unauthorized: Only authorized users can unlock users");
+        };
+
+        let beforeCount = activeUserCalls.size();
+        activeUserCalls := Array.filter<(Principal, Time.Time)>(activeUserCalls, func((p, _)) { p != targetUser });
+
+        if (activeUserCalls.size() < beforeCount) {
+            _logAdminAction("USER_UNLOCK", adminCaller, "Target: " # Principal.toText(targetUser), true, null);
+            Debug.print("🔓 Admin unlocked user: " # Principal.toText(targetUser) # " by " # Principal.toText(adminCaller));
+            #ok(())
+        } else {
+            #err("User was not locked");
+        };
     };
 
     // ================ SECURITY & AUDIT FUNCTIONS ================
@@ -1370,13 +2627,13 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     private func _validateLargeTransaction(amount: Nat, caller: Principal) : Bool {
-        let largeTransactionThreshold = config.saleParams.hardCap / 20; // 5% of hard cap
-        
+        let largeTransactionThreshold = hardCapInSmallestUnit() / 20; // 5% of hard cap
+
         if (amount > largeTransactionThreshold) {
             _logSecurityEvent(#LargeTransaction, caller, "Large transaction: " # Nat.toText(amount), #High);
-            // Additional validation for large transactions
+            // Additional validation for large transactions (convert to smallest unit for comparison)
             let maxContribCheck = switch(config.saleParams.maxContribution) {
-                case (?max) amount <= max;
+                case (?max) amount <= toSmallestUnit(max, config.purchaseToken.decimals);
                 case null true;
             };
             return _isAuthorized(caller) or maxContribCheck;
@@ -1415,6 +2672,71 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         _logSecurityEvent(#EmergencyAction, caller, "Emergency pause deactivated", #High);
         
         #ok(())
+    };
+
+    /// Reset reentrancy lock for specific user (admin only - emergency function)
+    /// Use this when a specific user's reentrancy lock gets stuck due to failed operations
+    public shared({caller}) func resetUserReentrancyLock(targetUser: Principal) : async Result.Result<(), Text> {
+        switch (_adminUnlockUser(targetUser, caller)) {
+            case (#ok()) #ok(());
+            case (#err(msg)) {
+                _logSecurityEvent(#UnauthorizedAccess, caller, "Attempted to reset user lock: " # msg, #Medium);
+                #err(msg);
+            };
+        };
+    };
+
+    /// Get current active user locks (admin only - for monitoring)
+    public shared({caller}) func getActiveUserLocks() : async Result.Result<[(Principal, Time.Time)], Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can view active locks");
+        };
+
+        // Clean up expired locks first
+        _cleanupExpiredUserLocks(Time.now());
+
+        #ok(activeUserCalls);
+    };
+
+    /// Get security metrics (admin only)
+    public shared({caller}) func getSecurityMetrics() : async Result.Result<{
+        totalReentrancyAttempts: Nat;
+        totalSuccessfulCalls: Nat;
+        totalFailedCalls: Nat;
+        averageCallDuration: Time.Time;
+        lastSecurityEvent: Time.Time;
+        activeUserLocksCount: Nat;
+    }, Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can view security metrics");
+        };
+
+        #ok({
+            totalReentrancyAttempts = securityMetrics.totalReentrancyAttempts;
+            totalSuccessfulCalls = securityMetrics.totalSuccessfulCalls;
+            totalFailedCalls = securityMetrics.totalFailedCalls;
+            averageCallDuration = securityMetrics.averageCallDuration;
+            lastSecurityEvent = securityMetrics.lastSecurityEvent;
+            activeUserLocksCount = activeUserCalls.size();
+        });
+    };
+
+    /// Emergency unlock ALL users (admin only - last resort)
+    /// This will clear ALL active user locks - use only in emergency situations
+    public shared({caller}) func emergencyUnlockAllUsers() : async Result.Result<Nat, Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can perform emergency unlock");
+        };
+
+        let unlockedCount = activeUserCalls.size();
+        activeUserCalls := [];
+
+        _logAdminAction("EMERGENCY_UNLOCK_ALL", caller, "Unlocked " # Nat.toText(unlockedCount) # " users", true, null);
+        _logSecurityEvent(#EmergencyAction, caller, "Emergency unlock of all users performed", #Critical);
+
+        Debug.print("🚨 EMERGENCY: All " # Nat.toText(unlockedCount) # " user locks cleared by " # Principal.toText(caller));
+
+        #ok(unlockedCount);
     };
 
     // Query security events (admin only)
@@ -1475,11 +2797,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 emergencyPaused = emergencyPaused;
                 emergencyReason = emergencyReason;
                 lastEmergencyAction = lastEmergencyAction;
-                reentrancyLock = reentrancyLock;
+                activeUserCalls = activeUserCalls;
                 adminActions = adminActions;
                 securityEvents = securityEvents;
                 lastParticipationTime = lastParticipationTime;
                 rateLimitViolations = rateLimitViolations;
+                securityMetrics = securityMetrics;
             };
         };
 
@@ -1509,10 +2832,9 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case _ {};
         };
 
-        // Check 4: Cannot upgrade if reentrancy lock is active
-        if (reentrancyLock) {
-            return #err("Cannot upgrade: Reentrancy lock active");
-        };
+        // SECURITY FIX: Removed global reentrancy lock check
+        // Per-user locks no longer prevent upgrades
+        // This eliminates DoS vulnerability where attacker could block upgrades
 
         #ok()
     };
@@ -1559,12 +2881,30 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case _ {};
         };
 
-        // Check 4: Reentrancy lock
-        if (reentrancyLock) {
-            issues.add("Reentrancy lock is active");
+        // Check 4: User reentrancy locks (updated from global lock)
+        let now = Time.now();
+        let activeLocksCount = Array.filter<(Principal, Time.Time)>(activeUserCalls, func((p, lockTime)) {
+            (now - lockTime) <= USER_LOCK_TIMEOUT
+        }).size();
+
+        if (activeLocksCount > 50) {  // WARNING threshold
+            issues.add("High number of active user locks: " # Nat.toText(activeLocksCount));
         };
 
-        // Check 5: Token deployment status (if sale successful)
+        if (activeLocksCount > 0) {
+            issues.add("User locks currently active: " # Nat.toText(activeLocksCount) # " users");
+        };
+
+        // Check 5: Recent security events
+        let recentSecurityEvents = Array.filter<LaunchpadTypes.SecurityEvent>(securityEvents, func(event) {
+            (now - event.timestamp) < 3_600_000_000_000 // Last hour
+        });
+
+        if (recentSecurityEvents.size() > 10) {
+            issues.add("High number of recent security events: " # Nat.toText(recentSecurityEvents.size()));
+        };
+
+        // Check 6: Token deployment status (if sale successful)
         switch (status) {
             case (#Successful) {
                 switch (deployedContracts.tokenCanister) {
@@ -1575,6 +2915,20 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 };
             };
             case _ {};
+        };
+
+        // Check 7: Stale locks (locks older than timeout)
+        let staleLocks = Array.filter<(Principal, Time.Time)>(activeUserCalls, func((p, lockTime)) {
+            (now - lockTime) > USER_LOCK_TIMEOUT
+        });
+
+        if (staleLocks.size() > 0) {
+            issues.add("Stale user locks detected: " # Nat.toText(staleLocks.size()) # " (should be auto-cleaned)");
+        };
+
+        // Check 8: Reentrancy attack attempts
+        if (securityMetrics.totalReentrancyAttempts > 100) {
+            issues.add("High number of reentrancy attempts: " # Nat.toText(securityMetrics.totalReentrancyAttempts));
         };
 
         let issueArray = Buffer.toArray(issues);

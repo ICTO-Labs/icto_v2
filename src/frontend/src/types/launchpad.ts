@@ -120,19 +120,27 @@ export interface LaunchpadFormData {
   projectInfo: {
     name: string
     description: string
-    logo?: string
-    banner?: string
+    // Visual Assets (URLs only - avoid storing large base64 in canister)
+    logo?: string        // Project logo URL (also used as avatar)
+    cover?: string       // Cover/banner image URL
+    // Links & Documentation
     website?: string
     whitepaper?: string
     documentation?: string
+    // Social Media & Community
     telegram?: string
     twitter?: string
     discord?: string
     github?: string
+    medium?: string      // Medium blog
+    reddit?: string      // Reddit community
+    youtube?: string     // YouTube channel
+    // Verification & Compliance
     isAudited: boolean
     auditReport?: string
     isKYCed: boolean
     kycProvider?: string
+    // Classification
     tags: string[]
     category: string
     metadata?: Array<[string, string]>
@@ -147,7 +155,7 @@ export interface LaunchpadFormData {
     decimals: number
     totalSupply: string
     transferFee: string
-    logo?: string
+    logo?: string        // Token logo (base64 allowed - stored for token deployment)
     description?: string
     website?: string
     standard: string  // "ICRC-1", "ICRC-2", etc.

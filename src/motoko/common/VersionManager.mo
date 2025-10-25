@@ -314,6 +314,22 @@ module VersionManager {
             #ok()
         };
 
+        /// Initialize a default stable version without WASM bytes
+        /// Used during factory initialization to set a baseline version
+        /// This prevents new contracts from defaulting to 1.0.0
+        public func initializeDefaultStableVersion(version: Version) {
+            // Only initialize if no stable version exists yet
+            switch (latestStableVersion) {
+                case null {
+                    latestStableVersion := ?version;
+                    Debug.print("✅ Initialized default stable version: " # versionToText(version));
+                };
+                case (?existingVersion) {
+                    Debug.print("⚠️ Stable version already exists: " # versionToText(existingVersion) # ", skipping initialization");
+                };
+            };
+        };
+
         // ============================================
         // HASH VERIFICATION (Read-only, no calculation)
         // ============================================

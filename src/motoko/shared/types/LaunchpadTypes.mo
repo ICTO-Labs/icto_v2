@@ -50,19 +50,32 @@ module LaunchpadTypes {
     public type ProjectInfo = {
         name: Text;
         description: Text;
-        logo: ?Text;
-        banner: ?Text;
+
+        // Visual Assets
+        logo: ?Text;              // Project logo - used for both logo and avatar (base64 or URL)
+        cover: ?Text;             // Cover/banner image for detail page (base64 or URL)
+
+        // Links & Documentation
         website: ?Text;
         whitepaper: ?Text;
         documentation: ?Text;
+
+        // Social Media & Community
         telegram: ?Text;
         twitter: ?Text;
         discord: ?Text;
         github: ?Text;
+        medium: ?Text;            // Medium blog
+        reddit: ?Text;            // Reddit community
+        youtube: ?Text;           // YouTube channel
+
+        // Verification & Compliance
         isAudited: Bool;
         auditReport: ?Text;
         isKYCed: Bool;
         kycProvider: ?Text;
+
+        // Classification
         tags: [Text]; // ["DeFi", "Gaming", "NFT", etc.]
         category: ProjectCategory;
         metadata: ?[(Text, Text)]; // Additional key-value metadata
@@ -97,11 +110,12 @@ module LaunchpadTypes {
     // ================ SALE CONFIGURATION ================
 
     public type SaleType = {
-        #FairLaunch;      // Public sale open to all
-        #PrivateSale;     // Whitelist required
+        #FairLaunch;      // Dynamic price: (totalRaised / totalSaleAmount)
+        #PrivateSale;     // Whitelist required (fixed price)
         #IDO;             // Initial DEX Offering with special mechanics
         #Auction;         // Dutch auction mechanism
         #Lottery;         // Lottery-based allocation
+        #FixedPrice;      // Fixed token price (presales, VCs, strategic)
     };
 
     public type AllocationMethod = {
@@ -454,7 +468,8 @@ module LaunchpadTypes {
         #SaleActive;     // Sale is active
         #SaleEnded;      // Sale ended, processing results
         #Successful;     // Soft cap reached, processing distribution
-        #Failed;         // Soft cap not reached, processing refunds
+        #Refunding;      // Soft cap not reached, refunding participants
+        #Failed;         // Refunds completed, launchpad failed
         #Distributing;   // Distributing tokens/setting up vesting
         #Claiming;       // Claims are active
         #Completed;      // All processes completed
@@ -669,6 +684,60 @@ module LaunchpadTypes {
         #SystemError: Text;
     };
 
+    // ================ UPDATE TYPES ================
+    // Types for updating launchpad information (owner-only operations)
+
+    /// Request to update basic project information
+    /// Only owner can update these fields
+    /// Images are excluded from regular updates to reduce data transfer
+    public type UpdateProjectInfoRequest = {
+        // Basic Information (required fields cannot be empty)
+        description: ?Text;           // Update project description
+
+        // Visual Assets - handled separately via dedicated functions
+        // Use updateProjectImages() for logo and cover
+
+        // Links & Documentation
+        website: ?Text;
+        whitepaper: ?Text;
+        documentation: ?Text;
+
+        // Social Media & Community
+        telegram: ?Text;
+        twitter: ?Text;
+        discord: ?Text;
+        github: ?Text;
+        medium: ?Text;
+        reddit: ?Text;
+        youtube: ?Text;
+
+        // Verification (cannot be changed after set to true)
+        auditReport: ?Text;           // Can add/update audit report
+        kycProvider: ?Text;           // Can add/update KYC provider
+
+        // Classification (careful - affects discoverability)
+        tags: ?[Text];                // Can update tags
+    };
+
+    /// Request to update token information
+    /// Only owner can update these fields
+    public type UpdateTokenInfoRequest = {
+        description: ?Text;           // Update token description
+        website: ?Text;               // Update token website
+        // Logo handled separately via dedicated function
+    };
+
+    /// Project images update (separate from text fields to optimize data transfer)
+    public type ProjectImagesUpdate = {
+        logo: ?Text;                  // Project logo (also used as avatar)
+        cover: ?Text;                 // Cover image (also used as banner)
+    };
+
+    /// Token logo update (separate query for optimization)
+    public type TokenLogoUpdate = {
+        logo: ?Text;                  // Token logo
+    };
+
     // ================ UTILITY FUNCTIONS ================
 
     public func textKey(t: Text) : Trie.Key<Text> {
@@ -687,6 +756,7 @@ module LaunchpadTypes {
             case (#SaleActive) "sale_active";
             case (#SaleEnded) "sale_ended";
             case (#Successful) "successful";
+            case (#Refunding) "refunding";
             case (#Failed) "failed";
             case (#Distributing) "distributing";
             case (#Claiming) "claiming";
@@ -703,6 +773,7 @@ module LaunchpadTypes {
             case (#IDO) "ido";
             case (#Auction) "auction";
             case (#Lottery) "lottery";
+            case (#FixedPrice) "fixedprice";
         };
     };
 

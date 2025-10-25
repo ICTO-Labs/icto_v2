@@ -256,6 +256,7 @@ module LaunchpadFactoryService {
 
         {
             config = launchpadConfig;
+            creator = creator;  // Pass the user's principal as creator
             initialDeposit = null; // No initial deposit for now
         }
     };

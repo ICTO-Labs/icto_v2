@@ -29,7 +29,7 @@
                 </svg>
               </div>
               <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-                Public Sale
+                Public
               </h3>
             </div>
             <div v-if="visibility === 'Public'" class="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center">

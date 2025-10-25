@@ -165,7 +165,7 @@
         <!-- Sale Type -->
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Sale Type* <HelpTooltip>Choose the type of token sale</HelpTooltip>
+            Sale Type* <HelpTooltip>Choose the type of token sale model</HelpTooltip>
           </label>
           <Select
             v-model="localFormData.saleParams.saleType"
@@ -173,6 +173,45 @@
             :options="SALE_TYPE_OPTIONS"
             required
           />
+          <p class="text-xs text-gray-500 mt-1" :class="getSaleTypeDescriptionClass()">
+            {{ getSaleTypeDescription() }}
+          </p>
+        </div>
+
+        <!-- Token Price (Conditional) -->
+        <div v-if="requiresTokenPrice">
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Token Price ({{ purchaseTokenSymbol }} per token)*
+            <HelpTooltip>
+              <span v-if="localFormData.saleParams.saleType === 'FixedPrice'">
+                Fixed price for each token in {{ purchaseTokenSymbol }}. Ideal for VC rounds and presales where pricing is predetermined.
+              </span>
+              <span v-else-if="localFormData.saleParams.saleType === 'PrivateSale'">
+                Fixed price for whitelisted participants only. Used for strategic investors and early backers.
+              </span>
+              <span v-else-if="localFormData.saleParams.saleType === 'IDO'">
+                Fixed price for Initial DEX Offering. Combines presale pricing with DEX distribution.
+              </span>
+              <span v-else>
+                Fixed price per token for selected sale model.
+              </span>
+            </HelpTooltip>
+          </label>
+          <div class="relative">
+            <input
+              v-model="localFormData.saleParams.tokenPrice"
+              type="number"
+              step="0.01"
+              min="0"
+              placeholder="10000"
+              class="w-full px-3 py-2 pr-16 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
+              required
+            />
+            <span class="absolute right-3 top-2.5 text-sm text-gray-500">{{ purchaseTokenSymbol }}</span>
+          </div>
+          <p class="text-xs text-gray-500 mt-1">
+            Each token costs {{ formatNumber(localFormData.saleParams.tokenPrice || 0) }} {{ purchaseTokenSymbol }}
+          </p>
         </div>
 
         <!-- Allocation Method -->
@@ -216,7 +255,6 @@
             v-bind="money3Options"
             v-model="localFormData.saleParams.maxParticipants"
             type="number"
-            min="1"
             placeholder="1000"
             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
           />
@@ -262,10 +300,10 @@
           </div>
         </div>
 
-        <!-- Token Price Range (Dynamic) -->
-        <div class="md:col-span-2 bg-gradient-to-r from-green-50 to-red-50 dark:from-green-900/20 dark:to-red-900/20 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
-          <h4 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">🎯 Token Price Range (Dynamic)</h4>
-          <p class="text-xs text-gray-600 dark:text-gray-400 mb-4">Based on campaign participation levels and your allocation settings</p>
+        <!-- Token Price Range (Dynamic - FairLaunch Only) -->
+        <div v-if="localFormData.saleParams.saleType === 'FairLaunch'" class="md:col-span-2 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-600">
+          <h4 class="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-3">📊 Fair Launch Price Discovery</h4>
+          <p class="text-xs text-blue-600 dark:text-blue-400 mb-4">Token price is determined dynamically based on total contributions. Final price = totalRaised / totalSaleAmount</p>
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div class="relative">
@@ -293,6 +331,36 @@
           </div>
         </div>
 
+        <!-- Fixed Price Information (Fixed Price Models Only) -->
+        <div v-if="requiresTokenPrice" class="md:col-span-2 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-4 border border-green-200 dark:border-green-600">
+          <h4 class="text-sm font-semibold text-green-900 dark:text-green-100 mb-3">💰 Fixed Price Model</h4>
+          <p class="text-xs text-green-600 dark:text-green-400 mb-4">Token price is fixed throughout the sale. Participants know exactly how much they'll pay per token.</p>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="p-3 bg-white dark:bg-green-900/10 rounded-lg border border-green-300 dark:border-green-600">
+              <p class="text-xs font-medium text-green-800 dark:text-green-200 mb-1">Fixed Token Price</p>
+              <p class="text-lg font-bold text-green-900 dark:text-green-100">
+                {{ formatNumber(localFormData.saleParams.tokenPrice || 0) }} {{ purchaseTokenSymbol }}
+              </p>
+            </div>
+            <div class="p-3 bg-white dark:bg-green-900/10 rounded-lg border border-green-300 dark:border-green-600">
+              <p class="text-xs font-medium text-green-800 dark:text-green-200 mb-1">Tokens per {{ purchaseTokenSymbol }}</p>
+              <p class="text-lg font-bold text-green-900 dark:text-green-100">
+                {{ localFormData.saleParams.tokenPrice ? (1 / Number(localFormData.saleParams.tokenPrice)).toFixed(8) : '0' }}
+              </p>
+            </div>
+          </div>
+
+          <div class="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-700 rounded-lg">
+            <p class="text-xs text-green-700 dark:text-green-300">
+              <strong>Fixed Pricing:</strong> Each token costs exactly {{ formatNumber(localFormData.saleParams.tokenPrice || 0) }} {{ purchaseTokenSymbol }}
+            </p>
+            <p class="text-xs text-green-600 dark:text-green-400 mt-1">
+              Participants receive tokens immediately at the fixed rate upon confirmation.
+            </p>
+          </div>
+        </div>
+
         <!-- Min Contribution -->
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -302,7 +370,6 @@
             <input
               v-model="localFormData.saleParams.minContribution"
               type="number"
-              step="0.01"
               min="0"
               placeholder="10"
               class="w-full px-3 py-2 pr-16 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
@@ -416,7 +483,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { AlertTriangleIcon, UploadIcon } from 'lucide-vue-next'
 
 // Component imports
@@ -429,6 +496,15 @@ import { useLaunchpadForm } from '@/composables/useLaunchpadForm'
 
 // Use composable for centralized state - no more props/emit!
 const { formData: localFormData, step1ValidationErrors: validationErrors, timelineValidation } = useLaunchpadForm()
+
+// Watch for PrivateSale selection to auto-enable whitelist
+watch(() => localFormData.value.saleParams.saleType, (newSaleType) => {
+  if (newSaleType === 'PrivateSale') {
+    // Auto-enable whitelist for PrivateSale
+    localFormData.value.saleParams.requiresWhitelist = true
+    console.log('🔒 PrivateSale selected: Auto-enabled whitelist requirement')
+  }
+})
 
 // Local state
 const tokenLogoInput = ref<HTMLInputElement | null>(null)
@@ -461,11 +537,42 @@ const TOKEN_DECIMAL_OPTIONS = [
 ]
 
 const SALE_TYPE_OPTIONS = [
-  { value: 'IDO', label: 'IDO (Initial DEX Offering)' },
-  { value: 'PrivateSale', label: 'Private Sale' },
-  { value: 'FairLaunch', label: 'Fair Launch' },
-  { value: 'Auction', label: 'Auction' },
-  { value: 'Lottery', label: 'Lottery' }
+  {
+    value: 'FixedPrice',
+    label: '💰 Fixed Price',
+    description: 'Fixed token price throughout the sale. Best for VC rounds, strategic investors, and presales where pricing is predetermined.',
+    category: 'fixed-price'
+  },
+  {
+    value: 'FairLaunch',
+    label: '📊 Fair Launch',
+    description: 'Dynamic price determined by total contributions. Price = totalRaised / totalSaleAmount. Best for public sales and community launches.',
+    category: 'dynamic-price'
+  },
+  {
+    value: 'PrivateSale',
+    label: '🔒 Private Sale',
+    description: 'Whitelist-only sale with fixed pricing. Participants must be approved. Best for strategic investors and early backers.',
+    category: 'fixed-price'
+  },
+  {
+    value: 'IDO',
+    label: '🚀 IDO',
+    description: 'Initial DEX Offering with special distribution mechanisms. Combines fixed pricing with DEX integration.',
+    category: 'fixed-price'
+  },
+  {
+    value: 'Auction',
+    label: '🎯 Auction',
+    description: 'Dutch auction with decreasing price over time. Best for price discovery in mature markets.',
+    category: 'dynamic-price'
+  },
+  {
+    value: 'Lottery',
+    label: '🎲 Lottery',
+    description: 'Random selection when oversubscribed. Fair distribution mechanism for high-demand public sales.',
+    category: 'special'
+  }
 ]
 
 // ALLOCATION_METHOD_OPTIONS - Commented out as unused
@@ -541,6 +648,12 @@ const tokenPriceAtHardCap = computed(() => {
   return '0'
 })
 
+// Sale type helper functions
+const requiresTokenPrice = computed(() => {
+  const saleType = localFormData.value.saleParams.saleType
+  return saleType === 'FixedPrice' || saleType === 'PrivateSale' || saleType === 'IDO'
+})
+
 // Methods
 const triggerTokenLogoInput = () => {
   tokenLogoInput.value?.click()
@@ -598,5 +711,33 @@ const handlePurchaseTokenChange = () => {
 
 const formatNumber = (num: number | string) => {
   return Number(num).toLocaleString()
+}
+
+// Sale type helper methods
+const getSaleTypeDescription = () => {
+  const saleType = localFormData.value.saleParams.saleType
+  const selectedOption = SALE_TYPE_OPTIONS.find(option => option.value === saleType)
+  return selectedOption?.description || ''
+}
+
+const getSaleTypeDescriptionClass = () => {
+  const saleType = localFormData.value.saleParams.saleType
+
+  switch (saleType) {
+    case 'FixedPrice':
+      return 'text-green-600 dark:text-green-400 font-medium'
+    case 'FairLaunch':
+      return 'text-blue-600 dark:text-blue-400 font-medium'
+    case 'PrivateSale':
+      return 'text-purple-600 dark:text-purple-400 font-medium'
+    case 'IDO':
+      return 'text-orange-600 dark:text-orange-400 font-medium'
+    case 'Auction':
+      return 'text-red-600 dark:text-red-400 font-medium'
+    case 'Lottery':
+      return 'text-pink-600 dark:text-pink-400 font-medium'
+    default:
+      return 'text-gray-600 dark:text-gray-400'
+  }
 }
 </script>

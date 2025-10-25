@@ -90,7 +90,7 @@ export class TypeConverter {
         name: formData.projectInfo.name,
         description: formData.projectInfo.description,
         logo: formData.projectInfo.logo ? [formData.projectInfo.logo] : [],
-        banner: formData.projectInfo.banner ? [formData.projectInfo.banner] : [],
+        cover: formData.projectInfo.cover ? [formData.projectInfo.cover] : [],
         website: formData.projectInfo.website ? [formData.projectInfo.website] : [],
         whitepaper: formData.projectInfo.whitepaper ? [formData.projectInfo.whitepaper] : [],
         documentation: formData.projectInfo.documentation ? [formData.projectInfo.documentation] : [],
@@ -98,6 +98,9 @@ export class TypeConverter {
         twitter: formData.projectInfo.twitter ? [formData.projectInfo.twitter] : [],
         discord: formData.projectInfo.discord ? [formData.projectInfo.discord] : [],
         github: formData.projectInfo.github ? [formData.projectInfo.github] : [],
+        medium: formData.projectInfo.medium ? [formData.projectInfo.medium] : [],
+        reddit: formData.projectInfo.reddit ? [formData.projectInfo.reddit] : [],
+        youtube: formData.projectInfo.youtube ? [formData.projectInfo.youtube] : [],
         isAudited: formData.projectInfo.isAudited,
         auditReport: formData.projectInfo.auditReport ? [formData.projectInfo.auditReport] : [],
         isKYCed: formData.projectInfo.isKYCed || false,
@@ -147,7 +150,9 @@ export class TypeConverter {
         maxContribution: formData.saleParams.maxContribution
           ? [TypeConverter.toBigInt(formData.saleParams.maxContribution)]
           : [],
-        maxParticipants: [], // Optional
+        maxParticipants: formData.saleParams.maxParticipants
+          ? [TypeConverter.toBigInt(formData.saleParams.maxParticipants)]
+          : [],
         requiresWhitelist: formData.saleParams.requiresWhitelist,
         requiresKYC: formData.saleParams.requiresKYC || false,
         minICTOPassportScore: 0n, // Default

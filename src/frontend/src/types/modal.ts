@@ -126,4 +126,14 @@ export interface ModalState {
             wallet: MultisigWallet
         }
     }
+    launchpadDeposit: {
+        isOpen: boolean
+        data?: {
+            launchpad?: any
+            canisterId?: string
+            purchaseToken?: any
+            minContribution?: bigint
+            maxContribution?: bigint | null
+        }
+    }
 } 

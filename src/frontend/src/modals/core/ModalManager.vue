@@ -36,6 +36,9 @@ const modalComponents = {
     manageSigners: defineAsyncComponent(() => import('../multisig/ManageSignersModal.vue')),
     signProposal: defineAsyncComponent(() => import('../multisig/SignProposalModal.vue')),
     receiveAsset: defineAsyncComponent(() => import('../multisig/ReceiveAssetModal.vue')),
+    
+    // Launchpad modals
+    launchpadDeposit: defineAsyncComponent(() => import('../launchpad/LaunchpadDepositModal.vue')),
 } as const
 
 const currentModal = computed(() => {

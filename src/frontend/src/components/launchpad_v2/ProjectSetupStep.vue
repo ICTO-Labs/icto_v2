@@ -74,23 +74,33 @@
         </div>
 
         <!-- Project Logo -->
-        <div class="md:col-span-2">
+        <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Project Logo URL <HelpTooltip>URL to your project logo (recommended: 256x256px, PNG format)</HelpTooltip>
+            Project Logo URL <HelpTooltip>URL to your project logo. Used as logo and avatar. (Recommended: 512x512px, square format)</HelpTooltip>
           </label>
-          <input
+          <URLImageInput
             v-model="localFormData.projectInfo.logo"
-            type="url"
-            class="w-full px-3 py-2 border"
-            :class="[
-              hasFieldError('projectLogo').value
-                ? 'border-red-300 dark:border-red-600 focus:ring-2 focus:ring-red-500 focus:border-red-500'
-                : 'border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-blue-500',
-              'rounded-lg dark:bg-gray-700 dark:text-white'
-            ]"
             placeholder="https://example.com/logo.png"
+            :input-class="hasFieldError('projectLogo').value
+                ? 'border-red-300 dark:border-red-600'
+                : 'border-gray-300 dark:border-gray-600'"
+            preview-class="h-32 w-32"
+            help-text="Square format recommended (e.g., 512x512px)"
           />
           <FieldError :field="'projectLogo'" :all-errors="allErrors" />
+        </div>
+
+        <!-- Project Cover -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Project Cover URL <HelpTooltip>Cover/banner image for detail page. (Recommended: 1920x600px, wide format)</HelpTooltip>
+          </label>
+          <URLImageInput
+            v-model="localFormData.projectInfo.cover"
+            placeholder="https://example.com/cover.png"
+            preview-class="max-h-32 max-w-full"
+            help-text="Wide format recommended (e.g., 1920x600px)"
+          />
         </div>
       </div>
     </div>
@@ -165,7 +175,7 @@
         </div>
 
         <!-- GitHub -->
-        <div class="md:col-span-2">
+        <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             GitHub Repository
           </label>
@@ -174,6 +184,45 @@
             type="url"
             class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white"
             placeholder="https://github.com/myproject"
+          />
+        </div>
+
+        <!-- Medium -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Medium Blog
+          </label>
+          <input
+            v-model="localFormData.projectInfo.medium"
+            type="url"
+            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white"
+            placeholder="https://medium.com/@myproject"
+          />
+        </div>
+
+        <!-- Reddit -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Reddit Community
+          </label>
+          <input
+            v-model="localFormData.projectInfo.reddit"
+            type="url"
+            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white"
+            placeholder="https://reddit.com/r/myproject"
+          />
+        </div>
+
+        <!-- YouTube -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            YouTube Channel
+          </label>
+          <input
+            v-model="localFormData.projectInfo.youtube"
+            type="url"
+            class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white"
+            placeholder="https://youtube.com/@myproject"
           />
         </div>
       </div>
@@ -245,6 +294,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import BaseSwitch from '@/components/common/BaseSwitch.vue'
 import Select from '@/components/common/Select.vue'
 import FieldError from '@/components/common/FieldError.vue'
+import URLImageInput from '@/components/common/URLImageInput.vue'
 
 // Composables
 import { useUniqueId } from '@/composables/useUniqueId'
@@ -281,10 +331,14 @@ const fieldMappings = {
   projectDescription: 'description|project description|description is required',
   projectWebsite: 'website|project website|invalid website',
   projectLogo: 'logo|project logo|invalid logo',
+  projectCover: 'cover|project cover|invalid cover',
   twitter: 'twitter|twitter handle',
   telegram: 'telegram|telegram group',
   discord: 'discord|discord server',
-  github: 'github|github repository'
+  github: 'github|github repository',
+  medium: 'medium|medium blog',
+  reddit: 'reddit|reddit community',
+  youtube: 'youtube|youtube channel'
 }
 
 // Watch validation errors and map them to fields

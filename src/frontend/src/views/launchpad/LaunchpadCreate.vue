@@ -125,6 +125,32 @@
                   required
                 ></textarea>
               </div>
+
+              <!-- Project Logo URL -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Project Logo URL <HelpTooltip>Enter the URL of your project logo. Recommended size: 200x200px, PNG or JPG format. This will be used as your project avatar across the platform.</HelpTooltip>
+                </label>
+                <input
+                  v-model="formData.projectInfo.logo"
+                  type="url"
+                  placeholder="https://example.com/logo.png"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
+                />
+              </div>
+
+              <!-- Cover Image URL -->
+              <div>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Cover Image URL <HelpTooltip>Enter the URL of your project cover/banner image. Recommended size: 1200x400px, PNG or JPG format. This will be displayed as a hero image on your project page.</HelpTooltip>
+                </label>
+                <input
+                  v-model="formData.projectInfo.cover"
+                  type="url"
+                  placeholder="https://example.com/cover.jpg"
+                  class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-yellow-500 focus:border-transparent bg-white dark:bg-gray-700"
+                />
+              </div>
             </div>
           </div>
 
@@ -1590,7 +1616,7 @@ const formData = ref({
     name: '',
     description: '',
     logo: '',
-    banner: '',
+    cover: '',
     website: '',
     twitter: '',
     telegram: '',

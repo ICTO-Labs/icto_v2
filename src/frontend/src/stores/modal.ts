@@ -89,6 +89,10 @@ export const useModalStore = defineStore('modal', () => {
         tokenBurn: {
             isOpen: false,
             data: undefined
+        },
+        launchpadDeposit: {
+            isOpen: false,
+            data: undefined
         }
     })
 

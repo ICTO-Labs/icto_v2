@@ -648,6 +648,24 @@ export class LaunchpadService {
     return target > 0 ? Math.min((raised / target) * 100, 100) : 0
   }
 
+  // Get user's ICTO Passport score from backend
+  async getUserPassportScore(): Promise<number> {
+    try {
+      const actor = this.getBackendActor()
+      const result = await actor.getUserPassportScore()
+      
+      if ('ok' in result) {
+        return Number(result.ok)
+      } else {
+        console.error('Failed to get passport score:', result.err)
+        return 0 // Return 0 as default if failed
+      }
+    } catch (error) {
+      console.error('Error fetching passport score:', error)
+      return 0 // Return 0 as default on error
+    }
+  }
+
   // Time helper methods
   getTimeRemaining(endTime: bigint): string {
     const now = BigInt(Date.now() * 1000000) // Convert to nanoseconds

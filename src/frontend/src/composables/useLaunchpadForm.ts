@@ -46,21 +46,29 @@ export function useLaunchpadForm() {
       projectInfo: {
         name: '',
         description: '',
+        // Visual Assets (URLs only)
         logo: '',
-        banner: '',
+        cover: '',
+        // Links & Documentation
         website: '',
+        whitepaper: '',
+        documentation: '',
+        // Social Media & Community
         twitter: '',
         telegram: '',
         discord: '',
         github: '',
-        documentation: '',
-        whitepaper: '',
+        medium: '',
+        reddit: '',
+        youtube: '',
+        // Verification & Compliance
+        isKYCed: false,
+        kycProvider: '',
+        isAudited: false,
         auditReport: '',
+        // Classification
         category: '' as string,
         tags: [] as string[],
-        kycProvider: '',
-        isKYCed: false,
-        isAudited: false,
         metadata: [],
         minICTOPassportScore: 0
       },

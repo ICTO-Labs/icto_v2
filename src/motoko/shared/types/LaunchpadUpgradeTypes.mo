@@ -44,8 +44,18 @@ module {
         emergencyReason: Text;
         lastEmergencyAction: Time.Time;
 
-        // Reentrancy Protection
-        reentrancyLock: Bool;
+        // Reentrancy Protection (SECURITY UPGRADE)
+        // Replaced global lock with per-user tracking system
+        activeUserCalls: [(Principal, Time.Time)];
+
+        // Security Metrics (NEW)
+        securityMetrics: {
+            totalReentrancyAttempts: Nat;
+            totalSuccessfulCalls: Nat;
+            totalFailedCalls: Nat;
+            averageCallDuration: Time.Time;
+            lastSecurityEvent: Time.Time;
+        };
 
         // Audit Trail
         adminActions: [LaunchpadTypes.AdminAction];

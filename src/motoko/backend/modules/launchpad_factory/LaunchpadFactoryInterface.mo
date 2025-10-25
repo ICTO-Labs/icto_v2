@@ -11,6 +11,7 @@ module LaunchpadFactoryInterface {
     // Arguments for creating a new launchpad
     public type CreateLaunchpadArgs = {
         config: LaunchpadTypes.LaunchpadConfig;
+        creator: Principal;  // User who is creating the launchpad
         initialDeposit: ?Nat;
     };
 
