@@ -404,32 +404,35 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#err(msg)) return #err(msg);
             case (#ok()) {};
         };
-        
+
         if (emergencyPaused) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Contract paused: " # emergencyReason);
         };
-        
+
         if (not installed) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Launchpad not initialized");
         };
-        
+
         // Rate limiting & large transaction validation
         if (not _checkRateLimit(caller)) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Rate limit exceeded");
         };
-        
+
         if (not _validateLargeTransaction(amount, caller)) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Transaction validation failed");
         };
         
         // Validate participation eligibility
         let eligibilityCheck = await _checkParticipationEligibility(caller, amount);
         switch (eligibilityCheck) {
-            case (#err(msg)) return #err(msg);
+            case (#err(msg)) {
+                _releaseUserReentrancyLock(caller);
+                return #err(msg);
+            };
             case (#ok(_)) {};
         };
 
@@ -455,17 +458,19 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#err(msg)) {
                 // Update transaction as failed
                 let failedTransaction = {
-                    transaction with 
+                    transaction with
                     status = #Failed(msg);
                     notes = ?("Purchase failed: " # msg);
                 };
                 transactions.add(failedTransaction);
+                _releaseUserReentrancyLock(caller);
                 return #err(msg);
             };
             case (#ok(updatedTransaction)) {
                 transactions.add(updatedTransaction);
                 transactionCount += 1;
                 updatedAt := Time.now();
+                _releaseUserReentrancyLock(caller);
                 return #ok(updatedTransaction);
             };
         };
@@ -479,34 +484,34 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#err(msg)) return #err(msg);
             case (#ok()) {};
         };
-        
+
         if (emergencyPaused) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Contract paused: " # emergencyReason);
         };
 
         if (status != #Claiming and status != #Completed) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Claiming not active");
         };
 
         // Rate limiting
         if (not _checkRateLimit(caller)) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Rate limit exceeded");
         };
 
         let participantKey = Principal.toText(caller);
         let participant = switch (Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal)) {
             case null {
-                _releaseReentrancyLock();
+                _releaseUserReentrancyLock(caller);
                 return #err("Not a participant");
             };
             case (?p) p;
         };
 
         if (participant.allocationAmount == 0) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("No allocation available");
         };
 
@@ -516,7 +521,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             0
         };
         if (unclaimedAmount == 0) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Already fully claimed");
         };
 
@@ -535,7 +540,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let claimResult = await _processClaim(caller, participant, unclaimedAmount);
         
         // 3. Release reentrancy lock
-        _releaseReentrancyLock();
+        _releaseUserReentrancyLock(caller);
         
         switch (claimResult) {
             case (#err(msg)) {
@@ -1005,12 +1010,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
 
         if (emergencyPaused) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Contract paused: " # emergencyReason);
         };
 
         if (not installed) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Launchpad not initialized");
         };
 
@@ -1018,7 +1023,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
         // Rate limiting & validation
         if (not _checkRateLimit(caller)) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Rate limit exceeded");
         };
 
@@ -1039,14 +1044,14 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let depositBalance = try {
             await ledger.icrc1_balance_of(depositAccount)
         } catch (error) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Failed to check deposit account balance: " # Error.message(error));
         };
 
         Debug.print("💵 Deposit account balance: " # Nat.toText(depositBalance));
 
         if (depositBalance == 0) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("No balance found in deposit account. Please transfer tokens first.");
         };
 
@@ -1058,13 +1063,27 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case null 0;
         };
 
-        // Check if this amount would exceed max contribution
+        // Calculate actual recoverable amount (considering max contribution)
+        var actualRecoverableAmount = depositBalance;
         switch (config.saleParams.maxContribution) {
             case (?maxAmount) {
                 let maxContributionInSmallestUnit = toSmallestUnit(maxAmount, config.purchaseToken.decimals);
-                if (alreadyCounted + depositBalance > maxContributionInSmallestUnit) {
-                    _releaseReentrancyLock();
-                    return #err("Deposit amount would exceed maximum contribution limit");
+                let remainingCapacity = if (maxContributionInSmallestUnit > alreadyCounted) {
+                    maxContributionInSmallestUnit - alreadyCounted
+                } else {
+                    0
+                };
+
+                // If remaining capacity is zero, cannot recover anything
+                if (remainingCapacity == 0) {
+                    _releaseUserReentrancyLock(caller);
+                    return #err("Maximum contribution limit already reached");
+                };
+
+                // Only recover up to remaining capacity
+                if (depositBalance > remainingCapacity) {
+                    actualRecoverableAmount := remainingCapacity;
+                    Debug.print("⚠️ Deposit balance exceeds remaining capacity. Will recover: " # Nat.toText(actualRecoverableAmount) # " (excess: " # Nat.toText(depositBalance - remainingCapacity) # ")");
                 };
             };
             case null {};
@@ -1076,7 +1095,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             id = transactionId;
             participant = caller;
             txType = #Purchase;
-            amount = depositBalance;
+            amount = actualRecoverableAmount;
             token = config.purchaseToken.canisterId;
             timestamp = Time.now();
             blockIndex = null;
@@ -1089,10 +1108,10 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         Debug.print("📝 Recording recovered participation...");
 
         // Process the purchase (update stats, participants, etc.)
-        let purchaseResult = await _processPurchase(caller, depositBalance, null, transaction);
+        let purchaseResult = await _processPurchase(caller, actualRecoverableAmount, null, transaction);
         switch (purchaseResult) {
             case (#err(msg)) {
-                _releaseReentrancyLock();
+                _releaseUserReentrancyLock(caller);
                 let failedTransaction = {
                     transaction with
                     status = #Failed(msg);
@@ -1105,7 +1124,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 transactions.add(updatedTransaction);
                 transactionCount += 1;
                 updatedAt := Time.now();
-                _releaseReentrancyLock();
+                _releaseUserReentrancyLock(caller);
 
                 Debug.print("✅ Deposit recovered successfully!");
                 Debug.print("   Amount: " # Nat.toText(depositBalance));
@@ -1282,7 +1301,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 case (?maxAmount) {
                     let maxInSmallestUnit = toSmallestUnit(maxAmount, config.purchaseToken.decimals);
                     if (existingContribution >= maxInSmallestUnit) 0
-                    else maxInSmallestUnit - existingContribution
+                    else Nat.max(0, Nat.sub(maxInSmallestUnit, existingContribution))
                 };
                 case null balance; // No limit if not set
             };
@@ -1318,14 +1337,14 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#err(msg)) return #err(msg);
             case (#ok()) {};
         };
-        
+
         if (emergencyPaused) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Contract paused: " # emergencyReason);
         };
-        
+
         if (not installed) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Launchpad not initialized");
         };
         
@@ -1334,12 +1353,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         
         // Rate limiting & validation (check early)
         if (not _checkRateLimit(caller)) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Rate limit exceeded");
         };
-        
+
         if (not _validateLargeTransaction(expectedAmount, caller)) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Transaction validation failed");
         };
         
@@ -1347,7 +1366,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let eligibilityCheck = await _checkParticipationEligibility(caller, expectedAmount);
         switch (eligibilityCheck) {
             case (#err(msg)) {
-                _releaseReentrancyLock();
+                _releaseUserReentrancyLock(caller);
                 return #err(msg);
             };
             case (#ok(_)) {};
@@ -1370,7 +1389,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let depositBalance = try {
             await ledger.icrc1_balance_of(depositAccount)
         } catch (error) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Failed to check deposit account balance: " # Error.message(error));
         };
         
@@ -1379,7 +1398,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         // Verify balance is sufficient (at least expectedAmount)
         // Note: We keep transfer fee in subaccount for future operations
         if (depositBalance < expectedAmount) {
-            _releaseReentrancyLock();
+            _releaseUserReentrancyLock(caller);
             return #err("Insufficient balance in deposit account. Required: " # Nat.toText(expectedAmount) # ", Found: " # Nat.toText(depositBalance));
         };
         
@@ -1409,9 +1428,9 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let purchaseResult = await _processPurchase(caller, expectedAmount, affiliateCode, transaction);
         switch (purchaseResult) {
             case (#err(msg)) {
-                _releaseReentrancyLock();
+                _releaseUserReentrancyLock(caller);
                 let failedTransaction = {
-                    transaction with 
+                    transaction with
                     status = #Failed(msg);
                     notes = ?("Purchase processing failed: " # msg);
                 };
@@ -1422,8 +1441,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 transactions.add(updatedTransaction);
                 transactionCount += 1;
                 updatedAt := Time.now();
-                _releaseReentrancyLock();
-                
+                _releaseUserReentrancyLock(caller);
+
                 Debug.print("✅ Participation recorded successfully!");
                 Debug.print("   Amount: " # Nat.toText(expectedAmount));
                 Debug.print("   Stored in subaccount: safe for refunds if needed");
@@ -2556,7 +2575,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             not isExpired;
         });
 
-        let cleanedCount = beforeCount - activeUserCalls.size();
+        let cleanedCount = Nat.sub(beforeCount, activeUserCalls.size());
         if (cleanedCount > 0) {
             Debug.print("🧹 Auto-cleaned " # Nat.toText(cleanedCount) # " expired user locks");
         };
@@ -2857,6 +2876,56 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         Debug.print("✅ LaunchpadContract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
 
         #ok(())
+    };
+
+    /// Request self-upgrade to latest stable version
+    /// Only contract creator can call this function
+    public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
+        Debug.print("🔄 LaunchpadContract: requestSelfUpgrade called by " # Principal.toText(caller));
+
+        // Authorization check - only creator can request upgrade
+        if (caller != creator) {
+            Debug.print("❌ LaunchpadContract: Unauthorized caller (not creator)");
+            return #err("Unauthorized: Only contract creator can request self-upgrade");
+        };
+
+        // Call factory to request upgrade
+        try {
+            let factory = actor(Principal.toText(factoryPrincipal)) : actor {
+                requestSelfUpgrade: () -> async Result.Result<(), Text>;
+            };
+
+            Debug.print("📞 LaunchpadContract: Calling factory.requestSelfUpgrade()...");
+            let result = await factory.requestSelfUpgrade();
+
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ LaunchpadContract: Self-upgrade request successful");
+                    #ok()
+                };
+                case (#err(msg)) {
+                    Debug.print("❌ LaunchpadContract: Self-upgrade request failed: " # msg);
+                    #err(msg)
+                };
+            };
+        } catch (e) {
+            let errorMsg = "Failed to call factory.requestSelfUpgrade: " # Error.message(e);
+            Debug.print("❌ LaunchpadContract: " # errorMsg);
+            #err(errorMsg)
+        }
+    };
+
+    /// Query functions to check version info
+    public query func checkVersionInfo() : async {
+        currentVersion: IUpgradeable.Version;
+        factoryPrincipal: Principal;
+        creator: Principal;
+    } {
+        {
+            currentVersion = contractVersion;
+            factoryPrincipal = factoryPrincipal;
+            creator = creator;
+        }
     };
 
     /// Comprehensive health check

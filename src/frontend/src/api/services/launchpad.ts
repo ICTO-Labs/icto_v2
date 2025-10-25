@@ -1,4 +1,4 @@
-import { useAuthStore, backendActor, launchpadContractActor } from "@/stores/auth";
+import { useAuthStore, backendActor, launchpadContractActor, launchpadFactoryActor } from "@/stores/auth";
 import { Principal } from "@dfinity/principal";
 import type {
   LaunchpadConfig,
@@ -666,13 +666,212 @@ export class LaunchpadService {
     }
   }
 
+  // ============================================
+  // UPGRADE QUEUE SERVICE METHODS
+  // ============================================
+
+  // Request self-upgrade for a contract (creates queue request)
+  async requestSelfUpgrade(contractId: string): Promise<{ success: boolean; requestId?: string; error?: string }> {
+    try {
+      const actor = await launchpadFactoryActor
+      const result = await actor.requestSelfUpgrade()
+
+      if ('ok' in result) {
+        // Generate request ID based on contract ID and timestamp
+        const requestId = `${contractId}-${Date.now()}`
+        return { success: true, requestId }
+      } else {
+        return { success: false, error: result.err }
+      }
+    } catch (error) {
+      console.error('Error requesting self-upgrade:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  // Get upgrade request status for polling
+  async getUpgradeRequestStatus(requestId: string): Promise<{
+    success: boolean;
+    status?: 'Pending' | 'Pausing' | 'InProgress' | 'Completed' | 'Failed';
+    errorMessage?: string;
+    error?: string;
+  }> {
+    try {
+      const actor = await launchpadFactoryActor
+      const result = await actor.getUpgradeRequestStatus(requestId)
+
+      if (result) {
+        let status: 'Pending' | 'Pausing' | 'InProgress' | 'Completed' | 'Failed' = 'Pending'
+        let errorMessage: string | undefined
+
+        // Convert Motoko enum to JavaScript string
+        if ('Pending' in result.status) status = 'Pending'
+        else if ('Pausing' in result.status) status = 'Pausing'
+        else if ('InProgress' in result.status) status = 'InProgress'
+        else if ('Completed' in result.status) status = 'Completed'
+        else if ('Failed' in result.status) {
+          status = 'Failed'
+          errorMessage = result.status.Failed
+        }
+
+        return {
+          success: true,
+          status,
+          errorMessage
+        }
+      } else {
+        return { success: false, error: 'Request not found' }
+      }
+    } catch (error) {
+      console.error('Error getting upgrade request status:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  // Poll upgrade request status with configurable interval
+  async pollUpgradeStatus(
+    requestId: string,
+    onStatusUpdate: (status: 'Pending' | 'Pausing' | 'InProgress' | 'Completed' | 'Failed', errorMessage?: string) => void,
+    options: {
+      interval?: number;  // Polling interval in milliseconds (default: 2000ms)
+      timeout?: number;   // Timeout in milliseconds (default: 600000ms = 10 minutes)
+      maxAttempts?: number; // Maximum polling attempts (default: 300)
+    } = {}
+  ): Promise<{ success: boolean; finalStatus?: string; error?: string }> {
+    const {
+      interval = 2000,     // 2 seconds default
+      timeout = 600000,     // 10 minutes default
+      maxAttempts = 300     // 10 minutes / 2 seconds
+    } = options
+
+    return new Promise((resolve) => {
+      let attempts = 0
+      const startTime = Date.now()
+
+      const poll = async () => {
+        attempts++
+
+        // Check timeout
+        if (Date.now() - startTime > timeout) {
+          resolve({ success: false, error: 'Polling timeout' })
+          return
+        }
+
+        // Check max attempts
+        if (attempts > maxAttempts) {
+          resolve({ success: false, error: 'Maximum polling attempts reached' })
+          return
+        }
+
+        try {
+          const result = await this.getUpgradeRequestStatus(requestId)
+
+          if (result.success && result.status) {
+            onStatusUpdate(result.status, result.errorMessage)
+
+            // Stop polling on terminal states
+            if (result.status === 'Completed' || result.status === 'Failed') {
+              resolve({
+                success: result.status === 'Completed',
+                finalStatus: result.status,
+                error: result.status === 'Failed' ? result.errorMessage : undefined
+              })
+              return
+            }
+          } else {
+            console.error('Error polling status:', result.error)
+          }
+
+          // Continue polling
+          setTimeout(poll, interval)
+        } catch (error) {
+          console.error('Polling error:', error)
+          setTimeout(poll, interval)
+        }
+      }
+
+      // Start polling
+      poll()
+    })
+  }
+
+  // Admin queue control methods
+  async pauseQueueProcessing(reason?: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const { actor } = useAuthStore.getState()
+      const factoryActor = await launchpadFactoryActor
+
+      const result = await factoryActor.pauseQueueProcessing(reason ? [reason] : [])
+
+      if ('ok' in result) {
+        return { success: true }
+      } else {
+        return { success: false, error: result.err }
+      }
+    } catch (error) {
+      console.error('Error pausing queue processing:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  async resumeQueueProcessing(): Promise<{ success: boolean; error?: string }> {
+    try {
+      const factoryActor = await launchpadFactoryActor
+      const result = await factoryActor.resumeQueueProcessing()
+
+      if ('ok' in result) {
+        return { success: true }
+      } else {
+        return { success: false, error: result.err }
+      }
+    } catch (error) {
+      console.error('Error resuming queue processing:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
+  async getQueueStatus(): Promise<{
+    success: boolean;
+    queueStatus?: {
+      isPaused: boolean;
+      reason?: string;
+      pausedBy?: string;
+      pausedAt?: bigint;
+      pendingRequests: number;
+      timerActive: boolean;
+    };
+    error?: string;
+  }> {
+    try {
+      const { principal } = useAuthStore.getState()
+      const factoryActor = await launchpadFactoryActor
+
+      const result = await factoryActor.getQueueStatus(principal)
+
+      return {
+        success: true,
+        queueStatus: {
+          isPaused: result.isPaused,
+          reason: result.reason[0] || undefined,
+          pausedBy: result.pausedBy?.toText() || undefined,
+          pausedAt: result.pausedAt[0] || undefined,
+          pendingRequests: result.pendingRequests,
+          timerActive: result.timerActive
+        }
+      }
+    } catch (error) {
+      console.error('Error getting queue status:', error)
+      return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+    }
+  }
+
   // Time helper methods
   getTimeRemaining(endTime: bigint): string {
     const now = BigInt(Date.now() * 1000000) // Convert to nanoseconds
     const remaining = Number(endTime - now) / 1000000000 // Convert to seconds
-    
+
     if (remaining <= 0) return 'Ended'
-    
+
     const days = Math.floor(remaining / 86400)
     const hours = Math.floor((remaining % 86400) / 3600)
     const minutes = Math.floor((remaining % 3600) / 60)
@@ -693,12 +892,119 @@ export class LaunchpadService {
 
   formatDateTime(timestamp: bigint): string {
     const date = new Date(Number(timestamp) / 1000000) // Convert from nanoseconds
-    return date.toLocaleString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
+    return date.toLocaleString('en-US', {
+      year: 'numeric',
+      month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'
     })
+  }
+
+  // ============================================
+  // VERSION MANAGEMENT METHODS
+  // ============================================
+
+  /**
+   * Get version info from contract
+   */
+  async checkVersionInfo(canisterId: string): Promise<{
+    currentVersion: { major: bigint; minor: bigint; patch: bigint }
+    factoryPrincipal: string
+    creator: string
+  } | null> {
+    try {
+      const actor = this.getLaunchpadActor(canisterId, false)
+      const result = await actor.checkVersionInfo()
+
+      return {
+        currentVersion: result.currentVersion,
+        factoryPrincipal: result.factoryPrincipal.toText(),
+        creator: result.creator.toText()
+      }
+    } catch (error) {
+      console.error('Error checking version info:', error)
+      return null
+    }
+  }
+
+  /**
+   * Get latest stable version from factory
+   * Can optionally use factoryPrincipal from contract if available
+   */
+  async getLatestStableVersion(factoryPrincipalFromContract?: string): Promise<{ major: bigint; minor: bigint; patch: bigint } | null> {
+    try {
+      // Use factory actor directly - no need for factory ID lookup
+      const actor = launchpadFactoryActor({
+        requiresSigning: false,
+        anon: true
+      })
+
+      const result = await actor.getLatestStableVersion()
+
+      if (result.length > 0 && result[0]) {
+        console.log('✅ Got latest stable version from factory:', result[0])
+        return result[0]
+      }
+
+      console.log('⚠️ No stable version available from factory')
+      return null
+    } catch (error) {
+      console.error('❌ Error getting latest stable version:', error)
+      return null
+    }
+  }
+
+  /**
+   * Request self-upgrade for this contract
+   * Only owner can call this
+   */
+  async requestSelfUpgrade(canisterId: string): Promise<{
+    success: boolean
+    error?: string
+  }> {
+    try {
+      const actor = this.getLaunchpadActor(canisterId, true)
+      const result = await actor.requestSelfUpgrade()
+
+      if ('ok' in result) {
+        return { success: true }
+      } else {
+        return {
+          success: false,
+          error: result.err || 'Unknown error'
+        }
+      }
+    } catch (error: any) {
+      console.error('Error requesting self upgrade:', error)
+      return {
+        success: false,
+        error: error?.message || 'Failed to request upgrade'
+      }
+    }
+  }
+
+  /**
+   * Format version object to string
+   */
+  formatVersion(version: { major: bigint; minor: bigint; patch: bigint }): string {
+    return `${version.major}.${version.minor}.${version.patch}`
+  }
+
+  /**
+   * Compare two versions
+   * Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
+   */
+  compareVersions(
+    v1: { major: bigint; minor: bigint; patch: bigint },
+    v2: { major: bigint; minor: bigint; patch: bigint }
+  ): number {
+    if (v1.major > v2.major) return 1
+    if (v1.major < v2.major) return -1
+    if (v1.minor > v2.minor) return 1
+    if (v1.minor < v2.minor) return -1
+    if (v1.patch > v2.patch) return 1
+    if (v1.patch < v2.patch) return -1
+    return 0
   }
 }

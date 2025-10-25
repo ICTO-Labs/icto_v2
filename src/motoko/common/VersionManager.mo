@@ -97,6 +97,27 @@ module VersionManager {
         #RolledBack: Text;
     };
 
+    /// Upgrade request status (for async queue processing)
+    public type UpgradeRequestStatus = {
+        #Pending;           // Waiting in queue
+        #Pausing;           // Pausing contract
+        #InProgress;        // Currently upgrading
+        #Completed;         // Successfully completed
+        #Failed: Text;      // Failed with error message
+    };
+
+    /// Async upgrade request
+    public type UpgradeRequest = {
+        requestId: Text;                  // Unique request ID
+        contractId: Principal;
+        toVersion: Version;
+        requestedBy: Principal;           // Who requested (contract owner)
+        requestedAt: Int;                 // Timestamp
+        status: UpgradeRequestStatus;
+        completedAt: ?Int;                // Timestamp when completed/failed
+        errorMessage: ?Text;
+    };
+
     /// IC Management Canister Types
     public type CanisterInstallMode = {
         #install;
@@ -108,6 +129,61 @@ module VersionManager {
 
     public type ChunkHash = {
         hash: Blob;
+    };
+
+    /// Canister status (for stop/start operations)
+    public type CanisterStatus = {
+        #running;
+        #stopping;
+        #stopped;
+    };
+
+    /// IC Management Canister Interface
+    public type ICManagementCanister = actor {
+        // Chunk upload operations
+        upload_chunk: ({
+            canister_id: Principal;
+            chunk: Blob;
+        }) -> async ChunkHash;
+
+        install_chunked_code: ({
+            mode: CanisterInstallMode;
+            target_canister: Principal;
+            store_canister: ?Principal;
+            chunk_hashes_list: [ChunkHash];
+            wasm_module_hash: Blob;
+            arg: Blob;
+            sender_canister_version: ?Nat64;
+        }) -> async ();
+
+        clear_chunk_store: ({
+            canister_id: Principal;
+        }) -> async ();
+
+        // Canister lifecycle operations
+        stop_canister: ({
+            canister_id: Principal;
+        }) -> async ();
+
+        start_canister: ({
+            canister_id: Principal;
+        }) -> async ();
+
+        canister_status: ({
+            canister_id: Principal;
+        }) -> async {
+            status: CanisterStatus;
+            settings: {
+                controllers: [Principal];
+                compute_allocation: Nat;
+                memory_allocation: Nat;
+                freezing_threshold: Nat;
+            };
+            module_hash: ?Blob;
+            memory_size: Nat;
+            cycles: Nat;
+            idle_cycles_burned_per_day: Nat;
+        };
     };
 
     // ============================================
@@ -124,6 +200,10 @@ module VersionManager {
         private var contractVersions : Trie.Trie<Principal, ContractVersion> = Trie.empty();
         private var compatibilityMatrix : [UpgradeCompatibility] = [];
         private var latestStableVersion : ?Version = null;
+
+        // Upgrade request queue (for async self-upgrade processing)
+        private var upgradeRequests : Trie.Trie<Text, UpgradeRequest> = Trie.empty();
+        private var requestCounter : Nat = 0;
 
         // Transient upload buffer for chunked uploads
         private let uploadBuffer : Buffer.Buffer<Blob> = Buffer.Buffer<Blob>(0);
@@ -457,6 +537,292 @@ module VersionManager {
         };
 
         // ============================================
+        // UPGRADE QUEUE MANAGEMENT (Async Self-Upgrade)
+        // ============================================
+
+        /// Create upgrade request and add to queue
+        /// Returns requestId for tracking
+        public func createUpgradeRequest(
+            contractId: Principal,
+            toVersion: Version,
+            requestedBy: Principal
+        ) : Text {
+            requestCounter += 1;
+            let requestId = Principal.toText(contractId) # "-" # Nat.toText(requestCounter);
+
+            let request: UpgradeRequest = {
+                requestId = requestId;
+                contractId = contractId;
+                toVersion = toVersion;
+                requestedBy = requestedBy;
+                requestedAt = Time.now();
+                status = #Pending;
+                completedAt = null;
+                errorMessage = null;
+            };
+
+            upgradeRequests := Trie.put(
+                upgradeRequests,
+                textKey(requestId),
+                Text.equal,
+                request
+            ).0;
+
+            Debug.print("📝 Upgrade request created: " # requestId);
+            requestId
+        };
+
+        /// Update request status
+        public func updateRequestStatus(
+            requestId: Text,
+            status: UpgradeRequestStatus
+        ) {
+            switch (Trie.get(upgradeRequests, textKey(requestId), Text.equal)) {
+                case (?request) {
+                    let updatedRequest: UpgradeRequest = {
+                        requestId = request.requestId;
+                        contractId = request.contractId;
+                        toVersion = request.toVersion;
+                        requestedBy = request.requestedBy;
+                        requestedAt = request.requestedAt;
+                        status = status;
+                        completedAt = switch (status) {
+                            case (#Completed) { ?Time.now() };
+                            case (#Failed(_)) { ?Time.now() };
+                            case _ { request.completedAt };
+                        };
+                        errorMessage = switch (status) {
+                            case (#Failed(msg)) { ?msg };
+                            case _ { request.errorMessage };
+                        };
+                    };
+
+                    upgradeRequests := Trie.put(
+                        upgradeRequests,
+                        textKey(requestId),
+                        Text.equal,
+                        updatedRequest
+                    ).0;
+                };
+                case null {
+                    Debug.print("⚠️ Warning: Request not found: " # requestId);
+                };
+            };
+        };
+
+        /// Get upgrade request status
+        public func getUpgradeRequestStatus(requestId: Text) : ?UpgradeRequest {
+            Trie.get(upgradeRequests, textKey(requestId), Text.equal)
+        };
+
+        /// Get all pending upgrade requests
+        public func getPendingUpgradeRequests() : [UpgradeRequest] {
+            let allRequests = Trie.toArray(upgradeRequests, func(k: Text, v: UpgradeRequest) : UpgradeRequest = v);
+            Array.filter(allRequests, func(req: UpgradeRequest) : Bool {
+                switch (req.status) {
+                    case (#Pending) { true };
+                    case (#Pausing) { true };
+                    case (#InProgress) { true };
+                    case _ { false };
+                }
+            })
+        };
+
+        /// Clean up old completed requests (older than 24 hours)
+        public func cleanupOldRequests() {
+            let cutoffTime = Time.now() - (24 * 60 * 60 * 1_000_000_000); // 24 hours in nanoseconds
+            var newRequests = Trie.empty<Text, UpgradeRequest>();
+
+            for ((key, request) in Trie.iter(upgradeRequests)) {
+                let shouldKeep = switch (request.status, request.completedAt) {
+                    case (#Pending, _) { true }; // Keep pending
+                    case (#Pausing, _) { true }; // Keep in progress
+                    case (#InProgress, _) { true };
+                    case (_, ?completedTime) {
+                        completedTime > cutoffTime // Keep if completed recently
+                    };
+                    case (_, null) { true }; // Keep if no completion time
+                };
+
+                if (shouldKeep) {
+                    newRequests := Trie.put(newRequests, textKey(key), Text.equal, request).0;
+                };
+            };
+
+            upgradeRequests := newRequests;
+            Debug.print("🧹 Cleaned up old upgrade requests");
+        };
+
+        // ============================================
+        // ASYNC UPGRADE PROCESSOR
+        // ============================================
+
+        /// Process upgrade request asynchronously
+        /// This function handles the complete upgrade workflow:
+        /// 1. Stop canister
+        /// 2. Wait for it to stop completely
+        /// 3. Perform upgrade
+        /// 4. Restart canister
+        /// 5. Update request status
+        public func processUpgradeRequest(
+            requestId: Text,
+            getUpgradeArgs: (Principal) -> async Blob  // Factory provides upgrade args
+        ) : async Result.Result<(), Text> {
+            Debug.print("🚀 Processing upgrade request: " # requestId);
+
+            // Get request from queue
+            let ?request = Trie.get(upgradeRequests, textKey(requestId), Text.equal) else {
+                return #err("Request not found: " # requestId);
+            };
+
+            // Only process pending requests
+            switch (request.status) {
+                case (#Pending) {
+                    // OK to process
+                };
+                case _ {
+                    return #err("Request not in pending status: " # requestId);
+                };
+            };
+
+            // Get IC Management canister actor
+            let ic = actor ("aaaaa-aa") : ICManagementCanister;
+
+            try {
+                // Step 1: Update status to Pausing
+                updateRequestStatus(requestId, #Pausing);
+                Debug.print("⏸️ Pausing canister: " # Principal.toText(request.contractId));
+
+                // Step 2: Stop the canister
+                await ic.stop_canister({ canister_id = request.contractId });
+
+                // Step 3: Wait for canister to stop completely (with timeout)
+                let stopTimeout = 60 * 1_000_000_000; // 60 seconds
+                let startTime = Time.now();
+                var isStopped = false;
+
+                while (not isStopped and (Time.now() - startTime) < stopTimeout) {
+                    let statusResult = await ic.canister_status({ canister_id = request.contractId });
+                    switch (statusResult.status) {
+                        case (#stopped) {
+                            isStopped := true;
+                            Debug.print("✅ Canister stopped successfully");
+                        };
+                        case (#stopping) {
+                            Debug.print("⏳ Canister still stopping...");
+                            // Wait 2 seconds before checking again
+                            await async {
+                                let endTime = Time.now() + 2_000_000_000;
+                                while (Time.now() < endTime) {
+                                    // Busy wait
+                                };
+                            };
+                        };
+                        case (#running) {
+                            Debug.print("⚠️ Canister still running, waiting...");
+                            await async {
+                                let endTime = Time.now() + 2_000_000_000;
+                                while (Time.now() < endTime) {
+                                    // Busy wait
+                                };
+                            };
+                        };
+                    };
+                };
+
+                if (not isStopped) {
+                    updateRequestStatus(requestId, #Failed("Timeout waiting for canister to stop"));
+                    return #err("Timeout waiting for canister to stop");
+                };
+
+                // Step 4: Update status to InProgress
+                updateRequestStatus(requestId, #InProgress);
+                Debug.print("🔄 Starting upgrade for canister: " # Principal.toText(request.contractId));
+
+                // Step 5: Get upgrade arguments from factory
+                let upgradeArgs = await getUpgradeArgs(request.contractId);
+
+                // Step 6: Perform the chunked upgrade
+                let upgradeResult = await performChunkedUpgrade(
+                    request.contractId,
+                    request.toVersion,
+                    upgradeArgs
+                );
+
+                switch (upgradeResult) {
+                    case (#ok(())) {
+                        // Step 7: Start the canister
+                        Debug.print("▶️ Starting canister: " # Principal.toText(request.contractId));
+                        await ic.start_canister({ canister_id = request.contractId });
+
+                        // Step 8: Wait for canister to start (with timeout)
+                        let startTimeout = 30 * 1_000_000_000; // 30 seconds
+                        let startTime = Time.now();
+                        var isRunning = false;
+
+                        while (not isRunning and (Time.now() - startTime) < startTimeout) {
+                            let statusResult = await ic.canister_status({ canister_id = request.contractId });
+                            switch (statusResult.status) {
+                                case (#running) {
+                                    isRunning := true;
+                                    Debug.print("✅ Canister started successfully");
+                                };
+                                case _ {
+                                    Debug.print("⏳ Waiting for canister to start...");
+                                    await async {
+                                        let endTime = Time.now() + 1_000_000_000;
+                                        while (Time.now() < endTime) {
+                                            // Busy wait
+                                        };
+                                    };
+                                };
+                            };
+                        };
+
+                        if (not isRunning) {
+                            updateRequestStatus(requestId, #Failed("Canister upgraded but failed to start"));
+                            return #err("Canister upgraded but failed to start");
+                        };
+
+                        // Step 9: Update contract version in version history
+                        updateContractVersion(request.contractId, request.toVersion, request.requestedBy);
+
+                        // Step 10: Update request status to Completed
+                        updateRequestStatus(requestId, #Completed);
+                        Debug.print("🎉 Upgrade completed successfully: " # requestId);
+
+                        #ok(())
+                    };
+                    case (#err(errMsg)) {
+                        // Try to start the canister even if upgrade failed
+                        try {
+                            await ic.start_canister({ canister_id = request.contractId });
+                            Debug.print("🔄 Restarted canister after failed upgrade");
+                        } catch (e) {
+                            Debug.print("⚠️ Failed to restart canister after upgrade failure");
+                        };
+
+                        updateRequestStatus(requestId, #Failed("Upgrade failed: " # errMsg));
+                        return #err("Upgrade failed: " # errMsg);
+                    };
+                };
+
+            } catch (e) {
+                // Try to restart canister if something went wrong
+                try {
+                    await ic.start_canister({ canister_id = request.contractId });
+                    Debug.print("🔄 Restarted canister after error");
+                } catch (restartErr) {
+                    Debug.print("⚠️ Failed to restart canister after error");
+                };
+
+                let errorMsg = "Error during upgrade: " # Error.message(e);
+                updateRequestStatus(requestId, #Failed(errorMsg));
+                return #err(errorMsg);
+            };
+        };
+
+        // ============================================
         // UPGRADE FUNCTIONS (using stored hashes)
         // ============================================
 
@@ -679,6 +1045,77 @@ module VersionManager {
             #ok()
         };
 
+        /// Update contract version after successful upgrade
+        public func updateContractVersion(
+            contractId: Principal,
+            newVersion: Version,
+            upgradedBy: Principal
+        ) {
+            let currentWasmHash = switch (getWASMHash(newVersion)) {
+                case (?hash) { hash };
+                case null { return }; // Exit if hash not found
+            };
+
+            let currentTime = Time.now();
+
+            switch (getContractVersion(contractId)) {
+                case (?existingVersion) {
+                    // Create upgrade record
+                    let upgradeRecord: UpgradeRecord = {
+                        timestamp = currentTime;
+                        fromVersion = existingVersion.currentVersion;
+                        toVersion = newVersion;
+                        fromHash = existingVersion.wasmHash;
+                        toHash = currentWasmHash;
+                        initiator = #ContractRequest;
+                        result = #Success;
+                        rollbackVersion = ?existingVersion.currentVersion;
+                    };
+
+                    // Update existing version
+                    let updatedVersion: ContractVersion = {
+                        contractId = contractId;
+                        currentVersion = newVersion;
+                        wasmHash = currentWasmHash;
+                        previousVersion = ?existingVersion.currentVersion;
+                        previousWasmHash = ?existingVersion.wasmHash;
+                        autoUpdate = existingVersion.autoUpdate;
+                        lastUpgrade = ?currentTime;
+                        upgradeHistory = Array.append(existingVersion.upgradeHistory, [upgradeRecord]);
+                    };
+
+                    contractVersions := Trie.put(
+                        contractVersions,
+                        principalKey(contractId),
+                        Principal.equal,
+                        updatedVersion
+                    ).0;
+                };
+                case null {
+                    // First time setting version for this contract
+                    let newContractVersion: ContractVersion = {
+                        contractId = contractId;
+                        currentVersion = newVersion;
+                        wasmHash = currentWasmHash;
+                        previousVersion = null;
+                        previousWasmHash = null;
+                        autoUpdate = false;
+                        lastUpgrade = ?currentTime;
+                        upgradeHistory = [];
+                    };
+
+                    contractVersions := Trie.put(
+                        contractVersions,
+                        principalKey(contractId),
+                        Principal.equal,
+                        newContractVersion
+                    ).0;
+                };
+            };
+
+            Debug.print("📈 Contract version updated: " # Principal.toText(contractId) # " -> " # versionToText(newVersion));
+        };
+
         // ============================================
         // STABLE STORAGE HANDLERS
         // ============================================
@@ -688,12 +1125,16 @@ module VersionManager {
             contractVersions: [(Principal, ContractVersion)];
             compatibilityMatrix: [UpgradeCompatibility];
             latestStableVersion: ?Version;
+            upgradeRequests: [(Text, UpgradeRequest)];
+            requestCounter: Nat;
         } {
             {
                 wasmVersions = Iter.toArray(Trie.iter(wasmVersions));
                 contractVersions = Iter.toArray(Trie.iter(contractVersions));
                 compatibilityMatrix = compatibilityMatrix;
                 latestStableVersion = latestStableVersion;
+                upgradeRequests = Iter.toArray(Trie.iter(upgradeRequests));
+                requestCounter = requestCounter;
             }
         };
 
@@ -702,6 +1143,8 @@ module VersionManager {
             contractVersions: [(Principal, ContractVersion)];
             compatibilityMatrix: [UpgradeCompatibility];
             latestStableVersion: ?Version;
+            upgradeRequests: [(Text, UpgradeRequest)];
+            requestCounter: Nat;
         }) {
             wasmVersions := Trie.empty();
             for ((key, value) in stableData.wasmVersions.vals()) {
@@ -713,8 +1156,14 @@ module VersionManager {
                 contractVersions := Trie.put(contractVersions, principalKey(key), Principal.equal, value).0;
             };
 
+            upgradeRequests := Trie.empty();
+            for ((key, value) in stableData.upgradeRequests.vals()) {
+                upgradeRequests := Trie.put(upgradeRequests, textKey(key), Text.equal, value).0;
+            };
+
             compatibilityMatrix := stableData.compatibilityMatrix;
             latestStableVersion := stableData.latestStableVersion;
+            requestCounter := stableData.requestCounter;
         };
 
         // ============================================
