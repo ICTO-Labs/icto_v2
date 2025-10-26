@@ -10,7 +10,7 @@
       </div>
 
       <!-- Pipeline Steps -->
-      <div class="relative grid grid-cols-6 gap-2">
+      <div class="relative grid grid-cols-5 gap-2">
         <!-- Step 0: Launchpad Created (Always checked) -->
         <div class="flex flex-col items-center">
           <div :class="getStepClasses(0)">
@@ -52,45 +52,39 @@
           </div>
         </div>
 
-        <!-- Step 3: Deploy Token -->
+        <!-- Step 3: Sale End -->
         <div class="flex flex-col items-center">
           <div :class="getStepClasses(3)">
             <svg v-if="isStepCompleted(3)" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
+            <svg v-else-if="isStepWaiting(3)" class="w-3 h-3 text-blue-500 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
             <span v-else class="text-xs font-bold text-gray-400">4</span>
           </div>
           <div class="mt-2 text-center">
-            <p class="text-xs font-medium text-gray-900 dark:text-white">Deploy Token</p>
-            <p class="text-xs text-gray-600 dark:text-gray-400">{{ tokenSymbol }}</p>
+            <p class="text-xs font-medium text-gray-900 dark:text-white">Sale End</p>
+            <p class="text-xs text-gray-600 dark:text-gray-400">{{ getStepStatus(3) }}</p>
           </div>
         </div>
 
-        <!-- Step 4: Deploy Distribution -->
+        <!-- Step 4: Deployment Pipeline -->
         <div class="flex flex-col items-center">
           <div :class="getStepClasses(4)">
             <svg v-if="isStepCompleted(4)" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
+            <svg v-else-if="isStepWaiting(4)" class="w-3 h-3 text-blue-500 dark:text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 714 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            </svg>
             <span v-else class="text-xs font-bold text-gray-400">5</span>
           </div>
           <div class="mt-2 text-center">
-            <p class="text-xs font-medium text-gray-900 dark:text-white">Distribution</p>
-            <p class="text-xs text-gray-600 dark:text-gray-400">Vesting</p>
-          </div>
-        </div>
-
-        <!-- Step 5: Listing to DEX -->
-        <div class="flex flex-col items-center">
-          <div :class="getStepClasses(5)">
-            <svg v-if="isStepCompleted(5)" class="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
-            </svg>
-            <span v-else class="text-xs font-bold text-gray-400">6</span>
-          </div>
-          <div class="mt-2 text-center">
-            <p class="text-xs font-medium text-gray-900 dark:text-white">Listing to DEX</p>
-            <p class="text-xs text-gray-600 dark:text-gray-400">Multi-DEX</p>
+            <p class="text-xs font-medium text-gray-900 dark:text-white">Deployment</p>
+            <p class="text-xs text-gray-600 dark:text-gray-400">{{ getStepStatus(4) }}</p>
           </div>
         </div>
       </div>
@@ -117,6 +111,7 @@ import { computed } from 'vue'
 
 interface Props {
   saleStarted: boolean
+  saleEnded: boolean
   softcapReached: boolean
   tokenDeployed: boolean
   distributionDeployed: boolean
@@ -127,7 +122,7 @@ interface Props {
 const props = defineProps<Props>()
 
 const completedSteps = computed(() => {
-  // Step 0: Launchpad Created (always completed if we're viewing this page)
+  // Step 0: Launchpad Created (always completed)
   let count = 1
 
   // Only count subsequent steps if previous steps are completed
@@ -137,37 +132,23 @@ const completedSteps = computed(() => {
     if (props.softcapReached) {
       count++ // Step 2: Softcap Reached
 
-      if (props.tokenDeployed) {
-        count++ // Step 3: Token Deployed
+      if (props.saleEnded) {
+        count++ // Step 3: Sale End
 
-        if (props.distributionDeployed) {
-          count++ // Step 4: Distribution Deployed
-
-          if (props.dexListed) {
-            count++ // Step 5: DEX Listed
-          }
+        // Step 4: Deployment Pipeline - all three must be complete
+        if (props.tokenDeployed && props.distributionDeployed && props.dexListed) {
+          count++ // Step 4: All deployments complete
         }
       }
     }
   }
 
-  // Debug logging
-  console.log('🚀 Pipeline Debug:', {
-    saleStarted: props.saleStarted,
-    softcapReached: props.softcapReached,
-    tokenDeployed: props.tokenDeployed,
-    distributionDeployed: props.distributionDeployed,
-    dexListed: props.dexListed,
-    completedCount: count,
-    progressPercentage: ((count - 1) / 5) * 100 // Subtract 1 because step 0 is always done
-  })
-
   return count
 })
 
 const progressPercentage = computed(() => {
-  // Step 0 (Created) is always done, so we calculate progress based on remaining 5 steps
-  return ((completedSteps.value - 1) / 5) * 100
+  // Step 0 (Created) is always done, so we calculate progress based on remaining 4 steps
+  return Math.round(((completedSteps.value - 1) / 4) * 100)
 })
 
 const saleStatus = computed(() => {
@@ -181,9 +162,10 @@ const softcapStatus = computed(() => {
 const currentStageText = computed(() => {
   if (!props.saleStarted) return 'Waiting for Sale Start'
   if (!props.softcapReached) return 'Waiting for Softcap'
-  if (!props.tokenDeployed) return 'Deploying Token'
-  if (!props.distributionDeployed) return 'Setting up Distribution'
-  if (!props.dexListed) return 'Listing to DEX'
+  if (!props.saleEnded) return 'Waiting for Sale End'
+  if (!props.tokenDeployed || !props.distributionDeployed || !props.dexListed) {
+    return 'Deployment Pipeline in Progress'
+  }
   return 'Launch Complete!'
 })
 
@@ -192,10 +174,38 @@ const isStepCompleted = (step: number): boolean => {
     case 0: return true // Launchpad Created (always true)
     case 1: return props.saleStarted
     case 2: return props.saleStarted && props.softcapReached
-    case 3: return props.saleStarted && props.softcapReached && props.tokenDeployed
-    case 4: return props.saleStarted && props.softcapReached && props.tokenDeployed && props.distributionDeployed
-    case 5: return props.saleStarted && props.softcapReached && props.tokenDeployed && props.distributionDeployed && props.dexListed
+    case 3: return props.saleStarted && props.softcapReached && props.saleEnded
+    case 4: return props.saleStarted && props.softcapReached && props.saleEnded &&
+                   props.tokenDeployed && props.distributionDeployed && props.dexListed
     default: return false
+  }
+}
+
+// Check if step is in "waiting for deployment" state
+const isStepWaiting = (step: number): boolean => {
+  switch (step) {
+    case 3: // Sale End - waiting if softcap reached but sale not ended
+      return props.softcapReached && !props.saleEnded
+    case 4: // Deployment Pipeline - waiting if sale ended but deployments not complete
+      return props.saleEnded && (!props.tokenDeployed || !props.distributionDeployed || !props.dexListed)
+    default:
+      return false
+  }
+}
+
+// Get status text for each step
+const getStepStatus = (step: number): string => {
+  switch (step) {
+    case 3:
+      if (props.saleEnded) return 'Ended'
+      if (props.softcapReached) return 'Waiting...'
+      return 'Pending'
+    case 4:
+      if (props.tokenDeployed && props.distributionDeployed && props.dexListed) return 'Complete'
+      if (props.saleEnded) return 'Waiting...'
+      return 'Pending'
+    default:
+      return ''
   }
 }
 
@@ -204,6 +214,11 @@ const getStepClasses = (step: number): string => {
 
   if (isStepCompleted(step)) {
     return `${baseClasses} bg-gradient-to-r from-[#b27c10] to-[#e1b74c] shadow-sm`
+  }
+
+  // Waiting state (spinning icon)
+  if (isStepWaiting(step)) {
+    return `${baseClasses} bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-400 dark:border-blue-500`
   }
 
   if (step === completedSteps.value) {

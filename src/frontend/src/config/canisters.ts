@@ -54,6 +54,18 @@ import {
     idlFactory as multisigFactoryIDL,
 } from "../../../declarations/multisig_factory";
 import type { _SERVICE as _MULTISIG_FACTORY_SERVICE } from "../../../declarations/multisig_factory/multisig_factory.did.d.ts";
+// DAO Factory
+import {
+    canisterId as daoFactoryCanisterId,
+    idlFactory as daoFactoryIDL,
+} from "../../../declarations/dao_factory";
+import type { _SERVICE as _DAO_FACTORY_SERVICE } from "../../../declarations/dao_factory/dao_factory.did.d.ts";
+// Launchpad Factory
+import {
+    canisterId as launchpadFactoryCanisterId,
+    idlFactory as launchpadFactoryIDL,
+} from "../../../declarations/launchpad_factory";
+import type { _SERVICE as _LAUNCHPAD_FACTORY_SERVICE } from "../../../declarations/launchpad_factory/launchpad_factory.did.d.ts";
 
 
 // Consolidated canister types
@@ -64,7 +76,9 @@ export type CanisterType = {
     DISTRIBUTION_CONTRACT: _DISTRIBUTION_CONTRACT_SERVICE;
     DISTRIBUTION_FACTORY: _DISTRIBUTION_FACTORY_SERVICE;
     DAO_CONTRACT: _DAO_CONTRACT_SERVICE;
+    DAO_FACTORY: _DAO_FACTORY_SERVICE;
     LAUNCHPAD_CONTRACT: _LAUNCHPAD_CONTRACT_SERVICE;
+    LAUNCHPAD_FACTORY: _LAUNCHPAD_FACTORY_SERVICE;
     MULTISIG_CONTRACT: _MULTISIG_CONTRACT_SERVICE;
     MULTISIG_FACTORY: _MULTISIG_FACTORY_SERVICE;
     TOKEN_FACTORY: _TOKEN_FACTORY_SERVICE;
@@ -132,6 +146,16 @@ export const canisters: CanisterConfigs = {
         idl: multisigFactoryIDL,
         type: {} as CanisterType["MULTISIG_FACTORY"],
     },
+    dao_factory: {
+        canisterId: import.meta.env.VITE_DAO_FACTORY_CANISTER_ID,
+        idl: daoFactoryIDL,
+        type: {} as CanisterType["DAO_FACTORY"],
+    },
+    launchpad_factory: {
+        canisterId: import.meta.env.VITE_LAUNCHPAD_FACTORY_CANISTER_ID,
+        idl: launchpadFactoryIDL,
+        type: {} as CanisterType["LAUNCHPAD_FACTORY"],
+    },
 };
 
 // Export canister IDs for easy access
@@ -141,7 +165,9 @@ export const canisterIds = {
     distribution_contract: canisters.distribution_contract.canisterId,
     distribution_factory: canisters.distribution_factory.canisterId,
     dao_contract: canisters.dao_contract.canisterId,
+    dao_factory: canisters.dao_factory.canisterId,
     launchpad_contract: canisters.launchpad_contract.canisterId,
+    launchpad_factory: canisters.launchpad_factory.canisterId,
     multisig_contract: canisters.multisig_contract.canisterId,
     multisig_factory: canisters.multisig_factory.canisterId,
     token_factory: canisters.token_factory.canisterId,

@@ -8,7 +8,7 @@
       type="url"
       :placeholder="placeholder"
       :class="inputClass"
-      class="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white transition-colors"
+      class="w-full px-3 py-2 text-sm border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:text-white transition-colors"
     />
 
     <!-- Image Preview -->
@@ -17,7 +17,7 @@
         :src="modelValue"
         :alt="label"
         :class="previewClass"
-        class="rounded-lg border-2 border-gray-200 dark:border-gray-600 object-cover"
+        class="rounded-lg border-2 text-sm border-gray-200 dark:border-gray-600 object-cover"
         @load="onImageLoad"
         @error="onImageError"
       />
