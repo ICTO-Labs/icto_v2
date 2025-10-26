@@ -608,8 +608,8 @@ const handleDeposit = async () => {
     // DEBUG: Let's also check what balance we expect before transfer
     console.log('🔍 PRE-TRANSFER BALANCE CHECK:')
 
-    // Method 1: Using IcrcService (current method)
-    const balanceViaService = await IcrcService.getIcrc1Balance(
+    // Method 1: Using IcrcService with new subaccount balance method
+    const balanceViaService = await IcrcService.getIcrc1SubaccountBalance(
       transferToken,
       Principal.fromText(canisterId.value),
       Array.from(depositAccount.subaccount),
@@ -927,7 +927,7 @@ const fetchDepositedBalance = async () => {
       }
     }
 
-    const balance = await IcrcService.getIcrc1Balance(
+    const balance = await IcrcService.getIcrc1SubaccountBalance(
       tokenForService,
       Principal.fromText(canisterId.value),
       Array.from(depositAccount.subaccount),
@@ -1115,7 +1115,7 @@ const debugBalanceChecking = async () => {
 
     // Method 1: IcrcService with subaccount
     console.log('🔍 Method 1: IcrcService with subaccount')
-    const balance1 = await IcrcService.getIcrc1Balance(
+    const balance1 = await IcrcService.getIcrc1SubaccountBalance(
       tokenForService,
       Principal.fromText(canisterId.value),
       Array.from(subaccountBytes),

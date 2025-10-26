@@ -115,6 +115,53 @@ export class IcrcService {
         }
     }
 
+    public static async getIcrc1SubaccountBalance(
+        token: Token,
+        owner: Principal,
+        subaccount?: number[] | undefined,
+        separateBalances: boolean = false,
+    ): Promise<{ default: bigint; subaccount: bigint } | bigint> {
+        try {
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: true,
+            });
+
+            // If no subaccount specified, get default balance
+            if (!subaccount) {
+                const defaultBalance = await actor.icrc1_balance_of({
+                    owner: Principal.fromText(owner.toString()),
+                    subaccount: [],  // Empty array for no subaccount
+                });
+                return defaultBalance;
+            }
+
+            // If we need separate balances, return both
+            if (separateBalances) {
+                const defaultBalance = await actor.icrc1_balance_of({
+                    owner: Principal.fromText(owner.toString()),
+                    subaccount: [],  // Empty array for no subaccount
+                });
+                const subaccountBalance = await actor.icrc1_balance_of({
+                    owner: owner,
+                    subaccount: [subaccount],
+                });
+                return { default: defaultBalance, subaccount: subaccountBalance };
+            }
+
+            // Otherwise, return only the subaccount balance
+            const subaccountBalance = await actor.icrc1_balance_of({
+                owner: owner,
+                subaccount: subaccount ? [subaccount] : [],  // Handle undefined subaccount
+            });
+            return subaccountBalance;
+
+        } catch (error) {
+            console.error(`Error getting ICRC1 balance for ${token.symbol}:`, error);
+            return BigInt(0);
+        }
+    }
+
     public static async batchGetBalances(
         tokens: Token[],
         principal: string,
