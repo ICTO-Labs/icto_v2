@@ -656,6 +656,51 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         #ok(())
     };
 
+    /// Request self-upgrade to latest stable version
+    /// Only creator can request upgrade
+    public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
+        Debug.print("🔄 DistributionContract: requestSelfUpgrade called by " # Principal.toText(caller));
+
+        // Authorization check - only creator can request upgrade
+        if (caller != creator) {
+            Debug.print("❌ DistributionContract: Unauthorized caller (not creator)");
+            return #err("Unauthorized: Only creator can request self-upgrade");
+        };
+
+        // Get factory principal
+        let factoryPrincipal = switch (factoryCanisterId) {
+            case (?principal) { principal };
+            case null {
+                return #err("No factory configured");
+            };
+        };
+
+        // Call factory to request upgrade
+        try {
+            let factoryActor = actor(Principal.toText(factoryPrincipal)) : actor {
+                requestSelfUpgrade: () -> async Result.Result<(), Text>;
+            };
+
+            Debug.print("📞 DistributionContract: Calling factory.requestSelfUpgrade()...");
+            let result = await factoryActor.requestSelfUpgrade();
+
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ DistributionContract: Self-upgrade request successful");
+                    #ok()
+                };
+                case (#err(msg)) {
+                    Debug.print("❌ DistributionContract: Self-upgrade request failed: " # msg);
+                    #err(msg)
+                };
+            };
+        } catch (e) {
+            let errorMsg = "Failed to call factory: " # Error.message(e);
+            Debug.print("💥 DistributionContract: " # errorMsg);
+            #err(errorMsg)
+        }
+    };
+
     /// Comprehensive health check
     public query func healthCheck() : async IUpgradeable.HealthStatus {
         let issues = Buffer.Buffer<Text>(0);

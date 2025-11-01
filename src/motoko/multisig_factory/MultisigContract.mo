@@ -2020,6 +2020,49 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
             #ok(())
         };
 
+        /// Request self-upgrade to latest stable version
+        /// Only creator or signers can request upgrade
+        public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
+            Debug.print("🔄 MultisigContract: requestSelfUpgrade called by " # Principal.toText(caller));
+
+            // Authorization check - only creator or signers can request upgrade
+            let isCreator = caller == creator;
+            let isSigner = switch (signers.get(caller)) {
+                case (?_) { true };
+                case null { false };
+            };
+
+            if (not isCreator and not isSigner) {
+                Debug.print("❌ MultisigContract: Unauthorized caller (not creator or signer)");
+                return #err("Unauthorized: Only creator or signers can request self-upgrade");
+            };
+
+            // Call factory to request upgrade
+            try {
+                let factoryActor = actor(Principal.toText(factory)) : actor {
+                    requestSelfUpgrade: () -> async Result.Result<(), Text>;
+                };
+
+                Debug.print("📞 MultisigContract: Calling factory.requestSelfUpgrade()...");
+                let result = await factoryActor.requestSelfUpgrade();
+
+                switch (result) {
+                    case (#ok()) {
+                        Debug.print("✅ MultisigContract: Self-upgrade request successful");
+                        #ok()
+                    };
+                    case (#err(msg)) {
+                        Debug.print("❌ MultisigContract: Self-upgrade request failed: " # msg);
+                        #err(msg)
+                    };
+                };
+            } catch (e) {
+                let errorMsg = "Failed to call factory: " # Error.message(e);
+                Debug.print("💥 MultisigContract: " # errorMsg);
+                #err(errorMsg)
+            }
+        };
+
         /// Comprehensive health check
         public query func healthCheck() : async IUpgradeable.HealthStatus {
             let issues = Buffer.Buffer<Text>(0);

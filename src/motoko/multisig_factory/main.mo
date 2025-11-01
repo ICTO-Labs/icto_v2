@@ -17,6 +17,7 @@ import Nat32 "mo:base/Nat32";
 import Int "mo:base/Int";
 import Float "mo:base/Float";
 import Blob "mo:base/Blob";
+import Timer "mo:base/Timer";
 
 import MultisigTypes "../shared/types/MultisigTypes";
 import MultisigUpgradeTypes "../shared/types/MultisigUpgradeTypes";
@@ -108,15 +109,35 @@ persistent actor MultisigFactory {
         contractVersions: [(Principal, VersionManager.ContractVersion)];
         compatibilityMatrix: [VersionManager.UpgradeCompatibility];
         latestStableVersion: ?VersionManager.Version;
+        upgradeRequests: [(Text, VersionManager.UpgradeRequest)];
+        requestCounter: Nat;
     } = {
         wasmVersions = [];
         contractVersions = [];
         compatibilityMatrix = [];
         latestStableVersion = null;
+        upgradeRequests = [];
+        requestCounter = 0;
     };
 
     // Version Management Runtime State
     private transient var versionManager = VersionManager.VersionManagerState();
+
+    // ============================================
+    // QUEUE PROCESSOR TIMER CONFIGURATION
+    // ============================================
+
+    // Timer configuration
+    private let QUEUE_PROCESS_INTERVAL : Nat = 60; // 60 seconds
+    private let MIN_UPGRADE_INTERVAL : Nat = 120; // 2 minutes minimum between upgrades
+    private var queueTimerId : ?Timer.TimerId = null;
+    private var lastUpgradeTime : Int = 0; // Time.now() value (Int)
+
+    // Queue control configuration (admin only)
+    private var isQueuePaused : Bool = false;
+    private var queuePauseReason : ?Text = null;
+    private var queuePausedBy : ?Principal = null;
+    private var queuePausedAt : ?Int = null;
 
     // Constants
     private let MIN_CYCLES_FOR_WALLET = 1_000_000_000_000; // 1T cycles
@@ -797,7 +818,7 @@ persistent actor MultisigFactory {
         }
     };
 
-    /// Execute upgrade with auto state capture
+    /// Execute upgrade with auto state capture (Admin only)
     /// Factory automatically captures contract state and performs upgrade
     public shared({caller}) func upgradeContract(
         contractId: Principal,
@@ -807,6 +828,46 @@ persistent actor MultisigFactory {
             return #err("Unauthorized: Only admins can upgrade contracts");
         };
 
+        await _performContractUpgrade(contractId, toVersion, "Admin")
+    };
+
+    public shared({caller}) func rollbackContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        rollbackArgs: Blob
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can rollback contracts");
+        };
+
+        // Perform rollback upgrade
+        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, rollbackArgs);
+
+        switch (result) {
+            case (#ok()) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #RolledBack("Manual rollback"));
+                Debug.print("✅ Rolled back contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+            };
+            case (#err(msg)) {
+                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                Debug.print("❌ Failed to rollback contract: " # msg);
+            };
+        };
+
+        result
+    };
+
+    // ============================================
+    // ASYNC UPGRADE PROCESSING & QUEUE SYSTEM
+    // ============================================
+
+    /// Private helper function to perform contract upgrade
+    /// Used by both upgradeContract (admin) and requestSelfUpgrade (contract owner)
+    private func _performContractUpgrade(
+        contractId: Principal,
+        toVersion: VersionManager.Version,
+        initiator: Text  // "Admin" or "Queue"
+    ) : async Result.Result<(), Text> {
         // Check upgrade eligibility
         switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
             case (#err(msg)) { return #err(msg) };
@@ -831,22 +892,19 @@ persistent actor MultisigFactory {
         // Auto-capture current state
         let upgradeArgs = try {
             let argsBlob = await contract.getUpgradeArgs();
-            Debug.print("✅ Auto-captured state for contract " # Principal.toText(contractId));
+            Debug.print("✅ Auto-captured state for multisig contract " # Principal.toText(contractId));
 
-            // Deserialize the upgrade args, update target version, wrap in variant, and re-serialize
-            let ?args: ?MultisigUpgradeTypes.MultisigUpgradeArgs = from_candid(argsBlob) else {
+            // Deserialize the upgrade args, wrap in variant, and re-serialize
+            let ?args: ?MultisigUpgradeTypes.MultisigUpgradeArgs = from_candid (argsBlob) else {
                 return #err("Failed to deserialize upgrade args");
             };
 
-            // Update target version to the new version (backward compatible)
-            Debug.print("📦 FACTORY: Upgrading contract to version: " # _versionToText(toVersion));
             let updatedArgs = {
                 args with targetVersion = ?toVersion
             };
 
             let wrappedArgs: MultisigUpgradeTypes.MultisigInitArgs = #Upgrade(updatedArgs);
-            Debug.print("📤 FACTORY: Upgrade args prepared with targetVersion: " # _versionToText(toVersion));
-            to_candid(wrappedArgs)
+            to_candid (wrappedArgs)
         } catch (e) {
             return #err("Failed to capture contract state: " # Error.message(e))
         };
@@ -854,12 +912,14 @@ persistent actor MultisigFactory {
         // Perform the upgrade
         let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
 
+        // Record upgrade
         switch (result) {
             case (#ok()) {
-                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
-                Debug.print("✅ Upgraded contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+                let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
+                versionManager.recordUpgrade(contractId, toVersion, upgradeType, #Success);
+                Debug.print("✅ Upgraded multisig contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion) # " (initiated by " # initiator # ")");
 
-                // NEW: Factory-driven version update pattern
+                // Factory-driven version update pattern
                 // After successful upgrade, call updateVersion on the contract
                 try {
                     // Cast to MultisigContract type to access updateVersion function
@@ -874,47 +934,20 @@ persistent actor MultisigFactory {
 
                     switch (updateResult) {
                         case (#ok()) {
-                            Debug.print("✅ Factory successfully updated contract version to " # _versionToText(toVersion));
+                            Debug.print("✅ Factory successfully updated multisig contract version to " # _versionToText(toVersion));
                         };
                         case (#err(errMsg)) {
-                            Debug.print("⚠️ Warning: Failed to update contract version via factory: " # errMsg);
-                            // Note: This is not critical as the upgrade itself succeeded
+                            Debug.print("⚠️ Warning: Failed to update multisig contract version via factory: " # errMsg);
                         };
                     };
                 } catch (e) {
-                    Debug.print("⚠️ Warning: Could not call updateVersion on upgraded contract: " # Error.message(e));
-                    // Note: This is not critical as the upgrade itself succeeded
+                    Debug.print("⚠️ Warning: Could not call updateVersion on upgraded multisig contract: " # Error.message(e));
                 };
             };
             case (#err(msg)) {
-                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
-                Debug.print("❌ Failed to upgrade contract: " # msg);
-            };
-        };
-
-        result
-    };
-
-    public shared({caller}) func rollbackContract(
-        contractId: Principal,
-        toVersion: VersionManager.Version,
-        rollbackArgs: Blob
-    ) : async Result.Result<(), Text> {
-        if (not _isAdmin(caller)) {
-            return #err("Unauthorized: Only admins can rollback contracts");
-        };
-
-        // Perform rollback upgrade
-        let result = await versionManager.performChunkedUpgrade(contractId, toVersion, rollbackArgs);
-
-        switch (result) {
-            case (#ok()) {
-                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #RolledBack("Manual rollback"));
-                Debug.print("✅ Rolled back contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
-            };
-            case (#err(msg)) {
-                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
-                Debug.print("❌ Failed to rollback contract: " # msg);
+                let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
+                versionManager.recordUpgrade(contractId, toVersion, upgradeType, #Failed(msg));
+                Debug.print("❌ Failed to upgrade multisig contract: " # msg);
             };
         };
 
@@ -985,12 +1018,39 @@ persistent actor MultisigFactory {
         // Save Version Manager state
         versionManagerStable := versionManager.toStable();
 
+        // Cancel queue processor timer before upgrade
+        switch (queueTimerId) {
+            case (?timerId) {
+                Timer.cancelTimer(timerId);
+                queueTimerId := null;
+                Debug.print("🛑 Queue processor timer cancelled");
+            };
+            case null {
+                Debug.print("ℹ️ No queue processor timer to cancel");
+            };
+        };
+
         Debug.print("MultisigFactory: Pre-upgrade, saving " # debug_show(walletsEntries.size()) # " wallets");
     };
 
     system func postupgrade() {
         // Restore Version Manager state
         versionManager.fromStable(versionManagerStable);
+
+        // Initialize queue processor timer after upgrade
+        switch (queueTimerId) {
+            case null {
+                let timerId = Timer.recurringTimer(
+                    #seconds QUEUE_PROCESS_INTERVAL,
+                    _processQueueTick
+                );
+                queueTimerId := ?timerId;
+                Debug.print("⏰ Queue processor timer initialized (" # Nat.toText(QUEUE_PROCESS_INTERVAL) # "s interval)");
+            };
+            case (?_) {
+                Debug.print("⚠️ Queue processor timer already exists");
+            };
+        };
 
         // Restore indexes
         for ((user, walletIds) in creatorIndexStable.vals()) {
@@ -1070,6 +1130,405 @@ persistent actor MultisigFactory {
             sender_canister_version = null;
         });
         #ok();
+    };
+
+    // ============================================
+    // SELF-UPGRADE REQUEST & QUEUE PROCESSING
+    // ============================================
+
+    /// Self-upgrade request from deployed contract
+    /// Allows contract owner/admin to request upgrade to latest stable version
+    public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
+        Debug.print("🔄 FACTORY: requestSelfUpgrade called by " # Principal.toText(caller));
+
+        // 1. Verify caller is a deployed contract
+        var foundWallet : ?WalletRegistry = null;
+        label walletLoop for ((_, wallet) in wallets.entries()) {
+            if (wallet.canisterId == caller) {
+                foundWallet := ?wallet;
+                break walletLoop;
+            };
+        };
+
+        let walletRecord = switch (foundWallet) {
+            case null {
+                Debug.print("❌ FACTORY: Caller is not a deployed contract");
+                return #err("Unauthorized: Caller is not a deployed contract");
+            };
+            case (?wallet) { wallet };
+        };
+
+        Debug.print("📋 FACTORY: Contract found - ID: " # walletRecord.id # ", Creator: " # Principal.toText(walletRecord.creator));
+
+        // 2. Check if newer version available
+        let currentVersion = switch (versionManager.getContractVersion(caller)) {
+            case null {
+                Debug.print("❌ FACTORY: Contract not registered in version manager");
+                return #err("Contract not registered in version manager");
+            };
+            case (?v) { v.currentVersion };
+        };
+
+        let latestVersion = switch (versionManager.getLatestStableVersion()) {
+            case null {
+                Debug.print("❌ FACTORY: No stable version available");
+                return #err("No stable version available for upgrade");
+            };
+            case (?v) { v };
+        };
+
+        Debug.print("📊 FACTORY: Current version: " # _versionToText(currentVersion));
+        Debug.print("📊 FACTORY: Latest version: " # _versionToText(latestVersion));
+
+        // 3. Compare versions
+        let comparison = IUpgradeable.compareVersions(latestVersion, currentVersion);
+        switch (comparison) {
+            case (#greater) {
+                Debug.print("✅ FACTORY: Newer version available, proceeding with upgrade");
+            };
+            case (#equal) {
+                Debug.print("ℹ️ FACTORY: Already at latest version");
+                return #err("Contract is already at the latest version (" # _versionToText(currentVersion) # ")");
+            };
+            case (#less) {
+                Debug.print("⚠️ FACTORY: Current version is newer than latest stable (possible beta/dev version)");
+                return #err("Current version is newer than latest stable version");
+            };
+        };
+
+        // 4. Create upgrade request (queue-based to avoid outstanding callbacks)
+        Debug.print("🚀 FACTORY: Creating upgrade request for contract " # Principal.toText(caller));
+        let requestId = versionManager.createUpgradeRequest(caller, latestVersion, caller);
+
+        // 5. Hybrid processing logic
+        let pendingRequests = versionManager.getPendingUpgradeRequests();
+        if (pendingRequests.size() == 1) {
+            // First request - process immediately
+            Debug.print("⚡ First request - processing immediately");
+            ignore _processUpgradeRequestAsync(requestId);
+        } else {
+            // Multiple requests - let timer handle FIFO order
+            Debug.print("⏳ Queued request #" # Nat.toText(pendingRequests.size()) # " - timer will process in FIFO order");
+        };
+
+        Debug.print("📝 FACTORY: Upgrade request created with ID: " # requestId);
+        #ok(())
+    };
+
+    /// Process upgrade request asynchronously (helper function)
+    /// Uses the same upgrade logic as admin upgrades for consistency
+    private func _processUpgradeRequestAsync(requestId: Text) : async () {
+        try {
+            // Get request from queue to get contract details
+            let ?request = versionManager.getUpgradeRequestStatus(requestId) else {
+                Debug.print("❌ Upgrade request not found: " # requestId);
+                return;
+            };
+
+            Debug.print("🚀 Processing upgrade request: " # requestId # " for contract: " # Principal.toText(request.contractId));
+
+            // Get latest stable version (same logic as requestSelfUpgrade)
+            let latestVersion = switch (versionManager.getLatestStableVersion()) {
+                case (null) {
+                    Debug.print("❌ No stable version available");
+                    versionManager.updateRequestStatus(requestId, #Failed("No stable version available"));
+                    return;
+                };
+                case (?v) { v };
+            };
+
+            // Use the exact same upgrade logic as admin upgrades
+            let result = await _performContractUpgrade(request.contractId, latestVersion, "Queue");
+
+            switch (result) {
+                case (#ok(())) {
+                    Debug.print("✅ Upgrade request completed successfully: " # requestId);
+                    versionManager.updateRequestStatus(requestId, #Completed);
+                };
+                case (#err(msg)) {
+                    Debug.print("❌ Upgrade request failed: " # requestId # " - " # msg);
+                    versionManager.updateRequestStatus(requestId, #Failed(msg));
+                };
+            };
+        } catch (e) {
+            Debug.print("💥 Unexpected error processing upgrade request: " # requestId # " - " # Error.message(e));
+            versionManager.updateRequestStatus(requestId, #Failed("Unexpected error: " # Error.message(e)));
+        };
+    };
+
+    /// Timer tick function - called every 60 seconds
+    private func _processQueueTick() : async () {
+        try {
+            Debug.print("🕐 Queue processor tick - checking for pending requests");
+
+            // Check if queue is paused
+            if (isQueuePaused) {
+                Debug.print("⏸️ Queue processing is paused by admin");
+                switch (queuePauseReason) {
+                    case (?reason) {
+                        Debug.print("   Reason: " # reason);
+                    };
+                    case null {
+                        Debug.print("   No reason provided");
+                    };
+                };
+                return;
+            };
+
+            // Rate limiting check
+            let currentTime = Time.now();
+            let timeSinceLastUpgrade = currentTime - lastUpgradeTime;
+            let minIntervalNanos = MIN_UPGRADE_INTERVAL * 1_000_000_000;
+
+            if (timeSinceLastUpgrade < minIntervalNanos) {
+                let remainingSeconds = (minIntervalNanos - timeSinceLastUpgrade) / 1_000_000_000;
+                Debug.print("⏰ Rate limit active - only " # Int.toText(remainingSeconds) # "s until next upgrade");
+                return;
+            };
+
+            let pendingRequests = versionManager.getPendingUpgradeRequests();
+            if (pendingRequests.size() == 0) {
+                Debug.print("📭 No pending upgrade requests");
+                return;
+            };
+
+            // Process only ONE request per tick to avoid conflicts (FIFO)
+            let nextRequest = pendingRequests[0];
+            Debug.print("🚀 Processing queued request: " # nextRequest.requestId # " (contract: " # Principal.toText(nextRequest.contractId) # ")");
+
+            // Use the same async processor (reuses admin upgrade logic)
+            await _processUpgradeRequestAsync(nextRequest.requestId);
+
+            lastUpgradeTime := Time.now();
+            Debug.print("✅ Queue processor completed for: " # nextRequest.requestId);
+
+        } catch (e) {
+            Debug.print("💥 Queue processor error: " # Error.message(e));
+        };
+    };
+
+    // ============================================
+    // QUEUE CONTROL FUNCTIONS (ADMIN)
+    // ============================================
+
+    /// Pause automatic queue processing (admin only)
+    public shared({caller}) func pauseQueueProcessing(reason: ?Text) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can pause queue processing");
+        };
+
+        if (isQueuePaused) {
+            return #err("Queue processing is already paused");
+        };
+
+        isQueuePaused := true;
+        queuePauseReason := reason;
+        queuePausedBy := ?caller;
+        queuePausedAt := ?Time.now();
+
+        Debug.print("🛑 Queue processing PAUSED by " # Principal.toText(caller));
+        switch (reason) {
+            case (?r) { Debug.print("   Reason: " # r); };
+            case null { Debug.print("   No reason provided"); };
+        };
+
+        #ok(())
+    };
+
+    /// Resume automatic queue processing (admin only)
+    public shared({caller}) func resumeQueueProcessing() : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can resume queue processing");
+        };
+
+        if (not isQueuePaused) {
+            return #err("Queue processing is not paused");
+        };
+
+        isQueuePaused := false;
+        let previousReason = queuePauseReason;
+        let previousPauser = queuePausedBy;
+
+        // Reset pause tracking
+        queuePauseReason := null;
+        queuePausedBy := null;
+        queuePausedAt := null;
+
+        Debug.print("▶️ Queue processing RESUMED by " # Principal.toText(caller));
+        switch (previousPauser) {
+            case (?pauser) {
+                Debug.print("   Previously paused by: " # Principal.toText(pauser));
+            };
+            case null {};
+        };
+        switch (previousReason) {
+            case (?reason) {
+                Debug.print("   Previous reason: " # reason);
+            };
+            case null {};
+        };
+
+        #ok(())
+    };
+
+    /// Get current queue status (admin only)
+    public query func getQueueStatus(caller: Principal) : async {
+        isPaused: Bool;
+        reason: ?Text;
+        pausedBy: ?Principal;
+        pausedAt: ?Int;
+        pendingRequests: Nat;
+        timerActive: Bool;
+    } {
+        if (not _isAdmin(caller)) {
+            return {
+                isPaused = false;
+                reason = null;
+                pausedBy = null;
+                pausedAt = null;
+                pendingRequests = 0;
+                timerActive = false;
+            };
+        };
+
+        return {
+            isPaused = isQueuePaused;
+            reason = queuePauseReason;
+            pausedBy = queuePausedBy;
+            pausedAt = queuePausedAt;
+            pendingRequests = versionManager.getPendingUpgradeRequests().size();
+            timerActive = queueTimerId != null;
+        };
+    };
+
+    /// Get upgrade request status (for frontend polling)
+    public query func getUpgradeRequestStatus(canisterId: Text, requestId: Text) : async ?VersionManager.UpgradeRequest {
+        // Validate that this request belongs to the specified canister
+        switch (versionManager.getUpgradeRequestStatus(requestId)) {
+            case (null) { null };
+            case (?request) {
+                if (Principal.toText(request.contractId) == canisterId) {
+                    ?request
+                } else {
+                    null // Request exists but belongs to different canister
+                }
+            };
+        }
+    };
+
+    /// Cancel upgrade request (only contract owner can cancel their own requests)
+    public shared({caller}) func cancelUpgradeRequest(canisterId: Text, requestId: Text) : async Result.Result<(), Text> {
+        try {
+            let canisterPrincipal = Principal.fromText(canisterId);
+
+            // Find contract by canister ID to verify ownership
+            var foundWallet : ?WalletRegistry = null;
+            label walletLoop for ((_, wallet) in wallets.entries()) {
+                if (wallet.canisterId == canisterPrincipal) {
+                    foundWallet := ?wallet;
+                    break walletLoop;
+                };
+            };
+
+            switch (foundWallet) {
+                case (null) { #err("Contract not found") };
+                case (?wallet) {
+                    if (wallet.creator != caller) {
+                        #err("Only contract creator can cancel upgrade requests")
+                    } else {
+                        // Attempt to cancel the request
+                        switch (versionManager.getUpgradeRequestStatus(requestId)) {
+                            case (null) { #err("Upgrade request not found") };
+                            case (?req) {
+                                if (req.status == #Pending) {
+                                    versionManager.updateRequestStatus(requestId, #Failed("Cancelled by user"));
+                                    #ok(())
+                                } else {
+                                    #err("Cannot cancel request - already in progress")
+                                };
+                            };
+                        };
+                    };
+                };
+            };
+        } catch (e) {
+            #err("Invalid canister ID: " # Error.message(e))
+        };
+    };
+
+    /// Get all pending upgrade requests (for admin monitoring)
+    public query func getPendingUpgradeRequests() : async [VersionManager.UpgradeRequest] {
+        versionManager.getPendingUpgradeRequests()
+    };
+
+    /// Clean up old completed requests (maintenance function)
+    public shared({caller}) func cleanupOldUpgradeRequests() : async () {
+        if (not _isAdmin(caller)) {
+            return;
+        };
+        versionManager.cleanupOldRequests();
+    };
+
+    // ============================================
+    // VERSION METADATA QUERIES
+    // ============================================
+
+    /// Get version metadata including release notes
+    public query func getVersionMetadata(version: VersionManager.Version) : async ?{
+        version: VersionManager.Version;
+        releaseNotes: Text;
+        uploadedAt: Int;
+        uploadedBy: Principal;
+        isStable: Bool;
+        totalSize: Nat;
+    } {
+        switch (versionManager.getWASMMetadata(version)) {
+            case (?metadata) {
+                ?{
+                    version = metadata.version;
+                    releaseNotes = metadata.releaseNotes;
+                    uploadedAt = metadata.uploadedAt;
+                    uploadedBy = metadata.uploadedBy;
+                    isStable = metadata.isStable;
+                    totalSize = metadata.totalSize;
+                }
+            };
+            case null { null };
+        }
+    };
+
+    /// Get latest stable version with metadata
+    public query func getLatestStableVersionWithMetadata() : async ?{
+        version: VersionManager.Version;
+        releaseNotes: Text;
+        uploadedAt: Int;
+        uploadedBy: Principal;
+        isStable: Bool;
+        totalSize: Nat;
+    } {
+        switch (versionManager.getLatestStableVersion()) {
+            case (?latestVersion) {
+                switch (versionManager.getWASMMetadata(latestVersion)) {
+                    case (?metadata) {
+                        ?{
+                            version = metadata.version;
+                            releaseNotes = metadata.releaseNotes;
+                            uploadedAt = metadata.uploadedAt;
+                            uploadedBy = metadata.uploadedBy;
+                            isStable = metadata.isStable;
+                            totalSize = metadata.totalSize;
+                        }
+                    };
+                    case null { null };
+                }
+            };
+            case null { null };
+        }
+    };
+
+    /// Get upgrade history for a specific contract
+    public query func getUpgradeHistory(contractId: Principal) : async [VersionManager.UpgradeRecord] {
+        versionManager.getUpgradeHistory(contractId)
     };
 
     // ================ MIGRATION FUNCTIONS ================

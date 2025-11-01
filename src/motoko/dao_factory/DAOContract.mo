@@ -23,6 +23,7 @@ import DistributionTypes "../shared/types/DistributionTypes";
 import ICRC "../shared/types/ICRC";
 import SafeMath "../shared/utils/SafeMath";
 import DAOUtils "../shared/utils/DAO";
+import IUpgradeable "../common/IUpgradeable";
 // ICTO V2 - Mini DAO Contract
 // FIXED: Proper ICRC2 approve/transferFrom pattern + comprehensive transaction logging
 shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoStableStorage) = Self {
@@ -416,6 +417,9 @@ shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoSt
     // Stable copies for upgrade safety
     var system_params_stable : ?Types.SystemParams = null;
     var token_config_stable : ?Types.TokenConfig = null;
+
+    // Version Management
+    private var contractVersion : IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
     var governance_level_stable : ?Types.GovernanceLevel = null;
     var security_config_stable : ?Types.CustomSecurityParams = null;
     
@@ -4090,5 +4094,69 @@ shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoSt
         // For now, allow any caller - TODO: implement proper authorization
         // In production, this should check against a proper owner field or governance
         true
+    };
+
+    // ================ VERSION MANAGEMENT ================
+
+    /// Get current contract version
+    public query func getVersion() : async IUpgradeable.Version {
+        contractVersion
+    };
+
+    /// Update contract version (factory only)
+    /// Only the factory can call this function to update version after upgrade
+    public func updateVersion(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
+        // Factory authentication - only factory can update version
+        if (caller != factoryPrincipal) {
+            return #err("Unauthorized: Only factory can update version");
+        };
+
+        // Update version
+        contractVersion := newVersion;
+        Debug.print("✅ DAOContract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
+
+        #ok(())
+    };
+
+    /// Request self-upgrade to latest stable version
+    /// Only emergency contacts (admins) can request upgrade
+    public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
+        Debug.print("🔄 DAOContract: requestSelfUpgrade called by " # Principal.toText(caller));
+
+        // Authorization check - only emergency contacts can request upgrade
+        let isEmergencyContact = Array.find<Principal>(
+            system_params.emergency_contacts,
+            func(p) { p == caller }
+        );
+
+        if (Option.isNull(isEmergencyContact)) {
+            Debug.print("❌ DAOContract: Unauthorized caller (not in emergency_contacts)");
+            return #err("Unauthorized: Only emergency contacts can request self-upgrade");
+        };
+
+        // Call factory to request upgrade
+        try {
+            let factoryActor = actor(Principal.toText(factoryPrincipal)) : actor {
+                requestSelfUpgrade: () -> async Result.Result<(), Text>;
+            };
+
+            Debug.print("📞 DAOContract: Calling factory.requestSelfUpgrade()...");
+            let result = await factoryActor.requestSelfUpgrade();
+
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ DAOContract: Self-upgrade request successful");
+                    #ok()
+                };
+                case (#err(msg)) {
+                    Debug.print("❌ DAOContract: Self-upgrade request failed: " # msg);
+                    #err(msg)
+                };
+            };
+        } catch (e) {
+            let errorMsg = "Failed to call factory: " # Error.message(e);
+            Debug.print("💥 DAOContract: " # errorMsg);
+            #err(errorMsg)
+        }
     };
 };

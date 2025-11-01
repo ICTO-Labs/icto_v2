@@ -15,6 +15,7 @@ import Iter "mo:base/Iter";
 import IC "mo:base/ExperimentalInternetComputer";
 import Error "mo:base/Error";
 import Nat "mo:base/Nat";
+import Timer "mo:base/Timer";
 import ICManagement "../shared/utils/IC";
 // Import the DAO Contract class
 import DAOContractClass "DAOContract";
@@ -52,12 +53,28 @@ persistent actor DAOFactory {
         contractVersions: [(Principal, VersionManager.ContractVersion)];
         compatibilityMatrix: [VersionManager.UpgradeCompatibility];
         latestStableVersion: ?VersionManager.Version;
+        upgradeRequests: [(Text, VersionManager.UpgradeRequest)];
+        requestCounter: Nat;
     } = {
         wasmVersions = [];
         contractVersions = [];
         compatibilityMatrix = [];
         latestStableVersion = null;
+        upgradeRequests = [];
+        requestCounter = 0;
     };
+
+    // QUEUE SYSTEM: Timer configuration
+    private let QUEUE_PROCESS_INTERVAL : Nat = 60;  // Process queue every 60 seconds
+    private let MIN_UPGRADE_INTERVAL : Nat = 120;   // Minimum 2 minutes between upgrades
+    private var queueTimerId : ?Timer.TimerId = null;
+    private var lastUpgradeTime : Int = 0;
+
+    // QUEUE SYSTEM: Control variables
+    private var isQueuePaused : Bool = false;
+    private var queuePauseReason : ?Text = null;
+    private var queuePausedBy : ?Principal = null;
+    private var queuePausedAt : ?Int = null;
 
     // Runtime variables
     private transient var whitelistTrie : Trie.Trie<Principal, Bool> = Trie.empty();
@@ -137,6 +154,21 @@ persistent actor DAOFactory {
         // Restore Version Manager state
         versionManager.fromStable(versionManagerStable);
 
+        // Initialize queue timer
+        switch (queueTimerId) {
+            case null {
+                let newTimerId = Timer.recurringTimer(
+                    #seconds QUEUE_PROCESS_INTERVAL,
+                    _processQueueTick
+                );
+                queueTimerId := ?newTimerId;
+                Debug.print("⏰ Queue timer initialized");
+            };
+            case (?_) {
+                Debug.print("⚠️ Timer already exists");
+            };
+        };
+
         Debug.print("DAOFactory: Postupgrade completed");
     };
     
@@ -144,6 +176,16 @@ persistent actor DAOFactory {
     
     system func preupgrade() {
         Debug.print("DAOFactory: Starting preupgrade");
+
+        // Cancel queue timer
+        switch (queueTimerId) {
+            case (?timerId) {
+                Timer.cancelTimer(timerId);
+                queueTimerId := null;
+                Debug.print("🛑 Queue timer cancelled");
+            };
+            case null {};
+        };
 
         // Store whitelisted backends to stable storage
         let whitelistBuffer = Buffer.Buffer<(Principal, Bool)>(0);
@@ -770,17 +812,13 @@ persistent actor DAOFactory {
         versionManager.getWASMHash(version)
     };
 
-    // Contract Upgrade Functions
-    /// Execute upgrade with auto state capture
-    /// Factory automatically captures contract state and performs upgrade
-    public shared({caller}) func upgradeContract(
+    // Private helper function to perform contract upgrade
+    // Used by both upgradeContract (admin) and requestSelfUpgrade (contract self-service)
+    private func _performContractUpgrade(
         contractId: Principal,
-        toVersion: VersionManager.Version
+        toVersion: VersionManager.Version,
+        initiator: Text  // "Admin" or "Queue"
     ) : async Result.Result<(), Text> {
-        if (not _isAdmin(caller)) {
-            return #err("Unauthorized: Only admins can upgrade contracts");
-        };
-
         // Check upgrade eligibility
         switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
             case (#err(msg)) { return #err(msg) };
@@ -802,26 +840,397 @@ persistent actor DAOFactory {
             return #err("Failed to check upgrade readiness: " # Error.message(e));
         };
 
-        // DAO contracts don't implement IUpgradeable pattern yet
-        // Use empty upgrade args for now
+        // DAO contracts don't implement state capture yet - use empty args
         Debug.print("⚠️ DAO contracts don't support state capture yet, using empty upgrade args");
         let upgradeArgs: Blob = "\00\00";
 
         // Perform the upgrade
         let result = await versionManager.performChunkedUpgrade(contractId, toVersion, upgradeArgs);
 
+        // Record upgrade
         switch (result) {
             case (#ok()) {
-                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Success);
-                Debug.print("✅ Upgraded DAO contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion));
+                let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
+                versionManager.recordUpgrade(contractId, toVersion, upgradeType, #Success);
+                Debug.print("✅ Upgraded DAO contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion) # " (initiated by " # initiator # ")");
+
+                // Factory-driven version update pattern
+                // After successful upgrade, call updateVersion on the contract
+                try {
+                    let daoContract : actor {
+                        updateVersion: shared (IUpgradeable.Version, Principal) -> async Result.Result<(), Text>;
+                    } = actor(Principal.toText(contractId));
+
+                    // Call updateVersion with factory principal as caller
+                    let factoryPrincipal = Principal.fromActor(DAOFactory);
+                    let updateResult = await daoContract.updateVersion(toVersion, factoryPrincipal);
+
+                    switch (updateResult) {
+                        case (#ok()) {
+                            Debug.print("✅ Factory successfully updated DAO contract version to " # _versionToText(toVersion));
+                        };
+                        case (#err(errMsg)) {
+                            Debug.print("⚠️ Warning: Failed to update DAO contract version via factory: " # errMsg);
+                        };
+                    };
+                } catch (e) {
+                    Debug.print("⚠️ Warning: Could not call updateVersion on upgraded DAO contract: " # Error.message(e));
+                };
             };
             case (#err(msg)) {
-                versionManager.recordUpgrade(contractId, toVersion, #AdminManual, #Failed(msg));
+                let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
+                versionManager.recordUpgrade(contractId, toVersion, upgradeType, #Failed(msg));
                 Debug.print("❌ Failed to upgrade DAO contract: " # msg);
             };
         };
 
         result
+    };
+
+    // Contract Upgrade Functions
+    /// Execute upgrade with auto state capture
+    /// Factory automatically captures contract state and performs upgrade
+    public shared({caller}) func upgradeContract(
+        contractId: Principal,
+        toVersion: VersionManager.Version
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can upgrade contracts");
+        };
+
+        await _performContractUpgrade(contractId, toVersion, "Admin")
+    };
+
+    // ============================================
+    // SELF-UPGRADE REQUEST & QUEUE PROCESSING
+    // ============================================
+
+    /// Self-upgrade request from deployed DAO contract
+    /// Allows contract to request upgrade to latest stable version
+    public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
+        Debug.print("🔄 FACTORY: requestSelfUpgrade called by " # Principal.toText(caller));
+
+        // 1. Verify caller is a deployed DAO
+        let callerText = Principal.toText(caller);
+        var foundDAO : ?DAOContract = null;
+        switch (Trie.get(daoContracts, textKey(callerText), Text.equal)) {
+            case (?dao) { foundDAO := ?dao };
+            case null {
+                Debug.print("❌ FACTORY: Caller is not a deployed DAO");
+                return #err("Unauthorized: Caller is not a deployed contract");
+            };
+        };
+
+        let daoRecord = switch (foundDAO) {
+            case null {
+                return #err("Unauthorized: Caller is not a deployed contract");
+            };
+            case (?dao) { dao };
+        };
+
+        Debug.print("📋 FACTORY: DAO found - Canister: " # callerText);
+
+        // 2. Check if newer version available
+        let currentVersion = switch (versionManager.getContractVersion(caller)) {
+            case null {
+                Debug.print("❌ FACTORY: Contract not registered in version manager");
+                return #err("Contract not registered in version manager");
+            };
+            case (?v) { v.currentVersion };
+        };
+
+        let latestVersion = switch (versionManager.getLatestStableVersion()) {
+            case null {
+                Debug.print("❌ FACTORY: No stable version available");
+                return #err("No stable version available for upgrade");
+            };
+            case (?v) { v };
+        };
+
+        Debug.print("📊 FACTORY: Current version: " # _versionToText(currentVersion));
+        Debug.print("📊 FACTORY: Latest version: " # _versionToText(latestVersion));
+
+        // 3. Compare versions
+        let comparison = IUpgradeable.compareVersions(latestVersion, currentVersion);
+        switch (comparison) {
+            case (#greater) {
+                Debug.print("✅ FACTORY: Newer version available, proceeding with upgrade");
+            };
+            case (#equal) {
+                Debug.print("ℹ️ FACTORY: Already at latest version");
+                return #err("Contract is already at the latest version (" # _versionToText(currentVersion) # ")");
+            };
+            case (#less) {
+                Debug.print("⚠️ FACTORY: Current version is newer than latest stable");
+                return #err("Current version is newer than latest stable version");
+            };
+        };
+
+        // 4. Create upgrade request
+        Debug.print("🚀 FACTORY: Creating upgrade request for contract " # Principal.toText(caller));
+        let requestId = versionManager.createUpgradeRequest(caller, latestVersion, caller);
+
+        // 5. Hybrid processing logic
+        let pendingRequests = versionManager.getPendingUpgradeRequests();
+        if (pendingRequests.size() == 1) {
+            Debug.print("⚡ First request - processing immediately");
+            ignore _processUpgradeRequestAsync(requestId);
+        } else {
+            Debug.print("⏳ Queued request #" # Nat.toText(pendingRequests.size()) # " - timer will process in FIFO order");
+        };
+
+        Debug.print("📝 FACTORY: Upgrade request created with ID: " # requestId);
+        #ok(())
+    };
+
+    /// Process upgrade request asynchronously
+    private func _processUpgradeRequestAsync(requestId: Text) : async () {
+        try {
+            let ?request = versionManager.getUpgradeRequestStatus(requestId) else {
+                Debug.print("❌ Upgrade request not found: " # requestId);
+                return;
+            };
+
+            Debug.print("🚀 Processing upgrade request: " # requestId # " for contract: " # Principal.toText(request.contractId));
+
+            let latestVersion = switch (versionManager.getLatestStableVersion()) {
+                case (null) {
+                    Debug.print("❌ No stable version available");
+                    versionManager.updateRequestStatus(requestId, #Failed("No stable version available"));
+                    return;
+                };
+                case (?v) { v };
+            };
+
+            let result = await _performContractUpgrade(request.contractId, latestVersion, "Queue");
+
+            switch (result) {
+                case (#ok(())) {
+                    Debug.print("✅ Upgrade request completed successfully: " # requestId);
+                    versionManager.updateRequestStatus(requestId, #Completed);
+                };
+                case (#err(msg)) {
+                    Debug.print("❌ Upgrade request failed: " # requestId # " - " # msg);
+                    versionManager.updateRequestStatus(requestId, #Failed(msg));
+                };
+            };
+        } catch (e) {
+            Debug.print("💥 Unexpected error processing upgrade request: " # requestId # " - " # Error.message(e));
+            versionManager.updateRequestStatus(requestId, #Failed("Unexpected error: " # Error.message(e)));
+        };
+    };
+
+    /// Timer tick function - called every 60 seconds
+    private func _processQueueTick() : async () {
+        try {
+            Debug.print("🕐 Queue processor tick - checking for pending requests");
+
+            if (isQueuePaused) {
+                Debug.print("⏸️ Queue processing is paused by admin");
+                switch (queuePauseReason) {
+                    case (?reason) { Debug.print("   Reason: " # reason) };
+                    case null { Debug.print("   No reason provided") };
+                };
+                return;
+            };
+
+            let currentTime = Time.now();
+            let timeSinceLastUpgrade = currentTime - lastUpgradeTime;
+            let minIntervalNanos = MIN_UPGRADE_INTERVAL * 1_000_000_000;
+
+            if (timeSinceLastUpgrade < minIntervalNanos) {
+                let remainingSeconds = (minIntervalNanos - timeSinceLastUpgrade) / 1_000_000_000;
+                Debug.print("⏰ Rate limit active - only " # Int.toText(remainingSeconds) # "s until next upgrade");
+                return;
+            };
+
+            let pendingRequests = versionManager.getPendingUpgradeRequests();
+            if (pendingRequests.size() == 0) {
+                Debug.print("📭 No pending upgrade requests");
+                return;
+            };
+
+            Debug.print("📦 Processing 1 of " # Nat.toText(pendingRequests.size()) # " pending requests");
+            let firstRequest = pendingRequests[0];
+            await _processUpgradeRequestAsync(firstRequest.requestId);
+            lastUpgradeTime := Time.now();
+        } catch (e) {
+            Debug.print("💥 Error in queue processor: " # Error.message(e));
+        };
+    };
+
+    // ============================================
+    // QUEUE CONTROL FUNCTIONS (Admin Only)
+    // ============================================
+
+    public shared({caller}) func pauseQueueProcessing(reason: ?Text) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can pause queue processing");
+        };
+
+        isQueuePaused := true;
+        queuePauseReason := reason;
+        queuePausedBy := ?caller;
+        queuePausedAt := ?Time.now();
+
+        Debug.print("⏸️ Queue processing paused by " # Principal.toText(caller));
+        switch (reason) {
+            case (?r) { Debug.print("   Reason: " # r) };
+            case null {};
+        };
+
+        #ok(())
+    };
+
+    public shared({caller}) func resumeQueueProcessing() : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can resume queue processing");
+        };
+
+        isQueuePaused := false;
+        queuePauseReason := null;
+        queuePausedBy := null;
+        queuePausedAt := null;
+
+        Debug.print("▶️ Queue processing resumed by " # Principal.toText(caller));
+        #ok(())
+    };
+
+    public shared({caller}) func getQueueStatus() : async {
+        isPaused: Bool;
+        pauseReason: ?Text;
+        pausedBy: ?Principal;
+        pausedAt: ?Int;
+        pendingRequests: Nat;
+        lastUpgradeTime: Int;
+        nextUpgradeAvailableIn: Int;
+    } {
+        let pendingCount = versionManager.getPendingUpgradeRequests().size();
+        let currentTime = Time.now();
+        let minIntervalNanos = MIN_UPGRADE_INTERVAL * 1_000_000_000;
+        let timeSinceLastUpgrade = currentTime - lastUpgradeTime;
+        let nextUpgradeIn = if (timeSinceLastUpgrade >= minIntervalNanos) {
+            0
+        } else {
+            (minIntervalNanos - timeSinceLastUpgrade) / 1_000_000_000
+        };
+
+        {
+            isPaused = isQueuePaused;
+            pauseReason = queuePauseReason;
+            pausedBy = queuePausedBy;
+            pausedAt = queuePausedAt;
+            pendingRequests = pendingCount;
+            lastUpgradeTime = lastUpgradeTime;
+            nextUpgradeAvailableIn = nextUpgradeIn;
+        }
+    };
+
+    public query func getUpgradeRequestStatus(
+        canisterId: Text,
+        requestId: Text
+    ) : async ?VersionManager.UpgradeRequest {
+        versionManager.getUpgradeRequestStatus(requestId)
+    };
+
+    public shared({caller}) func cancelUpgradeRequest(
+        canisterId: Text,
+        requestId: Text
+    ) : async Result.Result<(), Text> {
+        if (not _isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can cancel upgrade requests");
+        };
+
+        switch (versionManager.getUpgradeRequestStatus(requestId)) {
+            case (null) { #err("Upgrade request not found") };
+            case (?req) {
+                if (req.status == #Pending) {
+                    versionManager.updateRequestStatus(requestId, #Failed("Cancelled by admin"));
+                    #ok(())
+                } else {
+                    #err("Cannot cancel request - not in pending status")
+                };
+            };
+        }
+    };
+
+    public query({caller}) func getPendingUpgradeRequests() : async [VersionManager.UpgradeRequest] {
+        if (not _isAdmin(caller)) {
+            return [];
+        };
+
+        versionManager.getPendingUpgradeRequests()
+    };
+
+    public shared({caller}) func cleanupOldUpgradeRequests() : async () {
+        if (not _isAdmin(caller)) {
+            return;
+        };
+
+        versionManager.cleanupOldRequests()
+    };
+
+    // ============================================
+    // VERSION METADATA QUERIES
+    // ============================================
+
+    public query func getVersionMetadata(version: VersionManager.Version) : async ?{
+        version: VersionManager.Version;
+        releaseNotes: Text;
+        uploadedBy: Principal;
+        uploadedAt: Int;
+        isStable: Bool;
+        minUpgradeVersion: ?VersionManager.Version;
+        totalChunks: Nat;
+        hash: Blob;
+    } {
+        switch (versionManager.getWASMMetadata(version)) {
+            case null { null };
+            case (?metadata) {
+                ?{
+                    version = metadata.version;
+                    releaseNotes = metadata.releaseNotes;
+                    uploadedBy = metadata.uploadedBy;
+                    uploadedAt = metadata.uploadedAt;
+                    isStable = metadata.isStable;
+                    minUpgradeVersion = metadata.minUpgradeVersion;
+                    totalChunks = metadata.chunks.size();
+                    hash = metadata.wasmHash;
+                }
+            };
+        }
+    };
+
+    public query func getLatestStableVersionWithMetadata() : async ?{
+        version: VersionManager.Version;
+        releaseNotes: Text;
+        uploadedBy: Principal;
+        uploadedAt: Int;
+        totalChunks: Nat;
+        hash: Blob;
+    } {
+        switch (versionManager.getLatestStableVersion()) {
+            case null { null };
+            case (?version) {
+                switch (versionManager.getWASMMetadata(version)) {
+                    case null { null };
+                    case (?metadata) {
+                        ?{
+                            version = metadata.version;
+                            releaseNotes = metadata.releaseNotes;
+                            uploadedBy = metadata.uploadedBy;
+                            uploadedAt = metadata.uploadedAt;
+                            totalChunks = metadata.chunks.size();
+                            hash = metadata.wasmHash;
+                        }
+                    };
+                }
+            };
+        }
+    };
+
+    public query func getUpgradeHistory(contractId: Principal) : async [VersionManager.UpgradeRecord] {
+        versionManager.getUpgradeHistory(contractId)
     };
 
     public shared({caller}) func rollbackContract(
