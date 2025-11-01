@@ -129,6 +129,17 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
             };
         };
 
+        // ================ UPGRADE STATE MANAGEMENT ================
+        // Contract self-locks when requesting upgrade, factory unlocks when done/failed/timeout
+
+        /// Upgrade mode state
+        private var isUpgrading : Bool = false;
+        private var upgradeRequestedAt : ?Int = null;
+        private var upgradeRequestId : ?Text = null;
+
+        /// Timeout configuration (30 minutes in nanoseconds)
+        private let UPGRADE_TIMEOUT_NANOS : Int = 30 * 60 * 1_000_000_000;
+
         Debug.print("🚀 MultisigContract initialized with version: " # debug_show(contractVersion) #
                    " (upgrade mode: " # debug_show(switch (initArgs) { case (#InitialSetup(_)) { "fresh" }; case (#Upgrade(_)) { "upgrade" } }) # ")");
 
@@ -2000,32 +2011,99 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
             #ok()
         };
 
+        // ============================================
+        // UPGRADE STATE MANAGEMENT HELPERS
+        // ============================================
+
+        /// Guard function - check if contract is in upgrade mode
+        /// Passively unlocks if timeout expired (fallback mechanism)
+        private func _requireNotUpgrading() : Result.Result<(), Text> {
+            if (isUpgrading) {
+                switch (upgradeRequestedAt) {
+                    case (?startTime) {
+                        let age = Time.now() - startTime;
+
+                        // PASSIVE SELF-UNLOCK if timeout exceeded (fallback)
+                        if (age > UPGRADE_TIMEOUT_NANOS) {
+                            Debug.print("⏰ CONTRACT: Timeout detected - auto-unlocking (fallback)");
+
+                            isUpgrading := false;
+                            upgradeRequestedAt := null;
+                            upgradeRequestId := null;
+
+                            #ok(())
+                        } else {
+                            let remainingMinutes = (UPGRADE_TIMEOUT_NANOS - age) / (60 * 1_000_000_000);
+                            #err("Contract is being upgraded. Estimated completion: ~" # Int.toText(remainingMinutes) # " minutes. Please try again later.")
+                        }
+                    };
+                    case null {
+                        // Inconsistent state - unlock
+                        isUpgrading := false;
+                        #ok(())
+                    };
+                }
+            } else {
+                #ok(())
+            }
+        };
+
+        // ============================================
+        // UPGRADE STATE QUERY FUNCTIONS
+        // ============================================
+
+        /// Check if contract is in upgrade mode
+        public query func isInUpgradeMode() : async Bool {
+            isUpgrading
+        };
+
+        /// Get upgrade mode details
+        public query func getUpgradeModeInfo() : async {
+            isUpgrading: Bool;
+            requestedAt: ?Int;
+            requestId: ?Text;
+            timeoutAt: ?Int;
+        } {
+            {
+                isUpgrading = isUpgrading;
+                requestedAt = upgradeRequestedAt;
+                requestId = upgradeRequestId;
+                timeoutAt = switch (upgradeRequestedAt) {
+                    case (?startTime) { ?(startTime + UPGRADE_TIMEOUT_NANOS) };
+                    case null { null };
+                };
+            }
+        };
+
+        /// Check if upgrade timeout has expired
+        public query func isUpgradeTimeout() : async Bool {
+            switch (upgradeRequestedAt) {
+                case (?startTime) {
+                    Time.now() - startTime > UPGRADE_TIMEOUT_NANOS
+                };
+                case null { false };
+            }
+        };
+
         /// Get current contract version
         public query func getVersion() : async IUpgradeable.Version {
             contractVersion
         };
 
-        /// Update contract version (factory only)
-        /// Only the factory can call this function to update version after upgrade
-        public func updateVersion(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
-            // Factory authentication - only factory can update version
-            if (caller != factory) {
-                return #err("Unauthorized: Only factory can update version");
-            };
-
-            // Update version
-            contractVersion := newVersion;
-            Debug.print("✅ Contract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
-
-            #ok(())
-        };
+        // ============================================
+        // UPGRADE LIFECYCLE FUNCTIONS
+        // ============================================
 
         /// Request self-upgrade to latest stable version
+        /// CONTRACT LOCKS IMMEDIATELY when calling this function
         /// Only creator or signers can request upgrade
-        public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
-            Debug.print("🔄 MultisigContract: requestSelfUpgrade called by " # Principal.toText(caller));
+        public shared({caller}) func requestSelfUpgrade() : async Result.Result<Text, Text> {
+            Debug.print("🔄 CONTRACT: requestSelfUpgrade called by " # Principal.toText(caller));
 
-            // Authorization check - only creator or signers can request upgrade
+            // ============================================
+            // AUTHORIZATION CHECK
+            // ============================================
+
             let isCreator = caller == creator;
             let isSigner = switch (signers.get(caller)) {
                 case (?_) { true };
@@ -2033,34 +2111,166 @@ persistent actor class MultisigContract(initArgs: MultisigUpgradeTypes.MultisigI
             };
 
             if (not isCreator and not isSigner) {
-                Debug.print("❌ MultisigContract: Unauthorized caller (not creator or signer)");
+                Debug.print("❌ Unauthorized: Not creator or signer");
                 return #err("Unauthorized: Only creator or signers can request self-upgrade");
             };
 
-            // Call factory to request upgrade
+            // ============================================
+            // CHECK NOT ALREADY UPGRADING
+            // ============================================
+
+            if (isUpgrading) {
+                // Check if timeout expired
+                switch (upgradeRequestedAt) {
+                    case (?startTime) {
+                        if (Time.now() - startTime > UPGRADE_TIMEOUT_NANOS) {
+                            Debug.print("⏰ Previous upgrade timed out - allowing new request");
+                        } else {
+                            return #err("Upgrade already in progress. Please wait or cancel the current upgrade.");
+                        };
+                    };
+                    case null {
+                        // Inconsistent state - reset
+                        isUpgrading := false;
+                    };
+                };
+            };
+
+            // ============================================
+            // LOCK CONTRACT IMMEDIATELY
+            // ============================================
+
+            isUpgrading := true;
+            upgradeRequestedAt := ?Time.now();
+
+            Debug.print("🔒 CONTRACT LOCKED - All mutations blocked for 30 minutes or until upgrade completes");
+
+            // ============================================
+            // CALL FACTORY TO REQUEST UPGRADE
+            // ============================================
+
             try {
                 let factoryActor = actor(Principal.toText(factory)) : actor {
                     requestSelfUpgrade: () -> async Result.Result<(), Text>;
                 };
 
-                Debug.print("📞 MultisigContract: Calling factory.requestSelfUpgrade()...");
+                Debug.print("📞 Calling factory.requestSelfUpgrade()...");
                 let result = await factoryActor.requestSelfUpgrade();
 
                 switch (result) {
                     case (#ok()) {
-                        Debug.print("✅ MultisigContract: Self-upgrade request successful");
-                        #ok()
+                        Debug.print("✅ Upgrade request accepted by factory");
+
+                        // Generate local request ID
+                        let requestId = "upgrade-" # Int.toText(Time.now());
+                        upgradeRequestId := ?requestId;
+
+                        #ok(requestId)
                     };
                     case (#err(msg)) {
-                        Debug.print("❌ MultisigContract: Self-upgrade request failed: " # msg);
+                        Debug.print("❌ Factory rejected upgrade request: " # msg);
+
+                        // UNLOCK on failure
+                        isUpgrading := false;
+                        upgradeRequestedAt := null;
+                        upgradeRequestId := null;
+
                         #err(msg)
                     };
                 };
             } catch (e) {
                 let errorMsg = "Failed to call factory: " # Error.message(e);
-                Debug.print("💥 MultisigContract: " # errorMsg);
+                Debug.print("💥 " # errorMsg);
+
+                // UNLOCK on error
+                isUpgrading := false;
+                upgradeRequestedAt := null;
+                upgradeRequestId := null;
+
                 #err(errorMsg)
             }
+        };
+
+        /// Complete upgrade (called by factory after successful upgrade)
+        /// This unlocks the contract and updates version
+        public func completeUpgrade(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
+            // Only factory can call this
+            if (caller != factory) {
+                return #err("Unauthorized: Only factory can complete upgrade");
+            };
+
+            if (not isUpgrading) {
+                Debug.print("⚠️ Warning: completeUpgrade called but contract was not locked");
+            };
+
+            // Update version
+            contractVersion := newVersion;
+
+            // UNLOCK contract
+            isUpgrading := false;
+            upgradeRequestedAt := null;
+            upgradeRequestId := null;
+
+            Debug.print("🔓 CONTRACT UNLOCKED - Upgrade completed successfully to version " # debug_show(newVersion));
+
+            #ok(())
+        };
+
+        /// Cancel upgrade (called by factory on failure OR timeout)
+        /// This unlocks the contract
+        public func cancelUpgrade(reason: Text, caller: Principal) : async Result.Result<(), Text> {
+            // Factory OR creator/signers can cancel
+            let isFactory = caller == factory;
+            let isCreator = caller == creator;
+            let isSigner = switch (signers.get(caller)) {
+                case (?_) { true };
+                case null { false };
+            };
+            let isAuthorized = isFactory or isCreator or isSigner;
+
+            if (not isAuthorized) {
+                return #err("Unauthorized: Only factory, creator, or signers can cancel upgrade");
+            };
+
+            if (not isUpgrading) {
+                return #err("Contract is not in upgrade mode");
+            };
+
+            // UNLOCK contract
+            isUpgrading := false;
+            upgradeRequestedAt := null;
+            upgradeRequestId := null;
+
+            Debug.print("🔓 CONTRACT UNLOCKED - Upgrade cancelled: " # reason);
+
+            #ok(())
+        };
+
+        /// Emergency unlock (creator or signers only) - for stuck contracts
+        public shared({caller}) func emergencyUnlockUpgrade() : async Result.Result<(), Text> {
+            // Only creator or signers can emergency unlock
+            let isCreator = caller == creator;
+            let isSigner = switch (signers.get(caller)) {
+                case (?_) { true };
+                case null { false };
+            };
+
+            if (not isCreator and not isSigner) {
+                return #err("Unauthorized: Only creator or signers can emergency unlock");
+            };
+
+            if (not isUpgrading) {
+                return #err("Contract is not in upgrade mode");
+            };
+
+            // UNLOCK contract
+            isUpgrading := false;
+            upgradeRequestedAt := null;
+            upgradeRequestId := null;
+
+            Debug.print("🚨 EMERGENCY UNLOCK by " # Principal.toText(caller));
+
+            #ok(())
         };
 
         /// Comprehensive health check

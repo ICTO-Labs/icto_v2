@@ -420,6 +420,17 @@ shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoSt
 
     // Version Management
     private var contractVersion : IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
+
+    // ================ UPGRADE STATE MANAGEMENT ================
+    // Contract self-locks when requesting upgrade, factory unlocks when done/failed/timeout
+
+    /// Upgrade mode state
+    private var isUpgrading : Bool = false;
+    private var upgradeRequestedAt : ?Int = null;
+    private var upgradeRequestId : ?Text = null;
+
+    /// Timeout configuration (30 minutes in nanoseconds)
+    private let UPGRADE_TIMEOUT_NANOS : Int = 30 * 60 * 1_000_000_000;
     var governance_level_stable : ?Types.GovernanceLevel = null;
     var security_config_stable : ?Types.CustomSecurityParams = null;
     
@@ -4098,65 +4109,262 @@ shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoSt
 
     // ================ VERSION MANAGEMENT ================
 
+    // ============================================
+    // UPGRADE STATE MANAGEMENT HELPERS
+    // ============================================
+
+    /// Guard function - check if contract is in upgrade mode
+    /// Passively unlocks if timeout expired (fallback mechanism)
+    private func _requireNotUpgrading() : Result.Result<(), Text> {
+        if (isUpgrading) {
+            switch (upgradeRequestedAt) {
+                case (?startTime) {
+                    let age = Time.now() - startTime;
+
+                    // PASSIVE SELF-UNLOCK if timeout exceeded (fallback)
+                    if (age > UPGRADE_TIMEOUT_NANOS) {
+                        Debug.print("⏰ CONTRACT: Timeout detected - auto-unlocking (fallback)");
+
+                        isUpgrading := false;
+                        upgradeRequestedAt := null;
+                        upgradeRequestId := null;
+
+                        #ok(())
+                    } else {
+                        let remainingMinutes = (UPGRADE_TIMEOUT_NANOS - age) / (60 * 1_000_000_000);
+                        #err("Contract is being upgraded. Estimated completion: ~" # Int.toText(remainingMinutes) # " minutes. Please try again later.")
+                    }
+                };
+                case null {
+                    // Inconsistent state - unlock
+                    isUpgrading := false;
+                    #ok(())
+                };
+            }
+        } else {
+            #ok(())
+        }
+    };
+
+    // ============================================
+    // UPGRADE STATE QUERY FUNCTIONS
+    // ============================================
+
+    /// Check if contract is in upgrade mode
+    public query func isInUpgradeMode() : async Bool {
+        isUpgrading
+    };
+
+    /// Get upgrade mode details
+    public query func getUpgradeModeInfo() : async {
+        isUpgrading: Bool;
+        requestedAt: ?Int;
+        requestId: ?Text;
+        timeoutAt: ?Int;
+    } {
+        {
+            isUpgrading = isUpgrading;
+            requestedAt = upgradeRequestedAt;
+            requestId = upgradeRequestId;
+            timeoutAt = switch (upgradeRequestedAt) {
+                case (?startTime) { ?(startTime + UPGRADE_TIMEOUT_NANOS) };
+                case null { null };
+            };
+        }
+    };
+
+    /// Check if upgrade timeout has expired
+    public query func isUpgradeTimeout() : async Bool {
+        switch (upgradeRequestedAt) {
+            case (?startTime) {
+                Time.now() - startTime > UPGRADE_TIMEOUT_NANOS
+            };
+            case null { false };
+        }
+    };
+
     /// Get current contract version
     public query func getVersion() : async IUpgradeable.Version {
         contractVersion
     };
 
-    /// Update contract version (factory only)
-    /// Only the factory can call this function to update version after upgrade
-    public func updateVersion(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
-        // Factory authentication - only factory can update version
-        if (caller != factoryPrincipal) {
-            return #err("Unauthorized: Only factory can update version");
-        };
-
-        // Update version
-        contractVersion := newVersion;
-        Debug.print("✅ DAOContract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
-
-        #ok(())
-    };
+    // ============================================
+    // UPGRADE LIFECYCLE FUNCTIONS
+    // ============================================
 
     /// Request self-upgrade to latest stable version
-    /// Only emergency contacts (admins) can request upgrade
-    public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
-        Debug.print("🔄 DAOContract: requestSelfUpgrade called by " # Principal.toText(caller));
+    /// CONTRACT LOCKS IMMEDIATELY when calling this function
+    /// Only emergency contacts can request upgrade
+    public shared({caller}) func requestSelfUpgrade() : async Result.Result<Text, Text> {
+        Debug.print("🔄 CONTRACT: requestSelfUpgrade called by " # Principal.toText(caller));
 
-        // Authorization check - only emergency contacts can request upgrade
+        // ============================================
+        // AUTHORIZATION CHECK
+        // ============================================
+
         let isEmergencyContact = Array.find<Principal>(
             system_params.emergency_contacts,
             func(p) { p == caller }
         );
 
         if (Option.isNull(isEmergencyContact)) {
-            Debug.print("❌ DAOContract: Unauthorized caller (not in emergency_contacts)");
+            Debug.print("❌ Unauthorized: Not in emergency_contacts");
             return #err("Unauthorized: Only emergency contacts can request self-upgrade");
         };
 
-        // Call factory to request upgrade
+        // ============================================
+        // CHECK NOT ALREADY UPGRADING
+        // ============================================
+
+        if (isUpgrading) {
+            // Check if timeout expired
+            switch (upgradeRequestedAt) {
+                case (?startTime) {
+                    if (Time.now() - startTime > UPGRADE_TIMEOUT_NANOS) {
+                        Debug.print("⏰ Previous upgrade timed out - allowing new request");
+                    } else {
+                        return #err("Upgrade already in progress. Please wait or cancel the current upgrade.");
+                    };
+                };
+                case null {
+                    // Inconsistent state - reset
+                    isUpgrading := false;
+                };
+            };
+        };
+
+        // ============================================
+        // LOCK CONTRACT IMMEDIATELY
+        // ============================================
+
+        isUpgrading := true;
+        upgradeRequestedAt := ?Time.now();
+
+        Debug.print("🔒 CONTRACT LOCKED - All mutations blocked for 30 minutes or until upgrade completes");
+
+        // ============================================
+        // CALL FACTORY TO REQUEST UPGRADE
+        // ============================================
+
         try {
             let factoryActor = actor(Principal.toText(factoryPrincipal)) : actor {
                 requestSelfUpgrade: () -> async Result.Result<(), Text>;
             };
 
-            Debug.print("📞 DAOContract: Calling factory.requestSelfUpgrade()...");
+            Debug.print("📞 Calling factory.requestSelfUpgrade()...");
             let result = await factoryActor.requestSelfUpgrade();
 
             switch (result) {
                 case (#ok()) {
-                    Debug.print("✅ DAOContract: Self-upgrade request successful");
-                    #ok()
+                    Debug.print("✅ Upgrade request accepted by factory");
+
+                    // Generate local request ID
+                    let requestId = "upgrade-" # Int.toText(Time.now());
+                    upgradeRequestId := ?requestId;
+
+                    #ok(requestId)
                 };
                 case (#err(msg)) {
-                    Debug.print("❌ DAOContract: Self-upgrade request failed: " # msg);
+                    Debug.print("❌ Factory rejected upgrade request: " # msg);
+
+                    // UNLOCK on failure
+                    isUpgrading := false;
+                    upgradeRequestedAt := null;
+                    upgradeRequestId := null;
+
                     #err(msg)
                 };
             };
         } catch (e) {
             let errorMsg = "Failed to call factory: " # Error.message(e);
-            Debug.print("💥 DAOContract: " # errorMsg);
+            Debug.print("💥 " # errorMsg);
+
+            // UNLOCK on error
+            isUpgrading := false;
+            upgradeRequestedAt := null;
+            upgradeRequestId := null;
+
             #err(errorMsg)
         }
+    };
+
+    /// Complete upgrade (called by factory after successful upgrade)
+    /// This unlocks the contract and updates version
+    public func completeUpgrade(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
+        // Only factory can call this
+        if (caller != factoryPrincipal) {
+            return #err("Unauthorized: Only factory can complete upgrade");
+        };
+
+        if (not isUpgrading) {
+            Debug.print("⚠️ Warning: completeUpgrade called but contract was not locked");
+        };
+
+        // Update version
+        contractVersion := newVersion;
+
+        // UNLOCK contract
+        isUpgrading := false;
+        upgradeRequestedAt := null;
+        upgradeRequestId := null;
+
+        Debug.print("🔓 CONTRACT UNLOCKED - Upgrade completed successfully to version " # debug_show(newVersion));
+
+        #ok(())
+    };
+
+    /// Cancel upgrade (called by factory on failure OR timeout)
+    /// This unlocks the contract
+    public func cancelUpgrade(reason: Text, caller: Principal) : async Result.Result<(), Text> {
+        // Factory OR emergency contacts can cancel
+        let isFactory = caller == factoryPrincipal;
+        let isEmergencyContact = Option.isSome(Array.find<Principal>(
+            system_params.emergency_contacts,
+            func(p) { p == caller }
+        ));
+        let isAuthorized = isFactory or isEmergencyContact;
+
+        if (not isAuthorized) {
+            return #err("Unauthorized: Only factory or emergency contacts can cancel upgrade");
+        };
+
+        if (not isUpgrading) {
+            return #err("Contract is not in upgrade mode");
+        };
+
+        // UNLOCK contract
+        isUpgrading := false;
+        upgradeRequestedAt := null;
+        upgradeRequestId := null;
+
+        Debug.print("🔓 CONTRACT UNLOCKED - Upgrade cancelled: " # reason);
+
+        #ok(())
+    };
+
+    /// Emergency unlock (emergency contacts only) - for stuck contracts
+    public shared({caller}) func emergencyUnlockUpgrade() : async Result.Result<(), Text> {
+        // Only emergency contacts can emergency unlock
+        let isEmergencyContact = Array.find<Principal>(
+            system_params.emergency_contacts,
+            func(p) { p == caller }
+        );
+
+        if (Option.isNull(isEmergencyContact)) {
+            return #err("Unauthorized: Only emergency contacts can emergency unlock");
+        };
+
+        if (not isUpgrading) {
+            return #err("Contract is not in upgrade mode");
+        };
+
+        // UNLOCK contract
+        isUpgrading := false;
+        upgradeRequestedAt := null;
+        upgradeRequestId := null;
+
+        Debug.print("🚨 EMERGENCY UNLOCK by " # Principal.toText(caller));
+
+        #ok(())
     };
 };
