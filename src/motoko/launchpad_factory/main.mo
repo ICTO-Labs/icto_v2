@@ -85,6 +85,13 @@ persistent actor LaunchpadFactory {
     private var queueTimerId : ?Timer.TimerId = null;
     private var lastUpgradeTime : Int = 0; // Time.now() value (Int)
 
+    // AUDIT FIX (H-1): Queue size limits to prevent DoS
+    private let MAX_PENDING_PER_CONTRACT : Nat = 3;  // Max pending requests per contract
+    private let MAX_QUEUE_SIZE : Nat = 100;          // Global queue size limit
+
+    // AUDIT FIX (H-2): Processing lock to prevent race conditions
+    private var isProcessing : Bool = false;
+
     // Queue control configuration (admin only)
     private var isQueuePaused : Bool = false;
     private var queuePauseReason : ?Text = null;
@@ -1179,19 +1186,46 @@ persistent actor LaunchpadFactory {
             };
         };
 
+        // ============================================
+        // AUDIT FIX (H-1): Check queue size limits
+        // ============================================
+
+        let pendingRequests = versionManager.getPendingUpgradeRequests();
+
+        // Check global queue size
+        if (pendingRequests.size() >= MAX_QUEUE_SIZE) {
+            Debug.print("❌ FACTORY: Queue is full (" # Nat.toText(pendingRequests.size()) # "/" # Nat.toText(MAX_QUEUE_SIZE) # ")");
+            return #err("Upgrade queue is full (" # Nat.toText(MAX_QUEUE_SIZE) # " requests). Please try again later.");
+        };
+
+        // Check per-contract limit
+        let pendingForThisContract = Array.filter<VersionManager.UpgradeRequest>(
+            pendingRequests,
+            func(r) { r.contractId == caller }
+        );
+        if (pendingForThisContract.size() >= MAX_PENDING_PER_CONTRACT) {
+            Debug.print("❌ FACTORY: Too many pending requests for this contract (" # Nat.toText(pendingForThisContract.size()) # "/" # Nat.toText(MAX_PENDING_PER_CONTRACT) # ")");
+            return #err("Too many pending requests for this contract (" # Nat.toText(MAX_PENDING_PER_CONTRACT) # " max). Please wait for current requests to complete.");
+        };
+
         // 5. Create upgrade request (queue-based to avoid outstanding callbacks)
         Debug.print("🚀 FACTORY: Creating upgrade request for contract " # Principal.toText(caller));
         let requestId = versionManager.createUpgradeRequest(caller, latestVersion, caller);
 
-        // 6. Hybrid processing logic
-        let pendingRequests = versionManager.getPendingUpgradeRequests();
-        if (pendingRequests.size() == 1) {
-            // First request - process immediately
+        // ============================================
+        // AUDIT FIX (H-2): Check processing lock before immediate processing
+        // ============================================
+
+        // 6. Hybrid processing logic with lock check
+        let updatedPendingRequests = versionManager.getPendingUpgradeRequests();
+        if (updatedPendingRequests.size() == 1 and not isProcessing) {
+            // First request AND not currently processing - process immediately
             Debug.print("⚡ First request - processing immediately");
+            isProcessing := true;  // Set lock before async call
             ignore _processUpgradeRequestAsync(requestId);
         } else {
-            // Multiple requests - let timer handle FIFO order
-            Debug.print("⏳ Queued request #" # Nat.toText(pendingRequests.size()) # " - timer will process in FIFO order");
+            // Multiple requests OR already processing - let timer handle FIFO order
+            Debug.print("⏳ Queued request #" # Nat.toText(updatedPendingRequests.size()) # " - timer will process in FIFO order");
         };
 
         Debug.print("📝 FACTORY: Upgrade request created with ID: " # requestId);
@@ -1209,6 +1243,7 @@ persistent actor LaunchpadFactory {
             // Get request from queue to get contract details
             let ?request = versionManager.getUpgradeRequestStatus(requestId) else {
                 Debug.print("❌ Upgrade request not found: " # requestId);
+                isProcessing := false;  // Release lock
                 return;
             };
 
@@ -1219,6 +1254,11 @@ persistent actor LaunchpadFactory {
                 case (null) {
                     Debug.print("❌ No stable version available");
                     versionManager.updateRequestStatus(requestId, #Failed("No stable version available"));
+
+                    // NOTIFY CONTRACT: Cancel upgrade
+                    await _notifyContractCancelled(request.contractId, "No stable version available");
+
+                    isProcessing := false;  // Release lock
                     return;
                 };
                 case (?v) { v };
@@ -1231,19 +1271,107 @@ persistent actor LaunchpadFactory {
                 case (#ok(())) {
                     Debug.print("✅ Upgrade request completed successfully: " # requestId);
                     versionManager.updateRequestStatus(requestId, #Completed);
+
+                    // NOTIFY CONTRACT: Complete upgrade (unlocks + updates version)
+                    await _notifyContractCompleted(request.contractId, latestVersion);
                 };
                 case (#err(msg)) {
                     Debug.print("❌ Upgrade request failed: " # requestId # " - " # msg);
                     versionManager.updateRequestStatus(requestId, #Failed(msg));
+
+                    // NOTIFY CONTRACT: Cancel upgrade (unlocks)
+                    await _notifyContractCancelled(request.contractId, msg);
                 };
             };
         } catch (e) {
             Debug.print("💥 Unexpected error processing upgrade request: " # requestId # " - " # Error.message(e));
             versionManager.updateRequestStatus(requestId, #Failed("Unexpected error: " # Error.message(e)));
+
+            // NOTIFY CONTRACT: Cancel upgrade (unlocks)
+            try {
+                let ?request = versionManager.getUpgradeRequestStatus(requestId) else {
+                    isProcessing := false;
+                    return;
+                };
+                await _notifyContractCancelled(request.contractId, "Unexpected error: " # Error.message(e));
+            } catch (_) {
+                Debug.print("⚠️ Could not notify contract after error");
+            };
+        };
+
+        isProcessing := false;  // Release lock at end
+    };
+
+    /// Notify contract that upgrade completed successfully
+    private func _notifyContractCompleted(contractId: Principal, newVersion: VersionManager.Version) : async () {
+        try {
+            let contractActor = actor(Principal.toText(contractId)) : actor {
+                completeUpgrade: (IUpgradeable.Version, Principal) -> async Result.Result<(), Text>;
+            };
+
+            let result = await contractActor.completeUpgrade(newVersion, Principal.fromActor(LaunchpadFactory));
+
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ Contract notified of successful upgrade");
+                };
+                case (#err(msg)) {
+                    Debug.print("⚠️ Warning: Failed to notify contract: " # msg);
+                };
+            };
+        } catch (e) {
+            Debug.print("⚠️ Warning: Could not notify contract of completion: " # Error.message(e));
         };
     };
 
-    
+    /// Notify contract that upgrade was cancelled/failed
+    private func _notifyContractCancelled(contractId: Principal, reason: Text) : async () {
+        try {
+            let contractActor = actor(Principal.toText(contractId)) : actor {
+                cancelUpgrade: (Text, Principal) -> async Result.Result<(), Text>;
+            };
+
+            let result = await contractActor.cancelUpgrade(reason, Principal.fromActor(LaunchpadFactory));
+
+            switch (result) {
+                case (#ok()) {
+                    Debug.print("✅ Contract notified of upgrade cancellation");
+                };
+                case (#err(msg)) {
+                    Debug.print("⚠️ Warning: Failed to notify contract: " # msg);
+                };
+            };
+        } catch (e) {
+            Debug.print("⚠️ Warning: Could not notify contract of cancellation: " # Error.message(e));
+        };
+    };
+
+    /// Check all pending requests for timeout (30 minutes) - PRIMARY LAYER
+    /// Factory actively checks and cancels timed-out upgrades
+    private func _checkAndCancelTimedOutUpgrades() : async () {
+        let TIMEOUT_THRESHOLD = 30 * 60 * 1_000_000_000; // 30 minutes in nanoseconds
+        let currentTime = Time.now();
+
+        let pendingRequests = versionManager.getPendingUpgradeRequests();
+
+        for (request in pendingRequests.vals()) {
+            let requestAge = currentTime - request.requestedAt;
+
+            if (requestAge > TIMEOUT_THRESHOLD) {
+                Debug.print("⏰ FACTORY: Detected timeout for request " # request.requestId # " (age: " # Int.toText(requestAge / 1_000_000_000) # "s)");
+
+                // 1. Mark as failed in version manager
+                versionManager.updateRequestStatus(request.requestId, #Failed("Timeout: Upgrade exceeded 30 minutes"));
+
+                // 2. Notify contract to unlock (primary layer - factory actively cancels)
+                await _notifyContractCancelled(request.contractId, "Timeout: Upgrade exceeded 30 minutes");
+
+                Debug.print("✅ Timeout handled for request " # request.requestId);
+            };
+        };
+    };
+
+
     // ============================================
     // QUEUE PROCESSOR TIMER
     // ============================================
@@ -1252,6 +1380,12 @@ persistent actor LaunchpadFactory {
     private func _processQueueTick() : async () {
         try {
             Debug.print("🕐 Queue processor tick - checking for pending requests");
+
+            // ============================================
+            // TIMEOUT CHECKING (PRIMARY LAYER)
+            // Factory actively checks and cancels timed-out upgrades
+            // ============================================
+            await _checkAndCancelTimedOutUpgrades();
 
             // Check if queue is paused
             if (isQueuePaused) {
