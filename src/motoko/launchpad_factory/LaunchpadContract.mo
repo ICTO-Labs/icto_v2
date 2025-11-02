@@ -25,6 +25,16 @@ import AID "../shared/utils/AID";
 import ICRCTypes "../shared/types/ICRC";
 import ICRC "../shared/utils/ICRC";
 
+// ================ PIPELINE MODULES ================
+import PipelineManager "./PipelineManager";
+import FundManager "./modules/FundManager";
+import TokenFactoryModule "./modules/TokenFactory";
+// TODO: Import other modules when ready
+// import DistributionFactoryModule "./modules/DistributionFactory";
+// import DAOFactoryModule "./modules/DAOFactory";
+// import MultisigFactoryModule "./modules/MultisigFactory";
+// import DexIntegrationModule "./modules/DexIntegration";
+
 // ================ LAUNCHPAD CONTRACT V2 ================
 // Actor class template for individual launchpad instances
 // Follows ICTO V2 architecture: Backend → Factory → Contract
@@ -35,6 +45,23 @@ import ICRC "../shared/utils/ICRC";
 shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     initArgs: LaunchpadUpgradeTypes.LaunchpadInitArgs
 ) = this {
+
+    // ================ PIPELINE TYPES ================
+    
+    type PipelineExecutionState = {
+        pipelineType: PipelineType;
+        hasStarted: Bool;
+        hasCompleted: Bool;
+        executionId: Text;
+        startedAt: Time.Time;
+        completedAt: ?Time.Time;
+        canRetry: Bool;
+    };
+
+    type PipelineType = {
+        #Refund;
+        #Deployment;
+    };
 
     // ================ INITIALIZATION LOGIC ================
     // Determine if this is a fresh deployment or an upgrade
@@ -92,6 +119,17 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
     // VERSION TRACKING
     private var contractVersion : IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
+
+    // ================ UPGRADE STATE MANAGEMENT ================
+    // Contract self-locks when requesting upgrade, factory unlocks when done/failed/timeout
+
+    /// Upgrade mode state
+    private var isUpgrading : Bool = false;
+    private var upgradeRequestedAt : ?Int = null;
+    private var upgradeRequestId : ?Text = null;
+
+    /// Timeout configuration (30 minutes in nanoseconds)
+    private let UPGRADE_TIMEOUT_NANOS : Int = 30 * 60 * 1_000_000_000;
 
     // Status
     private var status : LaunchpadTypes.LaunchpadStatus = switch (upgradeState) {
@@ -237,6 +275,18 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
         case (?state) { state.securityMetrics };
     };
+
+    // ================ PIPELINE STATE MANAGEMENT ================
+    
+    // Pipeline execution state to prevent duplicate execution
+    private var pipelineExecutionState: ?PipelineExecutionState = switch (upgradeState) {
+        case null { null };
+        case (?state) { null }; // Reset on upgrade - pipeline must rerun if needed
+    };
+
+    // Pipeline managers (transient - recreated on each run)
+    private transient var refundPipelineManager: ?PipelineManager.PipelineManager = null;
+    private transient var deploymentPipelineManager: ?PipelineManager.PipelineManager = null;
 
     // Factory Actor Interfaces
     // TODO: Get factory IDs from config instead of hardcoding
@@ -649,8 +699,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         });
         updatedAt := Time.now();
 
-        // Start refund process
-        ignore _processRefunds();
+        // Start refund pipeline
+        ignore _runRefundPipeline();
 
         Debug.print("Launchpad cancelled by: " # Principal.toText(caller));
         #ok(())
@@ -1690,9 +1740,15 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         Debug.print("   Total raised: " # Nat.toText(totalRaised));
         Debug.print("   Soft cap: " # Nat.toText(softCapInSmallestUnit()));
 
+        // Check if pipeline can start
+        if (not _canStartPipeline()) {
+            Debug.print("⚠️ Pipeline already executed or in progress");
+            return;
+        };
+
         if (totalRaised >= softCapInSmallestUnit()) {
-            // FAIR LAUNCH SUCCESS: Finalize token allocations
-            Debug.print("✅ Sale successful - finalizing token allocations...");
+            // SALE SUCCESS: Run deployment pipeline
+            Debug.print("✅ Sale successful - starting deployment pipeline...");
             _finalizeTokenAllocations();
 
             status := #Successful;
@@ -1700,16 +1756,16 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 stage = #TokenDeployment;
                 progress = 0;
                 processedCount = 0;
-                totalCount = 4; // Token, Vesting, DAO, Distribution
+                totalCount = 6; // CollectFunds, Token, Distribution, DAO, DEX, Fees
                 errorCount = 0;
                 lastError = null;
             });
-            ignore _processSuccessfulSale();
+            
+            ignore _runDeploymentPipeline();
         } else {
-            Debug.print("❌ Sale failed - soft cap not reached");
-            Debug.print("   Raised: " # Nat.toText(totalRaised) # " vs Required: " # Nat.toText(softCapInSmallestUnit()));
+            // SALE FAILED: Run refund pipeline
+            Debug.print("❌ Sale failed - starting refund pipeline...");
 
-            // First change to Refunding status (processing refunds)
             status := #Refunding;
             processingState := #Processing({
                 stage = #Refunding;
@@ -1719,9 +1775,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 errorCount = 0;
                 lastError = null;
             });
-            // Process refunds asynchronously
-            // After all refunds complete, will transition to #Failed
-            ignore _processRefunds();
+            
+            ignore _runRefundPipeline();
         };
     };
 
@@ -1971,49 +2026,165 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(amount)
     };
 
-    private func _processSuccessfulSale() : async () {
-        // Update processing state
-        processingState := #Processing({
-            stage = #TokenDeployment;
-            progress = 0;
-            processedCount = 0;
-            totalCount = 5; // Token, DAO, Distributions, Fees, Finalize
-            errorCount = 0;
-            lastError = null;
-        });
-        
-        try {
-            // Step 1: Create Token
-            await _createProjectToken();
-            _updateProcessingProgress(1, #VestingSetup);
-            
-            // Step 2: Create DAO Contract  
-            await _createProjectDAO();
-            _updateProcessingProgress(2, #Distribution);
-            
-            // Step 3: Create Distribution Contracts
-            await _setupDistributionContracts();
-            _updateProcessingProgress(3, #FinalCleanup);
-            
-            // Step 4: Process Platform Fees & Final Allocation
-            await _processPlatformFeesAndAllocation();
-            _updateProcessingProgress(4, #FinalCleanup);
-            
-            // Step 5: Transfer Controllers to DAO
-            await _transferControllersToDAO();
-            _updateProcessingProgress(5, #FinalCleanup);
-            
-            // Complete the process
-            processingState := #Completed;
-            status := #Claiming;
-            updatedAt := Time.now();
-            
-            Debug.print("Successful sale processing completed for launchpad: " # launchpadId);
-            
-        } catch (_error) {
-            processingState := #Failed("Pipeline execution failed");
-            Debug.print("Failed to process successful sale");
+    // ================ PIPELINE STATE MANAGEMENT HELPERS ================
+
+    /// Check if pipeline can start (prevent duplicate execution)
+    private func _canStartPipeline() : Bool {
+        switch (pipelineExecutionState) {
+            case (null) true;  // Never started - can start
+            case (?state) {
+                // Can only retry if explicitly allowed
+                if (state.canRetry and not state.hasCompleted) {
+                    true
+                } else if (state.hasCompleted) {
+                    Debug.print("⚠️ Pipeline already completed at " # Int.toText(switch (state.completedAt) { case (?t) t; case null 0 }));
+                    false
+                } else {
+                    Debug.print("⚠️ Pipeline already running (started at " # Int.toText(state.startedAt) # ")");
+                    false
+                }
+            };
+        }
+    };
+
+    /// Mark pipeline as started
+    private func _markPipelineStarted(pipelineType: PipelineType, executionId: Text) {
+        pipelineExecutionState := ?{
+            pipelineType = pipelineType;
+            hasStarted = true;
+            hasCompleted = false;
+            executionId = executionId;
+            startedAt = Time.now();
+            completedAt = null;
+            canRetry = false;  // Initially false, will be set to true on failure
         };
+        Debug.print("🔒 Pipeline marked as started: " # executionId);
+    };
+
+    /// Mark pipeline as completed (success)
+    private func _markPipelineCompleted() {
+        switch (pipelineExecutionState) {
+            case (?state) {
+                pipelineExecutionState := ?{
+                    state with
+                    hasCompleted = true;
+                    completedAt = ?Time.now();
+                    canRetry = false;  // No retry needed if completed successfully
+                };
+                Debug.print("✅ Pipeline marked as completed");
+            };
+            case (null) {
+                Debug.print("⚠️ WARNING: Trying to complete pipeline that was never started");
+            };
+        };
+    };
+
+    /// Mark pipeline as failed (allow retry)
+    private func _markPipelineFailed() {
+        switch (pipelineExecutionState) {
+            case (?state) {
+                pipelineExecutionState := ?{
+                    state with
+                    canRetry = true;  // Allow admin retry
+                };
+                Debug.print("❌ Pipeline marked as failed - retry allowed");
+            };
+            case (null) {
+                Debug.print("⚠️ WARNING: Trying to fail pipeline that was never started");
+            };
+        };
+    };
+
+    /// Query pipeline execution state (admin only)
+    public query({caller}) func getPipelineExecutionState() : async Result.Result<?PipelineExecutionState, Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can view pipeline state");
+        };
+        #ok(pipelineExecutionState)
+    };
+
+    // ================ ADMIN RETRY FUNCTIONS ================
+
+    /// Admin retry pipeline from specific step
+    public shared({caller}) func adminRetryPipeline(fromStep: Nat) : async Result.Result<(), Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized");
+        };
+
+        switch (pipelineExecutionState) {
+            case (?state) {
+                if (not state.canRetry) {
+                    return #err("Cannot retry - not in failed state");
+                };
+
+                Debug.print("🔄 Retry from step " # Nat.toText(fromStep));
+                pipelineExecutionState := ?{ state with canRetry = false };
+
+                switch (state.pipelineType) {
+                    case (#Refund) {
+                        switch (refundPipelineManager) {
+                            case (?manager) {
+                                let result = await manager.executeCustomStep(fromStep);
+                                switch (result) {
+                                    case (#ok(data)) {
+                                        ignore manager.completeStepExecution(fromStep, "retry", data, []);
+                                        _markPipelineCompleted();
+                                        status := #Failed;
+                                        processingState := #Completed;
+                                        #ok(())
+                                    };
+                                    case (#err(e)) {
+                                        _markPipelineFailed();
+                                        #err(e)
+                                    };
+                                };
+                            };
+                            case (null) #err("Manager not found");
+                        };
+                    };
+                    case (#Deployment) {
+                        switch (deploymentPipelineManager) {
+                            case (?manager) {
+                                var i = fromStep;
+                                label retryLoop while (i < 6) {
+                                    let result = await manager.executeCustomStep(i);
+                                    switch (result) {
+                                        case (#ok(data)) {
+                                            ignore manager.completeStepExecution(i, "retry", data, []);
+                                            i += 1;
+                                        };
+                                        case (#err(e)) {
+                                            _markPipelineFailed();
+                                            return #err(e);
+                                        };
+                                    };
+                                };
+                                _markPipelineCompleted();
+                                status := #Claiming;
+                                processingState := #Completed;
+                                #ok(())
+                            };
+                            case (null) #err("Manager not found");
+                        };
+                    };
+                };
+            };
+            case (null) #err("No pipeline found");
+        };
+    };
+
+    /// Admin force restart
+    public shared({caller}) func adminForceRestartPipeline() : async Result.Result<(), Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized");
+        };
+
+        Debug.print("⚠️ Force restart");
+        pipelineExecutionState := null;
+        refundPipelineManager := null;
+        deploymentPipelineManager := null;
+        await _processSaleEnd();
+        #ok(())
     };
 
     // Helper function to update processing progress
@@ -2023,7 +2194,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 processingState := #Processing({
                     state with
                     stage = nextStage;
-                    progress = Nat8.fromNat(Nat.min(100, completed * 100 / 5));
+                    progress = Nat8.fromNat(Nat.min(100, completed * 100 / 6)); // 6 total steps
                     processedCount = completed;
                 });
             };
@@ -2031,281 +2202,171 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
     };
 
-    // Step 1: Create Project Token
-    private func _createProjectToken() : async () {
-        Debug.print("Creating project token for launchpad: " # launchpadId);
+    // ================ REFUND PIPELINE ================
+
+    private func _runRefundPipeline() : async () {
+        Debug.print("💸 Starting refund pipeline...");
         
-        try {
-            // Prepare token configuration
-            let tokenConfig : TokenFactory.TokenConfig = {
-                name = config.saleToken.name;
-                symbol = config.saleToken.symbol;
-                decimals = config.saleToken.decimals;
-                logo = config.saleToken.logo;
-                minter = ?{ owner = creator; subaccount = null };
-                feeCollector = ?{ owner = creator; subaccount = null };
-                transferFee = config.saleToken.transferFee;
-                initialBalances = [];
-                totalSupply = config.saleToken.totalSupply;
-                description = config.saleToken.description;
-                website = config.projectInfo.website;
-                projectId = ?launchpadId;
+        let executionId = "refund_" # launchpadId # "_" # Int.toText(Time.now());
+        _markPipelineStarted(#Refund, executionId);
+        
+        // Convert participants Trie to array
+        let participantsArray = Trie.toArray<Text, LaunchpadTypes.Participant, (Text, LaunchpadTypes.Participant)>(
+            participants,
+            func(k, v) { (k, v) }
+        );
+        
+        // Create ExecutorFactory
+        let executorFactory = PipelineManager.ExecutorFactory(
+            config,
+            launchpadId,
+            Principal.fromActor(this),
+            participantsArray,
+            Principal.fromText("ulvla-h7777-77774-qaacq-cai"), // TODO: from config
+            creator
+        );
+        
+        // Create refund step
+        let refundStep: PipelineManager.StepDefinition = {
+            name = "Batch Refund Processing";
+            stage = #Refunding;
+            executor = executorFactory.createRefundExecutor();
+            required = true;
+        };
+        
+        // Initialize PipelineManager
+        let pipelineConfig = PipelineManager.defaultConfig();
+        let pipelineManager = PipelineManager.PipelineManager(pipelineConfig);
+        let _ = pipelineManager.initCustomPipeline([refundStep], #Refund);
+        refundPipelineManager := ?pipelineManager;
+        
+        // Execute
+        let result = await pipelineManager.executeCustomStep(0);
+        
+        switch (result) {
+            case (#ok(resultData)) {
+                let _ = pipelineManager.completeStepExecution(0, executionId, resultData, []);
+                _markPipelineCompleted();
+                status := #Failed;
+                processingState := #Completed;
+                Debug.print("✅ Refund pipeline completed");
             };
-            
-            // Prepare deployment configuration
-            let deploymentConfig : TokenFactory.DeploymentConfig = {
-                tokenOwner = ?creator;
-                enableCycleOps = ?true;
-                cyclesForInstall = ?200_000_000_000; // 200B cycles
-                cyclesForArchive = ?100_000_000_000; // 100B cycles
-                minCyclesInDeployer = ?50_000_000_000; // 50B cycles
-                archiveOptions = ?{
-                    num_blocks_to_archive = 1000;
-                    max_transactions_per_response = ?2000;
-                    trigger_threshold = 2000;
-                    max_message_size_bytes = ?2048;
-                    cycles_for_archive_creation = ?100_000_000_000;
-                    node_max_memory_size_bytes = ?3_221_225_472;
-                    controller_id = creator;
-                    more_controller_ids = ?[Principal.fromActor(this)];
-                };
+            case (#err(error)) {
+                let _ = pipelineManager.failStepExecution(0, executionId, error);
+                _markPipelineFailed();
+                processingState := #Failed("Refund failed: " # error);
+                Debug.print("❌ Refund pipeline failed: " # error);
             };
+        };
+    };
+
+    // ================ DEPLOYMENT PIPELINE ================
+
+    private func _runDeploymentPipeline() : async () {
+        Debug.print("🚀 Starting deployment pipeline...");
+        
+        let executionId = "deploy_" # launchpadId # "_" # Int.toText(Time.now());
+        _markPipelineStarted(#Deployment, executionId);
+        
+        // Convert participants
+        let participantsArray = Trie.toArray<Text, LaunchpadTypes.Participant, (Text, LaunchpadTypes.Participant)>(
+            participants,
+            func(k, v) { (k, v) }
+        );
+        
+        // Create ExecutorFactory
+        let executorFactory = PipelineManager.ExecutorFactory(
+            config,
+            launchpadId,
+            Principal.fromActor(this),
+            participantsArray,
+            Principal.fromText("ulvla-h7777-77774-qaacq-cai"),
+            creator
+        );
+        
+        // Define 6 steps
+        let steps: [PipelineManager.StepDefinition] = [
+            {
+                name = "Collect Funds";
+                stage = #TokenDeployment;
+                executor = executorFactory.createCollectFundsExecutor();
+                required = true;
+            },
+            {
+                name = "Deploy Token";
+                stage = #TokenDeployment;
+                executor = executorFactory.createTokenDeploymentExecutor();
+                required = true;
+            },
+            {
+                name = "Deploy Distribution";
+                stage = #VestingSetup;
+                executor = executorFactory.createDistributionDeploymentExecutor();
+                required = false;
+            },
+            {
+                name = "Deploy DAO";
+                stage = #DAODeployment;
+                executor = executorFactory.createDAODeploymentExecutor();
+                required = false;
+            },
+            {
+                name = "Setup DEX";
+                stage = #Distribution;
+                executor = executorFactory.createDEXSetupExecutor(
+                    Principal.fromText("aaaaa-aa"), // TODO: deployed token ID
+                    null, // TODO: KongSwap
+                    null  // TODO: ICPSwap
+                );
+                required = false;
+            },
+            {
+                name = "Process Fees";
+                stage = #FinalCleanup;
+                executor = executorFactory.createFeeProcessingExecutor(totalRaised);
+                required = true;
+            }
+        ];
+        
+        // Initialize PipelineManager
+        let pipelineConfig = PipelineManager.safeConfig();
+        let pipelineManager = PipelineManager.PipelineManager(pipelineConfig);
+        let _ = pipelineManager.initCustomPipeline(steps, #Deployment);
+        deploymentPipelineManager := ?pipelineManager;
+        
+        // Execute all steps
+        var stepIndex = 0;
+        label deployLoop while (stepIndex < steps.size()) {
+            Debug.print("📍 Step " # Nat.toText(stepIndex + 1) # "/" # Nat.toText(steps.size()));
             
-            // Call TokenFactory to create ICRC token
-            let tokenResult = await tokenFactoryActor.deployTokenWithConfig(
-                tokenConfig,
-                deploymentConfig,
-                null // No payment result needed for launchpad integration
-            );
+            let result = await pipelineManager.executeCustomStep(stepIndex);
             
-            switch (tokenResult) {
-                case (#ok(result)) {
-                    // Extract canister ID from deployment result
-                    let canisterId = switch (result.canisterId) {
-                        case (?id) Principal.fromText(id);
-                        case (null) throw Error.reject("Token deployment succeeded but no canister ID returned");
-                    };
-                    
-                    // Update deployedContracts with token canister ID
-                    deployedContracts := {
-                        deployedContracts with
-                        tokenCanister = ?canisterId;
-                    };
-                    
-                    Debug.print("Token created successfully. Canister ID: " # Principal.toText(canisterId));
+            switch (result) {
+                case (#ok(resultData)) {
+                    let _ = pipelineManager.completeStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), resultData, []);
+                    _updateProcessingProgress(stepIndex + 1, #FinalCleanup);
+                    stepIndex += 1;
                 };
                 case (#err(error)) {
-                    Debug.print("Token creation failed: " # error);
-                    throw Error.reject("Token creation failed: " # error);
-                };
-            };
-            
-        } catch (error) {
-            Debug.print("Error in _createProjectToken");
-            throw error;
-        };
-    };
-
-    // Step 2: Create Project DAO
-    private func _createProjectDAO() : async () {
-        Debug.print("Creating project DAO...");
-        
-        // TODO: Actual DAOFactory integration
-        // let daoResult = await DAOFactory.createDAO({
-        //     votingToken = deployedContracts.tokenCanister;
-        //     proposalThreshold = config.governanceConfig.proposalThreshold;
-        //     quorumPercentage = config.governanceConfig.quorumPercentage;
-        //     votingPeriod = config.governanceConfig.votingPeriod;
-        //     timelockDuration = config.governanceConfig.timelockDuration;
-        // });
-        
-        // Update deployedContracts with DAO canister ID
-        // deployedContracts := {
-        //     deployedContracts with
-        //     daoCanister = ?daoResult.canisterId;
-        // };
-    };
-
-    // Step 3: Setup Distribution Contracts
-    private func _setupDistributionContracts() : async () {
-        Debug.print("Setting up distribution contracts...");
-        
-        // Create investor vesting contracts
-        await _createInvestorDistribution();
-        
-        // Create team allocation contracts (both token and raised funds)
-        await _createTeamAllocations();
-        
-        // Create other distribution contracts
-        await _createOtherDistributions();
-    };
-
-    // Step 4: Process Platform Fees and Final Allocation
-    private func _processPlatformFeesAndAllocation() : async () {
-        Debug.print("Processing platform fees and final allocation...");
-        
-        // Calculate platform fees
-        let _platformFee = totalRaised * Nat8.toNat(config.platformFeeRate) / 100;
-        
-        // Calculate DEX listing fees
-        let _dexFees = _calculateDEXFees();
-        
-        // Calculate treasury allocation (remaining tokens)
-        let _treasuryTokens = _calculateTreasuryAllocation();
-        let _treasuryFunds = _calculateTreasuryFunds();
-        
-        // Transfer platform fees
-        // await _transferPlatformFees(platformFee);
-        
-        // Transfer remaining allocation to DAO treasury
-        // await _transferToDAOTreasury(treasuryTokens, treasuryFunds);
-    };
-
-    // Step 5: Transfer Controllers to DAO
-    private func _transferControllersToDAO() : async () {
-        Debug.print("Transferring controllers to DAO...");
-        
-        // Transfer token contract controller to DAO
-        // Transfer distribution contracts controller to DAO
-        // Transfer any other relevant controllers to DAO
-        
-        // This ensures DAO has full control over project contracts
-    };
-
-    // Helper functions for distribution creation
-    private func _createInvestorDistribution() : async () {
-        // Create vesting contract for all sale participants
-        // Based on sale participant data and vesting schedules
-    };
-
-    private func _createTeamAllocations() : async () {
-        // Create team token allocation (sale tokens with vesting)
-        // Create team raised fund allocation (raised tokens with vesting)
-    };
-
-    private func _createOtherDistributions() : async () {
-        // Create marketing, development, and other allocation contracts
-        // Based on raisedFundsAllocation configuration
-    };
-
-    // Fee calculation helpers
-    private func _calculateDEXFees() : Nat {
-        // Calculate total DEX listing fees across all enabled DEXs
-        var totalFees: Nat = 0;
-        // Implementation would sum up fees from all enabled DEX platforms
-        totalFees
-    };
-
-    private func _calculateTreasuryAllocation() : Nat {
-        // Calculate remaining tokens for DAO treasury using new fixed structure
-        var allocatedTokens: Nat = 0;
-        
-        switch (config.tokenDistribution) {
-            case (?fixedDistrib) {
-                // Use new V2 fixed structure  
-                allocatedTokens += _parseTokenAmount(fixedDistrib.sale.totalAmount);
-                allocatedTokens += _parseTokenAmount(fixedDistrib.team.totalAmount);
-                allocatedTokens += _parseTokenAmount(fixedDistrib.liquidityPool.totalAmount);
-                
-                for (other in fixedDistrib.others.vals()) {
-                    allocatedTokens += _parseTokenAmount(other.totalAmount);
-                };
-            };
-            case (null) {
-                // Fallback to legacy V1 structure
-                for (category in config.distribution.vals()) {
-                    allocatedTokens += category.totalAmount;
+                    let _ = pipelineManager.failStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), error);
+                    _markPipelineFailed();
+                    processingState := #Failed("Step " # Nat.toText(stepIndex) # " failed: " # error);
+                    Debug.print("❌ Pipeline failed at step " # Nat.toText(stepIndex));
+                    break deployLoop;
                 };
             };
         };
         
-        if (config.saleToken.totalSupply >= allocatedTokens) {
-            config.saleToken.totalSupply - allocatedTokens
-        } else {
-            0
-        }
-    };
-
-    // Helper function to parse string amounts
-    private func _parseTokenAmount(amountStr: Text) : Nat {
-        // Simple parser for string to Nat conversion
-        // In production, use a proper parsing library
-        var result: Nat = 0;
-        var multiplier: Nat = 1;
-        let charArray = Iter.toArray(Text.toIter(amountStr));
-        let size = charArray.size();
-        
-        var i = 0;
-        label parseLoop while (i < size) {
-            let char = charArray[size - 1 - i];
-            switch (char) {
-                case ('0') { result += 0 * multiplier; };
-                case ('1') { result += 1 * multiplier; };
-                case ('2') { result += 2 * multiplier; };
-                case ('3') { result += 3 * multiplier; };
-                case ('4') { result += 4 * multiplier; };
-                case ('5') { result += 5 * multiplier; };
-                case ('6') { result += 6 * multiplier; };
-                case ('7') { result += 7 * multiplier; };
-                case ('8') { result += 8 * multiplier; };
-                case ('9') { result += 9 * multiplier; };
-                case (',') { /* ignore commas */ };
-                case (_) { 
-                    // Invalid character, return 0
-                    return 0;
-                };
-            };
-            multiplier *= 10;
-            i += 1;
+        // Check completion
+        if (stepIndex >= steps.size()) {
+            _markPipelineCompleted();
+            status := #Claiming;
+            processingState := #Completed;
+            Debug.print("✅ Deployment pipeline completed");
         };
-        result
     };
 
-    private func _calculateTreasuryFunds() : Nat {
-        // Calculate remaining raised funds for DAO treasury  
-        // Total raised - platform fees - DEX fees - team allocations = treasury funds
-        var allocatedFunds: Nat = 0;
-        
-        // Add platform fees
-        allocatedFunds += totalRaised * Nat8.toNat(config.platformFeeRate) / 100;
-        
-        // Add DEX fees
-        allocatedFunds += _calculateDEXFees();
-        
-        // Add team/development/marketing allocations
-        allocatedFunds += _calculateRaisedFundsAllocations();
-        
-        if (totalRaised >= allocatedFunds) {
-            totalRaised - allocatedFunds
-        } else {
-            0
-        }
-    };
-
-    private func _calculateRaisedFundsAllocations() : Nat {
-        var totalAllocated : Nat = 0;
-
-        for (allocation in config.raisedFundsAllocation.allocations.vals()) {
-            totalAllocated += allocation.amount;
-        };
-
-        totalAllocated
-    };
-
-    private func _processRefunds() : async () {
-        Debug.print("💸 Processing refunds for all participants...");
-        Debug.print("   Total participants to refund: " # Nat.toText(participantCount));
-
-        // TODO: Implement actual ICRC transfer refunds to each participant
-        // For now, just mark processing as completed
-
-        // After all refunds are processed, transition to Failed status
-        processingState := #Completed;
-        status := #Failed;
-        updatedAt := Time.now();
-
-        Debug.print("✅ All refunds processed. Launchpad marked as Failed.");
-    };
+    // ================ AFFILIATE & ALLOCATION HELPERS ================
 
     private func _processAffiliateCommission(code: Text, amount: Nat) : () {
         let commission = amount * Nat8.toNat(config.affiliateConfig.commissionRate) / 100;
@@ -2858,61 +2919,248 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok()
     };
 
+    // ============================================
+    // UPGRADE STATE MANAGEMENT HELPERS
+    // ============================================
+
+    /// Guard function - check if contract is in upgrade mode
+    /// Passively unlocks if timeout expired (fallback mechanism)
+    private func _requireNotUpgrading() : Result.Result<(), Text> {
+        if (isUpgrading) {
+            switch (upgradeRequestedAt) {
+                case (?startTime) {
+                    let age = Time.now() - startTime;
+
+                    // PASSIVE SELF-UNLOCK if timeout exceeded (fallback)
+                    if (age > UPGRADE_TIMEOUT_NANOS) {
+                        Debug.print("⏰ CONTRACT: Timeout detected - auto-unlocking (fallback)");
+
+                        isUpgrading := false;
+                        upgradeRequestedAt := null;
+                        upgradeRequestId := null;
+
+                        #ok(())
+                    } else {
+                        let remainingMinutes = (UPGRADE_TIMEOUT_NANOS - age) / (60 * 1_000_000_000);
+                        #err("Contract is being upgraded. Estimated completion: ~" # Int.toText(remainingMinutes) # " minutes. Please try again later.")
+                    }
+                };
+                case null {
+                    // Inconsistent state - unlock
+                    isUpgrading := false;
+                    #ok(())
+                };
+            }
+        } else {
+            #ok(())
+        }
+    };
+
+    // ============================================
+    // UPGRADE STATE QUERY FUNCTIONS
+    // ============================================
+
+    /// Check if contract is in upgrade mode
+    public query func isInUpgradeMode() : async Bool {
+        isUpgrading
+    };
+
+    /// Get upgrade mode details
+    public query func getUpgradeModeInfo() : async {
+        isUpgrading: Bool;
+        requestedAt: ?Int;
+        requestId: ?Text;
+        timeoutAt: ?Int;
+    } {
+        {
+            isUpgrading = isUpgrading;
+            requestedAt = upgradeRequestedAt;
+            requestId = upgradeRequestId;
+            timeoutAt = switch (upgradeRequestedAt) {
+                case (?startTime) { ?(startTime + UPGRADE_TIMEOUT_NANOS) };
+                case null { null };
+            };
+        }
+    };
+
+    /// Check if upgrade timeout has expired
+    public query func isUpgradeTimeout() : async Bool {
+        switch (upgradeRequestedAt) {
+            case (?startTime) {
+                Time.now() - startTime > UPGRADE_TIMEOUT_NANOS
+            };
+            case null { false };
+        }
+    };
+
     /// Get current contract version
     public query func getVersion() : async IUpgradeable.Version {
         contractVersion
     };
 
-    /// Update contract version (factory only)
-    /// Only the factory can call this function to update version after upgrade
-    public func updateVersion(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
-        // Factory authentication - only factory can update version
-        if (caller != factoryPrincipal) {
-            return #err("Unauthorized: Only factory can update version");
-        };
-
-        // Update version
-        contractVersion := newVersion;
-        Debug.print("✅ LaunchpadContract version updated by factory: " # debug_show(newVersion) # " by " # Principal.toText(caller));
-
-        #ok(())
-    };
+    // ============================================
+    // UPGRADE LIFECYCLE FUNCTIONS
+    // ============================================
 
     /// Request self-upgrade to latest stable version
-    /// Only contract creator can call this function
-    public shared({caller}) func requestSelfUpgrade() : async Result.Result<(), Text> {
-        Debug.print("🔄 LaunchpadContract: requestSelfUpgrade called by " # Principal.toText(caller));
+    /// CONTRACT LOCKS IMMEDIATELY when calling this function
+    /// Only creator can request upgrade
+    public shared({caller}) func requestSelfUpgrade() : async Result.Result<Text, Text> {
+        Debug.print("🔄 CONTRACT: requestSelfUpgrade called by " # Principal.toText(caller));
 
-        // Authorization check - only creator can request upgrade
+        // ============================================
+        // AUTHORIZATION CHECK
+        // ============================================
+
         if (caller != creator) {
-            Debug.print("❌ LaunchpadContract: Unauthorized caller (not creator)");
+            Debug.print("❌ Unauthorized: Only creator can request upgrade");
             return #err("Unauthorized: Only contract creator can request self-upgrade");
         };
 
-        // Call factory to request upgrade
+        // ============================================
+        // CHECK NOT ALREADY UPGRADING
+        // ============================================
+
+        if (isUpgrading) {
+            // Check if timeout expired
+            switch (upgradeRequestedAt) {
+                case (?startTime) {
+                    if (Time.now() - startTime > UPGRADE_TIMEOUT_NANOS) {
+                        Debug.print("⏰ Previous upgrade timed out - allowing new request");
+                    } else {
+                        return #err("Upgrade already in progress. Please wait or cancel the current upgrade.");
+                    };
+                };
+                case null {
+                    // Inconsistent state - reset
+                    isUpgrading := false;
+                };
+            };
+        };
+
+        // ============================================
+        // LOCK CONTRACT IMMEDIATELY
+        // ============================================
+
+        isUpgrading := true;
+        upgradeRequestedAt := ?Time.now();
+
+        Debug.print("🔒 CONTRACT LOCKED - All mutations blocked for 30 minutes or until upgrade completes");
+
+        // ============================================
+        // CALL FACTORY TO REQUEST UPGRADE
+        // ============================================
+
         try {
             let factory = actor(Principal.toText(factoryPrincipal)) : actor {
                 requestSelfUpgrade: () -> async Result.Result<(), Text>;
             };
 
-            Debug.print("📞 LaunchpadContract: Calling factory.requestSelfUpgrade()...");
+            Debug.print("📞 Calling factory.requestSelfUpgrade()...");
             let result = await factory.requestSelfUpgrade();
 
             switch (result) {
                 case (#ok()) {
-                    Debug.print("✅ LaunchpadContract: Self-upgrade request successful");
-                    #ok()
+                    Debug.print("✅ Upgrade request accepted by factory");
+
+                    // Generate local request ID
+                    let requestId = "upgrade-" # Int.toText(Time.now());
+                    upgradeRequestId := ?requestId;
+
+                    #ok(requestId)
                 };
                 case (#err(msg)) {
-                    Debug.print("❌ LaunchpadContract: Self-upgrade request failed: " # msg);
+                    Debug.print("❌ Factory rejected upgrade request: " # msg);
+
+                    // UNLOCK on failure
+                    isUpgrading := false;
+                    upgradeRequestedAt := null;
+                    upgradeRequestId := null;
+
                     #err(msg)
                 };
             };
         } catch (e) {
-            let errorMsg = "Failed to call factory.requestSelfUpgrade: " # Error.message(e);
-            Debug.print("❌ LaunchpadContract: " # errorMsg);
+            let errorMsg = "Failed to call factory: " # Error.message(e);
+            Debug.print("💥 " # errorMsg);
+
+            // UNLOCK on error
+            isUpgrading := false;
+            upgradeRequestedAt := null;
+            upgradeRequestId := null;
+
             #err(errorMsg)
         }
+    };
+
+    /// Complete upgrade (called by factory after successful upgrade)
+    /// This unlocks the contract and updates version
+    public func completeUpgrade(newVersion: IUpgradeable.Version, caller: Principal) : async Result.Result<(), Text> {
+        // Only factory can call this
+        if (caller != factoryPrincipal) {
+            return #err("Unauthorized: Only factory can complete upgrade");
+        };
+
+        if (not isUpgrading) {
+            Debug.print("⚠️ Warning: completeUpgrade called but contract was not locked");
+        };
+
+        // Update version
+        contractVersion := newVersion;
+
+        // UNLOCK contract
+        isUpgrading := false;
+        upgradeRequestedAt := null;
+        upgradeRequestId := null;
+
+        Debug.print("🔓 CONTRACT UNLOCKED - Upgrade completed successfully to version " # debug_show(newVersion));
+
+        #ok(())
+    };
+
+    /// Cancel upgrade (called by factory on failure OR timeout)
+    /// This unlocks the contract
+    public func cancelUpgrade(reason: Text, caller: Principal) : async Result.Result<(), Text> {
+        // Factory OR creator can cancel
+        let isAuthorized = caller == factoryPrincipal or caller == creator;
+
+        if (not isAuthorized) {
+            return #err("Unauthorized: Only factory or creator can cancel upgrade");
+        };
+
+        if (not isUpgrading) {
+            return #err("Contract is not in upgrade mode");
+        };
+
+        // UNLOCK contract
+        isUpgrading := false;
+        upgradeRequestedAt := null;
+        upgradeRequestId := null;
+
+        Debug.print("🔓 CONTRACT UNLOCKED - Upgrade cancelled: " # reason);
+
+        #ok(())
+    };
+
+    /// Emergency unlock (creator only) - for stuck contracts
+    public shared({caller}) func emergencyUnlockUpgrade() : async Result.Result<(), Text> {
+        // Only creator can emergency unlock
+        if (caller != creator) {
+            return #err("Unauthorized: Only creator can emergency unlock");
+        };
+
+        if (not isUpgrading) {
+            return #err("Contract is not in upgrade mode");
+        };
+
+        // UNLOCK contract
+        isUpgrading := false;
+        upgradeRequestedAt := null;
+        upgradeRequestId := null;
+
+        Debug.print("🚨 EMERGENCY UNLOCK by " # Principal.toText(caller));
+
+        #ok(())
     };
 
     /// Query functions to check version info
