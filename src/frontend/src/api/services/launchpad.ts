@@ -282,6 +282,35 @@ export class LaunchpadService {
     }
   }
 
+  /**
+   * Get participant with refund transaction details
+   * @param canisterId - Launchpad canister ID
+   * @param principalStr - Participant principal as string
+   * @returns Participant with refund transactions and total refunded amount
+   */
+  async getParticipantWithRefunds(canisterId: string, principalStr: string): Promise<{
+    participant: Participant;
+    refundTransactions: Transaction[];
+    totalRefunded: bigint;
+    canWithdraw: boolean;
+  } | null> {
+    try {
+      const launchpadActor = this.getLaunchpadActorAnonymous(canisterId)
+      const principal = Principal.fromText(principalStr)
+      const result = await launchpadActor.getParticipantWithRefunds(principal)
+      
+      // Handle optional result ([] if null, [value] if present)
+      if (result && result.length > 0) {
+        return result[0]
+      }
+      
+      return null
+    } catch (error) {
+      console.error('Error fetching participant refund details:', error)
+      throw error
+    }
+  }
+
   async isWhitelisted(canisterId: string, principal?: string): Promise<boolean> {
     try {
       const launchpadActor = this.getLaunchpadActorAnonymous(canisterId)
@@ -563,18 +592,29 @@ export class LaunchpadService {
   }
 
   private getStatusKey(status: LaunchpadStatus): string {
+    // Initial phases
     if ('Setup' in status) return 'setup'
     if ('Upcoming' in status) return 'upcoming'
     if ('WhitelistOpen' in status) return 'whitelist'
     if ('SaleActive' in status) return 'active'
     if ('SaleEnded' in status) return 'ended'
-    if ('Distributing' in status) return 'distributing'
+    
+    // Success path
+    if ('Successful' in status) return 'successful'
+    if ('Distributing' in status) return 'distributing'  // DEPRECATED: Use processingState instead
     if ('Claiming' in status) return 'claiming'
     if ('Completed' in status) return 'completed'
-    if ('Successful' in status) return 'successful'
+    
+    // Failed path
     if ('Failed' in status) return 'failed'
+    if ('Refunding' in status) return 'refunding'  // DEPRECATED: Use processingState instead
+    if ('Refunded' in status) return 'refunded'    // NEW: Refunds completed
+    if ('Finalized' in status) return 'finalized'  // NEW: Final state for failed sales
+    
+    // Special states
     if ('Cancelled' in status) return 'cancelled'
     if ('Emergency' in status) return 'emergency'
+    
     return 'unknown'
   }
 
@@ -604,18 +644,28 @@ export class LaunchpadService {
   getStatusDisplay(status: LaunchpadStatus): string {
     const key = this.getStatusKey(status)
     const statusMap = {
+      // Initial phases
       setup: 'Setup',
       upcoming: 'Upcoming',
       whitelist: 'Whitelist Open',
       active: 'Sale Active',
       ended: 'Sale Ended',
-      distributing: 'Distributing',
+      
+      // Success path
+      successful: 'Successful',
+      distributing: 'Distributing',  // DEPRECATED
       claiming: 'Claiming',
       completed: 'Completed',
-      successful: 'Successful',
-      failed: 'Failed',
+      
+      // Failed path
+      failed: 'Processing Refunds',
+      refunding: 'Refunding',        // DEPRECATED
+      refunded: 'Refunds Completed',
+      finalized: 'Launchpad Closed',
+      
+      // Special states
       cancelled: 'Cancelled',
-      emergency: 'Emergency',
+      emergency: 'Emergency Pause',
       unknown: 'Unknown'
     }
     return statusMap[key as keyof typeof statusMap] || 'Unknown'
@@ -624,16 +674,26 @@ export class LaunchpadService {
   getStatusColor(status: LaunchpadStatus): string {
     const key = this.getStatusKey(status)
     const colorMap = {
+      // Initial phases
       setup: 'gray',
       upcoming: 'blue',
       whitelist: 'purple',
       active: 'green',
       ended: 'yellow',
-      distributing: 'orange',
+      
+      // Success path
+      successful: 'green',
+      distributing: 'orange',  // DEPRECATED
       claiming: 'indigo',
       completed: 'green',
-      successful: 'green',
-      failed: 'red',
+      
+      // Failed path
+      failed: 'yellow',        // Processing refunds (warning state)
+      refunding: 'yellow',     // DEPRECATED
+      refunded: 'blue',        // Refunds completed (informational)
+      finalized: 'gray',       // Launchpad closed (neutral)
+      
+      // Special states
       cancelled: 'red',
       emergency: 'red',
       unknown: 'gray'

@@ -433,12 +433,22 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         installed := true;
         updatedAt := Time.now();
 
+        Debug.print("🏁 Launchpad initialized: " # launchpadId);
+
+        // IMPORTANT: Check and update status based on current time FIRST
+        // This handles cases where milestones have already passed
+        Debug.print("🔄 Checking if any milestones have already passed...");
+        let _ = await checkAndUpdateStatus();  // Transition 1 (e.g., Upcoming -> SaleActive)
+        let _ = await checkAndUpdateStatus();  // Transition 2 (e.g., SaleActive -> SaleEnded)
+        let _ = await checkAndUpdateStatus();  // Transition 3 (e.g., Successful -> Claiming)
+
+        Debug.print("📊 Current status after transitions: " # LaunchpadTypes.statusToText(status));
+
         // Setup milestone-specific timers for automatic status transitions
         // IMPORTANT: Must await to ensure timers are actually created
         await _setupMilestoneTimers();
 
-        Debug.print("Launchpad initialized: " # launchpadId);
-        Debug.print("✅ Timers setup completed");
+        Debug.print("✅ Initialization completed with timers setup");
         #ok(())
     };
 
@@ -684,11 +694,14 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             return #err("Launchpad is not cancellable");
         };
 
-        if (status == #Completed or status == #Cancelled) {
+        // Check if already finalized
+        if (status == #Completed or status == #Finalized or status == #Cancelled) {
             return #err("Launchpad already finalized");
         };
 
-        status := #Cancelled;
+        Debug.print("🚫 Launchpad cancellation requested by: " # Principal.toText(caller));
+
+        status := #Cancelled;  // Mark as cancelled
         processingState := #Processing({
             stage = #Refunding;
             progress = 0;
@@ -699,10 +712,10 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         });
         updatedAt := Time.now();
 
-        // Start refund pipeline
+        // Start refund pipeline (will transition to #Refunded → #Finalized when done)
         ignore _runRefundPipeline();
 
-        Debug.print("Launchpad cancelled by: " # Principal.toText(caller));
+        Debug.print("📝 Refund pipeline started - will transition: Cancelled → Refunded → Finalized");
         #ok(())
     };
 
@@ -919,6 +932,46 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     public query func getParticipant(participant: Principal) : async ?LaunchpadTypes.Participant {
         let key = Principal.toText(participant);
         Trie.get(participants, LaunchpadTypes.textKey(key), Text.equal)
+    };
+
+    /// Get participant with refund transaction details
+    /// Useful for showing complete refund history
+    public query func getParticipantWithRefunds(participant: Principal) : async ?{
+        participant: LaunchpadTypes.Participant;
+        refundTransactions: [LaunchpadTypes.Transaction];
+        totalRefunded: Nat;
+        canWithdraw: Bool;
+    } {
+        let key = Principal.toText(participant);
+        
+        switch (Trie.get(participants, LaunchpadTypes.textKey(key), Text.equal)) {
+            case (?p) {
+                // Find all refund transactions for this participant
+                let refundTxs = Array.filter<LaunchpadTypes.Transaction>(
+                    Buffer.toArray(transactions),
+                    func(tx) {
+                        tx.participant == participant and tx.txType == #Refund
+                    }
+                );
+                
+                // Calculate total refunded from transactions
+                var totalRefunded = 0;
+                for (tx in refundTxs.vals()) {
+                    totalRefunded += tx.amount;
+                };
+                
+                // Can withdraw if status is #Refunded or #Finalized
+                let canWithdraw = (status == #Refunded or status == #Finalized);
+                
+                ?{
+                    participant = p;
+                    refundTransactions = refundTxs;
+                    totalRefunded = totalRefunded;
+                    canWithdraw = canWithdraw;
+                }
+            };
+            case null null;
+        }
     };
 
     public query func getParticipants(offset: Nat, limit: Nat) : async [LaunchpadTypes.Participant] {
@@ -1763,10 +1816,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             
             ignore _runDeploymentPipeline();
         } else {
-            // SALE FAILED: Run refund pipeline
-            Debug.print("❌ Sale failed - starting refund pipeline...");
+            // SALE FAILED: Soft cap not reached → Run refund pipeline
+            Debug.print("❌ Sale failed (soft cap not reached) - starting refund pipeline...");
+            Debug.print("   Total raised: " # Nat.toText(totalRaised) # " < Soft cap: " # Nat.toText(softCapInSmallestUnit()));
 
-            status := #Refunding;
+            status := #Failed;  // Mark as failed FIRST (symmetric with #Successful)
             processingState := #Processing({
                 stage = #Refunding;
                 progress = 0;
@@ -2103,6 +2157,144 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(pipelineExecutionState)
     };
 
+    // ================ PIPELINE PROGRESS HELPER FUNCTIONS ================
+    
+    // Helper: Get step status for frontend display
+    private func _getStepStatus(stepIndex: Nat) : Text {
+        switch (processingState) {
+            case (#Processing(state)) {
+                if (state.processedCount > stepIndex) {
+                    "completed"
+                } else if (state.processedCount == stepIndex) {
+                    "processing"
+                } else {
+                    "pending"
+                }
+            };
+            case (#Completed) "completed";
+            case (#Failed(_)) {
+                switch (processingState) {
+                    case (#Processing(state)) {
+                        if (state.processedCount > stepIndex) "completed"
+                        else if (state.processedCount == stepIndex) "failed"
+                        else "pending"
+                    };
+                    case _ "failed";
+                }
+            };
+            case (#Idle) "pending";
+        }
+    };
+
+    // Helper: Get step progress percentage
+    private func _getStepProgress(stepIndex: Nat) : Nat8 {
+        let stepStatus = _getStepStatus(stepIndex);
+        if (stepStatus == "completed") 100
+        else if (stepStatus == "processing") 50
+        else if (stepStatus == "failed") 0
+        else 0  // pending
+    };
+
+    // Helper: Get refund error message if any
+    private func _getRefundError() : ?Text {
+        switch (processingState) {
+            case (#Failed(msg)) ?msg;
+            case _ null;
+        }
+    };
+
+    // Helper: Get refund details (participants refunded/total)
+    private func _getRefundDetails() : Text {
+        // Count participants with refundedAmount > 0
+        let participantArray = Trie.toArray<Text, LaunchpadTypes.Participant, (Text, LaunchpadTypes.Participant)>(
+            participants,
+            func(k, v) { (k, v) }
+        );
+        
+        var refundedCount = 0;
+        for ((_, participant) in participantArray.vals()) {
+            if (participant.refundedAmount > 0) {
+                refundedCount += 1;
+            };
+        };
+        
+        Nat.toText(refundedCount) # "/" # Nat.toText(participantCount)
+    };
+
+    /// Get detailed pipeline progress for frontend display
+    /// Returns structured data similar to DeploymentPipeline component
+    public query func getPipelineProgress() : async {
+        status: LaunchpadTypes.LaunchpadStatus;
+        processingState: LaunchpadTypes.ProcessingState;
+        isSuccess: Bool;  // true = deployment pipeline, false = refund pipeline
+        steps: [{
+            name: Text;
+            stage: Text;
+            status: Text;  // "pending" | "processing" | "completed" | "failed"
+            progress: Nat8;  // 0-100
+            errorMessage: ?Text;
+        }];
+        overallProgress: Nat8;  // 0-100
+        canRetry: Bool;
+    } {
+        let isSuccess = (status == #Successful or status == #Claiming or status == #Completed);
+        
+        // Determine pipeline steps based on success/failure
+        let steps = if (isSuccess) {
+            // SUCCESS PIPELINE: 6 steps
+            [
+                { name = "Collect Funds"; stage = "token_deployment"; status = _getStepStatus(0); progress = _getStepProgress(0); errorMessage = null },
+                { name = "Deploy Token"; stage = "token_deployment"; status = _getStepStatus(1); progress = _getStepProgress(1); errorMessage = null },
+                { name = "Deploy Distribution"; stage = "vesting_setup"; status = _getStepStatus(2); progress = _getStepProgress(2); errorMessage = null },
+                { name = "Deploy DAO"; stage = "dao_deployment"; status = _getStepStatus(3); progress = _getStepProgress(3); errorMessage = null },
+                { name = "Setup DEX"; stage = "distribution"; status = _getStepStatus(4); progress = _getStepProgress(4); errorMessage = null },
+                { name = "Process Fees"; stage = "final_cleanup"; status = _getStepStatus(5); progress = _getStepProgress(5); errorMessage = null }
+            ]
+        } else {
+            // FAILED PIPELINE: 1 refund step (with detailed info)
+            let refundStatus = _getStepStatus(0);
+            let refundProgress = _getStepProgress(0);
+            let refundDetails = _getRefundDetails();
+            
+            [
+                { 
+                    name = "Refund Participants (" # refundDetails # ")"; 
+                    stage = "refunding"; 
+                    status = refundStatus; 
+                    progress = refundProgress; 
+                    errorMessage = _getRefundError() 
+                }
+            ]
+        };
+
+        let overallProgress : Nat8 = switch (processingState) {
+            case (#Processing(state)) state.progress;
+            case (#Completed) 100;
+            case (#Failed(_)) {
+                // Calculate partial progress based on processedCount
+                switch (processingState) {
+                    case (#Processing(state)) state.progress;
+                    case _ 0;
+                }
+            };
+            case (#Idle) 0;
+        };
+
+        let canRetry = switch (pipelineExecutionState) {
+            case (?state) state.canRetry;
+            case null false;
+        };
+
+        {
+            status = status;
+            processingState = processingState;
+            isSuccess = isSuccess;
+            steps = steps;
+            overallProgress = overallProgress;
+            canRetry = canRetry;
+        }
+    };
+
     // ================ ADMIN RETRY FUNCTIONS ================
 
     /// Admin retry pipeline from specific step
@@ -2128,9 +2320,34 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                                 switch (result) {
                                     case (#ok(data)) {
                                         ignore manager.completeStepExecution(fromStep, "retry", data, []);
+                                        
+                                        // Update participants with refund data
+                                        switch (data) {
+                                            case (#RefundProcessed(refundData)) {
+                                                Debug.print("📝 Updating participant refund records after retry...");
+                                                _updateParticipantsAfterRefund(refundData.transactions);
+                                            };
+                                            case (_) {};
+                                        };
+                                        
                                         _markPipelineCompleted();
-                                        status := #Failed;
+                                        
+                                        // SYMMETRIC FLOW: Transition to #Refunded then #Finalized
+                                        status := #Refunded;
                                         processingState := #Completed;
+                                        
+                                        Debug.print("✅ Retry successful - refunds completed");
+                                        
+                                        // Auto-transition to Finalized
+                                        ignore Timer.setTimer<system>(
+                                            #seconds(5),
+                                            func() : async () {
+                                                status := #Finalized;
+                                                updatedAt := Time.now();
+                                                Debug.print("🏁 Launchpad finalized after retry");
+                                            }
+                                        );
+                                        
                                         #ok(())
                                     };
                                     case (#err(e)) {
@@ -2246,16 +2463,48 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         switch (result) {
             case (#ok(resultData)) {
                 let _ = pipelineManager.completeStepExecution(0, executionId, resultData, []);
+                
+                // Extract refund transactions from result and update participants
+                switch (resultData) {
+                    case (#RefundProcessed(data)) {
+                        Debug.print("📝 Updating participant refund records...");
+                        Debug.print("   Total refunded: " # Nat.toText(data.totalRefunded));
+                        Debug.print("   Success: " # Nat.toText(data.successCount) # ", Failed: " # Nat.toText(data.failedCount));
+                        
+                        // Update participants with refund amounts and create transaction records
+                        _updateParticipantsAfterRefund(data.transactions);
+                    };
+                    case (_) {
+                        Debug.print("⚠️ Unexpected result data type");
+                    };
+                };
+                
                 _markPipelineCompleted();
-                status := #Failed;
+                
+                // SYMMETRIC FLOW: Failed → Refunded → Finalized (like Successful → Claiming → Completed)
+                status := #Refunded;  // Refunds completed successfully
                 processingState := #Completed;
-                Debug.print("✅ Refund pipeline completed");
+                
+                Debug.print("✅ Refund pipeline completed - all participants refunded");
+                Debug.print("   Participant records updated with refundedAmount and transaction IDs");
+                Debug.print("   Moving to final state...");
+                
+                // Auto-transition to Finalized after a short delay (like Claiming → Completed)
+                ignore Timer.setTimer<system>(
+                    #seconds(5),  // 5 seconds delay
+                    func() : async () {
+                        status := #Finalized;
+                        updatedAt := Time.now();
+                        Debug.print("🏁 Launchpad finalized - all processes completed for failed sale");
+                    }
+                );
             };
             case (#err(error)) {
                 let _ = pipelineManager.failStepExecution(0, executionId, error);
                 _markPipelineFailed();
                 processingState := #Failed("Refund failed: " # error);
                 Debug.print("❌ Refund pipeline failed: " # error);
+                Debug.print("   Admin intervention required - use adminRetryPipeline()");
             };
         };
     };
@@ -2364,6 +2613,76 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             processingState := #Completed;
             Debug.print("✅ Deployment pipeline completed");
         };
+    };
+
+    // ================ REFUND UPDATE HELPERS ================
+
+    /// Update participants after refund pipeline completes
+    /// Updates refundedAmount and creates transaction records
+    private func _updateParticipantsAfterRefund(refundTxs: [PipelineManager.FinancialRecord]) : () {
+        Debug.print("🔄 Updating " # Nat.toText(refundTxs.size()) # " participant refund records...");
+        
+        for (refundTx in refundTxs.vals()) {
+            // Only process successful refunds
+            switch (refundTx.status) {
+                case (#Confirmed) {
+                    let participantKey = Principal.toText(refundTx.to);
+                    
+                    // Update participant record
+                    switch (Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal)) {
+                        case (?participant) {
+                            let updatedParticipant = {
+                                participant with
+                                refundedAmount = participant.refundedAmount + refundTx.amount;
+                            };
+                            
+                            participants := Trie.put(
+                                participants,
+                                LaunchpadTypes.textKey(participantKey),
+                                Text.equal,
+                                updatedParticipant
+                            ).0;
+                            
+                            Debug.print("  ✅ Updated participant " # participantKey);
+                            Debug.print("     Refunded: " # Nat.toText(refundTx.amount));
+                            Debug.print("     Block: " # (switch (refundTx.blockIndex) { case (?idx) Nat.toText(idx); case null "none" }));
+                        };
+                        case null {
+                            Debug.print("  ⚠️ Participant not found: " # participantKey);
+                        };
+                    };
+                    
+                    // Create transaction record
+                    let refundTransaction: LaunchpadTypes.Transaction = {
+                        id = _generateTransactionId();
+                        participant = refundTx.to;
+                        txType = #Refund;
+                        amount = refundTx.amount;
+                        token = config.purchaseToken.canisterId;
+                        timestamp = refundTx.timestamp;
+                        blockIndex = refundTx.blockIndex;
+                        fee = config.purchaseToken.transferFee;
+                        status = #Confirmed;
+                        affiliateCode = null;
+                        notes = ?("Refund processed via pipeline: " # refundTx.executionId);
+                    };
+                    
+                    transactions.add(refundTransaction);
+                    transactionCount += 1;
+                    
+                    Debug.print("  📝 Transaction record created: " # refundTransaction.id);
+                };
+                case (#Failed(msg)) {
+                    Debug.print("  ❌ Skipping failed refund to " # Principal.toText(refundTx.to) # ": " # msg);
+                };
+                case (_) {
+                    Debug.print("  ⏳ Skipping non-confirmed refund to " # Principal.toText(refundTx.to));
+                };
+            };
+        };
+        
+        updatedAt := Time.now();
+        Debug.print("✅ Participant refund records updated");
     };
 
     // ================ AFFILIATE & ALLOCATION HELPERS ================

@@ -461,20 +461,46 @@ module LaunchpadTypes {
 
     // ================ LAUNCHPAD STATUS & LIFECYCLE ================
 
+    // ================ LAUNCHPAD STATUS (SYMMETRIC FLOW) ================
+    // IMPORTANT: Symmetric design for Success and Failed paths
+    //
+    // SUCCESS PATH:
+    //   SaleEnded → Successful → [Deployment Pipeline] → Claiming → Completed
+    //
+    // FAILED PATH (Soft cap not reached):
+    //   SaleEnded → Failed → [Refund Pipeline] → Refunded → Finalized
+    //
+    // CANCELLED PATH (Admin cancellation):
+    //   Any → Cancelled → [Refund Pipeline] → Refunded → Finalized
+    
     public type LaunchpadStatus = {
+        // ================ INITIAL PHASES ================
         #Setup;          // Initial configuration phase
         #Upcoming;       // Configured but not started
         #WhitelistOpen;  // Whitelist registration open
         #SaleActive;     // Sale is active
-        #SaleEnded;      // Sale ended, processing results
-        #Successful;     // Soft cap reached, processing distribution
-        #Refunding;      // Soft cap not reached, refunding participants
-        #Failed;         // Refunds completed, launchpad failed
-        #Distributing;   // Distributing tokens/setting up vesting
-        #Claiming;       // Claims are active
-        #Completed;      // All processes completed
-        #Cancelled;      // Cancelled by admin/creator
+        #SaleEnded;      // Sale ended, determining outcome
+        
+        // ================ SUCCESS PATH (Soft cap reached) ================
+        #Successful;     // Soft cap reached, deployment pipeline starting
+        #Claiming;       // Token deployed, users can claim
+        #Completed;      // All processes completed (SUCCESS END STATE)
+        
+        // ================ FAILED PATH (Soft cap NOT reached) ================
+        #Failed;         // Soft cap not reached, refund pipeline starting
+        #Refunded;       // All refunds completed successfully
+        #Finalized;      // Launchpad closed (FAILED END STATE)
+        
+        // ================ CANCELLED PATH (Admin action) ================
+        #Cancelled;      // Cancelled by admin/creator, refund pipeline starting
+        // → Uses same #Refunded → #Finalized flow
+        
+        // ================ SPECIAL STATES ================
         #Emergency;      // Emergency pause state
+        
+        // ================ DEPRECATED (Backward compatibility) ================
+        #Distributing;   // DEPRECATED: Use processingState instead
+        #Refunding;      // DEPRECATED: Use processingState #Refunding instead
     };
 
     public type ProcessingState = {
@@ -756,9 +782,11 @@ module LaunchpadTypes {
             case (#SaleActive) "sale_active";
             case (#SaleEnded) "sale_ended";
             case (#Successful) "successful";
-            case (#Refunding) "refunding";
+            case (#Refunding) "refunding";  // DEPRECATED
             case (#Failed) "failed";
-            case (#Distributing) "distributing";
+            case (#Refunded) "refunded";   // NEW: Refunds completed
+            case (#Finalized) "finalized"; // NEW: Failed launchpad closed
+            case (#Distributing) "distributing";  // DEPRECATED
             case (#Claiming) "claiming";
             case (#Completed) "completed";
             case (#Cancelled) "cancelled";

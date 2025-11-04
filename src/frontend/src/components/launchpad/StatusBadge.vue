@@ -35,6 +35,7 @@ const statusConfig = computed(() => {
   const statusKey = getStatusKey(props.status)
   
   const statusStyles = {
+    // ============= INITIAL PHASES =============
     setup: {
       classes: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
       icon: SettingsIcon,
@@ -60,6 +61,13 @@ const statusConfig = computed(() => {
       icon: PauseIcon,
       label: 'Sale Ended'
     },
+    
+    // ============= SUCCESS PATH =============
+    successful: {
+      classes: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
+      icon: TrophyIcon,
+      label: 'Successful'
+    },
     distributing: {
       classes: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
       icon: GiftIcon,
@@ -75,16 +83,30 @@ const statusConfig = computed(() => {
       icon: CheckCircleIcon,
       label: 'Completed'
     },
-    successful: {
-      classes: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
-      icon: TrophyIcon,
-      label: 'Successful'
-    },
+    
+    // ============= FAILED PATH =============
     failed: {
-      classes: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300',
-      icon: XCircleIcon,
-      label: 'Failed'
+      classes: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+      icon: AlertTriangleIcon,
+      label: 'Processing Refunds'
     },
+    refunding: {
+      classes: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300',
+      icon: AlertTriangleIcon,
+      label: 'Refunding'
+    },
+    refunded: {
+      classes: 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300',
+      icon: CheckCircleIcon,
+      label: 'Refunds Completed'
+    },
+    finalized: {
+      classes: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300',
+      icon: CheckCircleIcon,
+      label: 'Closed'
+    },
+    
+    // ============= SPECIAL STATES =============
     cancelled: {
       classes: 'bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300',
       icon: XCircleIcon,
@@ -106,18 +128,29 @@ const statusConfig = computed(() => {
 })
 
 const getStatusKey = (status: LaunchpadStatus): string => {
+  // Initial phases
   if ('Setup' in status) return 'setup'
   if ('Upcoming' in status) return 'upcoming'
   if ('WhitelistOpen' in status) return 'whitelist'
   if ('SaleActive' in status) return 'active'
   if ('SaleEnded' in status) return 'ended'
+  
+  // Success path
+  if ('Successful' in status) return 'successful'
   if ('Distributing' in status) return 'distributing'
   if ('Claiming' in status) return 'claiming'
   if ('Completed' in status) return 'completed'
-  if ('Successful' in status) return 'successful'
+  
+  // Failed path
   if ('Failed' in status) return 'failed'
+  if ('Refunding' in status) return 'refunding'
+  if ('Refunded' in status) return 'refunded'      // NEW
+  if ('Finalized' in status) return 'finalized'    // NEW
+  
+  // Special states
   if ('Cancelled' in status) return 'cancelled'
   if ('Emergency' in status) return 'emergency'
+  
   return 'unknown'
 }
 </script>

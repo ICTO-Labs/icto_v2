@@ -49,7 +49,7 @@
 									<h1 class="text-2xl font-bold text-white mb-1">{{ projectName }}</h1>
 									<div class="flex items-center space-x-3">
 										<span class="text-lg font-semibold text-white/90">{{ saleTokenSymbol }}</span>
-										<StatusBadge v-if="launchpad" :status="launchpad.status" />
+										<ProjectStatusBadge v-if="launchpad" :launchpad="launchpad" :show-sub-status="true" />
 										<span v-if="categoryDisplay"
 											class="px-2 py-0.5 bg-white/20 text-white rounded-full text-xs font-medium">
 											{{ categoryDisplay }}
@@ -813,7 +813,8 @@
 						<!-- Sidebar (1/3 width) -->
 						<div class="space-y-4">
 							<!-- Timeline Card -->
-							<div
+							<UnifiedTimeline v-if="launchpad" :launchpad="launchpad" />
+							<!-- <div
 								class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
 								<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
 									<svg class="w-5 h-5 mr-2 text-[#d8a735]" fill="none" stroke="currentColor"
@@ -823,6 +824,7 @@
 									</svg>
 									Timeline
 								</h3>
+								<UnifiedTimeline v-if="launchpad" :launchpad="launchpad" />
 								<div class="space-y-3">
 									<TimelineItem label="Sale Start" :date="formatTimestamp(saleStart)"
 										:status="saleStartStatus" :active="isSaleActive" />
@@ -835,7 +837,7 @@
 										:date="formatTimestamp(listingTime)" :status="listingTimeStatus"
 										:active="listingTimeActive" />
 								</div>
-							</div>
+							</div> -->
 
 							<!-- Action Card -->
 							<div
@@ -990,6 +992,11 @@ import InfoCard from '@/components/launchpad/InfoCard.vue'
 import TimelineItem from '@/components/launchpad/TimelineItem.vue'
 import PipelineTimeline from '@/components/launchpad/PipelineTimeline.vue'
 import DistributionChart from '@/components/launchpad/DistributionChart.vue'
+// 🆕 NEW: Dual-Status System components
+import ProjectStatusBadge from '@/components/launchpad/ProjectStatusBadge.vue'
+import UnifiedTimeline from '@/components/launchpad/UnifiedTimeline.vue'
+import { useProjectStatus } from '@/composables/launchpad/useProjectStatus'
+
 import VestingCard from '@/components/launchpad/VestingCard.vue'
 import URLImageInput from '@/components/common/URLImageInput.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
@@ -1020,7 +1027,17 @@ const isSavingImages = ref(false)
 
 // Version Management Ref
 const versionManagementRef = ref<InstanceType<any> | null>(null)
-
+// 🆕 NEW: Use Dual-Status System
+const launchpadRef = computed(() => launchpad.value)
+const { 
+	projectStatus,
+	statusInfo,
+	timeline,
+	canParticipate: canParticipateFromStatus,
+	canClaim,
+	canViewRefund,
+	showPipeline 
+} = useProjectStatus(launchpadRef)
 const editForm = ref({
 	description: '',
 	website: '',

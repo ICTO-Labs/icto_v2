@@ -92,10 +92,10 @@
                 Contribution
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Committed
+                Allocation/Refund
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                KYC Status
+                Status
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 First Contributed
@@ -132,14 +132,47 @@
                 <div class="text-sm text-gray-900 dark:text-white">
                   {{ formatAmount(participant.totalContribution) }} {{ purchaseTokenSymbol }}
                 </div>
-                <div v-if="participant.allocationAmount > 0" class="text-xs text-[#d8a735]">
-                  Allocation: {{ formatAmount(participant.allocationAmount) }} {{ saleTokenSymbol }}
+                <div class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ participant.commitCount }} contributions
                 </div>
               </td>
               <td class="px-4 py-4 whitespace-nowrap">
-                <div class="flex items-center space-x-2">
-                  <span class="text-sm text-gray-900 dark:text-white">{{ participant.commitCount }}</span>
-                  <span class="text-xs text-gray-500 dark:text-gray-400">times</span>
+                <!-- Success: Show Allocation -->
+                <div v-if="participant.allocationAmount > 0" class="space-y-1">
+                  <div class="text-sm text-[#d8a735] font-medium">
+                    {{ formatAmount(participant.allocationAmount) }} {{ saleTokenSymbol }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    Allocation
+                  </div>
+                  <div v-if="participant.claimedAmount > 0" class="text-xs text-green-600 dark:text-green-400">
+                    Claimed: {{ formatAmount(participant.claimedAmount) }}
+                  </div>
+                </div>
+                
+                <!-- Failed: Show Refund -->
+                <div v-else-if="participant.refundedAmount > 0" class="space-y-1">
+                  <div class="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                    {{ formatAmount(participant.refundedAmount) }} {{ purchaseTokenSymbol }}
+                  </div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">
+                    Refunded
+                  </div>
+                  <button
+                    v-if="participant.refundedAmount > 0"
+                    @click="viewRefundDetails(participant)"
+                    class="text-xs text-[#d8a735] hover:text-[#b27c10] transition-colors flex items-center gap-1"
+                  >
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    View Details
+                  </button>
+                </div>
+
+                <!-- Pending -->
+                <div v-else class="text-sm text-gray-500 dark:text-gray-400">
+                  Pending
                 </div>
               </td>
               <td class="px-4 py-4 whitespace-nowrap">
@@ -261,6 +294,7 @@ interface Props {
   purchaseTokenSymbol: string
   purchaseTokenDecimals: number
   saleTokenSymbol: string
+  launchpadStatus?: string  // NEW: Pass launchpad status to determine if refunded
 }
 
 const props = defineProps<Props>()
@@ -273,6 +307,12 @@ const currentPage = ref(1)
 const pageSize = 10
 
 const launchpadService = LaunchpadService.getInstance()
+
+// Check if launchpad is in refund mode
+const isRefundedOrFinalized = computed(() => {
+  const status = props.launchpadStatus?.toLowerCase()
+  return status === 'refunded' || status === 'finalized' || status === 'failed'
+})
 
 // Computed
 const filteredParticipants = computed(() => {
@@ -366,25 +406,78 @@ const formatDate = (timestamp: bigint): string => {
 }
 
 const getKycStatusDisplay = (kycStatus: any): string => {
-  if (!kycStatus || typeof kycStatus !== 'object') return 'Unknown'
+  if (!kycStatus || typeof kycStatus !== 'object') return 'Not Required'
 
   if ('NotRequired' in kycStatus) return 'Not Required'
   if ('Pending' in kycStatus) return 'Pending'
+  if ('Approved' in kycStatus) return 'Approved'  // FIXED: Changed from Verified to Approved
   if ('Verified' in kycStatus) return 'Verified'
   if ('Rejected' in kycStatus) return 'Rejected'
 
-  return 'Unknown'
+  return 'Not Required'  // FIXED: Default to Not Required instead of Unknown
 }
 
 const getKycStatusClass = (kycStatus: any): string => {
-  if (!kycStatus || typeof kycStatus !== 'object') return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
+  if (!kycStatus || typeof kycStatus !== 'object') return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
 
   if ('NotRequired' in kycStatus) return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'
   if ('Pending' in kycStatus) return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300'
+  if ('Approved' in kycStatus) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'  // FIXED: Added Approved
   if ('Verified' in kycStatus) return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
   if ('Rejected' in kycStatus) return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
 
-  return 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300'
+  return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300'  // FIXED: Default to blue (NotRequired style)
+}
+
+// NEW: Handle viewing refund details
+const viewRefundDetails = async (participant: Participant) => {
+  try {
+    loading.value = true
+    const principalStr = principalToString(participant.principal)
+    
+    // Call getParticipantWithRefunds to get detailed refund info
+    const refundInfo = await launchpadService.getParticipantWithRefunds(props.canisterId, principalStr)
+    
+    if (refundInfo && refundInfo.refundTransactions.length > 0) {
+      // Show refund details modal
+      toast.success(`Total Refunded: ${formatAmount(refundInfo.totalRefunded)} ${props.purchaseTokenSymbol}`)
+      
+      // Log transaction details to console for now (TODO: Create modal)
+      console.log('Refund Details:', {
+        participant: principalStr,
+        totalRefunded: refundInfo.totalRefunded,
+        transactions: refundInfo.refundTransactions.map((tx: any) => ({
+          id: tx.id,
+          amount: tx.amount,
+          blockIndex: tx.blockIndex,
+          timestamp: tx.timestamp,
+          status: tx.status
+        }))
+      })
+      
+      // Show each transaction
+      refundInfo.refundTransactions.forEach((tx: any, index: number) => {
+        const blockInfo = tx.blockIndex && tx.blockIndex.length > 0 
+          ? `Block #${tx.blockIndex[0]}` 
+          : 'No block index'
+        
+        console.log(`Refund ${index + 1}:`, {
+          amount: formatAmount(tx.amount),
+          block: blockInfo,
+          explorerLink: tx.blockIndex && tx.blockIndex.length > 0
+            ? `https://dashboard.internetcomputer.org/transaction/${tx.blockIndex[0]}`
+            : null
+        })
+      })
+    } else {
+      toast.error('No refund transactions found')
+    }
+  } catch (error) {
+    console.error('Error fetching refund details:', error)
+    toast.error('Failed to fetch refund details')
+  } finally {
+    loading.value = false
+  }
 }
 
 

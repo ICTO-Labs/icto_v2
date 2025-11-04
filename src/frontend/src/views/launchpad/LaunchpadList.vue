@@ -1,19 +1,40 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useLaunchpadStore } from '@/stores/launchpad';
-import { useModalStore } from '@/stores/modal';
-import LaunchpadCard from '@/components/launchpad/LaunchpadCard.vue';
+import { ref, computed } from 'vue'
+import { useLaunchpadStore } from '@/stores/launchpad'
+import { useModalStore } from '@/stores/modal'
+import LaunchpadCard from '@/components/launchpad/LaunchpadCard.vue'
+// 🆕 NEW: Dual-Status System
+import { LAUNCHPAD_FILTER_OPTIONS } from '@/config/launchpadFilters'
+import { useProjectStatus } from '@/composables/launchpad/useProjectStatus'
+import type { ProjectStatus } from '@/composables/launchpad/useProjectStatus'
 
-const launchpadStore = useLaunchpadStore();
-const modalStore = useModalStore();
+const launchpadStore = useLaunchpadStore()
+const modalStore = useModalStore()
 
-const activeTab = ref<'upcoming' | 'active' | 'ended'>('active');
+// 🆕 NEW: Use ProjectStatus filter (7 states + All)
+const selectedFilter = ref<ProjectStatus | 'all'>('all')
+const filterOptions = LAUNCHPAD_FILTER_OPTIONS
+
+// Filter launchpads by project status
+const filteredLaunchpads = computed(() => {
+  const allLaunchpads = launchpadStore.launchpads || []
+  
+  if (selectedFilter.value === 'all') {
+    return allLaunchpads
+  }
+  
+  return allLaunchpads.filter((lp) => {
+    const launchpadRef = computed(() => lp)
+    const { projectStatus } = useProjectStatus(launchpadRef)
+    return projectStatus.value === selectedFilter.value
+  })
+})
 
 const createNewLaunchpad = () => {
   // TODO: Create a 'launchpadCreate' modal
   // modalStore.open('launchpadCreate');
-  alert("Creating a new launchpad is not yet implemented.");
-};
+  alert("Creating a new launchpad is not yet implemented.")
+}
 </script>
 
 <template>
@@ -28,31 +49,41 @@ const createNewLaunchpad = () => {
       </button>
     </header>
 
-    <div class="mb-6 border-b border-gray-200 dark:border-gray-700">
-      <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-        <button 
-          v-for="tab in (['upcoming', 'active', 'ended'] as const)"
-          :key="tab"
+    <!-- 🆕 NEW: Filter Tabs (Dual-Status System) -->
+    <div class="mb-6">
+      <div class="flex gap-2 overflow-x-auto pb-2">
+        <button
+          v-for="option in filterOptions"
+          :key="option.value"
+          @click="selectedFilter = option.value"
           :class="[
-            activeTab === tab
-              ? 'border-blue-500 text-blue-600'
-              : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-            'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm'
+            'filter-btn px-4 py-2 rounded-lg font-medium transition-all whitespace-nowrap flex items-center gap-2',
+            selectedFilter === option.value
+              ? 'bg-[#d8a735] text-white shadow-md'
+              : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
           ]"
-          @click="activeTab = tab"
         >
-          {{ tab.charAt(0).toUpperCase() + tab.slice(1) }}
+          <span class="text-lg">{{ option.icon }}</span>
+          <span>{{ option.label }}</span>
         </button>
-      </nav>
+      </div>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    <!-- Launchpad Grid -->
+    <div v-if="filteredLaunchpads.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <LaunchpadCard 
-        v-for="project in launchpadStore.getProjectsByStatus(activeTab)"
-        :key="project.id"
-        :project="project"
-        @click="$router.push(`/launchpad/${project.id}`)"
+        v-for="lp in filteredLaunchpads"
+        :key="lp.canisterId.toText()"
+        :launchpad="lp"
+        @click="$router.push(`/launchpad/${lp.canisterId.toText()}`)"
       />
+    </div>
+    
+    <!-- Empty State -->
+    <div v-else class="text-center py-12">
+      <div class="text-6xl mb-4">🔍</div>
+      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">No launchpads found</h3>
+      <p class="text-gray-600 dark:text-gray-400">Try selecting a different filter</p>
     </div>
   </div>
 </template> 

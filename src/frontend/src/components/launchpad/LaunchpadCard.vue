@@ -31,7 +31,8 @@
 
         <!-- Status Badge -->
         <div class="flex flex-col items-end space-y-2">
-          <StatusBadge :status="launchpad.status" />
+          <!-- 🆕 NEW: Use ProjectStatusBadge -->
+          <ProjectStatusBadge :launchpad="launchpad" />
           <span
             v-if="participated"
             class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200"
@@ -163,6 +164,8 @@ import {
 import type { LaunchpadDetail } from '@/declarations/launchpad_contract/launchpad_contract.did'
 import StatusBadge from './StatusBadge.vue'
 import TokenLogo from './TokenLogo.vue'
+// 🆕 NEW: Dual-Status System
+import ProjectStatusBadge from './ProjectStatusBadge.vue'
 
 interface Props {
   launchpad: LaunchpadDetail
