@@ -91,18 +91,18 @@
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Contribution
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <!-- <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Allocation/Refund
-              </th>
+              </th> -->
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Status
+                KYC 
               </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 First Contributed
               </th>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              <!-- <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Actions
-              </th>
+              </th> -->
             </tr>
           </thead>
           <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -136,8 +136,8 @@
                   {{ participant.commitCount }} contributions
                 </div>
               </td>
-              <td class="px-4 py-4 whitespace-nowrap">
-                <!-- Success: Show Allocation -->
+              <!-- <td class="px-4 py-4 whitespace-nowrap">
+                !-- Success: Show Allocation --
                 <div v-if="participant.allocationAmount > 0" class="space-y-1">
                   <div class="text-sm text-[#d8a735] font-medium">
                     {{ formatAmount(participant.allocationAmount) }} {{ saleTokenSymbol }}
@@ -150,7 +150,7 @@
                   </div>
                 </div>
                 
-                <!-- Failed: Show Refund -->
+                !-- Failed: Show Refund --
                 <div v-else-if="participant.refundedAmount > 0" class="space-y-1">
                   <div class="text-sm text-blue-600 dark:text-blue-400 font-medium">
                     {{ formatAmount(participant.refundedAmount) }} {{ purchaseTokenSymbol }}
@@ -170,11 +170,11 @@
                   </button>
                 </div>
 
-                <!-- Pending -->
+                !-- Pending --
                 <div v-else class="text-sm text-gray-500 dark:text-gray-400">
                   Pending
                 </div>
-              </td>
+              </td>-->
               <td class="px-4 py-4 whitespace-nowrap">
                 <div class="flex items-center">
                   <span
@@ -192,13 +192,13 @@
                   {{ formatDate(participant.firstContribution) }}
                 </span>
               </td>
-              <td class="px-4 py-4 whitespace-nowrap text-sm">
+              <!-- <td class="px-4 py-4 whitespace-nowrap text-sm">
                 <CopyIcon
                   :data="principalToString(participant.principal)"
                   class="w-4 h-4 text-[#d8a735] hover:text-[#b27c10] transition-colors cursor-pointer"
                   msg="Principal"
                 />
-              </td>
+              </td> -->
             </tr>
           </tbody>
         </table>
