@@ -459,7 +459,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         affiliateCode: ?Text
     ) : async Result.Result<LaunchpadTypes.Transaction, Text> {
         
-        // Reentrancy protection
+        // Reentrancy protection (MUST BE FIRST)
         switch (_checkReentrancy(caller)) {
             case (#err(msg)) return #err(msg);
             case (#ok()) {};
@@ -486,34 +486,45 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             return #err("Transaction validation failed");
         };
         
-        // Validate participation eligibility
-        let eligibilityCheck = await _checkParticipationEligibility(caller, amount);
-        switch (eligibilityCheck) {
+        // ATOMIC: Validate participation eligibility with auto-adjustment INSIDE lock
+        let eligibilityResult = await _checkParticipationEligibility(caller, amount);
+        let adjustmentInfo = switch (eligibilityResult) {
             case (#err(msg)) {
                 _releaseUserReentrancyLock(caller);
                 return #err(msg);
             };
-            case (#ok(_)) {};
+            case (#ok(info)) info;
         };
+        
+        let actualDepositAmount = adjustmentInfo.adjustedAmount;
+        let refundAmount = adjustmentInfo.refundAmount;
+        
+        Debug.print("🔧 Participate adjustment:");
+        Debug.print("   Requested: " # Nat.toText(amount));
+        Debug.print("   Accepted: " # Nat.toText(actualDepositAmount));
+        Debug.print("   To refund: " # Nat.toText(refundAmount));
 
-        // Create transaction record
+        // Create transaction record with ADJUSTED amount
         let transactionId = _generateTransactionId();
         let transaction : LaunchpadTypes.Transaction = {
             id = transactionId;
             participant = caller;
             txType = #Purchase;
-            amount = amount;
+            amount = actualDepositAmount; // Use adjusted amount
             token = config.purchaseToken.canisterId;
             timestamp = Time.now();
             blockIndex = null; // Will be set after ICRC transfer
             fee = config.purchaseToken.transferFee;
             status = #Pending;
             affiliateCode = affiliateCode;
-            notes = null;
+            notes = switch (adjustmentInfo.reason) {
+                case (?reason) ?("Adjusted: " # reason);
+                case null null;
+            };
         };
 
-        // Process the purchase
-        let purchaseResult = await _processPurchase(caller, amount, affiliateCode, transaction);
+        // Process the purchase with ADJUSTED amount
+        let purchaseResult = await _processPurchase(caller, actualDepositAmount, affiliateCode, transaction);
         switch (purchaseResult) {
             case (#err(msg)) {
                 // Update transaction as failed
@@ -529,6 +540,16 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#ok(updatedTransaction)) {
                 transactions.add(updatedTransaction);
                 transactionCount += 1;
+                
+                // NOTE: For participate(), refund would need to happen via ICRC-2 transfer
+                // This is more complex than confirmDeposit() which uses subaccounts
+                // For now, we log the adjustment and frontend should handle it
+                if (refundAmount > 0) {
+                    Debug.print("⚠️ Deposit adjusted - frontend should only request " # Nat.toText(actualDepositAmount));
+                    Debug.print("   Original request: " # Nat.toText(amount));
+                    Debug.print("   Excess amount: " # Nat.toText(refundAmount));
+                };
+                
                 updatedAt := Time.now();
                 _releaseUserReentrancyLock(caller);
                 return #ok(updatedTransaction);
@@ -664,6 +685,162 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
         Debug.print("Launchpad unpaused by: " # Principal.toText(caller));
         #ok(())
+    };
+
+    /// Manual withdrawal from deposit subaccount
+    /// Allows users to withdraw funds from their deposit subaccount if auto-refund failed
+    /// This is a recovery mechanism for edge cases where instant refund encounters errors
+    public shared({caller}) func withdrawFromSubaccount(
+        amount: Nat
+    ) : async Result.Result<Nat, Text> {
+        // Reentrancy protection
+        switch (_checkReentrancy(caller)) {
+            case (#err(msg)) return #err(msg);
+            case (#ok()) {};
+        };
+
+        if (emergencyPaused) {
+            _releaseUserReentrancyLock(caller);
+            return #err("Contract paused: " # emergencyReason);
+        };
+
+        if (amount == 0) {
+            _releaseUserReentrancyLock(caller);
+            return #err("Amount must be greater than 0");
+        };
+        
+        Debug.print("💰 Manual withdrawal requested by: " # Principal.toText(caller));
+        Debug.print("   Amount: " # Nat.toText(amount));
+        
+        // Get user's deposit subaccount
+        let subAccount = principalToSubAccount(caller);
+        let subAccountBlob = Blob.fromArray(subAccount);
+        
+        let depositAccount: ICRCTypes.Account = {
+            owner = Principal.fromActor(this);
+            subaccount = ?subAccountBlob;
+        };
+        
+        // Check balance in subaccount
+        let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
+        let subaccountBalance = try {
+            await ledger.icrc1_balance_of(depositAccount)
+        } catch (error) {
+            _releaseUserReentrancyLock(caller);
+            return #err("Failed to check subaccount balance: " # Error.message(error));
+        };
+        
+        Debug.print("   Subaccount balance: " # Nat.toText(subaccountBalance));
+        
+        if (subaccountBalance < amount) {
+            _releaseUserReentrancyLock(caller);
+            return #err("Insufficient balance in subaccount. Available: " # Nat.toText(subaccountBalance) # ", Requested: " # Nat.toText(amount));
+        };
+        
+        // Transfer from subaccount to user's main account
+        let transferArgs: ICRCTypes.TransferArgs = {
+            from_subaccount = ?subAccountBlob;
+            to = {
+                owner = caller;
+                subaccount = null;
+            };
+            amount = amount;
+            fee = null;
+            memo = null;
+            created_at_time = null;
+        };
+        
+        Debug.print("   Transferring " # Nat.toText(amount) # " tokens to user's main account...");
+        
+        let transferResult = try {
+            await ledger.icrc1_transfer(transferArgs)
+        } catch (error) {
+            _releaseUserReentrancyLock(caller);
+            return #err("Withdrawal transfer failed: " # Error.message(error));
+        };
+        
+        _releaseUserReentrancyLock(caller);
+        
+        switch (transferResult) {
+            case (#Ok(blockIndex)) {
+                Debug.print("✅ Manual withdrawal successful! Block index: " # Nat.toText(blockIndex));
+                
+                // Record withdrawal transaction
+                let withdrawalTx: LaunchpadTypes.Transaction = {
+                    id = _generateTransactionId();
+                    participant = caller;
+                    txType = #Withdrawal;
+                    amount = amount;
+                    token = config.purchaseToken.canisterId;
+                    timestamp = Time.now();
+                    blockIndex = ?blockIndex;
+                    fee = config.purchaseToken.transferFee;
+                    status = #Confirmed;
+                    affiliateCode = null;
+                    notes = ?"Manual withdrawal from deposit subaccount";
+                };
+                transactions.add(withdrawalTx);
+                transactionCount += 1;
+                
+                _logAdminAction("MANUAL_WITHDRAWAL", caller, "Withdrew " # Nat.toText(amount) # " tokens", true, null);
+                
+                #ok(blockIndex)
+            };
+            case (#Err(err)) {
+                let errorMsg = "Withdrawal failed: " # debug_show(err);
+                Debug.print("❌ " # errorMsg);
+                #err(errorMsg)
+            };
+        }
+    };
+
+    /// Admin emergency refund function
+    /// Allows authorized users to manually trigger refund for a participant
+    /// Should only be used in extreme cases where normal refund mechanisms have failed
+    public shared({caller}) func adminEmergencyRefund(
+        participant: Principal,
+        amount: Nat,
+        reason: Text
+    ) : async Result.Result<Nat, Text> {
+        if (not _isAuthorized(caller)) {
+            _logSecurityEvent(#UnauthorizedAccess, caller, "Attempted emergency refund", #Critical);
+            return #err("Unauthorized: Only authorized users can trigger emergency refund");
+        };
+
+        if (amount == 0) {
+            return #err("Amount must be greater than 0");
+        };
+
+        Debug.print("🚨 Admin emergency refund requested");
+        Debug.print("   Admin: " # Principal.toText(caller));
+        Debug.print("   Participant: " # Principal.toText(participant));
+        Debug.print("   Amount: " # Nat.toText(amount));
+        Debug.print("   Reason: " # reason);
+        
+        // Log action BEFORE attempting refund
+        _logAdminAction("EMERGENCY_REFUND_ATTEMPT", caller, 
+            "Target: " # Principal.toText(participant) # ", Amount: " # Nat.toText(amount) # ", Reason: " # reason, 
+            true, null);
+        
+        // Attempt refund
+        let refundResult = await _processInstantRefund(participant, amount);
+        
+        switch (refundResult) {
+            case (#ok(blockIndex)) {
+                Debug.print("✅ Emergency refund successful! Block index: " # Nat.toText(blockIndex));
+                _logAdminAction("EMERGENCY_REFUND_SUCCESS", caller, 
+                    "Target: " # Principal.toText(participant) # ", Amount: " # Nat.toText(amount) # ", Block: " # Nat.toText(blockIndex), 
+                    true, null);
+                #ok(blockIndex)
+            };
+            case (#err(msg)) {
+                Debug.print("❌ Emergency refund failed: " # msg);
+                _logAdminAction("EMERGENCY_REFUND_FAILED", caller, 
+                    "Target: " # Principal.toText(participant) # ", Amount: " # Nat.toText(amount) # ", Error: " # msg, 
+                    false, ?(msg));
+                #err(msg)
+            };
+        }
     };
 
     /// Re-setup milestone timers (admin/creator only)
@@ -1435,7 +1612,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         expectedAmount: Nat,
         affiliateCode: ?Text
     ) : async Result.Result<LaunchpadTypes.Transaction, Text> {
-        // Reentrancy protection
+        // Reentrancy protection (MUST BE FIRST)
         switch (_checkReentrancy(caller)) {
             case (#err(msg)) return #err(msg);
             case (#ok()) {};
@@ -1465,14 +1642,28 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             return #err("Transaction validation failed");
         };
         
-        // Validate participation eligibility
-        let eligibilityCheck = await _checkParticipationEligibility(caller, expectedAmount);
-        switch (eligibilityCheck) {
+        // ATOMIC: Check eligibility and get adjusted amount INSIDE lock
+        // This prevents race conditions - capacity check happens while lock is held
+        let eligibilityResult = await _checkParticipationEligibility(caller, expectedAmount);
+        let adjustmentInfo = switch (eligibilityResult) {
             case (#err(msg)) {
                 _releaseUserReentrancyLock(caller);
                 return #err(msg);
             };
-            case (#ok(_)) {};
+            case (#ok(info)) info;
+        };
+        
+        let actualDepositAmount = adjustmentInfo.adjustedAmount;
+        let refundAmount = adjustmentInfo.refundAmount;
+        
+        Debug.print("🔧 Deposit adjustment:");
+        Debug.print("   Requested: " # Nat.toText(expectedAmount));
+        Debug.print("   Accepted: " # Nat.toText(actualDepositAmount));
+        Debug.print("   To refund: " # Nat.toText(refundAmount));
+        
+        switch (adjustmentInfo.reason) {
+            case (?reason) Debug.print("   Reason: " # reason);
+            case null {};
         };
         
         // Generate user's deposit account (subaccount)
@@ -1498,8 +1689,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         
         Debug.print("💵 Deposit account balance: " # Nat.toText(depositBalance));
         
-        // Verify balance is sufficient (at least expectedAmount)
-        // Note: We keep transfer fee in subaccount for future operations
+        // Verify balance is sufficient for the REQUESTED amount (not adjusted)
+        // User sent expectedAmount, we'll accept what we can and refund the rest
         if (depositBalance < expectedAmount) {
             _releaseUserReentrancyLock(caller);
             return #err("Insufficient balance in deposit account. Required: " # Nat.toText(expectedAmount) # ", Found: " # Nat.toText(depositBalance));
@@ -1509,26 +1700,29 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         Debug.print("🔒 Tokens remain in deposit account (subaccount) for security");
         Debug.print("   Will be transferred after softcap is reached or refunded if not");
         
-        // Create transaction record (no blockIndex yet as no transfer happened)
+        // Create transaction record for the ACTUAL deposit amount (not the requested amount)
         let transactionId = _generateTransactionId();
         let transaction: LaunchpadTypes.Transaction = {
             id = transactionId;
             participant = caller;
             txType = #Purchase;
-            amount = expectedAmount;
+            amount = actualDepositAmount; // Use adjusted amount
             token = config.purchaseToken.canisterId;
             timestamp = Time.now();
             blockIndex = null; // No block index as tokens stay in subaccount
             fee = config.purchaseToken.transferFee;
             status = #Confirmed;
             affiliateCode = affiliateCode;
-            notes = ?("Deposit confirmed - tokens held in subaccount");
+            notes = switch (adjustmentInfo.reason) {
+                case (?reason) ?("Deposit confirmed (adjusted): " # reason);
+                case null ?("Deposit confirmed - tokens held in subaccount");
+            };
         };
         
-        Debug.print("📝 Recording participation...");
+        Debug.print("📝 Recording participation with adjusted amount...");
         
-        // Process the purchase (update stats, participants, etc.)
-        let purchaseResult = await _processPurchase(caller, expectedAmount, affiliateCode, transaction);
+        // Process the purchase with ADJUSTED amount (totalRaised updated here - atomic)
+        let purchaseResult = await _processPurchase(caller, actualDepositAmount, affiliateCode, transaction);
         switch (purchaseResult) {
             case (#err(msg)) {
                 _releaseUserReentrancyLock(caller);
@@ -1543,12 +1737,36 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#ok(updatedTransaction)) {
                 transactions.add(updatedTransaction);
                 transactionCount += 1;
+                
+                // Process instant refund for excess amount (if any)
+                if (refundAmount > 0) {
+                    Debug.print("💸 Processing instant refund for excess amount...");
+                    let refundResult = await _processInstantRefund(caller, refundAmount);
+                    switch (refundResult) {
+                        case (#err(msg)) {
+                            // Log refund failure but don't fail the entire deposit
+                            // User can manually withdraw later
+                            Debug.print("⚠️ Auto-refund failed (non-critical): " # msg);
+                            Debug.print("   User can manually withdraw excess from subaccount");
+                            _logAdminAction("AUTO_REFUND_FAILED", caller, 
+                                "Failed to refund " # Nat.toText(refundAmount) # " tokens: " # msg, 
+                                false, null);
+                        };
+                        case (#ok(blockIndex)) {
+                            Debug.print("✅ Auto-refunded " # Nat.toText(refundAmount) # " tokens successfully!");
+                            Debug.print("   Refund block index: " # Nat.toText(blockIndex));
+                        };
+                    };
+                };
+                
                 updatedAt := Time.now();
                 _releaseUserReentrancyLock(caller);
 
                 Debug.print("✅ Participation recorded successfully!");
-                Debug.print("   Amount: " # Nat.toText(expectedAmount));
+                Debug.print("   Accepted amount: " # Nat.toText(actualDepositAmount));
+                Debug.print("   Refunded amount: " # Nat.toText(refundAmount));
                 Debug.print("   Stored in subaccount: safe for refunds if needed");
+                
                 return #ok(updatedTransaction);
             };
         };
@@ -1934,18 +2152,35 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(())
     };
 
-    private func _checkParticipationEligibility(participant: Principal, amount: Nat) : async Result.Result<(), Text> {
+    /// Check participation eligibility with auto-adjustment support
+    /// Returns adjusted amount, refund amount, and adjustment reason
+    /// This function now handles capacity limits intelligently:
+    /// - If deposit exceeds available capacity, adjusts to fit
+    /// - If deposit exceeds user's max contribution, adjusts to fit
+    /// - Returns refund amount for instant refund processing
+    private func _checkParticipationEligibility(
+        participant: Principal, 
+        amount: Nat
+    ) : async Result.Result<{
+        adjustedAmount: Nat;
+        refundAmount: Nat;
+        reason: ?Text;
+    }, Text> {
         // Check sale is active
         if (status != #SaleActive and status != #WhitelistOpen) {
             return #err("Sale not active");
         };
         
-        // Check minimum contribution
+        // Check minimum contribution for requested amount
         if (amount < config.saleParams.minContribution) {
             return #err("Contribution below minimum");
         };
         
-        // Check maximum contribution (convert to smallest unit for comparison)
+        var adjustedAmount = amount;
+        var refundAmount: Nat = 0;
+        var adjustmentReason: ?Text = null;
+        
+        // Check 1: Maximum contribution per user (if configured)
         switch (config.saleParams.maxContribution) {
             case (?maxAmount) {
                 let maxContributionInSmallestUnit = toSmallestUnit(maxAmount, config.purchaseToken.decimals);
@@ -1954,17 +2189,61 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                     case null 0;
                     case (?p) p.totalContribution;
                 };
-
-                if (existingContribution + amount > maxContributionInSmallestUnit) {
-                    return #err("Exceeds maximum contribution");
+                
+                let availableForUser = if (maxContributionInSmallestUnit > existingContribution) {
+                    maxContributionInSmallestUnit - existingContribution
+                } else {
+                    0
+                };
+                
+                if (availableForUser == 0) {
+                    return #err("Already reached maximum contribution limit");
+                };
+                
+                if (adjustedAmount > availableForUser) {
+                    refundAmount += (adjustedAmount - availableForUser);
+                    adjustedAmount := availableForUser;
+                    let newReason = "Adjusted to fit max contribution per user (" # Nat.toText(availableForUser) # " tokens)";
+                    adjustmentReason := ?newReason;
+                    Debug.print("🔧 Deposit adjusted for max contribution: " # Nat.toText(amount) # " → " # Nat.toText(adjustedAmount));
                 };
             };
             case null {};
         };
         
-        // Check hard cap (convert to smallest unit for comparison)
-        if (totalRaised + amount > hardCapInSmallestUnit()) {
-            return #err("Exceeds hard cap");
+        // Check 2: Hard cap (global limit)
+        let availableCapacity = if (hardCapInSmallestUnit() > totalRaised) {
+            hardCapInSmallestUnit() - totalRaised
+        } else {
+            0
+        };
+        
+        if (availableCapacity == 0) {
+            return #err("Hard cap already reached - sale is full");
+        };
+        
+        if (adjustedAmount > availableCapacity) {
+            refundAmount += (adjustedAmount - availableCapacity);
+            adjustedAmount := availableCapacity;
+            
+            // Update reason to include hard cap adjustment
+            adjustmentReason := switch (adjustmentReason) {
+                case null {
+                    let msg = "Adjusted to fit hard cap (" # Nat.toText(availableCapacity) # " tokens remaining)";
+                    ?msg
+                };
+                case (?existing) {
+                    let msg = existing # " and hard cap (" # Nat.toText(availableCapacity) # " tokens remaining)";
+                    ?msg
+                };
+            };
+            
+            Debug.print("🔧 Deposit adjusted for hard cap: " # Nat.toText(amount) # " → " # Nat.toText(adjustedAmount));
+        };
+        
+        // Check minimum contribution after adjustment
+        if (adjustedAmount < config.saleParams.minContribution) {
+            return #err("Remaining capacity (" # Nat.toText(adjustedAmount) # " tokens) is below minimum contribution (" # Nat.toText(config.saleParams.minContribution) # " tokens)");
         };
         
         // Check whitelist if required
@@ -1992,7 +2271,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case null {};
         };
 
-        #ok(())
+        #ok({
+            adjustedAmount = adjustedAmount;
+            refundAmount = refundAmount;
+            reason = adjustmentReason;
+        })
     };
 
     private func _processPurchase(
@@ -2078,6 +2361,97 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         // Simulate token transfer to participant
         // In real implementation, transfer from deployed token canister
         #ok(amount)
+    };
+
+    /// Process instant refund for excess deposit amount
+    /// Transfers funds from user's deposit subaccount back to their main account
+    /// This is called when deposit amount exceeds available capacity (hard cap or max contribution)
+    /// Returns the ICRC transfer block index on success
+    private func _processInstantRefund(
+        participant: Principal,
+        amount: Nat
+    ) : async Result.Result<Nat, Text> {
+        if (amount == 0) {
+            return #ok(0); // Nothing to refund
+        };
+        
+        Debug.print("💸 Processing instant refund for " # Principal.toText(participant));
+        Debug.print("   Refund amount: " # Nat.toText(amount));
+        
+        // Get user's deposit subaccount
+        let subAccount = principalToSubAccount(participant);
+        let subAccountBlob = Blob.fromArray(subAccount);
+        
+        // Create ICRC Account for the deposit account (source)
+        let depositAccount: ICRCTypes.Account = {
+            owner = Principal.fromActor(this);
+            subaccount = ?subAccountBlob;
+        };
+        
+        // Check balance in subaccount before attempting refund
+        let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
+        let subaccountBalance = try {
+            await ledger.icrc1_balance_of(depositAccount)
+        } catch (error) {
+            return #err("Failed to check subaccount balance for refund: " # Error.message(error));
+        };
+        
+        Debug.print("   Subaccount balance: " # Nat.toText(subaccountBalance));
+        
+        if (subaccountBalance < amount) {
+            return #err("Insufficient balance in subaccount for refund. Required: " # Nat.toText(amount) # ", Available: " # Nat.toText(subaccountBalance));
+        };
+        
+        // Transfer from subaccount back to user's main account
+        let transferArgs: ICRCTypes.TransferArgs = {
+            from_subaccount = ?subAccountBlob;
+            to = {
+                owner = participant;
+                subaccount = null;
+            };
+            amount = amount;
+            fee = null; // Use default fee
+            memo = null;
+            created_at_time = null;
+        };
+        
+        Debug.print("   Transferring " # Nat.toText(amount) # " tokens from subaccount to user's main account...");
+        
+        let transferResult = try {
+            await ledger.icrc1_transfer(transferArgs)
+        } catch (error) {
+            return #err("Refund transfer failed: " # Error.message(error));
+        };
+        
+        switch (transferResult) {
+            case (#Ok(blockIndex)) {
+                Debug.print("✅ Instant refund successful! Block index: " # Nat.toText(blockIndex));
+                
+                // Record refund transaction
+                let refundTx: LaunchpadTypes.Transaction = {
+                    id = _generateTransactionId();
+                    participant = participant;
+                    txType = #Refund;
+                    amount = amount;
+                    token = config.purchaseToken.canisterId;
+                    timestamp = Time.now();
+                    blockIndex = ?blockIndex;
+                    fee = config.purchaseToken.transferFee;
+                    status = #Confirmed;
+                    affiliateCode = null;
+                    notes = ?"Instant refund: deposit exceeded available capacity";
+                };
+                transactions.add(refundTx);
+                transactionCount += 1;
+                
+                #ok(blockIndex)
+            };
+            case (#Err(err)) {
+                let errorMsg = "Refund failed: " # debug_show(err);
+                Debug.print("❌ " # errorMsg);
+                #err(errorMsg)
+            };
+        }
     };
 
     // ================ PIPELINE STATE MANAGEMENT HELPERS ================
