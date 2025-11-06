@@ -103,13 +103,15 @@
         </div>
 
         <div class="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-3">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Time Left</span>
-            <ClockIcon class="h-4 w-4 text-gray-400" />
+          <div class="flex flex-col">
+            <CountdownTimer
+              :launchpad="launchpad"
+              size="sm"
+              :show-icon="true"
+              :show-label="true"
+              @countdown-end="handleCountdownEnd"
+            />
           </div>
-          <p class="text-base font-semibold text-gray-900 dark:text-white mt-1 truncate">
-            {{ timeRemaining }}
-          </p>
         </div>
       </div>
 
@@ -132,9 +134,12 @@
 
       <!-- Footer -->
       <div class="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
-        <div class="flex items-center text-sm text-gray-500 dark:text-gray-400">
-          <CalendarIcon class="h-4 w-4 mr-1" />
-          {{ formatDate(launchpad.config.timeline.saleStart) }}
+        <div class="flex flex-col gap-0.5">
+          <span class="text-[10px] text-gray-400 dark:text-gray-500">Sale Starts</span>
+          <div class="flex items-center text-sm text-gray-600 dark:text-gray-300">
+            <CalendarIcon class="h-3.5 w-3.5 mr-1" />
+            {{ formatDate(launchpad.config.timeline.saleStart) }}
+          </div>
         </div>
 
         <!-- Action indicator -->
@@ -166,6 +171,7 @@ import StatusBadge from './StatusBadge.vue'
 import TokenLogo from './TokenLogo.vue'
 // 🆕 NEW: Dual-Status System
 import ProjectStatusBadge from './ProjectStatusBadge.vue'
+import CountdownTimer from './CountdownTimer.vue'
 
 interface Props {
   launchpad: LaunchpadDetail
@@ -173,9 +179,16 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-defineEmits<{
+const emit = defineEmits<{
   click: []
+  refresh: []
 }>()
+
+// Handle countdown end - emit refresh event to parent
+const handleCountdownEnd = () => {
+  console.log('⏰ [LaunchpadCard] Countdown ended, emitting refresh event')
+  emit('refresh')
+}
 
 // Computed properties
 const saleTypeDisplay = computed(() => {
@@ -212,6 +225,14 @@ const progressPercentage = computed(() => {
 })
 
 const tokenPrice = computed(() => {
+  const saleType = props.launchpad.config.saleParams.saleType
+  
+  // For Public Sale (AMM Pool) - price is dynamic
+  if ('PublicSale' in saleType) {
+    return 'Market Price'
+  }
+  
+  // For Presale/Private Sale - price is fixed
   const price = Number(props.launchpad.config.saleParams.tokenPrice) / Math.pow(10, purchaseTokenDecimals.value)
   return `${price.toFixed(4)} ${props.launchpad.config.purchaseToken.symbol}`
 })

@@ -275,6 +275,25 @@
 												:value="`${formatAmount(hardCap, purchaseTokenDecimals)} ${purchaseTokenSymbol}`" />
 										</div>
 									</div>
+								<!-- Token Info -->
+								<div>
+									<h3
+										class="text-lg font-bold text-gray-900 dark:text-white mb-3 flex items-center">
+										<svg class="w-5 h-5 mr-2 text-[#d8a735]" fill="none" stroke="currentColor"
+											viewBox="0 0 24 24">
+											<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+												d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+										</svg>
+										Token Details
+									</h3>
+									<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+										<InfoCard label="Token Name" :value="saleTokenName" />
+										<InfoCard label="Symbol" :value="saleTokenSymbol" />
+										<InfoCard label="Total Supply" :value="formatTokenAmount(Number(totalSupply))" />
+										<InfoCard label="Standard" :value="saleTokenStandard" />
+										<InfoCard label="Sale Token Canister" :value="saleTokenCanisterId || '---'" copy />
+									</div>
+								</div>
 
 									<!-- Multi-DEX Liquidity Allocation -->
 									<div v-if="dexPlatforms.length > 0 && isSaleStarted">
@@ -379,7 +398,7 @@
 									</div>
 
 									<!-- Pipeline Timeline -->
-									<div>
+									<!-- <div>
 										<h3
 											class="text-base font-bold text-gray-900 dark:text-white mb-3 flex items-center">
 											<svg class="w-4 h-4 mr-2 text-[#d8a735]" fill="none" stroke="currentColor"
@@ -395,7 +414,7 @@
 											:distribution-deployed="deployedContracts.vestingContracts.length > 0"
 											:dex-listed="!!deployedContracts.liquidityPool && deployedContracts.liquidityPool.length > 0"
 											:token-symbol="saleTokenSymbol" />
-									</div>
+									</div> -->
 								</div>
 								<!-- Tokenomics Tab Content -->
 								<div v-show="activeTab === 'tokenomics'" class="space-y-4">
@@ -807,43 +826,34 @@
 							</div>
 						</div>
 
+						<!-- Affiliate Stats Section -->
+						<div class="w-full mt-6" v-if="isAffiliateEnable">
+							<div class="mx-auto">
+								<AffiliateStats :canister-id="canisterId" :purchase-token-symbol="purchaseTokenSymbol"
+									:purchase-token-decimals="purchaseTokenDecimals"
+									:commission-rate="affiliateCommissionRate || 5" />
+							</div>
+						</div>
+
+						<!-- Participants Section -->
+						<div class="w-full mt-6">
+							<div class="mx-auto">
+								<Participants :canister-id="canisterId" :purchase-token-symbol="purchaseTokenSymbol"
+									:purchase-token-decimals="purchaseTokenDecimals" :sale-token-symbol="saleTokenSymbol" />
+							</div>
+						</div>
+
 
 					</div>
 					<div class="lg:col">
 						<!-- Sidebar (1/3 width) -->
 						<div class="space-y-4">
-							<!-- Timeline Card -->
-							<UnifiedTimeline v-if="launchpad" :launchpad="launchpad" />
-							<!-- <div
-								class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
-								<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center">
-									<svg class="w-5 h-5 mr-2 text-[#d8a735]" fill="none" stroke="currentColor"
-										viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-											d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-									</svg>
-									Timeline
-								</h3>
-								<UnifiedTimeline v-if="launchpad" :launchpad="launchpad" />
-								<div class="space-y-3">
-									<TimelineItem label="Sale Start" :date="formatTimestamp(saleStart)"
-										:status="saleStartStatus" :active="isSaleActive" />
-									<TimelineItem label="Sale End" :date="formatTimestamp(saleEnd)"
-										:status="saleEndStatus" :active="false" />
-									<TimelineItem v-if="claimStart" label="Claim Start"
-										:date="formatTimestamp(claimStart)" :status="claimStartStatus"
-										:active="false" />
-									<TimelineItem v-if="listingTime" label="Listing Time"
-										:date="formatTimestamp(listingTime)" :status="listingTimeStatus"
-										:active="listingTimeActive" />
-								</div>
-							</div> -->
-
 							<!-- Action Card -->
 							<div
-								class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700 sticky top-8">
-								<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4">Participate</h3>
-
+								class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700 top-8">
+								<!-- <h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4">Participate</h3> -->
+								<CountdownTimer :launchpad="launchpad" variant="flashcard" v-if="isSaleActive" />
+								<div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700"></div>
 								<!-- ICTO Passport Score Requirement (if required) -->
 								<div v-if="minPassportScore > 0"
 									class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
@@ -927,33 +937,10 @@
 								</div>
 							</div>
 
-							<!-- Token Info -->
-							<div
-								class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700">
-								<h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4">Token Details</h3>
-								<div class="space-y-3">
-									<div>
-										<p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Token Name</p>
-										<p class="text-base font-semibold text-gray-900 dark:text-white">{{
-											saleTokenName }}</p>
-									</div>
-									<div>
-										<p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Symbol</p>
-										<p class="text-base font-semibold text-gray-900 dark:text-white">{{
-											saleTokenSymbol }}</p>
-									</div>
-									<div>
-										<p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Total Supply</p>
-										<p class="text-base font-semibold text-gray-900 dark:text-white">{{
-											formatTokenAmount(Number(totalSupply)) }}</p>
-									</div>
-									<div>
-										<p class="text-sm text-gray-600 dark:text-gray-400 mb-1">Standard</p>
-										<p class="text-base font-semibold text-gray-900 dark:text-white">{{
-											saleTokenStandard }}</p>
-									</div>
-								</div>
-							</div>
+							<!-- Timeline Card -->
+							<UnifiedTimeline v-if="launchpad" :launchpad="launchpad" />
+							
+							
 						</div>
 					</div>
 				</div>
@@ -962,22 +949,7 @@
 
 		</div>
 
-		<!-- Participants Section (Full Width Below Main Content) -->
-		<div class="w-full mt-6">
-			<div class="mx-auto">
-				<Participants :canister-id="canisterId" :purchase-token-symbol="purchaseTokenSymbol"
-					:purchase-token-decimals="purchaseTokenDecimals" :sale-token-symbol="saleTokenSymbol" />
-			</div>
-		</div>
-
-		<!-- Affiliate Stats Section (Full Width Below Main Content) -->
-		<div class="w-full mt-6">
-			<div class="mx-auto">
-				<AffiliateStats :canister-id="canisterId" :purchase-token-symbol="purchaseTokenSymbol"
-					:purchase-token-decimals="purchaseTokenDecimals"
-					:commission-rate="launchpad?.config.affiliateConfig?.commissionRate || 5" />
-			</div>
-		</div>
+		
 	</AdminLayout>
 </template>
 
@@ -1010,6 +982,7 @@ import { useModalStore } from '@/stores/modal'
 import { launchpadContractActor, useAuthStore } from '@/stores/auth'
 import { useSwal } from '@/composables/useSwal2'
 import CopyIcon from '@/icons/CopyIcon.vue'
+import CountdownTimer from '@/components/launchpad/CountdownTimer.vue'
 // State
 const route = useRoute()
 const launchpadService = LaunchpadService.getInstance()
@@ -1180,6 +1153,21 @@ const saleTokenName = computed(() => launchpad.value?.config.saleToken.name || '
 const saleTokenDecimals = computed(() => Number(launchpad.value?.config.saleToken.decimals || 8))
 const totalSupply = computed(() => BigInt(launchpad.value?.config.saleToken.totalSupply || '0'))
 const saleTokenStandard = computed(() => launchpad.value?.config.saleToken.standard || 'ICRC1')
+const saleTokenCanisterId = computed(() => {
+	const canisterId = launchpad.value?.config.saleToken.canisterId
+	if (!canisterId) return 'N/A'
+	
+	// Handle string
+	if (typeof canisterId === 'string') return canisterId
+	
+	// Handle Principal object
+	if (typeof canisterId === 'object' && canisterId.toText && typeof canisterId.toText === 'function') {
+		return canisterId.toText()
+	}
+	
+	// Fallback: try to convert to string
+	return String(canisterId)
+})
 
 // Purchase Token
 const purchaseTokenSymbol = computed(() => launchpad.value?.config.purchaseToken.symbol || 'ICP')
@@ -1280,7 +1268,12 @@ const isSaleStarted = computed(() => {
 
 	return started
 })
-
+const isAffiliateEnable = computed(() => {
+	return launchpad.value?.config.affiliateConfig?.enable || false
+})
+const affiliateCommissionRate = computed(() => {
+	return launchpad.value?.config.affiliateConfig?.commissionRate || 5
+})
 const isSaleActive = computed(() => {
 	if (!launchpad.value) return false
 	const status = launchpad.value.status
