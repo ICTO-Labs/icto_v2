@@ -1071,31 +1071,6 @@ persistent actor LaunchpadFactory {
                 let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
                 versionManager.recordUpgrade(contractId, toVersion, upgradeType, #Success);
                 Debug.print("✅ Upgraded launchpad contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion) # " (initiated by " # initiator # ")");
-
-                // Factory-driven version update pattern
-                // After successful upgrade, call updateVersion on the contract
-                try {
-                    // Cast to LaunchpadContract type to access updateVersion function
-                    let launchpadContract : actor {
-                        updateVersion: shared (IUpgradeable.Version, Principal) -> async Result.Result<(), Text>;
-                        getVersion: shared query () -> async IUpgradeable.Version;
-                    } = actor(Principal.toText(contractId));
-
-                    // Call updateVersion with factory principal as caller
-                    let factoryPrincipal = Principal.fromActor(LaunchpadFactory);
-                    let updateResult = await launchpadContract.updateVersion(toVersion, factoryPrincipal);
-
-                    switch (updateResult) {
-                        case (#ok()) {
-                            Debug.print("✅ Factory successfully updated launchpad contract version to " # _versionToText(toVersion));
-                        };
-                        case (#err(errMsg)) {
-                            Debug.print("⚠️ Warning: Failed to update launchpad contract version via factory: " # errMsg);
-                        };
-                    };
-                } catch (e) {
-                    Debug.print("⚠️ Warning: Could not call updateVersion on upgraded launchpad contract: " # Error.message(e));
-                };
             };
             case (#err(msg)) {
                 let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
@@ -1117,7 +1092,20 @@ persistent actor LaunchpadFactory {
             return #err("Unauthorized: Only admins can upgrade contracts");
         };
 
-        await _performContractUpgrade(contractId, toVersion, "Admin")
+        let result = await _performContractUpgrade(contractId, toVersion, "Admin");
+
+        // Notify contract to update version (same as self-upgrade flow)
+        switch (result) {
+            case (#ok()) {
+                await _notifyContractCompleted(contractId, toVersion);
+            };
+            case (#err(msg)) {
+                // Upgrade failed, no need to notify
+                Debug.print("❌ Admin upgrade failed, skipping contract notification");
+            };
+        };
+
+        result
     };
 
     /// Self-upgrade request from deployed contract
