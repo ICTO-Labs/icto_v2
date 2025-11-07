@@ -94,7 +94,7 @@
 
             <!-- Countdown for NEXT step - displayed on the RIGHT, same line as title -->
             <div v-if="shouldShowCountdown(step)" class="ml-3 flex items-center gap-1.5 flex-shrink-0">
-              <CountdownTimeline :target-time="step.date" />
+              <CountdownTimeline :target-time="step.date" @countdown-end="emit('countdownEnd')" />
             </div>
           </div>
         </div>
@@ -131,14 +131,13 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const emit = defineEmits<{
+  countdownEnd: []
+}>()
+
 // Use composable to get timeline
 const launchpadRef = computed(() => props.launchpad)
 const { timeline } = useProjectStatus(launchpadRef)
-
-// 🔍 DEBUG: Log timeline data
-console.log('🔍 [UnifiedTimeline] Timeline steps:', timeline.value)
-console.log('🔍 [UnifiedTimeline] Timeline length:', timeline.value?.length)
-console.log('🔍 [UnifiedTimeline] Launchpad data:', props.launchpad)
 
 // Helper to check if timestamp is in future
 const isInFuture = (timestamp: bigint | string): boolean => {

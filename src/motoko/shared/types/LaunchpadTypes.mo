@@ -418,6 +418,8 @@ module LaunchpadTypes {
         affiliateCode: ?Text;        // Referral code used
         claimedAmount: Nat;          // Amount already claimed
         refundedAmount: Nat;         // Amount refunded (if any)
+        refundTime: ?Time.Time;      // When refund was processed
+        refundTxId: ?Nat;            // ICRC1 blockIndex of refund transaction
         vestingContract: ?Principal;  // Vesting contract if applicable
         isBlacklisted: Bool;         // Emergency blacklist
     };

@@ -91,14 +91,17 @@
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Contribution
               </th>
-              <!-- <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                Allocation/Refund
-              </th> -->
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                KYC 
-              </th>
               <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 First Contributed
+              </th>
+              <th v-if="showRefundColumn" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Refunded
+              </th>
+              <th v-if="showRefundColumn" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                Refund Time
+              </th>
+              <th v-if="showRefundColumn" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+                TX ID
               </th>
               <!-- <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                 Actions
@@ -136,61 +139,44 @@
                   {{ participant.commitCount }} contributions
                 </div>
               </td>
-              <!-- <td class="px-4 py-4 whitespace-nowrap">
-                !-- Success: Show Allocation --
-                <div v-if="participant.allocationAmount > 0" class="space-y-1">
-                  <div class="text-sm text-[#d8a735] font-medium">
-                    {{ formatAmount(participant.allocationAmount) }} {{ saleTokenSymbol }}
-                  </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
-                    Allocation
-                  </div>
-                  <div v-if="participant.claimedAmount > 0" class="text-xs text-green-600 dark:text-green-400">
-                    Claimed: {{ formatAmount(participant.claimedAmount) }}
-                  </div>
-                </div>
-                
-                !-- Failed: Show Refund --
-                <div v-else-if="participant.refundedAmount > 0" class="space-y-1">
-                  <div class="text-sm text-blue-600 dark:text-blue-400 font-medium">
-                    {{ formatAmount(participant.refundedAmount) }} {{ purchaseTokenSymbol }}
-                  </div>
-                  <div class="text-xs text-gray-500 dark:text-gray-400">
-                    Refunded
-                  </div>
-                  <button
-                    v-if="participant.refundedAmount > 0"
-                    @click="viewRefundDetails(participant)"
-                    class="text-xs text-[#d8a735] hover:text-[#b27c10] transition-colors flex items-center gap-1"
-                  >
-                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    View Details
-                  </button>
-                </div>
-
-                !-- Pending --
-                <div v-else class="text-sm text-gray-500 dark:text-gray-400">
-                  Pending
-                </div>
-              </td>-->
               <td class="px-4 py-4 whitespace-nowrap">
-                <div class="flex items-center">
-                  <span
-                    :class="[
-                      'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium',
-                      getKycStatusClass(participant.kycStatus)
-                    ]"
-                  >
-                    {{ getKycStatusDisplay(participant.kycStatus) }}
-                  </span>
-                </div>
-              </td>
-              <td class="px-4 py-4 whitespace-nowrap">
-                <span class="text-xs text-gray-500 dark:text-gray-400">
+                <span class="text-sm text-gray-600 dark:text-gray-400">
                   {{ formatDate(participant.firstContribution) }}
                 </span>
+              </td>
+              <td v-if="showRefundColumn" class="px-4 py-4 whitespace-nowrap">
+                <!-- Refunded Amount -->
+                <div v-if="participant.refundedAmount > 0" class="text-sm text-blue-600 dark:text-blue-400 font-medium">
+                  {{ formatAmount(participant.refundedAmount) }} {{ purchaseTokenSymbol }}
+                </div>
+                <div v-else class="text-sm text-gray-400 dark:text-gray-500">
+                  Pending...
+                </div>
+              </td>
+              <td v-if="showRefundColumn" class="px-4 py-4 whitespace-nowrap">
+                <!-- Refund Time -->
+                <div v-if="participant.refundTime" class="text-sm text-gray-600 dark:text-gray-400">
+                  {{ formatDate(participant.refundTime) }}
+                </div>
+                <div v-else class="text-sm text-gray-400 dark:text-gray-500">
+                  —
+                </div>
+              </td>
+              <td v-if="showRefundColumn" class="px-4 py-4 whitespace-nowrap">
+                <!-- TX ID -->
+                <button
+                  v-if="participant.refundTxId"
+                  @click="viewRefundDetails(participant)"
+                  class="text-sm text-[#d8a735] hover:text-[#b27c10] transition-colors flex items-center gap-1"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  #{{ String(participant.refundTxId).slice(0, 8) }}...
+                </button>
+                <div v-else class="text-sm text-gray-400 dark:text-gray-500">
+                  —
+                </div>
               </td>
               <!-- <td class="px-4 py-4 whitespace-nowrap text-sm">
                 <CopyIcon
@@ -312,6 +298,13 @@ const launchpadService = LaunchpadService.getInstance()
 const isRefundedOrFinalized = computed(() => {
   const status = props.launchpadStatus?.toLowerCase()
   return status === 'refunded' || status === 'finalized' || status === 'failed'
+})
+
+// Show refund column if status indicates failure/refund
+const showRefundColumn = computed(() => {
+  const status = (props.launchpadStatus || '').toLowerCase()
+  console.log('🔍 [Participants] Launchpad Status:', props.launchpadStatus, '| Show Refund Column:', status.includes('refunded') || status.includes('failed') || status === 'salefailed')
+  return status.includes('refunded') || status.includes('failed') || status === 'salefailed' || status === 'finalized'
 })
 
 // Computed
@@ -489,6 +482,11 @@ watch(searchQuery, () => {
 // Lifecycle
 onMounted(() => {
   fetchParticipants()
+})
+
+// Expose methods for parent component
+defineExpose({
+  fetchParticipants
 })
 </script>
 

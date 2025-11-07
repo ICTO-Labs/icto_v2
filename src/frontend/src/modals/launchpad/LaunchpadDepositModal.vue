@@ -203,10 +203,57 @@
             </div>
             
             <!-- Validation Messages -->
-            <div class="space-y-1">
-              <p v-if="!amountValidation.isValid && amount" class="text-xs text-red-500">
-                {{ amountValidation.errorMessage }}
-              </p>
+            <div class="space-y-2">
+              <!-- Error Display (Prominent) -->
+              <div v-if="!amountValidation.isValid && amount" class="bg-red-50 dark:bg-red-900/20 rounded-lg p-3 border border-red-200 dark:border-red-800">
+                <div class="flex items-start gap-2">
+                  <svg class="w-4 h-4 text-red-600 dark:text-red-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div class="flex-1">
+                    <p class="text-xs font-semibold text-red-800 dark:text-red-400">
+                      {{ amountValidation.errorMessage }}
+                    </p>
+                    <!-- Show suggested action -->
+                    <p v-if="amountValidation.suggestedAmount" class="text-xs text-red-700 dark:text-red-300 mt-1">
+                      💡 Suggestion: Try {{ formatBalance(amountValidation.suggestedAmount) }} {{ purchaseTokenSymbol }}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Allocation Estimate (if valid and softcap reached) -->
+              <div v-if="amount && amountValidation.isValid && estimatedAllocation !== null" class="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 rounded-lg p-3 border border-green-200 dark:border-green-800">
+                <div class="flex items-start gap-2">
+                  <svg class="w-4 h-4 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                  </svg>
+                  <div class="flex-1">
+                    <p class="text-xs font-semibold text-green-800 dark:text-green-400 mb-1">
+                      Estimated Token Allocation
+                    </p>
+                    <div class="space-y-1">
+                      <div class="flex justify-between items-center">
+                        <span class="text-xs text-green-700 dark:text-green-300">You will receive:</span>
+                        <span class="text-sm font-bold text-green-900 dark:text-green-200">
+                          ~{{ formatTokenAmount(estimatedAllocation.tokens) }} {{ saleTokenSymbol }}
+                        </span>
+                      </div>
+                      <div class="flex justify-between items-center text-xs text-green-600 dark:text-green-400">
+                        <span>Your share:</span>
+                        <span>{{ estimatedAllocation.sharePercentage }}%</span>
+                      </div>
+                      <div class="flex justify-between items-center text-xs text-green-600 dark:text-green-400">
+                        <span>Price per token:</span>
+                        <span>{{ estimatedAllocation.pricePerToken }} {{ purchaseTokenSymbol }}</span>
+                      </div>
+                    </div>
+                    <p class="text-xs text-green-600 dark:text-green-400 mt-2 italic">
+                      * Estimate based on current pool. Final allocation may vary.
+                    </p>
+                  </div>
+                </div>
+              </div>
               
               <!-- Min/Max Contribution Info -->
               <div class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
@@ -221,26 +268,35 @@
 
               <!-- Fee Information -->
               <div class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
-                <span>Transfer Fee (2x):</span>
+                <span>Transfer Fees (2x):</span>
                 <span class="font-semibold">{{ formatBalance(totalTransferFees) }} {{ purchaseTokenSymbol }}</span>
               </div>
+              <p class="text-xs text-gray-400 dark:text-gray-500 italic">
+                * Includes deposit fee + future refund/claim fee
+              </p>
 
               <!-- Total Amount -->
               <div v-if="amount && amountValidation.isValid" class="flex justify-between items-center text-sm font-medium text-gray-900 dark:text-white pt-2 border-t border-gray-200 dark:border-gray-700">
-                <span>Total (with fees):</span>
+                <span>Total (with fee):</span>
                 <span>{{ formatBalance(totalAmountWithFees) }} {{ purchaseTokenSymbol }}</span>
               </div>
             </div>
           </div>
 
           <!-- Important Notes -->
-          <div class="bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3 border border-yellow-200 dark:border-yellow-800">
-            <h4 class="text-xs font-semibold text-yellow-800 dark:text-yellow-400 mb-2">Important</h4>
-            <ul class="text-xs text-yellow-700 dark:text-yellow-300 space-y-1">
-              <li>• Tokens will be sent to your unique deposit address</li>
-              <li>• 2x transfer fees are included for future transactions</li>
-              <li>• Ensure you meet the minimum contribution requirement</li>
-              <li>• Deposits are processed automatically</li>
+          <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-200 dark:border-blue-800">
+            <h4 class="text-xs font-semibold text-blue-800 dark:text-blue-400 mb-2 flex items-center gap-1">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              How It Works (ICRC-2 Approve + Deposit)
+            </h4>
+            <ul class="text-xs text-blue-700 dark:text-blue-300 space-y-1.5">
+              <li>• <strong>Step 1:</strong> You approve the contract to spend your tokens</li>
+              <li>• <strong>Step 2:</strong> Contract validates your deposit (hardcap, limits)</li>
+              <li>• <strong>Step 3:</strong> If valid, tokens are pulled to your deposit account</li>
+              <li>• <strong>✅ Benefits:</strong> Clean rejections, no excess funds to manage</li>
+              <li>• <strong>🔒 Secure:</strong> Optimistic locking prevents hardcap overflow</li>
             </ul>
           </div>
         </template>
@@ -267,10 +323,12 @@
         >
           <span v-if="loadingBalance">Loading Balance...</span>
           <span v-else-if="loadingDepositAccount">Loading Address...</span>
-          <span v-else-if="isDepositing">Processing...</span>
+          <span v-else-if="isDepositing">
+            {{ depositStep === 'approving' ? 'Approving...' : depositStep === 'depositing' ? 'Depositing...' : 'Processing...' }}
+          </span>
           <span v-else-if="!depositAddress">Generating Address...</span>
           <span v-else-if="!isValid && amount">{{ amountValidation.errorMessage }}</span>
-          <span v-else>Confirm Deposit</span>
+          <span v-else>Approve & Deposit</span>
         </button>
       </div>
     </template>
@@ -296,6 +354,7 @@ const loadingBalance = ref(false)
 const isDepositing = ref(false)
 const isRecovering = ref(false)
 const amountFocused = ref(false)
+const depositStep = ref<'approving' | 'depositing' | ''>('')
 
 // Form state
 const amount = ref('')
@@ -307,8 +366,18 @@ const depositSubaccountBytes = ref<Uint8Array>() // Store subaccount bytes used 
 
 // Modal data
 const modalData = computed(() => {
-  return modalStore.state?.launchpadDeposit?.data
+  const data = modalStore.state?.launchpadDeposit?.data
+  console.log('📊 Modal Data:', data)
+  console.log('   - saleToken:', data?.saleToken)
+  console.log('   - totalTokensForSale:', data?.totalTokensForSale)
+  console.log('   - totalRaised:', data?.totalRaised)
+  console.log('   - hardCap:', data?.hardCap)
+  console.log('   - softCap:', data?.softCap)
+  return data
 })
+
+// Get onSuccess callback from modal data
+const onSuccessCallback = computed(() => modalData.value?.onSuccess)
 
 const canisterId = computed(() => modalData.value?.canisterId || '')
 const purchaseToken = computed(() => modalData.value?.purchaseToken)
@@ -322,6 +391,31 @@ const minContribution = computed(() => {
 const maxContribution = computed(() => {
   const val = modalData.value?.maxContribution
   return val ? BigInt(Number(val)) : null
+})
+
+// Sale token info (for allocation calculation)
+const saleToken = computed(() => modalData.value?.saleToken)
+const saleTokenSymbol = computed(() => saleToken.value?.symbol || 'TOKEN')
+const saleTokenDecimals = computed(() => Number(saleToken.value?.decimals || 8))
+const tokenPrice = computed(() => {
+  const price = modalData.value?.tokenPrice
+  return price ? BigInt(Number(price)) : BigInt(0)
+})
+const totalTokensForSale = computed(() => {
+  const total = modalData.value?.totalTokensForSale
+  return total ? BigInt(Number(total)) : BigInt(0)
+})
+const currentTotalRaised = computed(() => {
+  const raised = modalData.value?.totalRaised
+  return raised ? BigInt(Number(raised)) : BigInt(0)
+})
+const hardCap = computed(() => {
+  const cap = modalData.value?.hardCap
+  return cap ? BigInt(Number(cap)) : BigInt(0)
+})
+const softCap = computed(() => {
+  const cap = modalData.value?.softCap
+  return cap ? BigInt(Number(cap)) : BigInt(0)
 })
 
 // Remaining contribution capacity (max - already contributed)
@@ -342,56 +436,145 @@ const singleTransferFee = computed(() => {
   return BigInt(fee)
 })
 
-// 2x transfer fees (for deposit and future claim)
+// Total fees (2x for deposit + future refund/claim)
 const totalTransferFees = computed(() => {
   return singleTransferFee.value * BigInt(2)
 })
 
-// Amount validation
+// Available hardcap capacity
+const availableHardcapCapacity = computed(() => {
+  if (hardCap.value <= BigInt(0)) return null
+  const available = hardCap.value - currentTotalRaised.value
+  return available > BigInt(0) ? available : BigInt(0)
+})
+
+// Amount validation with suggested amounts
 const amountValidation = computed(() => {
   if (!amount.value) {
-    return { isValid: false, errorMessage: 'Amount is required' }
+    return { isValid: false, errorMessage: 'Amount is required', suggestedAmount: null }
   }
 
   try {
     const decimals = purchaseTokenDecimals.value
     const amountBigInt = BigInt(Math.floor(parseFloat(amount.value) * Math.pow(10, decimals)))
     
-        
     // Check if amount is positive
     if (amountBigInt <= BigInt(0)) {
-      return { isValid: false, errorMessage: 'Amount must be greater than 0' }
+      return { 
+        isValid: false, 
+        errorMessage: 'Amount must be greater than 0',
+        suggestedAmount: minContribution.value
+      }
     }
 
     // Check minimum contribution
     if (amountBigInt < minContribution.value) {
       return { 
         isValid: false, 
-        errorMessage: `Minimum contribution is ${formatBalance(minContribution.value)} ${purchaseTokenSymbol.value}` 
+        errorMessage: `Minimum contribution is ${formatBalance(minContribution.value)} ${purchaseTokenSymbol.value}`,
+        suggestedAmount: minContribution.value
       }
     }
 
-    // Check remaining contribution capacity
+    // Check hardcap capacity FIRST
+    if (availableHardcapCapacity.value !== null && amountBigInt > availableHardcapCapacity.value) {
+      if (availableHardcapCapacity.value === BigInt(0)) {
+        return {
+          isValid: false,
+          errorMessage: `Hard cap reached! Sale is full.`,
+          suggestedAmount: null
+        }
+      }
+      return {
+        isValid: false,
+        errorMessage: `Exceeds available capacity. Only ${formatBalance(availableHardcapCapacity.value)} ${purchaseTokenSymbol.value} remaining in pool.`,
+        suggestedAmount: availableHardcapCapacity.value
+      }
+    }
+
+    // Check remaining contribution capacity (per user)
     if (remainingContributionCapacity.value !== null && amountBigInt > remainingContributionCapacity.value) {
       return {
         isValid: false,
-        errorMessage: `You can only contribute ${formatBalance(remainingContributionCapacity.value)} ${purchaseTokenSymbol.value} more (already contributed: ${formatBalance(recordedContribution.value)})`
+        errorMessage: `Exceeds your max contribution. You can contribute ${formatBalance(remainingContributionCapacity.value)} ${purchaseTokenSymbol.value} more (already contributed: ${formatBalance(recordedContribution.value)})`,
+        suggestedAmount: remainingContributionCapacity.value
       }
     }
 
     // Check user balance (amount + fees)
     const totalNeeded = amountBigInt + totalTransferFees.value
     if (totalNeeded > userBalance.value) {
+      const maxAffordable = userBalance.value - totalTransferFees.value
       return { 
         isValid: false, 
-        errorMessage: `Insufficient balance. You need ${formatBalance(totalNeeded)} ${purchaseTokenSymbol.value} (including fees)` 
+        errorMessage: `Insufficient balance. You need ${formatBalance(totalNeeded)} ${purchaseTokenSymbol.value} (including approval fee)`,
+        suggestedAmount: maxAffordable > BigInt(0) ? maxAffordable : null
       }
     }
 
-    return { isValid: true, errorMessage: '' }
+    return { isValid: true, errorMessage: '', suggestedAmount: null }
   } catch (error) {
     console.error('❌ Amount validation error:', error)
-    return { isValid: false, errorMessage: 'Invalid amount' }
+    return { isValid: false, errorMessage: 'Invalid amount', suggestedAmount: null }
+  }
+})
+
+// Estimated allocation (if softcap reached or will be reached)
+const estimatedAllocation = computed(() => {
+  if (!amount.value || !amountValidation.value.isValid) {
+    console.log('⏭️  No allocation: invalid amount or empty')
+    return null
+  }
+  
+  try {
+    const decimals = purchaseTokenDecimals.value
+    const amountBigInt = BigInt(Math.floor(parseFloat(amount.value) * Math.pow(10, decimals)))
+    
+    // Calculate projected total raised (current + this deposit + user's existing contribution)
+    const projectedTotalRaised = currentTotalRaised.value + amountBigInt
+    
+    console.log('💰 Allocation Calculation:')
+    console.log('   - Amount:', amountBigInt.toString())
+    console.log('   - Current Total Raised:', currentTotalRaised.value.toString())
+    console.log('   - Projected Total:', projectedTotalRaised.toString())
+    console.log('   - Softcap:', softCap.value.toString())
+    console.log('   - Total Tokens for Sale:', totalTokensForSale.value.toString())
+    
+    // Only show allocation if softcap is reached or will be reached
+    if (projectedTotalRaised < softCap.value) {
+      console.log('⏭️  No allocation: softcap not reached')
+      return null // Don't show allocation before softcap
+    }
+    
+    // Calculate user's total contribution after this deposit
+    const userTotalContribution = recordedContribution.value + amountBigInt
+    
+    console.log('   - User Total Contribution:', userTotalContribution.toString())
+    console.log('   - Recorded Contribution:', recordedContribution.value.toString())
+    
+    // Calculate allocation based on pool share
+    // tokens = (user_contribution / total_raised) * total_tokens_for_sale
+    const tokensToReceive = (userTotalContribution * totalTokensForSale.value) / projectedTotalRaised
+    
+    // Calculate share percentage
+    const sharePercentage = ((userTotalContribution * BigInt(10000)) / projectedTotalRaised) / BigInt(100) // 2 decimal places
+    
+    // Calculate price per token
+    const pricePerToken = (userTotalContribution * BigInt(Math.pow(10, saleTokenDecimals.value))) / tokensToReceive
+    
+    console.log('✅ Allocation Result:')
+    console.log('   - Tokens:', tokensToReceive.toString())
+    console.log('   - Share:', Number(sharePercentage) / 100 + '%')
+    console.log('   - Price per token:', formatBalance(pricePerToken))
+    
+    return {
+      tokens: tokensToReceive,
+      sharePercentage: Number(sharePercentage) / 100,
+      pricePerToken: formatBalance(pricePerToken)
+    }
+  } catch (error) {
+    console.error('❌ Allocation calculation error:', error)
+    return null
   }
 })
 
@@ -484,7 +667,7 @@ const hasUnrecoveredBalance = computed(() => {
   }
 })
 
-// Format balance helper
+// Format balance helper (for purchase token)
 const formatBalance = (value: bigint | number): string => {
   try {
     // Convert to BigInt if it's a number
@@ -511,6 +694,36 @@ const formatBalance = (value: bigint | number): string => {
   } catch (error) {
     console.error('Error formatting balance:', error, value)
     return '0.00'
+  }
+}
+
+// Format token amount helper (for sale token)
+const formatTokenAmount = (value: bigint | number): string => {
+  try {
+    // Convert to BigInt if it's a number
+    let bigintValue: bigint
+    if (typeof value === 'number') {
+      bigintValue = BigInt(Math.floor(value))
+    } else {
+      bigintValue = value
+    }
+
+    const decimals = saleTokenDecimals.value
+    const divisor = BigInt(10) ** BigInt(decimals)
+    const integerPart = bigintValue / divisor
+    const remainder = bigintValue % divisor
+
+    const remainderStr = remainder.toString().padStart(decimals, '0')
+    const fullDecimal = `${integerPart.toString()}.${remainderStr}`
+    const floatValue = parseFloat(fullDecimal)
+
+    return floatValue.toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 6
+    })
+  } catch (error) {
+    console.error('Error formatting token amount:', error, value)
+    return '0'
   }
 }
 
@@ -559,12 +772,14 @@ const handleDeposit = async () => {
   if (!isValid.value || isDepositing.value) return
 
   isDepositing.value = true
+  depositStep.value = 'approving'
+  
   try {
-    // Convert amount to smallest unit (e8s for ICP, or based on token decimals)
+    // Convert amount to smallest unit
     const decimals = purchaseTokenDecimals.value
     const amountInSmallest = BigInt(Math.floor(parseFloat(amount.value) * Math.pow(10, decimals)))
 
-    // Step 1: Transfer tokens to deposit address (subaccount)
+    // Create token object
     const transferToken = {
       canisterId: purchaseToken.value.canisterId.toString(),
       symbol: purchaseToken.value.symbol,
@@ -580,167 +795,134 @@ const handleDeposit = async () => {
       }
     }
 
-    // Convert deposit address (hex string) to subaccount bytes
-    const depositAddressBytes = hexStringToUint8Array(depositAddress.value)
-
-    // Store subaccount bytes for balance checking
-    depositSubaccountBytes.value = depositAddressBytes
-
-    // Create ICRC account for the deposit address
-    const depositAccount = {
-      owner: Principal.fromText(canisterId.value), // Launchpad contract principal
-      subaccount: depositAddressBytes
-    }
-
-    // Log transfer details
-    console.log('🔍 TRANSFER DETAILS:')
-    console.log('   From:', authStore.principal)
-    console.log('   To (Owner):', depositAccount.owner.toString())
-    console.log('   To (Subaccount):', depositAddress.value)
-    console.log('   Subaccount Bytes:', Array.from(depositAddressBytes))
-    console.log('   Token:', transferToken.symbol)
-    console.log('   Token Canister:', transferToken.canisterId)
+    console.log('🔐 APPROVE-FIRST DEPOSIT FLOW')
+    console.log('   User:', authStore.principal)
     console.log('   Amount:', amount.value, transferToken.symbol)
-    console.log('   Amount (Smallest Unit):', amountInSmallest.toString())
-    console.log('   Fee:', transferToken.fee.toString(), transferToken.symbol)
-    console.log('   Memo: DEPOSIT')
+    console.log('   Amount (e8s):', amountInSmallest.toString())
+    console.log('   Canister:', canisterId.value)
 
-    // DEBUG: Let's also check what balance we expect before transfer
-    console.log('🔍 PRE-TRANSFER BALANCE CHECK:')
+    // ============================================
+    // STEP 1: Approve contract to spend tokens
+    // ============================================
+    console.log('📝 Step 1: Approving contract to spend tokens...')
+    
+    // IMPORTANT: Approve amount + 2x transfer fee
+    // Why 2x fee?
+    // 1. Fee #1: Transfer from user → subaccount (via icrc2_transfer_from)
+    // 2. Fee #2: Future refund/claim from subaccount → main account
+    // Total allowance needed = amount + (2 × fee)
+    const singleFee = BigInt(transferToken.fee)
+    const totalFees = singleFee * BigInt(2)
+    const totalApprovalAmount = amountInSmallest + totalFees
+    
+    console.log('   Single Transfer Fee:', singleFee.toString())
+    console.log('   Total Fees (2x):', totalFees.toString())
+    console.log('   Amount:', amountInSmallest.toString())
+    console.log('   Total Approval Amount:', totalApprovalAmount.toString(), '(amount + 2×fee)')
+    
+    const ledger = icrcActor({
+      canisterId: transferToken.canisterId,
+      anon: false
+    })
 
-    // Method 1: Using IcrcService with new subaccount balance method
-    const balanceViaService = await IcrcService.getIcrc1SubaccountBalance(
-      transferToken,
-      Principal.fromText(canisterId.value),
-      Array.from(depositAccount.subaccount),
-      false
-    )
-    console.log('   Balance via IcrcService:', balanceViaService.toString())
-
-    // Method 2: Direct actor call (bypass service)
-    console.log('🔍 TESTING DIRECT ACTOR CALL:')
-    try {
-      const directActor = icrcActor({
-        canisterId: transferToken.canisterId,
-        anon: true
-      })
-
-      const directBalance = await directActor.icrc1_balance_of({
-        owner: Principal.fromText(canisterId.value),
-        subaccount: [Array.from(depositAccount.subaccount)]
-      })
-      console.log('   Balance via direct actor:', directBalance.toString())
-
-      // Method 3: Check if subaccount is the issue
-      console.log('🔍 TESTING WITHOUT SUBACCOUNT:')
-      const balanceWithoutSubaccount = await directActor.icrc1_balance_of({
+    const approveResult = await ledger.icrc2_approve({
+      spender: {
         owner: Principal.fromText(canisterId.value),
         subaccount: []
-      })
-      console.log('   Balance without subaccount (contract principal):', balanceWithoutSubaccount.toString())
+      },
+      amount: totalApprovalAmount, // ← FIXED: Approve amount + 2×fee
+      fee: [],
+      memo: [],
+      from_subaccount: [],
+      created_at_time: [],
+      expected_allowance: [],
+      expires_at: []
+    })
 
-      // Method 4: Check user principal balance
-      console.log('🔍 TESTING USER PRINCIPAL BALANCE:')
-      const userBalance = await directActor.icrc1_balance_of({
-        owner: Principal.fromText(authStore.principal),
-        subaccount: []
-      })
-      console.log('   Balance of user principal:', userBalance.toString())
+    console.log('📬 Approve result:', approveResult)
 
-    } catch (error) {
-      console.error('❌ Direct actor call failed:', error)
+    if ('Err' in approveResult) {
+      throw new Error(`Approval failed: ${JSON.stringify(approveResult.Err)}`)
     }
 
-    const transferResult = await IcrcService.transfer(
-      transferToken,
-      depositAccount,
-      amountInSmallest,
-      {
-        memo: new Uint8Array([0x44, 0x45, 0x50, 0x4F, 0x53, 0x49, 0x54]), // "DEPOSIT" in hex
-        fee: BigInt(purchaseToken.value.transferFee)
-      }
-    )
+    console.log('✅ Approval successful! Block:', approveResult.Ok)
+    toast.success('Approval successful!', {
+      description: 'Now depositing tokens...'
+    })
 
-    console.log('📬 Transfer result:', transferResult)
-
-    if ('Err' in transferResult) {
-      throw new Error(`Transfer failed: ${JSON.stringify(transferResult.Err)}`)
-    }
-
-    console.log('✅ Transfer successful! Block:', transferResult.Ok)
-
-    // Step 2: Confirm deposit on contract
+    // ============================================
+    // STEP 2: Call deposit() on contract
+    // ============================================
+    depositStep.value = 'depositing'
+    console.log('💰 Step 2: Calling deposit() on contract...')
     
     const launchpadActor = launchpadContractActor({ 
       canisterId: canisterId.value, 
-      requiresSigning: true, // Needs signing for update call
+      requiresSigning: true,
       anon: false 
     })
     
-    const confirmResult = await launchpadActor.confirmDeposit(
+    const depositResult = await launchpadActor.deposit(
       amountInSmallest,
       [] // No affiliate code for now
     )
     
-    console.log('📬 Confirm deposit result:', confirmResult)
+    console.log('📬 Deposit result:', depositResult)
     
-    if ('ok' in confirmResult) {
-      const transaction = confirmResult.ok
-      console.log('✅ Deposit confirmed! Transaction:', transaction)
+    if ('ok' in depositResult) {
+      const transaction = depositResult.ok
+      console.log('✅ Deposit successful! Transaction:', transaction)
       
       toast.success('Deposit completed successfully!', {
         description: `You have deposited ${amount.value} ${purchaseTokenSymbol.value}`
       })
       
-      // Refresh deposited balance
+      // Refresh balances
+      await fetchUserBalance()
       await fetchDepositedBalance()
+      await fetchRecordedContribution()
 
-      // DEBUG: Post-transfer balance verification
-      console.log('🔍 POST-TRANSFER BALANCE VERIFICATION:')
-      try {
-        const directActor = icrcActor({
-          canisterId: transferToken.canisterId,
-          anon: true
-        })
-
-        const postTransferBalance = await directActor.icrc1_balance_of({
-          owner: Principal.fromText(canisterId.value),
-          subaccount: [Array.from(depositAddressBytes)]
-        })
-        console.log('   Balance immediately after transfer:', postTransferBalance.toString())
-
-        // Also check what fetchDepositedBalance found
-        console.log('   fetchDepositedBalance result:', depositedBalance.value.toString())
-
-        if (postTransferBalance.toString() !== depositedBalance.value.toString()) {
-          console.error('❌ MISMATCH! Direct actor vs fetchDepositedBalance')
-          console.error('   Direct actor:', postTransferBalance.toString())
-          console.error('   fetchDepositedBalance:', depositedBalance.value.toString())
-        } else {
-          console.log('✅ Both methods show same balance')
-        }
-
-      } catch (error) {
-        console.error('❌ Post-transfer balance check failed:', error)
+      // Call onSuccess callback if provided (to refresh parent component)
+      if (onSuccessCallback.value && typeof onSuccessCallback.value === 'function') {
+        console.log('✅ Calling onSuccess callback to refresh parent data...')
+        await onSuccessCallback.value()
       }
 
       // Close modal
       modalStore.close('launchpadDeposit')
-      
-      // Optionally reload the launchpad detail page to show updated stats
-      // setTimeout(() => {
-      //   window.location.reload()
-      // }, 1500)
     } else {
-      throw new Error(confirmResult.err)
+      // Deposit rejected (e.g., exceeds hardcap)
+      console.error('❌ Deposit rejected:', depositResult.err)
+      throw new Error(depositResult.err)
     }
   } catch (error) {
     console.error('❌ Deposit error:', error)
-    toast.error('Failed to complete deposit', {
-      description: error instanceof Error ? error.message : 'Please try again'
+    
+    let errorMessage = 'Please try again'
+    if (error instanceof Error) {
+      errorMessage = error.message
+      
+      // Provide helpful messages for common errors
+      if (errorMessage.includes('Exceeds hard cap')) {
+        errorMessage = 'Hard cap reached. Try a smaller amount or wait for more capacity.'
+      } else if (errorMessage.includes('Exceeds available capacity')) {
+        const match = errorMessage.match(/(\d+)/)
+        if (match) {
+          errorMessage = `Only ${formatBalance(BigInt(match[1]))} ${purchaseTokenSymbol.value} available. Please reduce your amount.`
+        }
+      } else if (errorMessage.includes('maximum contribution')) {
+        errorMessage = 'You have reached your maximum contribution limit.'
+      } else if (errorMessage.includes('Insufficient balance')) {
+        errorMessage = 'Insufficient approved balance for transfer.'
+      }
+    }
+    
+    toast.error('Deposit failed', {
+      description: errorMessage
     })
   } finally {
     isDepositing.value = false
+    depositStep.value = ''
   }
 }
 
