@@ -449,6 +449,7 @@ module LaunchpadTypes {
     public type TransactionType = {
         #Purchase;
         #Refund;
+        #Withdrawal;  // Manual withdrawal from deposit subaccount
         #Claim;
         #AffiliateReward;
         #Fee;
