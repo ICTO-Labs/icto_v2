@@ -2,15 +2,15 @@
 	<AdminLayout>
 		<div class="min-h-screen dark:from-gray-900 dark:to-gray-800">
 			<!-- Loading State -->
-			<div v-if="loading" class="flex items-center justify-center min-h-screen">
+			<!-- <div v-if="loading" class="flex items-center justify-center min-h-screen">
 				<div class="text-center">
 					<div class="inline-block animate-spin rounded-full h-16 w-16 border-b-2 border-[#d8a735]"></div>
 					<p class="mt-4 text-gray-600 dark:text-gray-400">Loading launchpad details...</p>
 				</div>
-			</div>
+			</div> -->
 
 			<!-- Error State -->
-			<div v-else-if="error" class="flex items-center justify-center min-h-screen">
+			<div v-if="error" class="flex items-center justify-center min-h-screen">
 				<div class="text-center max-w-md">
 					<div class="text-red-500 text-6xl mb-4">⚠️</div>
 					<h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">Failed to Load Launchpad</h2>
@@ -54,38 +54,18 @@
 											class="px-2 py-0.5 bg-white/20 text-white rounded-full text-xs font-medium">
 											{{ categoryDisplay }}
 										</span>
-									</div>
-								</div>
-							</div>
-
-							<!-- Quick Stats with Refresh -->
-							<div class="text-right flex items-center gap-2">
-								<div class="text-white">
-									<p class="text-xs opacity-90 mb-1">Total Raised</p>
-									<p class="text-2xl font-bold">{{ formatAmount(totalRaised, purchaseTokenDecimals) }}
-										{{
-											purchaseTokenSymbol }}</p>
-									<p class="text-xs opacity-80">of {{ formatAmount(hardCap, purchaseTokenDecimals) }}
-										{{
-											purchaseTokenSymbol }}</p>
-								</div>
-								<button @click="refreshStats" :disabled="refreshingStats"
-									class="text-white/80 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-									title="Refresh stats">
-									<svg :class="['w-5 h-5', refreshingStats ? 'animate-spin' : '']" fill="none"
-										stroke="currentColor" viewBox="0 0 24 24">
-										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-											d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-									</svg>
-								</button>
-							</div>
-						</div>
 					</div>
+				</div>
+			</div>
+					</div>
+				</div>
 
 					<!-- Progress Bar -->
 					<div class="px-6 py-4 bg-gray-50 dark:bg-gray-900">
 						<div class="flex items-center justify-between mb-2">
-							<span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Sale Progress</span>
+							<div class="text-xs font-semibold text-[#d8a735]">
+								<span class="text-xs">Participants:</span> {{ participantCount }}
+							</div>
 							<span class="text-xs font-semibold text-[#d8a735]">{{ progressPercentage.toFixed(2)
 								}}%</span>
 						</div>
@@ -106,15 +86,17 @@
 							</div>
 						</div>
 						<div class="flex items-center justify-between mt-2 text-xs text-gray-600 dark:text-gray-400">
-							<div>
-								<span class="font-medium">Soft Cap:</span> {{ formatAmount(softCap,
-								purchaseTokenDecimals) }} {{
-									purchaseTokenSymbol }}
+							<div class="flex items-center">
+								<span class="font-medium">Soft Cap: </span> 
+								<span class="font-semibold ml-1">{{ formatAmount(softCap, purchaseTokenDecimals) }} {{ purchaseTokenSymbol }}</span>
 								<span v-if="softCapProgress >= 100"
-									class="ml-2 text-green-600 dark:text-green-400">✓</span>
+									class="ml-2 text-green-600 dark:text-green-400 flex items-center gap-1">
+									<CheckCircleIcon class="w-4 h-4" /> Reached
+								</span>
 							</div>
 							<div>
-								<span class="font-medium">Participants:</span> {{ participantCount }}
+								<span class="font-medium">Hard Cap:</span> 
+								<span class="font-semibold ml-1">	{{ formatAmount(hardCap,purchaseTokenDecimals) }} {{purchaseTokenSymbol }}</span>
 							</div>
 						</div>
 					</div>
@@ -838,8 +820,14 @@
 						<!-- Participants Section -->
 						<div class="w-full mt-6">
 							<div class="mx-auto">
-								<Participants :canister-id="canisterId" :purchase-token-symbol="purchaseTokenSymbol"
-									:purchase-token-decimals="purchaseTokenDecimals" :sale-token-symbol="saleTokenSymbol" />
+							<Participants 
+								ref="participantsRef"
+								:canister-id="canisterId" 
+								:purchase-token-symbol="purchaseTokenSymbol"
+								:purchase-token-decimals="purchaseTokenDecimals" 
+								:sale-token-symbol="saleTokenSymbol"
+								:launchpad-status="launchpadStatusText"
+							/>
 							</div>
 						</div>
 
@@ -849,10 +837,73 @@
 						<!-- Sidebar (1/3 width) -->
 						<div class="space-y-4">
 							<!-- Action Card -->
-							<div
-								class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700 top-8">
+							<div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-4 border border-gray-200 dark:border-gray-700 top-8">
 								<!-- <h3 class="text-lg font-bold text-gray-900 dark:text-white mb-4">Participate</h3> -->
-								<CountdownTimer :launchpad="launchpad" variant="flashcard" v-if="isSaleActive" />
+								
+								
+								<!-- Total Raised with Flash Effect -->
+								<div class="p-4 bg-gradient-to-br from-[#d8a735]/10 to-[#d8a735]/5 dark:from-[#d8a735]/20 dark:to-[#d8a735]/10 rounded-xl border border-[#d8a735]/20">
+									<div class="flex items-center justify-between mb-2">
+										<span class="text-xs font-semibold text-gray-700 dark:text-gray-300">Total Raised</span>
+										<button @click="refreshStats" :disabled="refreshingStats"
+											class="text-gray-600 dark:text-gray-400 hover:text-[#d8a735] dark:hover:text-[#d8a735] transition-colors disabled:opacity-50"
+											title="Refresh stats">
+											<svg class="w-4 h-4" :class="{'animate-spin': refreshingStats}" fill="none"
+												stroke="currentColor" viewBox="0 0 24 24">
+												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+													d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+											</svg>
+										</button>
+									</div>
+									<div :key="statsUpdateKey" :class="['transition-all duration-300', refreshingStats ? 'stats-flash-sidebar' : '']">
+										<p class="text-2xl font-bold text-gray-900 dark:text-white">
+											{{ formatAmount(totalRaised, purchaseTokenDecimals) }} {{ purchaseTokenSymbol }}
+										</p>
+										<p class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+											of {{ formatAmount(hardCap, purchaseTokenDecimals) }} {{ purchaseTokenSymbol }}
+											<span class="text-[#d8a735] font-semibold ml-1">({{ progressPercentage.toFixed(2) }}%)</span>
+										</p>
+									</div>
+									<div class="flex items-center gap-2 cursor-pointer mt-2" @click="toggleAutoRefresh">
+										<!-- Toggle Switch -->
+										<button 
+											:class="['relative inline-flex h-5 w-9 items-center rounded-full transition-colors', autoRefreshEnabled ? 'bg-[#d8a735]' : 'bg-gray-300 dark:bg-gray-600']"
+											:title="autoRefreshEnabled ? 'Auto-refresh: ON (10s)' : 'Auto-refresh: OFF'"
+										>
+											<span 
+												:class="['inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform', autoRefreshEnabled ? 'translate-x-5' : 'translate-x-1']"
+											></span>
+										</button>
+										<span class="text-xs text-gray-600 dark:text-gray-400 select-none">Auto-refresh (10s)</span>
+									</div>
+								</div>
+								
+								<CountdownTimer 
+								:launchpad="launchpad" 
+								variant="flashcard" 
+								v-if="showingCountdown" 
+								@countdown-end="handleCountdownEnd"
+							/>
+						
+								<!-- Status Feedback Card -->
+								<div v-if="projectStatus === 'Successful'" class="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-xl border border-green-200 dark:border-green-800 text-center">
+									<div class="text-3xl mb-2">🎉</div>
+									<h4 class="text-sm font-bold text-green-700 dark:text-green-400 mb-1">Congratulations!</h4>
+									<p class="text-xs text-green-600 dark:text-green-500">This launchpad was successful!</p>
+								</div>
+								
+								<div v-else-if="projectStatus === 'Failed'" class="mt-4 p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800 text-center">
+									<div class="text-3xl mb-2">😔</div>
+									<h4 class="text-sm font-bold text-red-700 dark:text-red-400 mb-1">Project Failed</h4>
+									<p class="text-xs text-red-600 dark:text-red-500">Soft cap not reached. All funds have been refunded.</p>
+								</div>
+								
+								<div v-else-if="projectStatus === 'Cancelled'" class="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-xl border border-yellow-200 dark:border-yellow-800 text-center">
+									<div class="text-3xl mb-2">⚠️</div>
+									<h4 class="text-sm font-bold text-yellow-700 dark:text-yellow-400 mb-1">Project Cancelled</h4>
+									<p class="text-xs text-yellow-600 dark:text-yellow-500">This launchpad was cancelled. All funds have been refunded.</p>
+								</div>
+								
 								<div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700"></div>
 								<!-- ICTO Passport Score Requirement (if required) -->
 								<div v-if="minPassportScore > 0"
@@ -894,15 +945,42 @@
 									</div>
 								</button>
 
-								<!-- Quick Stats -->
-								<div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
-									<!-- Your Deposited (Recorded Contribution) -->
-									<div v-if="authStore.isConnected" class="flex items-center justify-between">
+							<!-- Quick Stats -->
+							<div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
+								
+								<!-- Your Deposited (Recorded Contribution) -->
+								<div v-if="authStore.isConnected" class="flex items-center justify-between">
 										<span class="text-sm text-gray-600 dark:text-gray-400">Your Deposited</span>
 										<span class="text-sm font-semibold text-green-600 dark:text-green-400">
 											{{ formatAmount(userDeposited, purchaseTokenDecimals) }} {{
 											purchaseTokenSymbol }}
 										</span>
+									</div>
+									
+									<!-- Refund Info (if refunded) -->
+									<div v-if="authStore.isConnected && userRefundedAmount > 0" class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800 space-y-2">
+										<div class="flex items-center justify-between">
+											<span class="text-sm font-semibold text-blue-700 dark:text-blue-400">💰 Refunded</span>
+											<span class="text-sm font-bold text-blue-600 dark:text-blue-300">
+												{{ formatAmount(userRefundedAmount, purchaseTokenDecimals) }} {{ purchaseTokenSymbol }}
+											</span>
+										</div>
+										<div v-if="userRefundTime" class="flex items-center justify-between text-xs">
+											<span class="text-blue-600 dark:text-blue-400">Time:</span>
+											<span class="text-blue-700 dark:text-blue-300">{{ formatTimestamp(userRefundTime) }}</span>
+										</div>
+										<div v-if="userRefundTxId" class="flex items-center justify-between text-xs">
+											<span class="text-blue-600 dark:text-blue-400">TX ID:</span>
+											<button 
+												@click="() => { /* TODO: Open ICP dashboard */ }"
+												class="text-blue-700 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-200 font-mono flex items-center gap-1"
+											>
+												#{{ String(userRefundTxId).slice(0, 8) }}...
+												<svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+													<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+												</svg>
+											</button>
+										</div>
 									</div>
 
 									<div class="flex items-center justify-between">
@@ -938,7 +1016,7 @@
 							</div>
 
 							<!-- Timeline Card -->
-							<UnifiedTimeline v-if="launchpad" :launchpad="launchpad" />
+							<UnifiedTimeline v-if="launchpad" :launchpad="launchpad" @countdown-end="handleCountdownEnd" />
 							
 							
 						</div>
@@ -954,7 +1032,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { LaunchpadService } from '@/api/services/launchpad'
 import type { LaunchpadDetail } from '@/types/launchpad'
@@ -983,13 +1061,18 @@ import { launchpadContractActor, useAuthStore } from '@/stores/auth'
 import { useSwal } from '@/composables/useSwal2'
 import CopyIcon from '@/icons/CopyIcon.vue'
 import CountdownTimer from '@/components/launchpad/CountdownTimer.vue'
+import { CheckCircleIcon } from 'lucide-vue-next'
 // State
 const route = useRoute()
 const launchpadService = LaunchpadService.getInstance()
 const modalStore = useModalStore()
 const authStore = useAuthStore()
 
-const loading = ref(true)
+const loading = ref(true) // Initial page load
+const refreshingStats = ref(false) // Refreshing data (show skeleton)
+const statsUpdateKey = ref(0) // Key to trigger flash animation
+const autoRefreshEnabled = ref(true) // Auto-refresh toggle
+const autoRefreshInterval = ref<number | null>(null) // Interval ID
 const error = ref<string | null>(null)
 const launchpad = ref<LaunchpadDetail | null>(null)
 const activeTab = ref('overview')
@@ -1000,6 +1083,7 @@ const isSavingImages = ref(false)
 
 // Version Management Ref
 const versionManagementRef = ref<InstanceType<any> | null>(null)
+const participantsRef = ref<InstanceType<any> | null>(null)
 // 🆕 NEW: Use Dual-Status System
 const launchpadRef = computed(() => launchpad.value)
 const { 
@@ -1280,6 +1364,12 @@ const isSaleActive = computed(() => {
 	return 'SaleActive' in status
 })
 
+const showingCountdown = computed(() => {
+	if (!launchpad.value) return false
+	const status = launchpad.value.status
+	return ('SaleActive' in status || 'Upcoming' in status)
+})
+
 // Check if sale has started based on STATUS (not time)
 const isSaleActiveOrBeyond = computed(() => {
 	if (!launchpad.value) return false
@@ -1289,6 +1379,20 @@ const isSaleActiveOrBeyond = computed(() => {
 		'SaleEnded' in status ||
 		'Claiming' in status ||
 		'Completed' in status
+})
+
+// Get status text for Participants component
+const launchpadStatusText = computed(() => {
+	if (!launchpad.value) return ''
+	const status = launchpad.value.status
+	
+	// Convert status object to string
+	if ('Refunded' in status) return 'Refunded'
+	if ('Failed' in status) return 'Failed'
+	if ('SaleFailed' in status) return 'SaleFailed'
+	if ('Finalized' in status) return 'Finalized'
+	
+	return Object.keys(status)[0] || ''
 })
 
 // Check if sale has ended (for deployment pipeline waiting state)
@@ -1964,7 +2068,9 @@ const userPassportScore = ref(0)
 const contractVersion = ref('')
 // User participation data
 const userDeposited = ref(BigInt(0)) // Recorded contribution from contract
-const refreshingStats = ref(false)
+const userRefundedAmount = ref(BigInt(0)) // Refunded amount
+const userRefundTime = ref<bigint | null>(null) // Refund timestamp
+const userRefundTxId = ref<bigint | null>(null) // Refund transaction ID
 
 const handleDeposit = () => {
 	if (!canParticipate.value) return
@@ -1978,11 +2084,26 @@ const handleDeposit = () => {
 	}
 
 	modalStore.open('launchpadDeposit', {
+		// Existing fields
 		launchpad: launchpad.value,
 		canisterId: canisterId.value,
 		purchaseToken: launchpad.value?.config.purchaseToken,
 		minContribution: minContribution.value,
-		maxContribution: maxContribution.value
+		maxContribution: maxContribution.value,
+		
+		// NEW - Required for allocation calculation & error display
+		saleToken: launchpad.value?.config.saleToken,
+		tokenPrice: launchpad.value?.config.tokenPrice,
+		totalTokensForSale: launchpad.value?.config.totalTokensForSale,
+		totalRaised: totalRaised.value,
+		hardCap: hardCap.value,
+		softCap: softCap.value,
+		
+		// Callback after successful deposit
+		onSuccess: async () => {
+			console.log('✅ [LaunchpadDetail] Deposit successful, refreshing data...')
+			await refreshStats(true) // Silent refresh
+		}
 	})
 }
 
@@ -2020,9 +2141,23 @@ const fetchUserParticipation = async () => {
 			const participantData = participant[0]
 			// Parse totalContribution to BigInt
 			userDeposited.value = BigInt(Number(participantData.totalContribution || 0))
+			
+			// Get refund info if available
+			userRefundedAmount.value = BigInt(Number(participantData.refundedAmount || 0))
+			userRefundTime.value = participantData.refundTime?.[0] || null
+			userRefundTxId.value = participantData.refundTxId?.[0] || null
+			
 			console.log('✅ User deposited:', userDeposited.value.toString())
+			if (userRefundedAmount.value > 0) {
+				console.log('💰 User refunded:', userRefundedAmount.value.toString())
+				console.log('   Refund Time:', userRefundTime.value)
+				console.log('   Refund TX:', userRefundTxId.value)
+			}
 		} else {
 			userDeposited.value = BigInt(0)
+			userRefundedAmount.value = BigInt(0)
+			userRefundTime.value = null
+			userRefundTxId.value = null
 		}
 	} catch (error) {
 		console.error('Error fetching user participation:', error)
@@ -2031,7 +2166,7 @@ const fetchUserParticipation = async () => {
 }
 
 // Refresh all stats and user data
-const refreshStats = async () => {
+const refreshStats = async (silent = false) => {
 	refreshingStats.value = true
 	try {
 		// Reload main data
@@ -2043,13 +2178,64 @@ const refreshStats = async () => {
 				fetchUserParticipation()
 			])
 		}
-		toast.success('Stats refreshed successfully!')
+		
+		// Trigger flash animation
+		statsUpdateKey.value++
+		
+		if (!silent) {
+			toast.success('Stats refreshed successfully!')
+		}
 	} catch (error) {
 		console.error('Error refreshing stats:', error)
-		toast.error('Failed to refresh stats')
+		if (!silent) {
+			toast.error('Failed to refresh stats')
+		}
 	} finally {
-		refreshingStats.value = false
+		// Small delay to ensure animation triggers
+		setTimeout(() => {
+			refreshingStats.value = false
+		}, 100)
 	}
+}
+
+// Handle countdown end - auto refresh to get new status
+const handleCountdownEnd = async () => {
+	console.log('⏰ [LaunchpadDetail] Countdown ended, refreshing status...')
+	
+	// Wait a bit for backend to process status change
+	await new Promise(resolve => setTimeout(resolve, 2000))
+	
+	// First refresh
+	await refreshStats(true)
+	
+	// Also refresh participants immediately
+	if (participantsRef.value?.fetchParticipants) {
+		console.log('👥 [LaunchpadDetail] Refreshing participants...')
+		await participantsRef.value.fetchParticipants()
+	}
+	
+	// Retry after 5 seconds to ensure backend has updated
+	// (useful for status transitions like SaleActive → SaleEnded → Failed)
+	setTimeout(async () => {
+		console.log('🔄 [LaunchpadDetail] Retry refresh after countdown...')
+		await refreshStats(true)
+		
+		// Refresh participants again
+		if (participantsRef.value?.fetchParticipants) {
+			await participantsRef.value.fetchParticipants()
+		}
+	}, 5000)
+	
+	// Final retry after 10 seconds
+	setTimeout(async () => {
+		console.log('🔄 [LaunchpadDetail] Final refresh after countdown...')
+		await refreshStats(true)
+		
+		// Final participants refresh
+		if (participantsRef.value?.fetchParticipants) {
+			await participantsRef.value.fetchParticipants()
+		}
+	}, 10000)
 }
 
 // Watch for tab changes to auto-load version info
@@ -2060,6 +2246,48 @@ watch(activeTab, async (newTab) => {
 	}
 })
 
+// Auto-refresh functions
+const startAutoRefresh = () => {
+	if (autoRefreshInterval.value) return // Already running
+	
+	console.log('🔄 Starting auto-refresh (10s interval)')
+	autoRefreshInterval.value = window.setInterval(async () => {
+		if (autoRefreshEnabled.value && !loading.value) {
+			console.log('🔄 Auto-refresh triggered')
+			await refreshStats(true) // Silent refresh
+		}
+	}, 10000) // 10 seconds
+}
+
+const stopAutoRefresh = () => {
+	if (autoRefreshInterval.value) {
+		console.log('⏸️ Stopping auto-refresh')
+		clearInterval(autoRefreshInterval.value)
+		autoRefreshInterval.value = null
+	}
+}
+
+const toggleAutoRefresh = () => {
+	autoRefreshEnabled.value = !autoRefreshEnabled.value
+	
+	if (autoRefreshEnabled.value) {
+		startAutoRefresh()
+		toast.success('Auto-refresh enabled')
+	} else {
+		stopAutoRefresh()
+		toast.info('Auto-refresh disabled')
+	}
+}
+
+// Watch auto-refresh toggle
+watch(autoRefreshEnabled, (enabled) => {
+	if (enabled) {
+		startAutoRefresh()
+	} else {
+		stopAutoRefresh()
+	}
+})
+
 // Lifecycle
 onMounted(() => {
 	fetchData()
@@ -2067,6 +2295,14 @@ onMounted(() => {
 		fetchUserPassportScore()
 		fetchUserParticipation()
 	}
+	
+	// Start auto-refresh
+	startAutoRefresh()
+})
+
+onUnmounted(() => {
+	// Cleanup interval
+	stopAutoRefresh()
 })
 </script>
 
@@ -2083,5 +2319,47 @@ onMounted(() => {
 
 .animate-shimmer {
 	animation: shimmer 2s infinite;
+}
+
+/* Flash effect for stats update */
+@keyframes stats-flash {
+	0% {
+		background-color: rgba(216, 167, 53, 0.3);
+		transform: scale(1.02);
+	}
+	50% {
+		background-color: rgba(216, 167, 53, 0.5);
+		transform: scale(1.05);
+	}
+	100% {
+		background-color: transparent;
+		transform: scale(1);
+	}
+}
+
+.stats-flash {
+	animation: stats-flash 0.6s ease-out;
+	border-radius: 0.5rem;
+	padding: 0.5rem;
+}
+
+/* Flash effect for sidebar stats */
+.stats-flash-sidebar {
+	animation: stats-flash-sidebar 0.6s ease-out;
+}
+
+@keyframes stats-flash-sidebar {
+	0% {
+		background-color: rgba(216, 167, 53, 0.15);
+		transform: scale(1);
+	}
+	50% {
+		background-color: rgba(216, 167, 53, 0.25);
+		transform: scale(1.02);
+	}
+	100% {
+		background-color: transparent;
+		transform: scale(1);
+	}
 }
 </style>
