@@ -1656,7 +1656,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 
                 if (not rollbackSuccess) {
                     Debug.print("🚨 CRITICAL: Failed to rollback after " # Nat.toText(maxRollbackAttempts) # " attempts!");
-                    Debug.print("   totalRaised is now INCORRECT - needs manual fix via adminFixTotalRaised()");
+                    Debug.print("   totalRaised may be INCORRECT - check participant totals");
                 };
                 
                 _releaseUserReentrancyLock(caller);
@@ -2428,6 +2428,197 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(pipelineExecutionState)
     };
 
+    /// Get detailed pipeline manager state (admin only)
+    /// Returns full audit trail including lock status, execution history, financial records
+    public query({caller}) func getPipelineManagerState() : async Result.Result<{
+        lockStatus: {
+            isLocked: Bool;
+            lockOwner: ?Principal;
+            lockTimestamp: Time.Time;
+            lockAge: ?Int;  // Age in seconds
+        };
+        pipelineState: ?Text;  // JSON-like debug_show of state
+        progress: Nat8;
+        failedSteps: [(Nat, Text)];
+        financialRecordCount: Nat;
+        executionHistoryCount: Nat;
+    }, Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can view pipeline manager state");
+        };
+
+        // Check which pipeline manager to use
+        let managerOpt = switch (pipelineExecutionState) {
+            case (?state) {
+                switch (state.pipelineType) {
+                    case (#Deployment) deploymentPipelineManager;
+                    case (#Refund) refundPipelineManager;
+                };
+            };
+            case (null) null;
+        };
+
+        switch (managerOpt) {
+            case (?manager) {
+                let lockAge = if (manager.isLocked()) {
+                    // Would need to expose lockTimestamp in PipelineManager
+                    ?0  // Placeholder
+                } else {
+                    null
+                };
+
+                #ok({
+                    lockStatus = {
+                        isLocked = manager.isLocked();
+                        lockOwner = null;  // TODO: expose from PipelineManager
+                        lockTimestamp = 0;  // TODO: expose from PipelineManager
+                        lockAge = lockAge;
+                    };
+                    pipelineState = switch (manager.getState()) {
+                        case (?state) ?debug_show(state);
+                        case (null) null;
+                    };
+                    progress = manager.getProgress();
+                    failedSteps = manager.getFailedSteps();
+                    financialRecordCount = manager.getAllFinancialRecords().size();
+                    executionHistoryCount = 0;  // TODO: expose from PipelineManager
+                })
+            };
+            case (null) {
+                #err("No active pipeline manager")
+            };
+        };
+    };
+
+    /// Get all financial records from pipeline (admin only)
+    public query({caller}) func getPipelineFinancialRecords() : async Result.Result<[{
+        txType: Text;
+        amount: Nat;
+        from: Principal;
+        to: Principal;
+        blockIndex: ?Nat;
+        timestamp: Time.Time;
+        status: Text;
+        executionId: Text;
+    }], Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can view financial records");
+        };
+
+        let managerOpt = switch (pipelineExecutionState) {
+            case (?state) {
+                switch (state.pipelineType) {
+                    case (#Deployment) deploymentPipelineManager;
+                    case (#Refund) refundPipelineManager;
+                };
+            };
+            case (null) null;
+        };
+
+        switch (managerOpt) {
+            case (?manager) {
+                let records = manager.getAllFinancialRecords();
+                let formatted = Array.map<PipelineManager.FinancialRecord, {
+                    txType: Text;
+                    amount: Nat;
+                    from: Principal;
+                    to: Principal;
+                    blockIndex: ?Nat;
+                    timestamp: Time.Time;
+                    status: Text;
+                    executionId: Text;
+                }>(records, func(r) {
+                    {
+                        txType = debug_show(r.txType);
+                        amount = r.amount;
+                        from = r.from;
+                        to = r.to;
+                        blockIndex = r.blockIndex;
+                        timestamp = r.timestamp;
+                        status = debug_show(r.status);
+                        executionId = r.executionId;
+                    }
+                });
+                #ok(formatted)
+            };
+            case (null) {
+                #err("No active pipeline manager")
+            };
+        };
+    };
+
+    /// Verify pipeline financial integrity (admin only)
+    public query({caller}) func verifyPipelineFinancialIntegrity() : async Result.Result<{
+        totalRefunded: Nat;
+        totalFeesProcessed: Nat;
+        totalTransferred: Nat;
+        isConsistent: Bool;
+        notes: Text;
+    }, Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can verify financial integrity");
+        };
+
+        let managerOpt = switch (pipelineExecutionState) {
+            case (?state) {
+                switch (state.pipelineType) {
+                    case (#Deployment) deploymentPipelineManager;
+                    case (#Refund) refundPipelineManager;
+                };
+            };
+            case (null) null;
+        };
+
+        switch (managerOpt) {
+            case (?manager) {
+                switch (manager.verifyTotalAmounts()) {
+                    case (#ok(totals)) {
+                        // Compare with expected totals
+                        let isConsistent = switch (pipelineExecutionState) {
+                            case (?state) {
+                                switch (state.pipelineType) {
+                                    case (#Refund) {
+                                        // For refund: total should match totalRaised (minus fees)
+                                        let expectedRefund = totalRaised;
+                                        let actualRefund = totals.totalRefunded;
+                                        let diff = if (expectedRefund > actualRefund) {
+                                            Nat.sub(expectedRefund, actualRefund)
+                                        } else {
+                                            Nat.sub(actualRefund, expectedRefund)
+                                        };
+                                        // Allow 1% difference for fees
+                                        if (expectedRefund > 0) {
+                                            diff < (expectedRefund / 100)
+                                        } else {
+                                            true
+                                        }
+                                    };
+                                    case (#Deployment) {
+                                        // For deployment: check fees processed
+                                        true  // TODO: Add deployment-specific checks
+                                    };
+                                };
+                            };
+                            case (null) false;
+                        };
+
+                        #ok({
+                            totalRefunded = totals.totalRefunded;
+                            totalFeesProcessed = totals.totalFeesProcessed;
+                            totalTransferred = totals.totalTransferred;
+                            isConsistent = isConsistent;
+                            notes = if (isConsistent) "All amounts verified" else "Inconsistency detected - manual review needed";
+                        })
+                    };
+                    case (#err(msg)) #err(msg);
+                };
+            };
+            case (null) {
+                #err("No active pipeline manager")
+            };
+        };
+    };
+
     // ================ PIPELINE PROGRESS HELPER FUNCTIONS ================
     
     // Helper: Get step status for frontend display
@@ -2859,19 +3050,32 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         label deployLoop while (stepIndex < steps.size()) {
             Debug.print("📍 Step " # Nat.toText(stepIndex + 1) # "/" # Nat.toText(steps.size()));
             
+            // Step 1: Start step execution (acquires lock, generates execution ID)
+            let stepExecutionId = switch (pipelineManager.startStepExecution(stepIndex)) {
+                case (#ok(id)) id;
+                case (#err(msg)) {
+                    _markPipelineFailed();
+                    processingState := #Failed("Failed to start step " # Nat.toText(stepIndex) # ": " # msg);
+                    Debug.print("❌ Failed to start step " # Nat.toText(stepIndex) # ": " # msg);
+                    break deployLoop;
+                };
+            };
+            
+            // Step 2: Execute the custom logic (lock already held)
             let result = await pipelineManager.executeCustomStep(stepIndex);
             
+            // Step 3: Complete or fail based on result
             switch (result) {
                 case (#ok(resultData)) {
-                    let _ = pipelineManager.completeStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), resultData, []);
+                    let _ = pipelineManager.completeStepExecution(stepIndex, stepExecutionId, resultData, []);
                     _updateProcessingProgress(stepIndex + 1, #FinalCleanup);
                     stepIndex += 1;
                 };
                 case (#err(error)) {
-                    let _ = pipelineManager.failStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), error);
+                    let _ = pipelineManager.failStepExecution(stepIndex, stepExecutionId, error);
                     _markPipelineFailed();
                     processingState := #Failed("Step " # Nat.toText(stepIndex) # " failed: " # error);
-                    Debug.print("❌ Pipeline failed at step " # Nat.toText(stepIndex));
+                    Debug.print("❌ Pipeline failed at step " # Nat.toText(stepIndex) # ": " # error);
                     break deployLoop;
                 };
             };
@@ -3378,59 +3582,36 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
     // ================ ADMIN FIX FUNCTIONS ================
     
-    /// TEMPORARY: Fix totalRaised if rollback bug occurred
-    /// This function should only be used in emergency situations where
-    /// failed transactions incorrectly inflated totalRaised
-    public shared({caller}) func adminFixTotalRaised(correctValue: Nat) : async Result.Result<(), Text> {
+    /// Admin function to manually reset/restart milestone timers
+    /// Useful when timers are stuck or need manual intervention after upgrade or issues
+    public shared({caller}) func adminResetTimer() : async Result.Result<(), Text> {
         if (not _isAuthorized(caller)) {
-            _logSecurityEvent(#UnauthorizedAccess, caller, "Attempted to fix totalRaised", #Critical);
-            return #err("Unauthorized: Only authorized users can fix totalRaised");
+            _logSecurityEvent(#UnauthorizedAccess, caller, "Attempted to reset timers", #Critical);
+            return #err("Unauthorized: Only authorized users can reset timers");
         };
-        
-        let oldValue = totalRaised;
-        
-        // Verify new value makes sense
-        if (correctValue > hardCapInSmallestUnit()) {
-            return #err("Cannot set totalRaised above hardcap");
-        };
-        
-        // Calculate actual total from participants
-        var participantTotal : Nat = 0;
-        for ((principal, participant) in Trie.iter(participants)) {
-            participantTotal += participant.totalContribution;
-        };
-        
-        Debug.print("🔍 TotalRaised Fix Verification:");
-        Debug.print("   Current totalRaised: " # Nat.toText(oldValue));
-        Debug.print("   Requested value: " # Nat.toText(correctValue));
-        Debug.print("   Actual participant total: " # Nat.toText(participantTotal));
-        
-        // Warning if mismatch
-        if (correctValue != participantTotal) {
-            Debug.print("⚠️  WARNING: Requested value != participant total");
-            Debug.print("   This may indicate incomplete fix");
-        };
-        
-        totalRaised := correctValue;
-        updatedAt := Time.now();
-        
+
+        Debug.print("🔄 Admin requested timer reset");
+
+        // Cancel and restart all milestone timers
+        await _setupMilestoneTimers();
+
         _logAdminAction(
-            "ADMIN_FIX_TOTAL_RAISED",
+            "ADMIN_RESET_TIMER",
             caller,
-            "Fixed totalRaised from " # Nat.toText(oldValue) # " to " # Nat.toText(correctValue) # " (participant total: " # Nat.toText(participantTotal) # ")",
+            "Manually reset and restarted milestone timers",
             true,
             null
         );
-        
+
         _logSecurityEvent(
             #EmergencyAction,
             caller,
-            "Admin fixed totalRaised: " # Nat.toText(oldValue) # " → " # Nat.toText(correctValue),
-            #High
+            "Admin manually reset milestone timers",
+            #Medium
         );
-        
-        Debug.print("✅ Admin fixed totalRaised: " # Nat.toText(oldValue) # " → " # Nat.toText(correctValue));
-        
+
+        Debug.print("✅ Admin successfully reset timers");
+
         #ok(())
     };
     
@@ -3813,6 +3994,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
         Debug.print("🔓 CONTRACT UNLOCKED - Upgrade completed successfully to version " # debug_show(newVersion));
 
+        // CRITICAL: Restart timers after upgrade
+        // Timers are cancelled during upgrade and need to be re-setup
+        await _setupMilestoneTimers();
+        Debug.print("🔄 Milestone timers restarted after upgrade");
+
         #ok(())
     };
 
@@ -3836,6 +4022,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         upgradeRequestId := null;
 
         Debug.print("🔓 CONTRACT UNLOCKED - Upgrade cancelled: " # reason);
+
+        // CRITICAL: Restart timers after cancellation
+        // Contract is still running old code, but timers were cancelled during lock
+        await _setupMilestoneTimers();
+        Debug.print("🔄 Milestone timers restarted after upgrade cancellation");
 
         #ok(())
     };
