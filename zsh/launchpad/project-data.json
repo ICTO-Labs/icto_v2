@@ -1,0 +1,63 @@
+[
+  {
+    "name": "DeFiNexus Protocol",
+    "symbol": "DNX",
+    "description": "Next-generation decentralized exchange with cross-chain liquidity aggregation and AI-powered trading strategies",
+    "category": "DeFi"
+  },
+  {
+    "name": "ChainGuard Security",
+    "symbol": "CGS",
+    "description": "Blockchain security infrastructure providing real-time smart contract auditing and vulnerability detection",
+    "category": "Infrastructure"
+  },
+  {
+    "name": "MetaVerse Land",
+    "symbol": "MVL",
+    "description": "Decentralized virtual real estate platform enabling users to buy, sell, and develop digital properties in the metaverse",
+    "category": "Metaverse"
+  },
+  {
+    "name": "GreenChain Carbon",
+    "symbol": "GCC",
+    "description": "Carbon credit marketplace leveraging blockchain for transparent and verifiable environmental impact tracking",
+    "category": "DAO"
+  },
+  {
+    "name": "QuantumSwap Finance",
+    "symbol": "QSF",
+    "description": "Advanced AMM protocol with quantum-resistant cryptography and zero-knowledge proof privacy features",
+    "category": "DeFi"
+  },
+  {
+    "name": "SocialFi Connect",
+    "symbol": "SFC",
+    "description": "Web3 social network where content creators earn rewards through tokenized engagement and community governance",
+    "category": "SocialFi"
+  },
+  {
+    "name": "AIOracle Network",
+    "symbol": "AIO",
+    "description": "Decentralized oracle service integrating AI models for predictive analytics and automated smart contract execution",
+    "category": "AI"
+  },
+  {
+    "name": "GameFi Arena",
+    "symbol": "GFA",
+    "description": "Play-to-earn gaming ecosystem with NFT marketplace and cross-game asset interoperability",
+    "category": "Gaming"
+  },
+  {
+    "name": "HealthChain Medical",
+    "symbol": "HCM",
+    "description": "Blockchain-based healthcare data management system ensuring patient privacy and seamless data sharing",
+    "category": "Infrastructure"
+  },
+  {
+    "name": "CryptoYield Vault",
+    "symbol": "CYV",
+    "description": "Automated yield optimization platform aggregating the best DeFi strategies across multiple protocols",
+    "category": "DeFi"
+  }
+]
+

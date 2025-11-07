@@ -2,24 +2,66 @@
 
 set -euo pipefail
 
-# Usage: ./create-launchpad.sh <identity>
-# Example: ./create-launchpad.sh alice
+# Usage: ./create-launchpad.sh <identity> [project_index]
+# Example: ./create-launchpad.sh alice 3
+# If project_index not provided, random project will be selected
 
 # Load config
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/test-launchpad.config"
 
 IDENTITY="${1:-}"
+PROJECT_INDEX="${2:-}"
+PROJECT_DATA_FILE="$SCRIPT_DIR/project-data.json"
 
 if [ -z "$IDENTITY" ]; then
-  echo "Usage: $0 <identity>"
+  echo "Usage: $0 <identity> [project_index]"
+  echo "Example: $0 alice 3"
   exit 1
 fi
+
+# Check if jq is installed
+if ! command -v jq &> /dev/null; then
+  echo "Error: jq is not installed. Please install jq to use this script."
+  echo "Install: brew install jq (macOS) or apt-get install jq (Linux)"
+  exit 1
+fi
+
+# Load and select project
+if [ -z "$PROJECT_INDEX" ]; then
+  # Random selection
+  TOTAL_PROJECTS=$(jq 'length' "$PROJECT_DATA_FILE")
+  PROJECT_INDEX=$((RANDOM % TOTAL_PROJECTS))
+  echo "Randomly selected project index: $PROJECT_INDEX"
+else
+  # Validate provided index
+  TOTAL_PROJECTS=$(jq 'length' "$PROJECT_DATA_FILE")
+  if [ "$PROJECT_INDEX" -ge "$TOTAL_PROJECTS" ]; then
+    echo "Error: Project index $PROJECT_INDEX out of range (0-$((TOTAL_PROJECTS-1)))"
+    exit 1
+  fi
+fi
+
+# Extract project data
+PROJECT_NAME=$(jq -r ".[$PROJECT_INDEX].name" "$PROJECT_DATA_FILE")
+PROJECT_SYMBOL=$(jq -r ".[$PROJECT_INDEX].symbol" "$PROJECT_DATA_FILE")
+PROJECT_DESCRIPTION=$(jq -r ".[$PROJECT_INDEX].description" "$PROJECT_DATA_FILE")
+PROJECT_CATEGORY=$(jq -r ".[$PROJECT_INDEX].category" "$PROJECT_DATA_FILE")
+
+echo "==================================="
+echo "Selected Project"
+echo "==================================="
+echo "Name: $PROJECT_NAME"
+echo "Symbol: $PROJECT_SYMBOL"
+echo "Category: $PROJECT_CATEGORY"
+echo "Description: $PROJECT_DESCRIPTION"
+echo ""
 
 # Switch to identity
 dfx identity use "$IDENTITY"
 PRINCIPAL=$(dfx identity get-principal)
 echo "Using identity: $IDENTITY ($PRINCIPAL)"
+echo ""
 
 # 1. Get service fee
 echo "Getting service fee..."
@@ -91,9 +133,9 @@ echo "Deploying launchpad..."
 RESULT=$(dfx canister call "$BACKEND_CANISTER" deployLaunchpad "(
   record {
     projectInfo = record {
-      name = \"Test Launchpad\";
-      description = \"Test launchpad for flow testing\";
-      category = variant { DeFi };
+      name = \"$PROJECT_NAME\";
+      description = \"$PROJECT_DESCRIPTION\";
+      category = variant { $(echo $PROJECT_CATEGORY) };
       logo = null;
       cover = null;
       website = null;
@@ -114,8 +156,8 @@ RESULT=$(dfx canister call "$BACKEND_CANISTER" deployLaunchpad "(
       metadata = null;
     };
     saleToken = record {
-      name = \"Test Sale Token\";
-      symbol = \"TST\";
+      name = \"$PROJECT_NAME Token\";
+      symbol = \"$PROJECT_SYMBOL\";
       decimals = 8;
       totalSupply = $TOTAL_TOKEN_SUPPLY;
       transferFee = 10_000;

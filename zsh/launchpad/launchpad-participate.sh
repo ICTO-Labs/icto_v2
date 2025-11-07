@@ -70,6 +70,7 @@ echo "Waiting for sale to start..."
 WAIT_COUNT=0
 MAX_WAIT=60
 while true; do
+  echo "Getting status"
   STATUS_RAW=$(dfx canister call "$LAUNCHPAD_ID" getStatus --network "$NETWORK" 2>/dev/null)
   STATUS=$(echo "$STATUS_RAW" | sed -n 's/.*variant[[:space:]]*{[[:space:]]*\([^[:space:];]*\).*/\1/p')
   
@@ -134,62 +135,40 @@ do
   # Switch to participant identity for launchpad interactions
   dfx identity use "$PARTICIPANT_ID"
   
-  # Get deposit account - returns subaccount hex for this user
-  echo "  Getting deposit account..."
-  DEPOSIT_RESULT=$(dfx canister call "$LAUNCHPAD_ID" getDepositAccount --network "$NETWORK" 2>&1)
+  # Step 1: Approve launchpad to spend ICP (ICRC-2)
+  # Amount = deposit + fees (deposit fee + potential refund/claim fee)
+  ICP_FEE=10000  # 0.0001 ICP
+  APPROVE_AMOUNT=$((ICP_E8S + ICP_FEE * 2))  # amount + 2x fees
   
-  if [[ $? -ne 0 ]]; then
-    echo "  ✗ Failed to get deposit account: $DEPOSIT_RESULT"
-    continue
-  fi
-  
-  SUBACCOUNT_HEX=$(echo "$DEPOSIT_RESULT" | grep -o 'accountText = "[^"]*"' | grep -o '"[^"]*"' | tr -d '"')
-  
-  if [ -z "$SUBACCOUNT_HEX" ]; then
-    echo "  ✗ Could not parse subaccount from: $DEPOSIT_RESULT"
-    continue
-  fi
-  
-  echo "  Subaccount: $SUBACCOUNT_HEX"
-  
-  # Convert hex string to vec nat8 format for Candid
-  # "1d34..." -> vec { 29; 52; ... }
-  SUBACCOUNT_VEC="vec { "
-  for (( j=0; j<${#SUBACCOUNT_HEX}; j+=2 )); do
-    HEX_BYTE="${SUBACCOUNT_HEX:j:2}"
-    DEC_BYTE=$((16#$HEX_BYTE))
-    SUBACCOUNT_VEC+="$DEC_BYTE; "
-  done
-  SUBACCOUNT_VEC+="}"
-  
-  # Transfer to launchpad using ICRC-1 with user's specific subaccount
-  echo "  Transferring $ICP_E8S e8s to launchpad subaccount..."
-  TRANSFER_RESULT=$(dfx canister call "$ICP_LEDGER" icrc1_transfer "(record {
-    to = record {
+  echo "  Approving launchpad to spend $APPROVE_AMOUNT e8s (includes 2x fees)..."
+  APPROVE_RESULT=$(dfx canister call "$ICP_LEDGER" icrc2_approve "(record {
+    spender = record {
       owner = principal \"$LAUNCHPAD_ID\";
-      subaccount = opt ($SUBACCOUNT_VEC : blob);
+      subaccount = null;
     };
-    amount = $ICP_E8S;
+    amount = $APPROVE_AMOUNT;
     fee = null;
     memo = null;
     from_subaccount = null;
     created_at_time = null;
+    expires_at = null;
+    expected_allowance = null;
   })" --network "$NETWORK" 2>&1)
   
   if [[ $? -ne 0 ]]; then
-    echo "  ✗ Transfer failed: $TRANSFER_RESULT"
+    echo "  ✗ Approve failed: $APPROVE_RESULT"
     continue
   fi
   
-  echo "  ✓ Transferred"
+  echo "  ✓ Approved"
   sleep 1
   
-  # Confirm deposit
-  echo "  Confirming deposit..."
-  CONFIRM_RESULT=$(dfx canister call "$LAUNCHPAD_ID" confirmDeposit "($ICP_E8S, null)" --network "$NETWORK" 2>&1)
+  # Step 2: Call deposit() - launchpad will pull funds via icrc2_transfer_from
+  echo "  Calling deposit($ICP_E8S)..."
+  DEPOSIT_RESULT=$(dfx canister call "$LAUNCHPAD_ID" deposit "($ICP_E8S, null)" --network "$NETWORK" 2>&1)
   
   if [[ $? -ne 0 ]]; then
-    echo "  ✗ Confirm failed: $CONFIRM_RESULT"
+    echo "  ✗ Deposit failed: $DEPOSIT_RESULT"
     continue
   fi
   
