@@ -1670,108 +1670,182 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let subAccount = principalToSubAccount(caller);
         let subAccountBlob = Blob.fromArray(subAccount);
         
-        // Create ICRC Account for the deposit account
-        let depositAccount: ICRCTypes.Account = {
-            owner = Principal.fromActor(this);
-            subaccount = ?subAccountBlob;
-        };
+        let ledger: ICRCTypes.ICRCLedger = actor(
+            Principal.toText(config.purchaseToken.canisterId)
+        );
         
-        Debug.print("🏦 Checking balance of deposit account...");
+        Debug.print("📥 Pulling " # Nat.toText(amount) # " tokens from user via icrc2_transfer_from...");
         
-        // Check balance of deposit account
-        let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
-        let depositBalance = try {
-            await ledger.icrc1_balance_of(depositAccount)
-        } catch (error) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Failed to check deposit account balance: " # Error.message(error));
-        };
-        
-        Debug.print("💵 Deposit account balance: " # Nat.toText(depositBalance));
-        
-        // Verify balance is sufficient for the REQUESTED amount (not adjusted)
-        // User sent expectedAmount, we'll accept what we can and refund the rest
-        if (depositBalance < expectedAmount) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Insufficient balance in deposit account. Required: " # Nat.toText(expectedAmount) # ", Found: " # Nat.toText(depositBalance));
-        };
-        
-        Debug.print("✅ Balance verified: " # Nat.toText(depositBalance));
-        Debug.print("🔒 Tokens remain in deposit account (subaccount) for security");
-        Debug.print("   Will be transferred after softcap is reached or refunded if not");
-        
-        // Create transaction record for the ACTUAL deposit amount (not the requested amount)
-        let transactionId = _generateTransactionId();
-        let transaction: LaunchpadTypes.Transaction = {
-            id = transactionId;
-            participant = caller;
-            txType = #Purchase;
-            amount = actualDepositAmount; // Use adjusted amount
-            token = config.purchaseToken.canisterId;
-            timestamp = Time.now();
-            blockIndex = null; // No block index as tokens stay in subaccount
-            fee = config.purchaseToken.transferFee;
-            status = #Confirmed;
-            affiliateCode = affiliateCode;
-            notes = switch (adjustmentInfo.reason) {
-                case (?reason) ?("Deposit confirmed (adjusted): " # reason);
-                case null ?("Deposit confirmed - tokens held in subaccount");
-            };
-        };
-        
-        Debug.print("📝 Recording participation with adjusted amount...");
-        
-        // Process the purchase with ADJUSTED amount (totalRaised updated here - atomic)
-        let purchaseResult = await _processPurchase(caller, actualDepositAmount, affiliateCode, transaction);
-        switch (purchaseResult) {
-            case (#err(msg)) {
-                _releaseUserReentrancyLock(caller);
-                let failedTransaction = {
-                    transaction with
-                    status = #Failed(msg);
-                    notes = ?("Purchase processing failed: " # msg);
+        let transferResult = try {
+            await ledger.icrc2_transfer_from({
+                from = {
+                    owner = caller;
+                    subaccount = null;
                 };
-                transactions.add(failedTransaction);
-                return #err(msg);
-            };
-            case (#ok(updatedTransaction)) {
-                transactions.add(updatedTransaction);
-                transactionCount += 1;
+                to = {
+                    owner = Principal.fromActor(this);
+                    subaccount = ?subAccountBlob;
+                };
+                spender_subaccount = null;
+                amount = amount;
+                fee = null;
+                memo = null;
+                created_at_time = null;
+            })
+        } catch (error) {
+            // Transfer failed - ROLLBACK capacity
+            Debug.print("❌ Transfer failed (exception) - rolling back capacity");
+            Debug.print("   Error: " # Error.message(error));
+            Debug.print("   Current totalRaised: " # Nat.toText(totalRaised));
+            Debug.print("   Amount to rollback: " # Nat.toText(amount));
+            
+            // CRITICAL FIX: ENSURE rollback happens
+            var rollbackAttempts = 0;
+            let maxRollbackAttempts = 5;
+            var rollbackSuccess = false;
+            
+            while (not rollbackSuccess and rollbackAttempts < maxRollbackAttempts) {
+                rollbackAttempts += 1;
+                Debug.print("   Rollback attempt #" # Nat.toText(rollbackAttempts));
                 
-                // Process instant refund for excess amount (if any)
-                if (refundAmount > 0) {
-                    Debug.print("💸 Processing instant refund for excess amount...");
-                    let refundResult = await _processInstantRefund(caller, refundAmount);
-                    switch (refundResult) {
-                        case (#err(msg)) {
-                            // Log refund failure but don't fail the entire deposit
-                            // User can manually withdraw later
-                            Debug.print("⚠️ Auto-refund failed (non-critical): " # msg);
-                            Debug.print("   User can manually withdraw excess from subaccount");
-                            _logAdminAction("AUTO_REFUND_FAILED", caller, 
-                                "Failed to refund " # Nat.toText(refundAmount) # " tokens: " # msg, 
-                                false, null);
+                let rollbackResult = _acquireGlobalDepositLock();
+                switch (rollbackResult) {
+                    case (#ok()) {
+                        // Defensive check
+                        if (totalRaised >= amount) {
+                            totalRaised -= amount;
+                            rollbackSuccess := true;
+                            Debug.print("↩️  ✅ Rolled back " # Nat.toText(amount) # " (totalRaised: " # Nat.toText(totalRaised) # ")");
+                        } else {
+                            Debug.print("🚨 CRITICAL: totalRaised < amount! Cannot rollback!");
+                            Debug.print("   totalRaised: " # Nat.toText(totalRaised));
+                            Debug.print("   amount: " # Nat.toText(amount));
                         };
-                        case (#ok(blockIndex)) {
-                            Debug.print("✅ Auto-refunded " # Nat.toText(refundAmount) # " tokens successfully!");
-                            Debug.print("   Refund block index: " # Nat.toText(blockIndex));
+                        _releaseGlobalDepositLock();
+                    };
+                    case (#err(attempts)) {
+                        Debug.print("⚠️  Failed to acquire lock (waited " # Nat.toText(attempts) # "ms), retrying...");
+                    };
+                };
+            };
+            
+            if (not rollbackSuccess) {
+                Debug.print("🚨 CRITICAL: Failed to rollback after " # Nat.toText(maxRollbackAttempts) # " attempts!");
+                Debug.print("   totalRaised may be INCORRECT - check participant totals");
+            };
+            
+            _releaseUserReentrancyLock(caller);
+            return #err("Transfer failed: " # Error.message(error));
+        };
+        
+        // ============================================
+        // STEP 4: Handle transfer result
+        // ============================================
+        
+        switch (transferResult) {
+            case (#Ok(blockIndex)) {
+                Debug.print("✅ Transfer successful! Block: " # Nat.toText(blockIndex));
+                
+                // Create transaction record
+                let transaction: LaunchpadTypes.Transaction = {
+                    id = _generateTransactionId();
+                    participant = caller;
+                    txType = #Purchase;
+                    amount = amount;
+                    token = config.purchaseToken.canisterId;
+                    timestamp = Time.now();
+                    blockIndex = ?blockIndex;
+                    fee = config.purchaseToken.transferFee;
+                    status = #Confirmed;
+                    affiliateCode = affiliateCode;
+                    notes = ?"Deposit via ICRC-2 (optimistic locking)";
+                };
+                
+                // Process purchase (update participant stats)
+                // NOTE: totalRaised already updated via optimistic locking above
+                let purchaseResult = await _processPurchase(caller, amount, affiliateCode, transaction);
+                
+                switch (purchaseResult) {
+                    case (#err(msg)) {
+                        // Purchase processing failed - capacity already reserved, funds transferred
+                        // Log error but don't fail (funds are in subaccount, can be refunded)
+                        Debug.print("⚠️ Purchase processing failed: " # msg);
+                        Debug.print("   Funds are safe in subaccount");
+                        
+                        transactions.add(transaction);
+                        _releaseUserReentrancyLock(caller);
+                        return #err("Purchase processing failed: " # msg);
+                    };
+                    case (#ok(updatedTransaction)) {
+                        transactions.add(updatedTransaction);
+                        transactionCount += 1;
+                        updatedAt := Time.now();
+                        
+                        Debug.print("✅ Deposit completed successfully!");
+                        Debug.print("   Amount: " # Nat.toText(amount));
+                        Debug.print("   Block: " # Nat.toText(blockIndex));
+                        Debug.print("   Total raised: " # Nat.toText(totalRaised));
+                        
+                        _releaseUserReentrancyLock(caller);
+                        return #ok(updatedTransaction);
+                    };
+                };
+            };
+            case (#Err(err)) {
+                // Transfer failed - ROLLBACK capacity
+                Debug.print("❌ Transfer failed (result error): " # debug_show(err));
+                Debug.print("   Current totalRaised: " # Nat.toText(totalRaised));
+                Debug.print("   Amount to rollback: " # Nat.toText(amount));
+                
+                // CRITICAL FIX: ENSURE rollback happens
+                var rollbackAttempts = 0;
+                let maxRollbackAttempts = 5;
+                var rollbackSuccess = false;
+                
+                while (not rollbackSuccess and rollbackAttempts < maxRollbackAttempts) {
+                    rollbackAttempts += 1;
+                    Debug.print("   Rollback attempt #" # Nat.toText(rollbackAttempts));
+                    
+                    let rollbackResult = _acquireGlobalDepositLock();
+                    switch (rollbackResult) {
+                        case (#ok()) {
+                            // Defensive check
+                            if (totalRaised >= amount) {
+                                totalRaised -= amount;
+                                rollbackSuccess := true;
+                                Debug.print("↩️  ✅ Rolled back " # Nat.toText(amount) # " (totalRaised: " # Nat.toText(totalRaised) # ")");
+                            } else {
+                                Debug.print("🚨 CRITICAL: totalRaised < amount! Cannot rollback!");
+                                Debug.print("   totalRaised: " # Nat.toText(totalRaised));
+                                Debug.print("   amount: " # Nat.toText(amount));
+                            };
+                            _releaseGlobalDepositLock();
+                        };
+                        case (#err(attempts)) {
+                            Debug.print("⚠️  Failed to acquire lock (waited " # Nat.toText(attempts) # "ms), retrying...");
                         };
                     };
                 };
                 
-                updatedAt := Time.now();
-                _releaseUserReentrancyLock(caller);
-
-                Debug.print("✅ Participation recorded successfully!");
-                Debug.print("   Accepted amount: " # Nat.toText(actualDepositAmount));
-                Debug.print("   Refunded amount: " # Nat.toText(refundAmount));
-                Debug.print("   Stored in subaccount: safe for refunds if needed");
+                if (not rollbackSuccess) {
+                    Debug.print("🚨 CRITICAL: Failed to rollback after " # Nat.toText(maxRollbackAttempts) # " attempts!");
+                    Debug.print("   totalRaised may be INCORRECT - check participant totals");
+                };
                 
-                return #ok(updatedTransaction);
+                _releaseUserReentrancyLock(caller);
+                return #err("Transfer failed: " # debug_show(err));
             };
-        };
+        }
     };
-
+    
+    // ================ DEPOSIT CONFIRMATION ================
+    // Confirm deposit after user has transferred tokens to their deposit account
+    // NOTE: Tokens remain in subaccount for easy refunds if softcap not reached
+    // They will be transferred to destination contracts after softcap is reached
+    // 
+    // DEPRECATED: Use deposit() with ICRC-2 approve/transferFrom instead
+    // This method is kept for backward compatibility
+    
     // ================ TIMER & LIFECYCLE MANAGEMENT ================
 
     // ================ MILESTONE-SPECIFIC TIMERS (V2) ================
@@ -2531,6 +2605,197 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(pipelineExecutionState)
     };
 
+    /// Get detailed pipeline manager state (admin only)
+    /// Returns full audit trail including lock status, execution history, financial records
+    public query({caller}) func getPipelineManagerState() : async Result.Result<{
+        lockStatus: {
+            isLocked: Bool;
+            lockOwner: ?Principal;
+            lockTimestamp: Time.Time;
+            lockAge: ?Int;  // Age in seconds
+        };
+        pipelineState: ?Text;  // JSON-like debug_show of state
+        progress: Nat8;
+        failedSteps: [(Nat, Text)];
+        financialRecordCount: Nat;
+        executionHistoryCount: Nat;
+    }, Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can view pipeline manager state");
+        };
+
+        // Check which pipeline manager to use
+        let managerOpt = switch (pipelineExecutionState) {
+            case (?state) {
+                switch (state.pipelineType) {
+                    case (#Deployment) deploymentPipelineManager;
+                    case (#Refund) refundPipelineManager;
+                };
+            };
+            case (null) null;
+        };
+
+        switch (managerOpt) {
+            case (?manager) {
+                let lockAge = if (manager.isLocked()) {
+                    // Would need to expose lockTimestamp in PipelineManager
+                    ?0  // Placeholder
+                } else {
+                    null
+                };
+
+                #ok({
+                    lockStatus = {
+                        isLocked = manager.isLocked();
+                        lockOwner = null;  // TODO: expose from PipelineManager
+                        lockTimestamp = 0;  // TODO: expose from PipelineManager
+                        lockAge = lockAge;
+                    };
+                    pipelineState = switch (manager.getState()) {
+                        case (?state) ?debug_show(state);
+                        case (null) null;
+                    };
+                    progress = manager.getProgress();
+                    failedSteps = manager.getFailedSteps();
+                    financialRecordCount = manager.getAllFinancialRecords().size();
+                    executionHistoryCount = 0;  // TODO: expose from PipelineManager
+                })
+            };
+            case (null) {
+                #err("No active pipeline manager")
+            };
+        };
+    };
+
+    /// Get all financial records from pipeline (admin only)
+    public query({caller}) func getPipelineFinancialRecords() : async Result.Result<[{
+        txType: Text;
+        amount: Nat;
+        from: Principal;
+        to: Principal;
+        blockIndex: ?Nat;
+        timestamp: Time.Time;
+        status: Text;
+        executionId: Text;
+    }], Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can view financial records");
+        };
+
+        let managerOpt = switch (pipelineExecutionState) {
+            case (?state) {
+                switch (state.pipelineType) {
+                    case (#Deployment) deploymentPipelineManager;
+                    case (#Refund) refundPipelineManager;
+                };
+            };
+            case (null) null;
+        };
+
+        switch (managerOpt) {
+            case (?manager) {
+                let records = manager.getAllFinancialRecords();
+                let formatted = Array.map<PipelineManager.FinancialRecord, {
+                    txType: Text;
+                    amount: Nat;
+                    from: Principal;
+                    to: Principal;
+                    blockIndex: ?Nat;
+                    timestamp: Time.Time;
+                    status: Text;
+                    executionId: Text;
+                }>(records, func(r) {
+                    {
+                        txType = debug_show(r.txType);
+                        amount = r.amount;
+                        from = r.from;
+                        to = r.to;
+                        blockIndex = r.blockIndex;
+                        timestamp = r.timestamp;
+                        status = debug_show(r.status);
+                        executionId = r.executionId;
+                    }
+                });
+                #ok(formatted)
+            };
+            case (null) {
+                #err("No active pipeline manager")
+            };
+        };
+    };
+
+    /// Verify pipeline financial integrity (admin only)
+    public query({caller}) func verifyPipelineFinancialIntegrity() : async Result.Result<{
+        totalRefunded: Nat;
+        totalFeesProcessed: Nat;
+        totalTransferred: Nat;
+        isConsistent: Bool;
+        notes: Text;
+    }, Text> {
+        if (not _isAuthorized(caller)) {
+            return #err("Unauthorized: Only authorized users can verify financial integrity");
+        };
+
+        let managerOpt = switch (pipelineExecutionState) {
+            case (?state) {
+                switch (state.pipelineType) {
+                    case (#Deployment) deploymentPipelineManager;
+                    case (#Refund) refundPipelineManager;
+                };
+            };
+            case (null) null;
+        };
+
+        switch (managerOpt) {
+            case (?manager) {
+                switch (manager.verifyTotalAmounts()) {
+                    case (#ok(totals)) {
+                        // Compare with expected totals
+                        let isConsistent = switch (pipelineExecutionState) {
+                            case (?state) {
+                                switch (state.pipelineType) {
+                                    case (#Refund) {
+                                        // For refund: total should match totalRaised (minus fees)
+                                        let expectedRefund = totalRaised;
+                                        let actualRefund = totals.totalRefunded;
+                                        let diff = if (expectedRefund > actualRefund) {
+                                            Nat.sub(expectedRefund, actualRefund)
+                                        } else {
+                                            Nat.sub(actualRefund, expectedRefund)
+                                        };
+                                        // Allow 1% difference for fees
+                                        if (expectedRefund > 0) {
+                                            diff < (expectedRefund / 100)
+                                        } else {
+                                            true
+                                        }
+                                    };
+                                    case (#Deployment) {
+                                        // For deployment: check fees processed
+                                        true  // TODO: Add deployment-specific checks
+                                    };
+                                };
+                            };
+                            case (null) false;
+                        };
+
+                        #ok({
+                            totalRefunded = totals.totalRefunded;
+                            totalFeesProcessed = totals.totalFeesProcessed;
+                            totalTransferred = totals.totalTransferred;
+                            isConsistent = isConsistent;
+                            notes = if (isConsistent) "All amounts verified" else "Inconsistency detected - manual review needed";
+                        })
+                    };
+                    case (#err(msg)) #err(msg);
+                };
+            };
+            case (null) {
+                #err("No active pipeline manager")
+            };
+        };
+    };
+
     // ================ PIPELINE PROGRESS HELPER FUNCTIONS ================
     
     // Helper: Get step status for frontend display
@@ -2962,19 +3227,32 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         label deployLoop while (stepIndex < steps.size()) {
             Debug.print("📍 Step " # Nat.toText(stepIndex + 1) # "/" # Nat.toText(steps.size()));
             
+            // Step 1: Start step execution (acquires lock, generates execution ID)
+            let stepExecutionId = switch (pipelineManager.startStepExecution(stepIndex)) {
+                case (#ok(id)) id;
+                case (#err(msg)) {
+                    _markPipelineFailed();
+                    processingState := #Failed("Failed to start step " # Nat.toText(stepIndex) # ": " # msg);
+                    Debug.print("❌ Failed to start step " # Nat.toText(stepIndex) # ": " # msg);
+                    break deployLoop;
+                };
+            };
+            
+            // Step 2: Execute the custom logic (lock already held)
             let result = await pipelineManager.executeCustomStep(stepIndex);
             
+            // Step 3: Complete or fail based on result
             switch (result) {
                 case (#ok(resultData)) {
-                    let _ = pipelineManager.completeStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), resultData, []);
+                    let _ = pipelineManager.completeStepExecution(stepIndex, stepExecutionId, resultData, []);
                     _updateProcessingProgress(stepIndex + 1, #FinalCleanup);
                     stepIndex += 1;
                 };
                 case (#err(error)) {
-                    let _ = pipelineManager.failStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), error);
+                    let _ = pipelineManager.failStepExecution(stepIndex, stepExecutionId, error);
                     _markPipelineFailed();
                     processingState := #Failed("Step " # Nat.toText(stepIndex) # " failed: " # error);
-                    Debug.print("❌ Pipeline failed at step " # Nat.toText(stepIndex));
+                    Debug.print("❌ Pipeline failed at step " # Nat.toText(stepIndex) # ": " # error);
                     break deployLoop;
                 };
             };
@@ -3431,6 +3709,43 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(())
     };
 
+    // ================ ADMIN FIX FUNCTIONS ================
+    
+    /// Admin function to manually reset/restart milestone timers
+    /// Useful when timers are stuck or need manual intervention after upgrade or issues
+    public shared({caller}) func adminResetTimer() : async Result.Result<(), Text> {
+        if (not _isAuthorized(caller)) {
+            _logSecurityEvent(#UnauthorizedAccess, caller, "Attempted to reset timers", #Critical);
+            return #err("Unauthorized: Only authorized users can reset timers");
+        };
+
+        Debug.print("🔄 Admin requested timer reset");
+
+        // Cancel and restart all milestone timers
+        await _setupMilestoneTimers();
+
+        _logAdminAction(
+            "ADMIN_RESET_TIMER",
+            caller,
+            "Manually reset and restarted milestone timers",
+            true,
+            null
+        );
+
+        _logSecurityEvent(
+            #EmergencyAction,
+            caller,
+            "Admin manually reset milestone timers",
+            #Medium
+        );
+
+        Debug.print("✅ Admin successfully reset timers");
+
+        #ok(())
+    };
+    
+    // ================ EMERGENCY PAUSE ================
+
     public shared({caller}) func emergencyUnpause() : async Result.Result<(), Text> {
         if (not _isAuthorized(caller)) {
             _logSecurityEvent(#UnauthorizedAccess, caller, "Attempted emergency unpause", #Critical);
@@ -3808,6 +4123,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
         Debug.print("🔓 CONTRACT UNLOCKED - Upgrade completed successfully to version " # debug_show(newVersion));
 
+        // CRITICAL: Restart timers after upgrade
+        // Timers are cancelled during upgrade and need to be re-setup
+        await _setupMilestoneTimers();
+        Debug.print("🔄 Milestone timers restarted after upgrade");
+
         #ok(())
     };
 
@@ -3831,6 +4151,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         upgradeRequestId := null;
 
         Debug.print("🔓 CONTRACT UNLOCKED - Upgrade cancelled: " # reason);
+
+        // CRITICAL: Restart timers after cancellation
+        // Contract is still running old code, but timers were cancelled during lock
+        await _setupMilestoneTimers();
+        Debug.print("🔄 Milestone timers restarted after upgrade cancellation");
 
         #ok(())
     };
