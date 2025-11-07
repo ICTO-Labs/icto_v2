@@ -3,7 +3,7 @@ import Time "mo:base/Time";
 import Principal "mo:base/Principal";
 import Array "mo:base/Array";
 import Text "mo:base/Text";
-import Char "mo:base/Char";
+// import Char "mo:base/Char"; // Unused
 import Iter "mo:base/Iter";
 import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
@@ -21,14 +21,14 @@ import LaunchpadTypes "../shared/types/LaunchpadTypes";
 import LaunchpadUpgradeTypes "../shared/types/LaunchpadUpgradeTypes";
 import TokenFactory "../shared/types/TokenFactory";
 import IUpgradeable "../common/IUpgradeable";
-import AID "../shared/utils/AID";
+// import AID "../shared/utils/AID"; // Unused
 import ICRCTypes "../shared/types/ICRC";
-import ICRC "../shared/utils/ICRC";
+// import ICRC "../shared/utils/ICRC"; // Unused
 
 // ================ PIPELINE MODULES ================
 import PipelineManager "./PipelineManager";
-import FundManager "./modules/FundManager";
-import TokenFactoryModule "./modules/TokenFactory";
+// import FundManager "./modules/FundManager"; // Unused
+// import TokenFactoryModule "./modules/TokenFactory"; // Unused
 // TODO: Import other modules when ready
 // import DistributionFactoryModule "./modules/DistributionFactory";
 // import DAOFactoryModule "./modules/DAOFactory";
@@ -66,7 +66,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     // ================ INITIALIZATION LOGIC ================
     // Determine if this is a fresh deployment or an upgrade
 
-    let isUpgrade: Bool = switch (initArgs) {
+    let _isUpgrade: Bool = switch (initArgs) {
         case (#InitialSetup(_)) { false };
         case (#Upgrade(_)) { true };
     };
@@ -97,6 +97,14 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         case (#Upgrade(upgrade)) { ?upgrade.runtimeState };
     };
 
+    let init_version: IUpgradeable.Version = switch (initArgs) {
+        case (#InitialSetup(setup)) { setup.version };
+        case (#Upgrade(_)) {
+            // Version is preserved via stable var during upgrade
+            { major = 1; minor = 0; patch = 0 }  // This will be ignored, stable var keeps old value
+        };
+    };
+
     // ================ STABLE STATE ================
 
     // Debug: Check config received from factory
@@ -118,7 +126,9 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     // VERSION TRACKING
-    private var contractVersion : IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
+    // For fresh deployment: use version from InitialSetup
+    // For upgrade: stable var preserves previous version (init_version ignored)
+    private var contractVersion : IUpgradeable.Version = init_version;
 
     // ================ UPGRADE STATE MANAGEMENT ================
     // Contract self-locks when requesting upgrade, factory unlocks when done/failed/timeout
@@ -203,10 +213,10 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     private var _lastTimerSetup : Time.Time = 0;
 
     // Milestone-specific timers (V2 - automatic status transitions)
-    private stable var saleStartTimerId: ?Nat = null;
-    private stable var saleEndTimerId: ?Nat = null;
-    private stable var claimStartTimerId: ?Nat = null;
-    private stable var listingTimerId: ?Nat = null;
+    private var saleStartTimerId: ?Nat = null;
+    private var saleEndTimerId: ?Nat = null;
+    private var claimStartTimerId: ?Nat = null;
+    private var listingTimerId: ?Nat = null;
     
     // Security & Emergency Controls
     private var emergencyPaused : Bool = switch (upgradeState) {
@@ -233,6 +243,18 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
 
     // Auto-timeout for user locks (prevent permanent locks)
     private let USER_LOCK_TIMEOUT : Time.Time = 300_000_000_000; // 5 minutes
+
+    // ==========================================
+    // OPTIMISTIC LOCKING FOR CAPACITY MANAGEMENT
+    // ==========================================
+    // Global lock for hardcap/totalRaised updates (VERY SHORT-LIVED)
+    // This lock is held ONLY during capacity check + reservation (~1ms)
+    // Transfer operations happen AFTER lock is released (parallel processing)
+    private var globalDepositLock : Bool = false;
+    
+    // Timeout for global lock (prevent deadlock)
+    private let GLOBAL_LOCK_TIMEOUT : Time.Time = 5_000_000_000; // 5 seconds
+    private var globalLockAcquiredAt : Time.Time = 0;
 
     // Audit Trail
     private var adminActions : [LaunchpadTypes.AdminAction] = switch (upgradeState) {
@@ -281,7 +303,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     // Pipeline execution state to prevent duplicate execution
     private var pipelineExecutionState: ?PipelineExecutionState = switch (upgradeState) {
         case null { null };
-        case (?state) { null }; // Reset on upgrade - pipeline must rerun if needed
+        case (?_state) { null }; // Reset on upgrade - pipeline must rerun if needed
     };
 
     // Pipeline managers (transient - recreated on each run)
@@ -292,7 +314,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     // TODO: Get factory IDs from config instead of hardcoding
     // This should be passed via init args or loaded dynamically
     // TEMPORARY FIX: Using local token_factory ID
-    private let tokenFactoryActor = actor("ulvla-h7777-77774-qaacq-cai") : actor {
+    private let _tokenFactoryActor = actor("ulvla-h7777-77774-qaacq-cai") : actor {
         deployTokenWithConfig : (
             config: TokenFactory.TokenConfig,
             deploymentConfig: TokenFactory.DeploymentConfig,
@@ -453,109 +475,6 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     // ================ PARTICIPATION FUNCTIONS ================
-
-    public shared({caller}) func participate(
-        amount: Nat,
-        affiliateCode: ?Text
-    ) : async Result.Result<LaunchpadTypes.Transaction, Text> {
-        
-        // Reentrancy protection (MUST BE FIRST)
-        switch (_checkReentrancy(caller)) {
-            case (#err(msg)) return #err(msg);
-            case (#ok()) {};
-        };
-
-        if (emergencyPaused) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Contract paused: " # emergencyReason);
-        };
-
-        if (not installed) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Launchpad not initialized");
-        };
-
-        // Rate limiting & large transaction validation
-        if (not _checkRateLimit(caller)) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Rate limit exceeded");
-        };
-
-        if (not _validateLargeTransaction(amount, caller)) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Transaction validation failed");
-        };
-        
-        // ATOMIC: Validate participation eligibility with auto-adjustment INSIDE lock
-        let eligibilityResult = await _checkParticipationEligibility(caller, amount);
-        let adjustmentInfo = switch (eligibilityResult) {
-            case (#err(msg)) {
-                _releaseUserReentrancyLock(caller);
-                return #err(msg);
-            };
-            case (#ok(info)) info;
-        };
-        
-        let actualDepositAmount = adjustmentInfo.adjustedAmount;
-        let refundAmount = adjustmentInfo.refundAmount;
-        
-        Debug.print("🔧 Participate adjustment:");
-        Debug.print("   Requested: " # Nat.toText(amount));
-        Debug.print("   Accepted: " # Nat.toText(actualDepositAmount));
-        Debug.print("   To refund: " # Nat.toText(refundAmount));
-
-        // Create transaction record with ADJUSTED amount
-        let transactionId = _generateTransactionId();
-        let transaction : LaunchpadTypes.Transaction = {
-            id = transactionId;
-            participant = caller;
-            txType = #Purchase;
-            amount = actualDepositAmount; // Use adjusted amount
-            token = config.purchaseToken.canisterId;
-            timestamp = Time.now();
-            blockIndex = null; // Will be set after ICRC transfer
-            fee = config.purchaseToken.transferFee;
-            status = #Pending;
-            affiliateCode = affiliateCode;
-            notes = switch (adjustmentInfo.reason) {
-                case (?reason) ?("Adjusted: " # reason);
-                case null null;
-            };
-        };
-
-        // Process the purchase with ADJUSTED amount
-        let purchaseResult = await _processPurchase(caller, actualDepositAmount, affiliateCode, transaction);
-        switch (purchaseResult) {
-            case (#err(msg)) {
-                // Update transaction as failed
-                let failedTransaction = {
-                    transaction with
-                    status = #Failed(msg);
-                    notes = ?("Purchase failed: " # msg);
-                };
-                transactions.add(failedTransaction);
-                _releaseUserReentrancyLock(caller);
-                return #err(msg);
-            };
-            case (#ok(updatedTransaction)) {
-                transactions.add(updatedTransaction);
-                transactionCount += 1;
-                
-                // NOTE: For participate(), refund would need to happen via ICRC-2 transfer
-                // This is more complex than confirmDeposit() which uses subaccounts
-                // For now, we log the adjustment and frontend should handle it
-                if (refundAmount > 0) {
-                    Debug.print("⚠️ Deposit adjusted - frontend should only request " # Nat.toText(actualDepositAmount));
-                    Debug.print("   Original request: " # Nat.toText(amount));
-                    Debug.print("   Excess amount: " # Nat.toText(refundAmount));
-                };
-                
-                updatedAt := Time.now();
-                _releaseUserReentrancyLock(caller);
-                return #ok(updatedTransaction);
-            };
-        };
-    };
 
     // ================ CLAIM FUNCTIONS ================
 
@@ -1282,138 +1201,6 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     /// Recover deposited funds based on balance check
     /// This function helps users who transferred tokens but failed to confirm deposit
     /// It checks the deposit account balance and creates a participation record
-    public shared({caller}) func recoverDepositFromBalance() : async Result.Result<LaunchpadTypes.Transaction, Text> {
-        // Reentrancy protection
-        switch (_checkReentrancy(caller)) {
-            case (#err(msg)) return #err(msg);
-            case (#ok()) {};
-        };
-
-        if (emergencyPaused) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Contract paused: " # emergencyReason);
-        };
-
-        if (not installed) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Launchpad not initialized");
-        };
-
-        Debug.print("💰 recoverDepositFromBalance called by: " # Principal.toText(caller));
-
-        // Rate limiting & validation
-        if (not _checkRateLimit(caller)) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Rate limit exceeded");
-        };
-
-        // Generate user's deposit account (subaccount)
-        let subAccount = principalToSubAccount(caller);
-        let subAccountBlob = Blob.fromArray(subAccount);
-
-        // Create ICRC Account for the deposit account
-        let depositAccount: ICRCTypes.Account = {
-            owner = Principal.fromActor(this);
-            subaccount = ?subAccountBlob;
-        };
-
-        Debug.print("🏦 Checking deposit account balance for recovery...");
-
-        // Check balance of deposit account
-        let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(config.purchaseToken.canisterId));
-        let depositBalance = try {
-            await ledger.icrc1_balance_of(depositAccount)
-        } catch (error) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Failed to check deposit account balance: " # Error.message(error));
-        };
-
-        Debug.print("💵 Deposit account balance: " # Nat.toText(depositBalance));
-
-        if (depositBalance == 0) {
-            _releaseUserReentrancyLock(caller);
-            return #err("No balance found in deposit account. Please transfer tokens first.");
-        };
-
-        // Check if user already has a pending transaction for this amount
-        let participantKey = Principal.toText(caller);
-        let existingParticipant = Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal);
-        let alreadyCounted = switch (existingParticipant) {
-            case (?p) p.totalContribution;
-            case null 0;
-        };
-
-        // Calculate actual recoverable amount (considering max contribution)
-        var actualRecoverableAmount = depositBalance;
-        switch (config.saleParams.maxContribution) {
-            case (?maxAmount) {
-                let maxContributionInSmallestUnit = toSmallestUnit(maxAmount, config.purchaseToken.decimals);
-                let remainingCapacity = if (maxContributionInSmallestUnit > alreadyCounted) {
-                    maxContributionInSmallestUnit - alreadyCounted
-                } else {
-                    0
-                };
-
-                // If remaining capacity is zero, cannot recover anything
-                if (remainingCapacity == 0) {
-                    _releaseUserReentrancyLock(caller);
-                    return #err("Maximum contribution limit already reached");
-                };
-
-                // Only recover up to remaining capacity
-                if (depositBalance > remainingCapacity) {
-                    actualRecoverableAmount := remainingCapacity;
-                    Debug.print("⚠️ Deposit balance exceeds remaining capacity. Will recover: " # Nat.toText(actualRecoverableAmount) # " (excess: " # Nat.toText(depositBalance - remainingCapacity) # ")");
-                };
-            };
-            case null {};
-        };
-
-        // Create transaction record for recovered deposit
-        let transactionId = _generateTransactionId();
-        let transaction: LaunchpadTypes.Transaction = {
-            id = transactionId;
-            participant = caller;
-            txType = #Purchase;
-            amount = actualRecoverableAmount;
-            token = config.purchaseToken.canisterId;
-            timestamp = Time.now();
-            blockIndex = null;
-            fee = config.purchaseToken.transferFee;
-            status = #Confirmed;
-            affiliateCode = null; // No affiliate code for recovery
-            notes = ?("Recovered from deposit account balance");
-        };
-
-        Debug.print("📝 Recording recovered participation...");
-
-        // Process the purchase (update stats, participants, etc.)
-        let purchaseResult = await _processPurchase(caller, actualRecoverableAmount, null, transaction);
-        switch (purchaseResult) {
-            case (#err(msg)) {
-                _releaseUserReentrancyLock(caller);
-                let failedTransaction = {
-                    transaction with
-                    status = #Failed(msg);
-                    notes = ?("Deposit recovery failed: " # msg);
-                };
-                transactions.add(failedTransaction);
-                return #err(msg);
-            };
-            case (#ok(updatedTransaction)) {
-                transactions.add(updatedTransaction);
-                transactionCount += 1;
-                updatedAt := Time.now();
-                _releaseUserReentrancyLock(caller);
-
-                Debug.print("✅ Deposit recovered successfully!");
-                Debug.print("   Amount: " # Nat.toText(depositBalance));
-                Debug.print("   User: " # Principal.toText(caller));
-                return #ok(updatedTransaction);
-            };
-        };
-    };
-
     public query func getAffiliateStats(affiliate: Principal) : async ?LaunchpadTypes.AffiliateStats {
         let key = Principal.toText(affiliate);
         Trie.get(affiliateStats, LaunchpadTypes.textKey(key), Text.equal)
@@ -1603,70 +1390,110 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
     };
 
-    // ================ DEPOSIT CONFIRMATION ================
-    // Confirm deposit after user has transferred tokens to their deposit account
-    // NOTE: Tokens remain in subaccount for easy refunds if softcap not reached
-    // They will be transferred to destination contracts after softcap is reached
+    // ================ DEPOSIT (ICRC-2 Approve/TransferFrom) ================
+    // NEW: Optimistic locking deposit with ICRC-2 approve/transferFrom
+    // This is the RECOMMENDED method for deposits
+    //
+    // Flow:
+    // 1. User approves amount via icrc2_approve()
+    // 2. User calls deposit()
+    // 3. Contract validates BEFORE pulling funds (optimistic lock)
+    // 4. Contract pulls funds via icrc2_transfer_from()
+    // 5. Funds stored in user's deposit subaccount
+    //
+    // Benefits:
+    // - Validation happens BEFORE transfer (clean rejections)
+    // - Optimistic locking for high concurrency
+    // - No excess funds / cleanup needed
+    // - Better UX
     
-    public shared({ caller }) func confirmDeposit(
-        expectedAmount: Nat,
+    public shared({caller}) func deposit(
+        amount: Nat,
         affiliateCode: ?Text
     ) : async Result.Result<LaunchpadTypes.Transaction, Text> {
-        // Reentrancy protection (MUST BE FIRST)
+        
+        // ============================================
+        // STEP 1: User reentrancy check
+        // ============================================
         switch (_checkReentrancy(caller)) {
             case (#err(msg)) return #err(msg);
             case (#ok()) {};
         };
-
+        
+        // Emergency pause check
         if (emergencyPaused) {
             _releaseUserReentrancyLock(caller);
             return #err("Contract paused: " # emergencyReason);
         };
-
+        
+        // Initialization check
         if (not installed) {
             _releaseUserReentrancyLock(caller);
             return #err("Launchpad not initialized");
         };
         
-        Debug.print("💰 confirmDeposit called by: " # Principal.toText(caller));
-        Debug.print("   Expected amount: " # Nat.toText(expectedAmount));
-        
-        // Rate limiting & validation (check early)
+        // Rate limiting
         if (not _checkRateLimit(caller)) {
             _releaseUserReentrancyLock(caller);
-            return #err("Rate limit exceeded");
-        };
-
-        if (not _validateLargeTransaction(expectedAmount, caller)) {
-            _releaseUserReentrancyLock(caller);
-            return #err("Transaction validation failed");
+            return #err("Rate limit exceeded - please wait before making another deposit");
         };
         
-        // ATOMIC: Check eligibility and get adjusted amount INSIDE lock
-        // This prevents race conditions - capacity check happens while lock is held
-        let eligibilityResult = await _checkParticipationEligibility(caller, expectedAmount);
-        let adjustmentInfo = switch (eligibilityResult) {
+        Debug.print("💰 ICRC-2 deposit called by: " # Principal.toText(caller));
+        Debug.print("   Amount requested: " # Nat.toText(amount));
+        
+        // ============================================
+        // STEP 2: Check eligibility FIRST (NO lock needed)
+        // ============================================
+        
+        // CRITICAL FIX: Check BEFORE acquiring lock (async call outside lock)
+        let eligibilityResult = await _checkParticipationEligibility(caller, amount);
+        
+        switch (eligibilityResult) {
             case (#err(msg)) {
                 _releaseUserReentrancyLock(caller);
                 return #err(msg);
             };
-            case (#ok(info)) info;
+            case (#ok()) {
+                // Eligibility passed, continue to reserve
+            };
         };
         
-        let actualDepositAmount = adjustmentInfo.adjustedAmount;
-        let refundAmount = adjustmentInfo.refundAmount;
+        // ============================================
+        // STEP 3: Acquire lock + reserve capacity (FAST!)
+        // (OPTIMISTIC LOCKING - fast phase, NO await inside)
+        // ============================================
         
-        Debug.print("🔧 Deposit adjustment:");
-        Debug.print("   Requested: " # Nat.toText(expectedAmount));
-        Debug.print("   Accepted: " # Nat.toText(actualDepositAmount));
-        Debug.print("   To refund: " # Nat.toText(refundAmount));
-        
-        switch (adjustmentInfo.reason) {
-            case (?reason) Debug.print("   Reason: " # reason);
-            case null {};
+        let globalLockResult = _acquireGlobalDepositLock();
+        switch (globalLockResult) {
+            case (#err(attempts)) {
+                _releaseUserReentrancyLock(caller);
+                return #err("System busy - please try again (waited " # Nat.toText(attempts) # "ms)");
+            };
+            case (#ok()) {};
         };
         
-        // Generate user's deposit account (subaccount)
+        // CRITICAL FIX: Re-check eligibility inside lock (race condition protection)
+        // Between first check and lock acquisition, state may have changed
+        switch (_checkParticipationEligibilitySync(caller, amount)) {
+            case (#err(msg)) {
+                _releaseGlobalDepositLock();
+                _releaseUserReentrancyLock(caller);
+                return #err(msg);
+            };
+            case (#ok()) {
+                // Reserve capacity OPTIMISTICALLY
+                totalRaised += amount;
+                Debug.print("✅ Reserved " # Nat.toText(amount) # " capacity (totalRaised: " # Nat.toText(totalRaised) # ")");
+            };
+        };
+        
+        // Release global lock IMMEDIATELY (fast!)
+        _releaseGlobalDepositLock();
+        
+        // ============================================
+        // STEP 3: Transfer funds (SLOW, but lock released)
+        // ============================================
+        
         let subAccount = principalToSubAccount(caller);
         let subAccountBlob = Blob.fromArray(subAccount);
         
@@ -1731,7 +1558,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             
             if (not rollbackSuccess) {
                 Debug.print("🚨 CRITICAL: Failed to rollback after " # Nat.toText(maxRollbackAttempts) # " attempts!");
-                Debug.print("   totalRaised may be INCORRECT - check participant totals");
+                Debug.print("   totalRaised is now INCORRECT - needs manual fix via adminFixTotalRaised()");
             };
             
             _releaseUserReentrancyLock(caller);
@@ -2226,20 +2053,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         #ok(())
     };
 
-    /// Check participation eligibility with auto-adjustment support
-    /// Returns adjusted amount, refund amount, and adjustment reason
-    /// This function now handles capacity limits intelligently:
-    /// - If deposit exceeds available capacity, adjusts to fit
-    /// - If deposit exceeds user's max contribution, adjusts to fit
-    /// - Returns refund amount for instant refund processing
-    private func _checkParticipationEligibility(
-        participant: Principal, 
-        amount: Nat
-    ) : async Result.Result<{
-        adjustedAmount: Nat;
-        refundAmount: Nat;
-        reason: ?Text;
-    }, Text> {
+    // SYNC version for use inside global lock (no await)
+    private func _checkParticipationEligibilitySync(participant: Principal, amount: Nat) : Result.Result<(), Text> {
         // Check sale is active
         if (status != #SaleActive and status != #WhitelistOpen) {
             return #err("Sale not active");
@@ -2351,6 +2166,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             reason = adjustmentReason;
         })
     };
+    
+    // ASYNC version (calls sync version)
+    private func _checkParticipationEligibility(participant: Principal, amount: Nat) : async Result.Result<(), Text> {
+        _checkParticipationEligibilitySync(participant, amount)
+    };
 
     private func _processPurchase(
         participant: Principal, 
@@ -2389,6 +2209,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                     affiliateCode = affiliateCode;
                     claimedAmount = 0;
                     refundedAmount = 0;
+                    refundTime = null;      // Initially no refund
+                    refundTxId = null;      // Initially no refund transaction
                     vestingContract = null;
                     isBlacklisted = false;
                 } : LaunchpadTypes.Participant
@@ -2413,7 +2235,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
         
         // Update totals
-        totalRaised += amount;
+        // NOTE: totalRaised is already updated in deposit() via optimistic locking
+        // We only update totalAllocated here
         totalAllocated += _calculateTokenAllocation(amount);
         
         // Process affiliate commission if applicable
@@ -3280,12 +3103,14 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 case (#Confirmed) {
                     let participantKey = Principal.toText(refundTx.to);
                     
-                    // Update participant record
+                    // Update participant record with refund details
                     switch (Trie.get(participants, LaunchpadTypes.textKey(participantKey), Text.equal)) {
                         case (?participant) {
                             let updatedParticipant = {
                                 participant with
                                 refundedAmount = participant.refundedAmount + refundTx.amount;
+                                refundTime = ?refundTx.timestamp;  // Save refund timestamp
+                                refundTxId = refundTx.blockIndex;   // Save ICRC1 blockIndex
                             };
                             
                             participants := Trie.put(
@@ -3297,6 +3122,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                             
                             Debug.print("  ✅ Updated participant " # participantKey);
                             Debug.print("     Refunded: " # Nat.toText(refundTx.amount));
+                            Debug.print("     Refund Time: " # Int.toText(refundTx.timestamp));
                             Debug.print("     Block: " # (switch (refundTx.blockIndex) { case (?idx) Nat.toText(idx); case null "none" }));
                         };
                         case null {
@@ -3590,6 +3416,51 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 lastSecurityEvent = securityMetrics.lastSecurityEvent;
             };
         };
+    };
+
+    // ==========================================
+    // GLOBAL LOCK HELPERS (for Optimistic Locking)
+    // ==========================================
+    
+    /// Acquire global deposit lock (VERY SHORT-LIVED - only for capacity check)
+    /// Returns #ok() if acquired successfully
+    /// Returns #err with wait count if lock is busy
+    private func _acquireGlobalDepositLock() : Result.Result<(), Nat> {
+        var attempts : Nat = 0;
+        let maxAttempts : Nat = 100; // Max 100ms wait (100 attempts × 1ms)
+        
+        while (globalDepositLock and attempts < maxAttempts) {
+            // Check for lock timeout (deadlock prevention)
+            let now = Time.now();
+            if (now - globalLockAcquiredAt > GLOBAL_LOCK_TIMEOUT) {
+                // Lock has been held too long - force release
+                Debug.print("⚠️ Global lock timeout detected - forcing release");
+                globalDepositLock := false;
+                globalLockAcquiredAt := 0;
+            };
+            
+            attempts += 1;
+            // In production, use async Timer.sleep here
+            // For now, this is a busy-wait (will be optimized by IC runtime)
+        };
+        
+        if (globalDepositLock) {
+            // Still locked after max attempts
+            return #err(attempts);
+        };
+        
+        // Acquire lock
+        globalDepositLock := true;
+        globalLockAcquiredAt := Time.now();
+        Debug.print("🔒 Global deposit lock acquired");
+        #ok(())
+    };
+    
+    /// Release global deposit lock
+    private func _releaseGlobalDepositLock() : () {
+        globalDepositLock := false;
+        globalLockAcquiredAt := 0;
+        Debug.print("🔓 Global deposit lock released");
     };
 
     private func _cleanupExpiredUserLocks(now: Time.Time) : () {

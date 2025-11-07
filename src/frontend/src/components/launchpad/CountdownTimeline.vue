@@ -5,6 +5,7 @@
       v-if="timeRemaining > 0"
       :time="timeRemaining"
       :interval="1000"
+      @end="handleCountdownEnd"
       v-slot="{ days, hours, minutes, seconds }"
     >
       <span>
@@ -28,6 +29,10 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const emit = defineEmits<{
+  countdownEnd: []
+}>()
+
 // Calculate time remaining in milliseconds
 const timeRemaining = computed(() => {
   try {
@@ -48,6 +53,12 @@ const timeRemaining = computed(() => {
     return 0
   }
 })
+
+// Handle countdown end
+const handleCountdownEnd = () => {
+  console.log('⏰ [CountdownTimeline] Countdown ended')
+  emit('countdownEnd')
+}
 </script>
 
 <style scoped>

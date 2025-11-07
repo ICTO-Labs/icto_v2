@@ -479,6 +479,18 @@ persistent actor LaunchpadFactory {
             Debug.print("🔍 FACTORY: Checking config before deployment...");
             Debug.print("  multiDexConfig in factory input: " # debug_show(args.config.multiDexConfig));
 
+            // VERSION MANAGEMENT: Determine version BEFORE deployment
+            let contractVersion = switch (versionManager.getLatestStableVersion()) {
+                case (?latestVersion) {
+                    // Use latest uploaded version if available
+                    latestVersion
+                };
+                case null {
+                    // Fallback to initial version if no WASM versions uploaded yet
+                    { major = 1; minor = 0; patch = 0 }
+                };
+            };
+
             // Create the canister with cycles first (with temporary ID)
             // Wrap args in #InitialSetup variant for new deployment
             let launchpadCanister = await (with cycles = CYCLES_FOR_INSTALL) LaunchpadContract.LaunchpadContract<system>(
@@ -487,6 +499,7 @@ persistent actor LaunchpadFactory {
                     creator = args.creator;  // Use creator from args (original user, not backend)
                     config = args.config;
                     createdAt = Time.now();
+                    version = contractVersion;  // Pass version to contract constructor
                 })
             );
 
@@ -524,18 +537,8 @@ persistent actor LaunchpadFactory {
 
             let now = Time.now();
 
-            // VERSION MANAGEMENT: Register contract with current factory version
-            let contractVersion = switch (versionManager.getLatestStableVersion()) {
-                case (?latestVersion) {
-                    // Use latest uploaded version if available
-                    latestVersion
-                };
-                case null {
-                    // Fallback to initial version if no WASM versions uploaded yet
-                    { major = 1; minor = 0; patch = 0 }
-                };
-            };
-
+            // VERSION MANAGEMENT: Register contract in factory index
+            // Note: Contract version is already set via constructor
             versionManager.registerContract(canisterId, contractVersion, false);
             Debug.print("LaunchpadFactory: Registered contract with version " #
                        Nat.toText(contractVersion.major) # "." #
@@ -1071,6 +1074,9 @@ persistent actor LaunchpadFactory {
                 let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
                 versionManager.recordUpgrade(contractId, toVersion, upgradeType, #Success);
                 Debug.print("✅ Upgraded launchpad contract " # Principal.toText(contractId) # " to version " # _versionToText(toVersion) # " (initiated by " # initiator # ")");
+
+                // NOTE: Version update is now handled by completeUpgrade() in the contract
+                // No need to call updateVersion() here anymore
             };
             case (#err(msg)) {
                 let upgradeType = if (initiator == "Admin") { #AdminManual } else { #ContractRequest };
@@ -1094,13 +1100,12 @@ persistent actor LaunchpadFactory {
 
         let result = await _performContractUpgrade(contractId, toVersion, "Admin");
 
-        // Notify contract to update version (same as self-upgrade flow)
+        // IMPORTANT: Notify contract to update version after successful upgrade
         switch (result) {
             case (#ok()) {
                 await _notifyContractCompleted(contractId, toVersion);
             };
-            case (#err(msg)) {
-                // Upgrade failed, no need to notify
+            case (#err(_msg)) {
                 Debug.print("❌ Admin upgrade failed, skipping contract notification");
             };
         };

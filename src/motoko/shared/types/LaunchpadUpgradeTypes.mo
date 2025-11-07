@@ -4,6 +4,7 @@
 import Principal "mo:base/Principal";
 import Time "mo:base/Time";
 import LaunchpadTypes "./LaunchpadTypes";
+import IUpgradeable "../../common/IUpgradeable";
 
 module {
     /// Runtime state snapshot for upgrade
@@ -87,6 +88,7 @@ module {
             config: LaunchpadTypes.LaunchpadConfig;
             creator: Principal;
             createdAt: Time.Time;
+            version: IUpgradeable.Version;  // Initial contract version from factory
         };
         #Upgrade: LaunchpadUpgradeArgs;
     };
