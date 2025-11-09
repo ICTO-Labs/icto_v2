@@ -22,12 +22,11 @@ import Option "mo:base/Option";
 import Buffer "mo:base/Buffer";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
-import Hash "mo:base/Hash";
 import Blob "mo:base/Blob";
 
 import LaunchpadTypes "../shared/types/LaunchpadTypes";
-import ICRCTypes "../shared/types/ICRC";
 import Trie "mo:base/Trie";
+import ICRCTypes "../shared/types/ICRC";
 
 // Import executor modules
 import FundManager "./modules/FundManager";
@@ -505,8 +504,7 @@ module {
         // ================ CUSTOM STEP EXECUTION ================
 
         /// Execute a custom step by calling its registered executor
-        /// IMPORTANT: Caller is responsible for calling startStepExecution() first
-        /// This function only executes the executor logic, not managing locks/state
+        /// This function handles the complete step lifecycle: start → execute → complete/fail → release lock
         public func executeCustomStep(stepIndex: Nat) : async Result.Result<StepResultData, Text> {
             if (stepIndex >= stepExecutors.size()) {
                 return #err("Invalid step index");
@@ -541,12 +539,54 @@ module {
                         };
                     };
                     
-                    // Execute the custom function
+                    // Execute the custom function with proper error handling
                     try {
                         let result = await executor(executionId);
-                        result
+                        
+                        // Handle result and manage lock
+                        switch (result) {
+                            case (#ok(stepData)) {
+                                // Complete step successfully and release lock
+                                let _ = completeStepExecution(stepIndex, executionId, stepData, []);
+                                #ok(stepData)
+                            };
+                            case (#err(errorMsg)) {
+                                // Fail step and release lock
+                                let _ = failStepExecution(stepIndex, executionId, errorMsg);
+                                #err(errorMsg)
+                            };
+                        }
                     } catch (error) {
-                        #err(Error.message(error))
+                        let errorMsg = Error.message(error);
+                        _logError("Step execution exception: " # errorMsg);
+                        
+                        // CRITICAL: Update step status to Failed before releasing lock
+                        switch (state) {
+                            case (?currentState) {
+                                if (stepIndex < currentState.steps.size()) {
+                                    let step = currentState.steps[stepIndex];
+                                    let updatedStep = {
+                                        step with
+                                        status = #Failed(errorMsg);
+                                        lastAttemptTime = Time.now();
+                                        lastError = ?errorMsg;
+                                    };
+                                    let updatedSteps = _updateStepArray(currentState.steps, stepIndex, updatedStep);
+                                    state := ?{
+                                        currentState with
+                                        steps = updatedSteps;
+                                    };
+                                };
+                            };
+                            case null {};
+                        };
+                        
+                        // CRITICAL: Release lock on exception
+                        executionLock := false;
+                        lockOwner := null;
+                        lockTimestamp := 0;
+                        
+                        #err(errorMsg)
                     }
                 };
                 case null {
@@ -964,9 +1004,48 @@ module {
         /// - IDEMPOTENCY: If main account already has funds → skip collection (already done)
         public func createCollectFundsExecutor() : StepExecutor {
             func(executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
-                Debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                Debug.print("💰 STEP 1: COLLECT FUNDS FROM SUBACCOUNTS");
-                Debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                Debug.print("💰 Collecting funds from subaccounts...");
+                
+                // IDEMPOTENCY CHECK: If launchpad main account already has significant balance,
+                // assume funds were already collected (via ICRC-2 transfer_from or previous run)
+                let feeToken : ICRCTypes.ICRCLedger = actor(Principal.toText(launchpadConfig.purchaseToken.canisterId));
+                let mainAccountBalance = await feeToken.icrc1_balance_of({
+                    owner = launchpadPrincipal;
+                    subaccount = null;
+                });
+                
+                // Calculate expected total from participants
+                var expectedTotal : Nat = 0;
+                for ((_, participant) in participants.vals()) {
+                    expectedTotal += participant.totalContribution;
+                };
+                
+                Debug.print("   Main account balance: " # Nat.toText(mainAccountBalance));
+                Debug.print("   Expected total: " # Nat.toText(expectedTotal));
+                
+                // If main account has >= 80% of expected funds, skip collection
+                if (mainAccountBalance >= (expectedTotal * 80 / 100)) {
+                    Debug.print("✅ Funds already in main account (ICRC-2 or previous collection), skipping subaccount collection");
+                    return #ok(#FeesProcessed({
+                        amount = mainAccountBalance;
+                        txId = executionId # "_skipped";
+                        blockIndex = 0;
+                    }));
+                };
+                
+                // Otherwise, proceed with subaccount collection
+                Debug.print("   Collecting from participant subaccounts...");
+                
+                // Convert participants from array to Trie
+                var participantsTrie = Trie.empty<Text, LaunchpadTypes.Participant>();
+                for ((key, participant) in participants.vals()) {
+                    participantsTrie := Trie.put(
+                        participantsTrie,
+                        { key = key; hash = Text.hash(key) },
+                        Text.equal,
+                        participant
+                    ).0;
+                };
                 
                 // IDEMPOTENCY CHECK #1: Check main account balance first
                 Debug.print("🔍 Checking launchpad main account balance...");
@@ -982,102 +1061,17 @@ module {
                     subaccount = null;
                 };
                 
-                let mainBalance = try {
-                    await ledger.icrc1_balance_of(mainAccount)
-                } catch (e) {
-                    Debug.print("⚠️ Failed to check main balance: " # Error.message(e));
-                    0
+                if (batchResult.successCount == 0 and batchResult.failedCount > 0) {
+                    return #err("Failed to collect funds from subaccounts");
                 };
                 
-                Debug.print("   Main account balance: " # Nat.toText(mainBalance));
+                Debug.print("✅ Collected " # Nat.toText(batchResult.totalAmount) # " tokens from " # Nat.toText(batchResult.successCount) # " participants");
                 
-                // IDEMPOTENCY: If main account has significant balance → already collected
-                if (mainBalance > 1_000_000) {  // > 0.01 ICP/ckBTC (threshold for "already collected")
-                    Debug.print("✅ IDEMPOTENCY: Main account already has funds (" # Nat.toText(mainBalance) # ")");
-                    Debug.print("   Skipping collection - step already completed in previous run");
-                    Debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    return #ok(#FeesProcessed({
-                        amount = mainBalance;
-                        txId = executionId # "_idempotent_skip";
-                        blockIndex = 0;
-                    }));
-                };
-                
-                // SMART DETECTION: Check if funds are in participant subaccounts or already in launchpad
-                // Strategy: Check first participant's subaccount balance
-                if (participants.size() == 0) {
-                    Debug.print("⚠️ No participants - skipping collection");
-                    Debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    return #ok(#FeesProcessed({
-                        amount = 0;
-                        txId = executionId;
-                        blockIndex = 0;
-                    }));
-                };
-                
-                // Get first participant to check deposit method
-                let firstParticipant = participants[0].1;
-                
-                // Check balance in first participant's subaccount
-                let balanceCheckResult = await fundManager.checkBalance(firstParticipant.principal);
-                let firstBalance = switch (balanceCheckResult) {
-                    case (#ok(bal)) bal;
-                    case (#err(_)) 0;
-                };
-                
-                // DECISION POINT:
-                if (firstBalance == 0) {
-                    // ICRC-2 METHOD: Funds already in launchpad via approve/transferFrom
-                    Debug.print("✅ Detected ICRC-2 deposits - funds already in launchpad");
-                    Debug.print("   Skipping subaccount collection");
-                    Debug.print("   Total already collected: " # Nat.toText(firstParticipant.totalContribution * participants.size()));
-                    
-                    // Calculate total from participants (this is already correct)
-                    var totalCollected: Nat = 0;
-                    for ((_, participant) in participants.vals()) {
-                        totalCollected += participant.totalContribution;
-                    };
-                    
-                    Debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    return #ok(#FeesProcessed({
-                        amount = totalCollected;
-                        txId = executionId # "_icrc2_skip";
-                        blockIndex = 0;  // No block index (no transfer needed)
-                    }));
-                } else {
-                    // LEGACY METHOD: Funds in participant subaccounts → collect them
-                    Debug.print("📥 Detected legacy deposits - collecting from subaccounts...");
-                    
-                    // Convert participants from array to Trie
-                    var participantsTrie = Trie.empty<Text, LaunchpadTypes.Participant>();
-                    for ((key, participant) in participants.vals()) {
-                        participantsTrie := Trie.put(
-                            participantsTrie,
-                            { key = key; hash = Text.hash(key) },
-                            Text.equal,
-                            participant
-                        ).0;
-                    };
-                    
-                    let batchResult = await fundManager.processBatchTransfers(
-                        participantsTrie,
-                        #ToLaunchpad,
-                        executionId,
-                        10
-                    );
-                    
-                    if (batchResult.successCount == 0 and batchResult.failedCount > 0) {
-                        Debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                        return #err("Failed to collect funds from subaccounts");
-                    };
-                    
-                    Debug.print("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                    return #ok(#FeesProcessed({
-                        amount = batchResult.totalAmount;
-                        txId = executionId;
-                        blockIndex = 0;
-                    }));
-                }
+                #ok(#FeesProcessed({
+                    amount = batchResult.totalAmount;
+                    txId = executionId;
+                    blockIndex = 0;
+                }))
             }
         };
         

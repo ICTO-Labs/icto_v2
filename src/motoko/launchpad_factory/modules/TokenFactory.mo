@@ -20,7 +20,8 @@ import Option "mo:base/Option";
 
 import LaunchpadTypes "../../shared/types/LaunchpadTypes";
 import TokenFactoryTypes "../../backend/modules/token_factory/TokenFactoryTypes";
-import TokenFactoryInterface "../../backend/modules/token_factory/TokenFactoryInterface";
+import ICRCTypes "../../shared/types/ICRC";
+import BackendInterface "../interfaces/BackendInterface";
 
 module {
 
@@ -32,6 +33,10 @@ module {
         symbol: Text;
         name: Text;
         decimals: Nat8;
+        // Deployment costs (for reporting)
+        cyclesUsed: Nat;  // Cycles consumed for canister creation
+        feePaid: Nat;     // Token fee paid to backend
+        feeBlockIndex: Nat; // Block index of fee approval
     };
 
     public type DeploymentError = {
@@ -45,7 +50,7 @@ module {
     // ================ TOKEN FACTORY MODULE ================
 
     public class TokenFactory(
-        tokenFactoryCanisterId: Principal,
+        backendCanisterId: Principal,  // Backend canister ID (not token_factory)
         creatorPrincipal: Principal
     ) {
 
@@ -71,15 +76,12 @@ module {
                 
                 // Initial minter is launchpad creator
                 minter = ?{
-                    owner = creatorPrincipal;
+                    owner = Principal.fromText(launchpadId);
                     subaccount = null;
                 };
                 
                 // Fee collector is creator
-                feeCollector = ?{
-                    owner = creatorPrincipal;
-                    subaccount = null;
-                };
+                feeCollector = null; //use feeCollector if needed, null as default
                 
                 // Initial balances will be set by distribution contracts
                 initialBalances = [];
@@ -102,10 +104,10 @@ module {
                 // Enable cycle operations for future management
                 enableCycleOps = ?true;
                 
-                // Cycles allocation (200B for install, 100B for archive)
-                cyclesForInstall = ?200_000_000_000;  // 200B cycles
-                cyclesForArchive = ?100_000_000_000;   // 100B cycles
-                minCyclesInDeployer = ?50_000_000_000; // 50B cycles minimum
+                // Cycles allocation (2T for install, 2T for archive)
+                cyclesForInstall = ?2_000_000_000_000;  // 2T cycles
+                cyclesForArchive = ?2_000_000_000_000;   // 2T cycles
+                minCyclesInDeployer = ?3_000_000_000_000; // 3T cycles minimum
                 
                 // Archive options for transaction history
                 archiveOptions = ?{
@@ -113,7 +115,7 @@ module {
                     max_transactions_per_response = ?2000;
                     trigger_threshold = 2000;
                     max_message_size_bytes = ?2048;
-                    cycles_for_archive_creation = ?100_000_000_000;
+                    cycles_for_archive_creation = ?1_000_000_000_000; // 1T cycles
                     node_max_memory_size_bytes = ?3_221_225_472; // 3GB
                     controller_id = creatorPrincipal;
                     
@@ -151,20 +153,69 @@ module {
                     case (#ok()) {};
                 };
 
-                // Call Token Factory
-                let factory: TokenFactoryInterface.TokenFactoryActor = actor(
-                    Principal.toText(tokenFactoryCanisterId)
-                );
+                // Step 1: Get deployment fee from backend
+                Debug.print("📊 Fetching deployment fee from backend...");
+                
+                let backend : BackendInterface.BackendActor = actor(Principal.toText(backendCanisterId));
+                
+                let feeResult = await backend.getServiceFee("token_factory");
+                let deploymentFee = switch (feeResult) {
+                    case (?fee) fee;
+                    case (null) {
+                        Debug.print("⚠️ Fee not configured, using default: 100 tokens");
+                        100_000_000 // Default: 100 tokens with 8 decimals
+                    };
+                };
+                
+                Debug.print("   Deployment Fee: " # Nat.toText(deploymentFee));
 
-                Debug.print("   Calling Token Factory: " # Principal.toText(tokenFactoryCanisterId));
+                // Step 2: Approve fee for backend
+                // Backend will pull deployment fee from launchpad's collected funds
+                Debug.print("💰 Approving deployment fee for backend...");
+                
+                let feeToken : ICRCTypes.ICRC2Interface = actor(Principal.toText(config.purchaseToken.canisterId));
 
-                let deploymentArgs: TokenFactoryInterface.ExternalDeployerArgs = {
-                    config = tokenConfig;
-                    deploymentConfig = deploymentConfig;
-                    paymentResult = null; // No payment required from launchpad
+                // Approve deployment fee + transfer fee
+                let approvalAmount = deploymentFee + config.purchaseToken.transferFee;
+                
+                let approveArgs : ICRCTypes.ApproveArgs = {
+                    from_subaccount = null; // Launchpad main account
+                    spender = {
+                        owner = backendCanisterId; // Backend canister
+                        subaccount = null;
+                    };
+                    amount = approvalAmount;
+                    expected_allowance = null;
+                    expires_at = null;
+                    fee = ?config.purchaseToken.transferFee;
+                    memo = null;
+                    created_at_time = null;
+                };
+                
+                let approvalResult = await feeToken.icrc2_approve(approveArgs);
+
+                let feeBlockIndex = switch (approvalResult) {
+                    case (#Err(error)) {
+                        let errorMsg = debug_show(error);
+                        Debug.print("❌ Fee approval failed: " # errorMsg);
+                        return #err(#DeploymentFailed("Failed to approve deployment fee: " # errorMsg));
+                    };
+                    case (#Ok(blockIndex)) {
+                        Debug.print("✅ Fee approved, block index: " # Nat.toText(blockIndex));
+                        blockIndex
+                    };
                 };
 
-                let result = await factory.deployToken(deploymentArgs);
+                // Step 3: Call Backend (handles payment, validation, audit, then deploys)
+                Debug.print("🚀 Calling Backend to deploy token...");
+
+                let deploymentRequest: TokenFactoryTypes.DeploymentRequest = {
+                    tokenConfig = tokenConfig;
+                    deploymentConfig = deploymentConfig;
+                    projectId = ?launchpadId;
+                };
+
+                let result = await backend.deployToken(deploymentRequest);
 
                 switch (result) {
                     case (#ok(deploymentResult)) {
@@ -172,6 +223,7 @@ module {
                         Debug.print("   Canister ID: " # Principal.toText(deploymentResult.canisterId));
                         Debug.print("   Symbol: " # deploymentResult.tokenSymbol);
                         Debug.print("   Cycles Used: " # Nat.toText(deploymentResult.cyclesUsed));
+                        Debug.print("   Fee Paid: " # Nat.toText(approvalAmount) # " (block: " # Nat.toText(feeBlockIndex) # ")");
 
                         #ok({
                             canisterId = deploymentResult.canisterId;
@@ -179,6 +231,9 @@ module {
                             symbol = config.saleToken.symbol;
                             name = config.saleToken.name;
                             decimals = config.saleToken.decimals;
+                            cyclesUsed = deploymentResult.cyclesUsed;
+                            feePaid = approvalAmount;
+                            feeBlockIndex = feeBlockIndex;
                         })
                     };
                     case (#err(errorMsg)) {
@@ -243,16 +298,15 @@ module {
             #ok()
         };
 
-        /// Check Token Factory health before deployment
+        /// Check Backend health before deployment
         public func healthCheck() : async Bool {
             try {
-                let factory: TokenFactoryInterface.TokenFactoryActor = actor(
-                    Principal.toText(tokenFactoryCanisterId)
-                );
-                
-                await factory.healthCheck()
+                let backend : BackendInterface.BackendActor = actor(Principal.toText(backendCanisterId));
+                // Check if we can fetch service fee (simple health check)
+                let _ = await backend.getServiceFee("token_factory");
+                true
             } catch (error) {
-                Debug.print("⚠️ Token Factory health check failed: " # Error.message(error));
+                Debug.print("⚠️ Backend health check failed: " # Error.message(error));
                 false
             }
         };

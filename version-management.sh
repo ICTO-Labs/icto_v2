@@ -580,6 +580,22 @@ upgrade_factory_contract() {
     print_warning "This will upgrade contract $TARGET_CANISTER to version $TARGET_VERSION"
     print_warning "Factory will automatically capture contract state and perform upgrade"
     echo ""
+
+    # Ask about force upgrade
+    echo ""
+    print_info "Force upgrade bypasses canUpgrade() validation check"
+    print_info "Use this for stuck contracts (e.g., in Failed state)"
+    read -p "Force upgrade (bypass validation)? (y/N): " FORCE_UPGRADE
+
+    if [[ "$FORCE_UPGRADE" =~ ^[Yy]$ ]]; then
+        FORCE_FLAG="true"
+        print_warning "⚠️  Force upgrade enabled - will bypass contract validation"
+    else
+        FORCE_FLAG="false"
+        print_info "Normal upgrade - contract validation will be performed"
+    fi
+
+    echo ""
     read -p "Do you want to continue? (Y/n): " CONFIRM_UPGRADE
 
     if [[ -z "$CONFIRM_UPGRADE" ]] || [[ "$CONFIRM_UPGRADE" =~ ^[Yy]$ ]]; then
@@ -597,6 +613,9 @@ upgrade_factory_contract() {
 
     # Execute real upgrade call (from upgrade_contract.sh)
     print_info "Executing real upgrade call..."
+    if [ "$FORCE_FLAG" = "true" ]; then
+        print_warning "Using force upgrade mode..."
+    fi
     set +e
     UPGRADE_OUTPUT=$(dfx canister call $FACTORY_NAME upgradeContract "(
         principal \"$TARGET_CANISTER\",
@@ -604,7 +623,8 @@ upgrade_factory_contract() {
             major = $MAJOR:nat;
             minor = $MINOR:nat;
             patch = $PATCH:nat;
-        }
+        },
+        $FORCE_FLAG
     )" 2>&1)
     UPGRADE_STATUS=$?
     set -e

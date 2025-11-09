@@ -1027,7 +1027,8 @@ persistent actor LaunchpadFactory {
     private func _performContractUpgrade(
         contractId: Principal,
         toVersion: VersionManager.Version,
-        initiator: Text  // "Admin" or "ContractOwner"
+        initiator: Text,  // "Admin" or "ContractOwner"
+        force: Bool      // Skip canUpgrade() check if true
     ) : async Result.Result<(), Text> {
         // Check upgrade eligibility
         switch (versionManager.checkUpgradeEligibility(contractId, toVersion)) {
@@ -1038,16 +1039,20 @@ persistent actor LaunchpadFactory {
         // Get reference to the contract (cast to IUpgradeable)
         let contract : IUpgradeable.IUpgradeable = actor(Principal.toText(contractId));
 
-        // Check if contract is ready for upgrade
-        try {
-            switch (await contract.canUpgrade()) {
-                case (#err(msg)) {
-                    return #err("Contract not ready for upgrade: " # msg)
+        // Check if contract is ready for upgrade (unless forced)
+        if (not force) {
+            try {
+                switch (await contract.canUpgrade()) {
+                    case (#err(msg)) {
+                        return #err("Contract not ready for upgrade: " # msg)
+                    };
+                    case (#ok()) {};
                 };
-                case (#ok()) {};
+            } catch (e) {
+                return #err("Failed to check upgrade readiness: " # Error.message(e));
             };
-        } catch (e) {
-            return #err("Failed to check upgrade readiness: " # Error.message(e));
+        } else {
+            Debug.print("⚠️  WARNING: Force upgrade requested - bypassing canUpgrade() check");
         };
 
         // Auto-capture current state
@@ -1090,15 +1095,17 @@ persistent actor LaunchpadFactory {
 
     /// Execute upgrade with auto state capture (Admin only)
     /// Factory automatically captures contract state and performs upgrade
+    /// @param force - If true, bypass canUpgrade() check (use for stuck contracts)
     public shared({caller}) func upgradeContract(
         contractId: Principal,
-        toVersion: VersionManager.Version
+        toVersion: VersionManager.Version,
+        force: Bool
     ) : async Result.Result<(), Text> {
         if (not isAdmin(caller)) {
             return #err("Unauthorized: Only admins can upgrade contracts");
         };
 
-        let result = await _performContractUpgrade(contractId, toVersion, "Admin");
+        let result = await _performContractUpgrade(contractId, toVersion, "Admin", force);
 
         // IMPORTANT: Notify contract to update version after successful upgrade
         switch (result) {
@@ -1258,7 +1265,8 @@ persistent actor LaunchpadFactory {
             };
 
             // Use the exact same upgrade logic as admin upgrades
-            let result = await _performContractUpgrade(request.contractId, latestVersion, "Queue");
+            // Queue processing uses normal validation (force = false)
+            let result = await _performContractUpgrade(request.contractId, latestVersion, "Queue", false);
 
             switch (result) {
                 case (#ok(())) {

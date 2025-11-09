@@ -307,5 +307,5 @@ echo "Launchpad ID: $LAUNCHPAD_ID"
 echo "==================================="
 echo ""
 echo "To participate, run:"
-echo "  ./launchpad-participate.sh $LAUNCHPAD_ID"
+echo "  ./zsh/launchpad/launchpad-participate.sh $LAUNCHPAD_ID"
 

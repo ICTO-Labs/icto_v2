@@ -1,8 +1,65 @@
 # Launchpad Factory - Development Changelog
 
 **Module:** Launchpad Factory
-**Current Version:** 1.2.0
-**Last Updated:** 2025-11-06
+**Current Version:** 1.2.1
+**Last Updated:** 2025-11-08
+
+### 2025-11-08 - 📊 ENHANCEMENT: Better Logging for Eligibility Checks
+
+**Status:** ✅ Completed
+**Type:** Enhancement / Debugging
+**Priority:** Medium
+
+**Problem:**
+When hardcap is reached, deposits are correctly rejected but there are no logs showing why, making it hard to debug and understand the flow.
+
+**Solution:**
+Added comprehensive logging to `_checkParticipationEligibilitySync()`:
+- Log entry with participant, amount, totalRaised, hardcap
+- Log when hardcap is reached (with details)
+- Log when sale is not active
+- Log successful eligibility check with final/refund amounts
+
+**Files Modified:**
+- `src/motoko/launchpad_factory/LaunchpadContract.mo`
+  - Added debug logs at start of `_checkParticipationEligibilitySync()` (Lines 2097-2100)
+  - Added debug logs when hardcap reached (Lines 2150-2153)
+  - Added debug logs when sale not active (Line 2104)
+  - Added debug logs for successful checks (Lines 2212-2216)
+
+**Expected Log Flow:**
+
+When hardcap reached:
+```
+🔍 Checking eligibility for [principal]
+   Requested amount: 100000000
+   Current totalRaised: 1000000000
+   Hard cap: 1000000000
+❌ Hard cap reached - rejecting deposit
+   Total raised: 1000000000
+   Hard cap: 1000000000
+   Available: 0
+🔓 User unlocked: [principal]
+```
+
+When deposit accepted with adjustment:
+```
+🔍 Checking eligibility for [principal]
+   Requested amount: 100000000
+   Current totalRaised: 950000000
+   Hard cap: 1000000000
+✅ Eligibility check passed
+   Final amount: 50000000
+   Will refund: 50000000
+```
+
+**Benefits:**
+- ✅ Easier debugging of deposit rejections
+- ✅ Clear visibility into hardcap/capacity calculations
+- ✅ Better understanding of auto-adjustment logic
+- ✅ Helps identify race conditions or unexpected states
+
+---
 
 ### 2025-11-06 - 🔥 CRITICAL FIX: Double Counting Bug + Deprecate Old Methods
 
