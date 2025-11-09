@@ -512,11 +512,31 @@ module {
             
             switch (stepExecutors[stepIndex]) {
                 case (?executor) {
-                    // Get execution ID
-                    let executionIdResult = startStepExecution(stepIndex);
-                    let executionId = switch (executionIdResult) {
-                        case (#ok(id)) id;
-                        case (#err(msg)) return #err(msg);
+                    // Get current execution ID from state (should be set by startStepExecution)
+                    let executionId = switch (state) {
+                        case (?s) {
+                            if (stepIndex >= s.steps.size()) {
+                                return #err("Invalid step index");
+                            };
+                            let step = s.steps[stepIndex];
+                            switch (step.status) {
+                                case (#Running) {
+                                    // Step is running, get last execution ID from history
+                                    let historyArray = Buffer.toArray(executionHistory);
+                                    if (historyArray.size() > 0) {
+                                        historyArray[historyArray.size() - 1]
+                                    } else {
+                                        return #err("No execution ID found");
+                                    };
+                                };
+                                case (_) {
+                                    return #err("Step not in running state - call startStepExecution() first");
+                                };
+                            };
+                        };
+                        case (null) {
+                            return #err("Pipeline not initialized");
+                        };
                     };
                     
                     // Execute the custom function with proper error handling
@@ -977,7 +997,11 @@ module {
         
         // ================ FUND COLLECTION EXECUTOR ================
         
-        /// Collect funds from subaccounts to launchpad
+        /// Collect funds from subaccounts to launchpad (SMART VERSION)
+        /// SMART LOGIC:
+        /// - If deposits were via ICRC-2 approve/transferFrom → funds already in launchpad → skip collection
+        /// - If deposits were via legacy transfer → funds in participant subaccounts → collect them
+        /// - IDEMPOTENCY: If main account already has funds → skip collection (already done)
         public func createCollectFundsExecutor() : StepExecutor {
             func(executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
                 Debug.print("💰 Collecting funds from subaccounts...");
@@ -1023,18 +1047,19 @@ module {
                     ).0;
                 };
                 
+                // IDEMPOTENCY CHECK #1: Check main account balance first
+                Debug.print("🔍 Checking launchpad main account balance...");
                 let fundManager = FundManager.FundManager(
                     launchpadConfig.purchaseToken.canisterId,
                     launchpadConfig.purchaseToken.transferFee,
                     launchpadPrincipal
                 );
                 
-                let batchResult = await fundManager.processBatchTransfers(
-                    participantsTrie,
-                    #ToLaunchpad,
-                    executionId,
-                    10
-                );
+                let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(launchpadConfig.purchaseToken.canisterId));
+                let mainAccount: ICRCTypes.Account = {
+                    owner = launchpadPrincipal;
+                    subaccount = null;
+                };
                 
                 if (batchResult.successCount == 0 and batchResult.failedCount > 0) {
                     return #err("Failed to collect funds from subaccounts");

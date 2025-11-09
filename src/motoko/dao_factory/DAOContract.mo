@@ -4310,6 +4310,10 @@ shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoSt
 
         Debug.print("🔓 CONTRACT UNLOCKED - Upgrade completed successfully to version " # debug_show(newVersion));
 
+        // CRITICAL: Restart timers after upgrade
+        await _restoreTimersAfterUpgrade();
+        Debug.print("🔄 Proposal and delegation timers restarted after upgrade");
+
         #ok(())
     };
 
@@ -4339,6 +4343,10 @@ shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoSt
 
         Debug.print("🔓 CONTRACT UNLOCKED - Upgrade cancelled: " # reason);
 
+        // CRITICAL: Restart timers after cancellation
+        await _restoreTimersAfterUpgrade();
+        Debug.print("🔄 Proposal and delegation timers restarted after upgrade cancellation");
+
         #ok(())
     };
 
@@ -4364,6 +4372,10 @@ shared ({ caller = factory }) persistent actor class DAO(init : Types.BasicDaoSt
         upgradeRequestId := null;
 
         Debug.print("🚨 EMERGENCY UNLOCK by " # Principal.toText(caller));
+
+        // CRITICAL: Restart timers after emergency unlock
+        await _restoreTimersAfterUpgrade();
+        Debug.print("🔄 Proposal and delegation timers restarted after emergency unlock");
 
         #ok(())
     };
