@@ -458,6 +458,80 @@ export class LaunchpadService {
   }
 
   // ==================================================================================================
+  // PIPELINE MONITORING
+  // ==================================================================================================
+
+  async getPipelineProgress(canisterId: string): Promise<{
+    success: boolean
+    data?: {
+      status: string
+      processingState: any
+      isSuccess: boolean
+      steps: Array<{
+        name: string
+        stage: string
+        status: string
+        progress: number
+        errorMessage?: string
+      }>
+      overallProgress: number
+      canRetry: boolean
+    }
+    error?: string
+  }> {
+    try {
+      const launchpadActor = this.getLaunchpadActorAnonymous(canisterId)
+      const result = await launchpadActor.getPipelineProgress()
+      
+      return {
+        success: true,
+        data: {
+          status: Object.keys(result.status)[0],
+          processingState: result.processingState,
+          isSuccess: result.isSuccess,
+          steps: result.steps.map((step: any) => ({
+            name: step.name,
+            stage: step.stage,
+            status: step.status,
+            progress: Number(step.progress),
+            errorMessage: step.errorMessage[0] || undefined
+          })),
+          overallProgress: Number(result.overallProgress),
+          canRetry: result.canRetry
+        }
+      }
+    } catch (error) {
+      console.error('Error getting pipeline progress:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to get pipeline progress'
+      }
+    }
+  }
+
+  async adminForceRestartPipeline(canisterId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const launchpadActor = this.getLaunchpadActor(canisterId, true)
+      const result = await launchpadActor.adminForceRestartPipeline()
+      
+      if ('ok' in result) {
+        return { success: true }
+      } else {
+        return {
+          success: false,
+          error: result.err
+        }
+      }
+    } catch (error) {
+      console.error('Error restarting pipeline:', error)
+      return {
+        success: false,
+        error: 'Failed to restart pipeline'
+      }
+    }
+  }
+
+  // ==================================================================================================
   // SECURITY & MONITORING
   // ==================================================================================================
 

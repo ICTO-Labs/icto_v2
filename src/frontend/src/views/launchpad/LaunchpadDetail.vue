@@ -1071,9 +1071,12 @@ const authStore = useAuthStore()
 const loading = ref(true) // Initial page load
 const refreshingStats = ref(false) // Refreshing data (show skeleton)
 const statsUpdateKey = ref(0) // Key to trigger flash animation
-const autoRefreshEnabled = ref(true) // Auto-refresh toggle
 const autoRefreshInterval = ref<number | null>(null) // Interval ID
 const error = ref<string | null>(null)
+
+// Auto-refresh state (load from localStorage per launchpad)
+const getAutoRefreshKey = () => `launchpad_auto_refresh_${canisterId.value}`
+const autoRefreshEnabled = ref(true) // Default true, will be loaded from localStorage
 const launchpad = ref<LaunchpadDetail | null>(null)
 const activeTab = ref('overview')
 const projectImages = ref<{ logo?: string; cover?: string }>({})  // Fetch separately to avoid large payload
@@ -2248,27 +2251,44 @@ watch(activeTab, async (newTab) => {
 
 // Auto-refresh functions
 const startAutoRefresh = () => {
-	if (autoRefreshInterval.value) return // Already running
+	// Stop existing interval first
+	stopAutoRefresh()
 	
 	console.log('🔄 Starting auto-refresh (10s interval)')
 	autoRefreshInterval.value = window.setInterval(async () => {
-		if (autoRefreshEnabled.value && !loading.value) {
+		// Double check enabled state
+		if (!autoRefreshEnabled.value) {
+			console.log('⚠️ Auto-refresh disabled, stopping interval')
+			stopAutoRefresh()
+			return
+		}
+		
+		if (!loading.value) {
 			console.log('🔄 Auto-refresh triggered')
 			await refreshStats(true) // Silent refresh
 		}
 	}, 10000) // 10 seconds
+	
+	console.log('✅ Auto-refresh interval ID:', autoRefreshInterval.value)
 }
 
 const stopAutoRefresh = () => {
 	if (autoRefreshInterval.value) {
-		console.log('⏸️ Stopping auto-refresh')
+		console.log('⏸️ Stopping auto-refresh, interval ID:', autoRefreshInterval.value)
 		clearInterval(autoRefreshInterval.value)
 		autoRefreshInterval.value = null
+		console.log('✅ Auto-refresh stopped')
 	}
 }
 
 const toggleAutoRefresh = () => {
 	autoRefreshEnabled.value = !autoRefreshEnabled.value
+	
+	// Save to localStorage
+	if (canisterId.value) {
+		localStorage.setItem(getAutoRefreshKey(), String(autoRefreshEnabled.value))
+		console.log('💾 Saved auto-refresh state:', autoRefreshEnabled.value, 'for', canisterId.value)
+	}
 	
 	if (autoRefreshEnabled.value) {
 		startAutoRefresh()
@@ -2279,25 +2299,32 @@ const toggleAutoRefresh = () => {
 	}
 }
 
-// Watch auto-refresh toggle
-watch(autoRefreshEnabled, (enabled) => {
-	if (enabled) {
-		startAutoRefresh()
-	} else {
-		stopAutoRefresh()
+// Load auto-refresh state from localStorage
+const loadAutoRefreshState = () => {
+	if (!canisterId.value) return
+	
+	const saved = localStorage.getItem(getAutoRefreshKey())
+	if (saved !== null) {
+		autoRefreshEnabled.value = saved === 'true'
+		console.log('📂 Loaded auto-refresh state:', autoRefreshEnabled.value, 'for', canisterId.value)
 	}
-})
+}
 
 // Lifecycle
 onMounted(() => {
+	// Load auto-refresh state from localStorage first
+	loadAutoRefreshState()
+	
 	fetchData()
 	if (authStore.isConnected) {
 		fetchUserPassportScore()
 		fetchUserParticipation()
 	}
 	
-	// Start auto-refresh
-	startAutoRefresh()
+	// Start auto-refresh only if enabled
+	if (autoRefreshEnabled.value) {
+		startAutoRefresh()
+	}
 })
 
 onUnmounted(() => {
