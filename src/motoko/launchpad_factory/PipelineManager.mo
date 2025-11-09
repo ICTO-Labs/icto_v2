@@ -22,12 +22,11 @@ import Option "mo:base/Option";
 import Buffer "mo:base/Buffer";
 import Debug "mo:base/Debug";
 import Error "mo:base/Error";
-import Hash "mo:base/Hash";
 import Blob "mo:base/Blob";
 
 import LaunchpadTypes "../shared/types/LaunchpadTypes";
-import ICRCTypes "../shared/types/ICRC";
 import Trie "mo:base/Trie";
+import ICRCTypes "../shared/types/ICRC";
 
 // Import executor modules
 import FundManager "./modules/FundManager";
@@ -505,6 +504,7 @@ module {
         // ================ CUSTOM STEP EXECUTION ================
 
         /// Execute a custom step by calling its registered executor
+        /// This function handles the complete step lifecycle: start → execute → complete/fail → release lock
         public func executeCustomStep(stepIndex: Nat) : async Result.Result<StepResultData, Text> {
             if (stepIndex >= stepExecutors.size()) {
                 return #err("Invalid step index");
@@ -519,12 +519,54 @@ module {
                         case (#err(msg)) return #err(msg);
                     };
                     
-                    // Execute the custom function
+                    // Execute the custom function with proper error handling
                     try {
                         let result = await executor(executionId);
-                        result
+                        
+                        // Handle result and manage lock
+                        switch (result) {
+                            case (#ok(stepData)) {
+                                // Complete step successfully and release lock
+                                let _ = completeStepExecution(stepIndex, executionId, stepData, []);
+                                #ok(stepData)
+                            };
+                            case (#err(errorMsg)) {
+                                // Fail step and release lock
+                                let _ = failStepExecution(stepIndex, executionId, errorMsg);
+                                #err(errorMsg)
+                            };
+                        }
                     } catch (error) {
-                        #err(Error.message(error))
+                        let errorMsg = Error.message(error);
+                        _logError("Step execution exception: " # errorMsg);
+                        
+                        // CRITICAL: Update step status to Failed before releasing lock
+                        switch (state) {
+                            case (?currentState) {
+                                if (stepIndex < currentState.steps.size()) {
+                                    let step = currentState.steps[stepIndex];
+                                    let updatedStep = {
+                                        step with
+                                        status = #Failed(errorMsg);
+                                        lastAttemptTime = Time.now();
+                                        lastError = ?errorMsg;
+                                    };
+                                    let updatedSteps = _updateStepArray(currentState.steps, stepIndex, updatedStep);
+                                    state := ?{
+                                        currentState with
+                                        steps = updatedSteps;
+                                    };
+                                };
+                            };
+                            case null {};
+                        };
+                        
+                        // CRITICAL: Release lock on exception
+                        executionLock := false;
+                        lockOwner := null;
+                        lockTimestamp := 0;
+                        
+                        #err(errorMsg)
                     }
                 };
                 case null {
@@ -940,6 +982,36 @@ module {
             func(executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
                 Debug.print("💰 Collecting funds from subaccounts...");
                 
+                // IDEMPOTENCY CHECK: If launchpad main account already has significant balance,
+                // assume funds were already collected (via ICRC-2 transfer_from or previous run)
+                let feeToken : ICRCTypes.ICRCLedger = actor(Principal.toText(launchpadConfig.purchaseToken.canisterId));
+                let mainAccountBalance = await feeToken.icrc1_balance_of({
+                    owner = launchpadPrincipal;
+                    subaccount = null;
+                });
+                
+                // Calculate expected total from participants
+                var expectedTotal : Nat = 0;
+                for ((_, participant) in participants.vals()) {
+                    expectedTotal += participant.totalContribution;
+                };
+                
+                Debug.print("   Main account balance: " # Nat.toText(mainAccountBalance));
+                Debug.print("   Expected total: " # Nat.toText(expectedTotal));
+                
+                // If main account has >= 80% of expected funds, skip collection
+                if (mainAccountBalance >= (expectedTotal * 80 / 100)) {
+                    Debug.print("✅ Funds already in main account (ICRC-2 or previous collection), skipping subaccount collection");
+                    return #ok(#FeesProcessed({
+                        amount = mainAccountBalance;
+                        txId = executionId # "_skipped";
+                        blockIndex = 0;
+                    }));
+                };
+                
+                // Otherwise, proceed with subaccount collection
+                Debug.print("   Collecting from participant subaccounts...");
+                
                 // Convert participants from array to Trie
                 var participantsTrie = Trie.empty<Text, LaunchpadTypes.Participant>();
                 for ((key, participant) in participants.vals()) {
@@ -965,8 +1037,10 @@ module {
                 );
                 
                 if (batchResult.successCount == 0 and batchResult.failedCount > 0) {
-                    return #err("Failed to collect funds");
+                    return #err("Failed to collect funds from subaccounts");
                 };
+                
+                Debug.print("✅ Collected " # Nat.toText(batchResult.totalAmount) # " tokens from " # Nat.toText(batchResult.successCount) # " participants");
                 
                 #ok(#FeesProcessed({
                     amount = batchResult.totalAmount;

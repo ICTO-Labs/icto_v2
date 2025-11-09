@@ -1448,15 +1448,17 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         // CRITICAL FIX: Check BEFORE acquiring lock (async call outside lock)
         let eligibilityResult = await _checkParticipationEligibility(caller, amount);
         
-        switch (eligibilityResult) {
+        let adjustmentInfo = switch (eligibilityResult) {
             case (#err(msg)) {
                 _releaseUserReentrancyLock(caller);
                 return #err(msg);
             };
-            case (#ok()) {
-                // Eligibility passed, continue to reserve
-            };
+            case (#ok(info)) info;
         };
+        
+        // Use adjusted amount from eligibility check
+        let finalAmount = adjustmentInfo.adjustedAmount;
+        let refundAmount = adjustmentInfo.refundAmount;
         
         // ============================================
         // STEP 3: Acquire lock + reserve capacity (FAST!)
@@ -1474,16 +1476,17 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         
         // CRITICAL FIX: Re-check eligibility inside lock (race condition protection)
         // Between first check and lock acquisition, state may have changed
-        switch (_checkParticipationEligibilitySync(caller, amount)) {
+        let recheckResult = _checkParticipationEligibilitySync(caller, finalAmount);
+        switch (recheckResult) {
             case (#err(msg)) {
                 _releaseGlobalDepositLock();
                 _releaseUserReentrancyLock(caller);
                 return #err(msg);
             };
-            case (#ok()) {
-                // Reserve capacity OPTIMISTICALLY
-                totalRaised += amount;
-                Debug.print("✅ Reserved " # Nat.toText(amount) # " capacity (totalRaised: " # Nat.toText(totalRaised) # ")");
+            case (#ok(_)) {
+                // Reserve capacity OPTIMISTICALLY (use finalAmount, not original amount)
+                totalRaised += finalAmount;
+                Debug.print("✅ Reserved " # Nat.toText(finalAmount) # " capacity (totalRaised: " # Nat.toText(totalRaised) # ")");
             };
         };
         
@@ -1502,6 +1505,9 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         );
         
         Debug.print("📥 Pulling " # Nat.toText(amount) # " tokens from user via icrc2_transfer_from...");
+        if (finalAmount < amount) {
+            Debug.print("   ℹ️ Note: Will refund " # Nat.toText(refundAmount) # " tokens after transfer (deposit adjusted)");
+        };
         
         let transferResult = try {
             await ledger.icrc2_transfer_from({
@@ -1514,17 +1520,17 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                     subaccount = ?subAccountBlob;
                 };
                 spender_subaccount = null;
-                amount = amount;
+                amount = amount;  // Transfer full amount first
                 fee = null;
                 memo = null;
                 created_at_time = null;
             })
         } catch (error) {
-            // Transfer failed - ROLLBACK capacity
+            // Transfer failed - ROLLBACK capacity (use finalAmount for rollback)
             Debug.print("❌ Transfer failed (exception) - rolling back capacity");
             Debug.print("   Error: " # Error.message(error));
             Debug.print("   Current totalRaised: " # Nat.toText(totalRaised));
-            Debug.print("   Amount to rollback: " # Nat.toText(amount));
+            Debug.print("   Amount to rollback: " # Nat.toText(finalAmount));
             
             // CRITICAL FIX: ENSURE rollback happens
             var rollbackAttempts = 0;
@@ -1538,15 +1544,15 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 let rollbackResult = _acquireGlobalDepositLock();
                 switch (rollbackResult) {
                     case (#ok()) {
-                        // Defensive check
-                        if (totalRaised >= amount) {
-                            totalRaised -= amount;
+                        // Defensive check (rollback finalAmount, not original amount)
+                        if (totalRaised >= finalAmount) {
+                            totalRaised := Nat.sub(totalRaised, finalAmount);
                             rollbackSuccess := true;
-                            Debug.print("↩️  ✅ Rolled back " # Nat.toText(amount) # " (totalRaised: " # Nat.toText(totalRaised) # ")");
+                            Debug.print("↩️  ✅ Rolled back " # Nat.toText(finalAmount) # " (totalRaised: " # Nat.toText(totalRaised) # ")");
                         } else {
-                            Debug.print("🚨 CRITICAL: totalRaised < amount! Cannot rollback!");
+                            Debug.print("🚨 CRITICAL: totalRaised < finalAmount! Cannot rollback!");
                             Debug.print("   totalRaised: " # Nat.toText(totalRaised));
-                            Debug.print("   amount: " # Nat.toText(amount));
+                            Debug.print("   finalAmount: " # Nat.toText(finalAmount));
                         };
                         _releaseGlobalDepositLock();
                     };
@@ -1573,24 +1579,49 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case (#Ok(blockIndex)) {
                 Debug.print("✅ Transfer successful! Block: " # Nat.toText(blockIndex));
                 
-                // Create transaction record
+                // If there's excess amount, process instant refund
+                if (refundAmount > 0) {
+                    Debug.print("💸 Processing instant refund for excess amount: " # Nat.toText(refundAmount));
+                    let refundResult = await _processInstantRefund(caller, refundAmount);
+                    switch (refundResult) {
+                        case (#ok(refundBlockIndex)) {
+                            Debug.print("✅ Instant refund successful! Block: " # Nat.toText(refundBlockIndex));
+                        };
+                        case (#err(msg)) {
+                            Debug.print("⚠️ Instant refund failed: " # msg);
+                            Debug.print("   User can manually withdraw via withdrawFromSubaccount()");
+                        };
+                    };
+                };
+                
+                // Create transaction record (for finalAmount only, not full amount)
+                let depositNotes: ?Text = switch (adjustmentInfo.reason) {
+                    case (?reason) {
+                        let msg = "Deposit via ICRC-2: " # reason;
+                        ?msg
+                    };
+                    case (null) {
+                        ?"Deposit via ICRC-2 (optimistic locking)"
+                    };
+                };
+                
                 let transaction: LaunchpadTypes.Transaction = {
                     id = _generateTransactionId();
                     participant = caller;
                     txType = #Purchase;
-                    amount = amount;
+                    amount = finalAmount;  // Record finalAmount, not original amount
                     token = config.purchaseToken.canisterId;
                     timestamp = Time.now();
                     blockIndex = ?blockIndex;
                     fee = config.purchaseToken.transferFee;
                     status = #Confirmed;
                     affiliateCode = affiliateCode;
-                    notes = ?"Deposit via ICRC-2 (optimistic locking)";
+                    notes = depositNotes;
                 };
                 
-                // Process purchase (update participant stats)
+                // Process purchase (update participant stats) - use finalAmount
                 // NOTE: totalRaised already updated via optimistic locking above
-                let purchaseResult = await _processPurchase(caller, amount, affiliateCode, transaction);
+                let purchaseResult = await _processPurchase(caller, finalAmount, affiliateCode, transaction);
                 
                 switch (purchaseResult) {
                     case (#err(msg)) {
@@ -1609,7 +1640,10 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                         updatedAt := Time.now();
                         
                         Debug.print("✅ Deposit completed successfully!");
-                        Debug.print("   Amount: " # Nat.toText(amount));
+                        Debug.print("   Final amount: " # Nat.toText(finalAmount));
+                        if (refundAmount > 0) {
+                            Debug.print("   Refunded amount: " # Nat.toText(refundAmount));
+                        };
                         Debug.print("   Block: " # Nat.toText(blockIndex));
                         Debug.print("   Total raised: " # Nat.toText(totalRaised));
                         
@@ -1619,10 +1653,10 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 };
             };
             case (#Err(err)) {
-                // Transfer failed - ROLLBACK capacity
+                // Transfer failed - ROLLBACK capacity (use finalAmount)
                 Debug.print("❌ Transfer failed (result error): " # debug_show(err));
                 Debug.print("   Current totalRaised: " # Nat.toText(totalRaised));
-                Debug.print("   Amount to rollback: " # Nat.toText(amount));
+                Debug.print("   Amount to rollback: " # Nat.toText(finalAmount));
                 
                 // CRITICAL FIX: ENSURE rollback happens
                 var rollbackAttempts = 0;
@@ -1636,15 +1670,15 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                     let rollbackResult = _acquireGlobalDepositLock();
                     switch (rollbackResult) {
                         case (#ok()) {
-                            // Defensive check
-                            if (totalRaised >= amount) {
-                                totalRaised -= amount;
+                            // Defensive check (rollback finalAmount, not original amount)
+                            if (totalRaised >= finalAmount) {
+                                totalRaised := Nat.sub(totalRaised, finalAmount);
                                 rollbackSuccess := true;
-                                Debug.print("↩️  ✅ Rolled back " # Nat.toText(amount) # " (totalRaised: " # Nat.toText(totalRaised) # ")");
+                                Debug.print("↩️  ✅ Rolled back " # Nat.toText(finalAmount) # " (totalRaised: " # Nat.toText(totalRaised) # ")");
                             } else {
-                                Debug.print("🚨 CRITICAL: totalRaised < amount! Cannot rollback!");
+                                Debug.print("🚨 CRITICAL: totalRaised < finalAmount! Cannot rollback!");
                                 Debug.print("   totalRaised: " # Nat.toText(totalRaised));
-                                Debug.print("   amount: " # Nat.toText(amount));
+                                Debug.print("   finalAmount: " # Nat.toText(finalAmount));
                             };
                             _releaseGlobalDepositLock();
                         };
@@ -2054,9 +2088,20 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
 
     // SYNC version for use inside global lock (no await)
-    private func _checkParticipationEligibilitySync(participant: Principal, amount: Nat) : Result.Result<(), Text> {
+    // Returns adjusted amount and refund amount if deposit exceeds limits
+    private func _checkParticipationEligibilitySync(participant: Principal, amount: Nat) : Result.Result<{
+        adjustedAmount: Nat;
+        refundAmount: Nat;
+        reason: ?Text;
+    }, Text> {
+        Debug.print("🔍 Checking eligibility for " # Principal.toText(participant));
+        Debug.print("   Requested amount: " # Nat.toText(amount));
+        Debug.print("   Current totalRaised: " # Nat.toText(totalRaised));
+        Debug.print("   Hard cap: " # Nat.toText(hardCapInSmallestUnit()));
+        
         // Check sale is active
         if (status != #SaleActive and status != #WhitelistOpen) {
+            Debug.print("❌ Sale not active - current status: " # LaunchpadTypes.statusToText(status));
             return #err("Sale not active");
         };
         
@@ -2080,7 +2125,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 };
                 
                 let availableForUser = if (maxContributionInSmallestUnit > existingContribution) {
-                    maxContributionInSmallestUnit - existingContribution
+                    Nat.sub(maxContributionInSmallestUnit, existingContribution)
                 } else {
                     0
                 };
@@ -2102,12 +2147,16 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         
         // Check 2: Hard cap (global limit)
         let availableCapacity = if (hardCapInSmallestUnit() > totalRaised) {
-            hardCapInSmallestUnit() - totalRaised
+            Nat.sub(hardCapInSmallestUnit(), totalRaised)
         } else {
             0
         };
         
         if (availableCapacity == 0) {
+            Debug.print("❌ Hard cap reached - rejecting deposit");
+            Debug.print("   Total raised: " # Nat.toText(totalRaised));
+            Debug.print("   Hard cap: " # Nat.toText(hardCapInSmallestUnit()));
+            Debug.print("   Available: 0");
             return #err("Hard cap already reached - sale is full");
         };
         
@@ -2160,6 +2209,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             case null {};
         };
 
+        Debug.print("✅ Eligibility check passed");
+        Debug.print("   Final amount: " # Nat.toText(adjustedAmount));
+        if (refundAmount > 0) {
+            Debug.print("   Will refund: " # Nat.toText(refundAmount));
+        };
+        
         #ok({
             adjustedAmount = adjustedAmount;
             refundAmount = refundAmount;
@@ -2168,7 +2223,11 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     };
     
     // ASYNC version (calls sync version)
-    private func _checkParticipationEligibility(participant: Principal, amount: Nat) : async Result.Result<(), Text> {
+    private func _checkParticipationEligibility(participant: Principal, amount: Nat) : async Result.Result<{
+        adjustedAmount: Nat;
+        refundAmount: Nat;
+        reason: ?Text;
+    }, Text> {
         _checkParticipationEligibilitySync(participant, amount)
     };
 
@@ -2432,38 +2491,129 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
     
     // Helper: Get step status for frontend display
     private func _getStepStatus(stepIndex: Nat) : Text {
-        switch (processingState) {
-            case (#Processing(state)) {
-                if (state.processedCount > stepIndex) {
-                    "completed"
-                } else if (state.processedCount == stepIndex) {
-                    "processing"
-                } else {
-                    "pending"
+        // Get pipeline manager to check actual step status
+        let pipelineManager = switch (deploymentPipelineManager, refundPipelineManager) {
+            case (?dm, _) ?dm;
+            case (_, ?rm) ?rm;
+            case _ null;
+        };
+
+        switch (pipelineManager) {
+            case (?manager) {
+                let pipelineState = manager.getState();
+                switch (pipelineState) {
+                    case (?state) {
+                        if (stepIndex < state.steps.size()) {
+                            let step = state.steps[stepIndex];
+                            switch (step.status) {
+                                case (#Success) "completed";
+                                case (#Running) "processing";
+                                case (#Failed(_)) "failed";
+                                case (#Pending) "pending";
+                                case (#Skipped) "completed";
+                                case (#WaitingApproval) "processing";
+                                case (#TimedOut) "failed";
+                            }
+                        } else {
+                            "pending"
+                        }
+                    };
+                    case null "pending";
                 }
             };
-            case (#Completed) "completed";
-            case (#Failed(_)) {
+            case null {
+                // Fallback to old logic if no pipeline manager
                 switch (processingState) {
                     case (#Processing(state)) {
-                        if (state.processedCount > stepIndex) "completed"
-                        else if (state.processedCount == stepIndex) "failed"
-                        else "pending"
+                        if (state.processedCount > stepIndex) {
+                            "completed"
+                        } else if (state.processedCount == stepIndex) {
+                            "processing"
+                        } else {
+                            "pending"
+                        }
                     };
-                    case _ "failed";
+                    case (#Completed) "completed";
+                    case (#Failed(_)) "failed";
+                    case (#Idle) "pending";
+                    case (_) "pending";  // Catch-all for any other variants
                 }
             };
-            case (#Idle) "pending";
         }
     };
 
     // Helper: Get step progress percentage
     private func _getStepProgress(stepIndex: Nat) : Nat8 {
-        let stepStatus = _getStepStatus(stepIndex);
-        if (stepStatus == "completed") 100
-        else if (stepStatus == "processing") 50
-        else if (stepStatus == "failed") 0
-        else 0  // pending
+        // Get pipeline manager to check actual step status
+        let pipelineManager = switch (deploymentPipelineManager, refundPipelineManager) {
+            case (?dm, _) ?dm;
+            case (_, ?rm) ?rm;
+            case _ null;
+        };
+
+        switch (pipelineManager) {
+            case (?manager) {
+                let pipelineState = manager.getState();
+                switch (pipelineState) {
+                    case (?state) {
+                        if (stepIndex < state.steps.size()) {
+                            let step = state.steps[stepIndex];
+                            switch (step.status) {
+                                case (#Success) 100;
+                                case (#Running) 50;
+                                case (#Failed(_)) 0;
+                                case (#Pending) 0;
+                                case (#Skipped) 100;
+                                case (#WaitingApproval) 25;
+                                case (#TimedOut) 0;
+                                case (_) 0;  // Catch-all for any other variants
+                            }
+                        } else {
+                            0
+                        }
+                    };
+                    case null 0;
+                }
+            };
+            case null {
+                // Fallback
+                let stepStatus = _getStepStatus(stepIndex);
+                if (stepStatus == "completed") 100
+                else if (stepStatus == "processing") 50
+                else if (stepStatus == "failed") 0
+                else 0  // pending
+            };
+        }
+    };
+
+    // Helper: Get step error message
+    private func _getStepError(stepIndex: Nat) : ?Text {
+        let pipelineManager = switch (deploymentPipelineManager, refundPipelineManager) {
+            case (?dm, _) ?dm;
+            case (_, ?rm) ?rm;
+            case _ null;
+        };
+
+        switch (pipelineManager) {
+            case (?manager) {
+                let pipelineState = manager.getState();
+                switch (pipelineState) {
+                    case (?state) {
+                        if (stepIndex < state.steps.size()) {
+                            let step = state.steps[stepIndex];
+                            switch (step.status) {
+                                case (#Failed(msg)) ?msg;
+                                case _ step.lastError;
+                            }
+                        } else {
+                            null
+                        }
+                    };
+                    case null null;
+                }
+            };
+            case null null;
+        }
     };
 
     // Helper: Get refund error message if any
@@ -2514,12 +2664,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let steps = if (isSuccess) {
             // SUCCESS PIPELINE: 6 steps
             [
-                { name = "Collect Funds"; stage = "token_deployment"; status = _getStepStatus(0); progress = _getStepProgress(0); errorMessage = null },
-                { name = "Deploy Token"; stage = "token_deployment"; status = _getStepStatus(1); progress = _getStepProgress(1); errorMessage = null },
-                { name = "Deploy Distribution"; stage = "vesting_setup"; status = _getStepStatus(2); progress = _getStepProgress(2); errorMessage = null },
-                { name = "Deploy DAO"; stage = "dao_deployment"; status = _getStepStatus(3); progress = _getStepProgress(3); errorMessage = null },
-                { name = "Setup DEX"; stage = "distribution"; status = _getStepStatus(4); progress = _getStepProgress(4); errorMessage = null },
-                { name = "Process Fees"; stage = "final_cleanup"; status = _getStepStatus(5); progress = _getStepProgress(5); errorMessage = null }
+                { name = "Collect Funds"; stage = "token_deployment"; status = _getStepStatus(0); progress = _getStepProgress(0); errorMessage = _getStepError(0) },
+                { name = "Deploy Token"; stage = "token_deployment"; status = _getStepStatus(1); progress = _getStepProgress(1); errorMessage = _getStepError(1) },
+                { name = "Deploy Distribution"; stage = "vesting_setup"; status = _getStepStatus(2); progress = _getStepProgress(2); errorMessage = _getStepError(2) },
+                { name = "Deploy DAO"; stage = "dao_deployment"; status = _getStepStatus(3); progress = _getStepProgress(3); errorMessage = _getStepError(3) },
+                { name = "Setup DEX"; stage = "distribution"; status = _getStepStatus(4); progress = _getStepProgress(4); errorMessage = _getStepError(4) },
+                { name = "Process Fees"; stage = "final_cleanup"; status = _getStepStatus(5); progress = _getStepProgress(5); errorMessage = _getStepError(5) }
             ]
         } else {
             // FAILED PIPELINE: 1 refund step (with detailed info)
@@ -2538,17 +2688,19 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             ]
         };
 
-        let overallProgress : Nat8 = switch (processingState) {
-            case (#Processing(state)) state.progress;
-            case (#Completed) 100;
-            case (#Failed(_)) {
-                // Calculate partial progress based on processedCount
+        // Calculate overall progress from pipeline manager if available
+        let overallProgress : Nat8 = switch (deploymentPipelineManager, refundPipelineManager) {
+            case (?dm, _) dm.getProgress();
+            case (_, ?rm) rm.getProgress();
+            case (null, null) {
+                // Fallback to processingState
                 switch (processingState) {
                     case (#Processing(state)) state.progress;
-                    case _ 0;
+                    case (#Completed) 100;
+                    case (#Failed(_)) 0;  // Failed = 0% progress
+                    case (#Idle) 0;
                 }
             };
-            case (#Idle) 0;
         };
 
         let canRetry = switch (pipelineExecutionState) {
@@ -2581,6 +2733,36 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 };
 
                 Debug.print("🔄 Retry from step " # Nat.toText(fromStep));
+                
+                // CRITICAL FIX: Release stale locks before retry
+                // This handles cases where pipeline was locked before upgrade/failure
+                switch (state.pipelineType) {
+                    case (#Deployment) {
+                        switch (deploymentPipelineManager) {
+                            case (?manager) {
+                                Debug.print("   Checking for stale locks...");
+                                let hadStaleLock = manager.checkAndReleaseStaleLock();
+                                if (hadStaleLock) {
+                                    Debug.print("   ✅ Released stale lock before retry");
+                                };
+                            };
+                            case null {};
+                        };
+                    };
+                    case (#Refund) {
+                        switch (refundPipelineManager) {
+                            case (?manager) {
+                                Debug.print("   Checking for stale locks...");
+                                let hadStaleLock = manager.checkAndReleaseStaleLock();
+                                if (hadStaleLock) {
+                                    Debug.print("   ✅ Released stale lock before retry");
+                                };
+                            };
+                            case null {};
+                        };
+                    };
+                };
+                
                 pipelineExecutionState := ?{ state with canRetry = false };
 
                 switch (state.pipelineType) {
@@ -2590,7 +2772,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                                 let result = await manager.executeCustomStep(fromStep);
                                 switch (result) {
                                     case (#ok(data)) {
-                                        ignore manager.completeStepExecution(fromStep, "retry", data, []);
+                                        // executeCustomStep already called completeStepExecution internally
                                         
                                         // Update participants with refund data
                                         switch (data) {
@@ -2637,8 +2819,8 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                                 label retryLoop while (i < 6) {
                                     let result = await manager.executeCustomStep(i);
                                     switch (result) {
-                                        case (#ok(data)) {
-                                            ignore manager.completeStepExecution(i, "retry", data, []);
+                                        case (#ok(_data)) {
+                                            // executeCustomStep already called completeStepExecution internally
                                             i += 1;
                                         };
                                         case (#err(e)) {
@@ -2661,17 +2843,31 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
     };
 
-    /// Admin force restart
+    /// Admin force restart pipeline
+    /// Resets pipeline state and triggers appropriate pipeline based on current status
     public shared({caller}) func adminForceRestartPipeline() : async Result.Result<(), Text> {
         if (not _isAuthorized(caller)) {
             return #err("Unauthorized");
         };
 
-        Debug.print("⚠️ Force restart");
+        Debug.print("⚠️ Admin force restart pipeline");
+        
+        // Reset pipeline state
         pipelineExecutionState := null;
         refundPipelineManager := null;
         deploymentPipelineManager := null;
-        await _processSaleEnd();
+        
+        // Determine which pipeline to run based on current status
+        let shouldRefund = (status == #Failed or totalRaised < softCapInSmallestUnit());
+        
+        if (shouldRefund) {
+            Debug.print("💸 Triggering refund pipeline...");
+            await _runRefundPipeline();
+        } else {
+            Debug.print("🚀 Triggering deployment pipeline...");
+            await _runDeploymentPipeline();
+        };
+        
         #ok(())
     };
 
@@ -2710,7 +2906,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             launchpadId,
             Principal.fromActor(this),
             participantsArray,
-            Principal.fromText("ulvla-h7777-77774-qaacq-cai"), // TODO: from config
+            Principal.fromText("u6s2n-gx777-77774-qaaba-cai"), // Backend canister (handles payment + deployment)
             creator
         );
         
@@ -2728,7 +2924,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         let _ = pipelineManager.initCustomPipeline([refundStep], #Refund);
         refundPipelineManager := ?pipelineManager;
         
-        // Execute
+        // Execute (executeCustomStep handles lock internally)
         let result = await pipelineManager.executeCustomStep(0);
         
         switch (result) {
@@ -2800,7 +2996,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             launchpadId,
             Principal.fromActor(this),
             participantsArray,
-            Principal.fromText("ulvla-h7777-77774-qaacq-cai"),
+            Principal.fromText("u6s2n-gx777-77774-qaaba-cai"), // Backend canister (handles payment + deployment)
             creator
         );
         
@@ -2859,19 +3055,19 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         label deployLoop while (stepIndex < steps.size()) {
             Debug.print("📍 Step " # Nat.toText(stepIndex + 1) # "/" # Nat.toText(steps.size()));
             
+            // Execute step (executeCustomStep handles complete lifecycle: start → execute → complete/fail → release lock)
             let result = await pipelineManager.executeCustomStep(stepIndex);
             
             switch (result) {
                 case (#ok(resultData)) {
-                    let _ = pipelineManager.completeStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), resultData, []);
+                    Debug.print("✅ Step " # Nat.toText(stepIndex + 1) # " completed successfully");
                     _updateProcessingProgress(stepIndex + 1, #FinalCleanup);
                     stepIndex += 1;
                 };
                 case (#err(error)) {
-                    let _ = pipelineManager.failStepExecution(stepIndex, executionId # "_" # Nat.toText(stepIndex), error);
                     _markPipelineFailed();
                     processingState := #Failed("Step " # Nat.toText(stepIndex) # " failed: " # error);
-                    Debug.print("❌ Pipeline failed at step " # Nat.toText(stepIndex));
+                    Debug.print("❌ Pipeline failed at step " # Nat.toText(stepIndex) # ": " # error);
                     break deployLoop;
                 };
             };
@@ -3433,7 +3629,49 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         
         #ok(())
     };
-    
+
+    /// Admin function to reset processing state
+    /// Useful when contract is stuck in Failed state and needs to be upgraded or reset
+    public shared({caller}) func adminResetProcessingState() : async Result.Result<(), Text> {
+        if (not _isAuthorized(caller)) {
+            _logSecurityEvent(#UnauthorizedAccess, caller, "Attempted to reset processing state", #Critical);
+            return #err("Unauthorized: Only authorized users can reset processing state");
+        };
+
+        let oldState = processingState;
+        let oldStateText = switch (oldState) {
+            case (#Idle) { "Idle" };
+            case (#Processing(details)) {
+                "Processing (stage: " # debug_show(details.stage) # ", progress: " # Nat8.toText(details.progress) # "%)"
+            };
+            case (#Completed) { "Completed" };
+            case (#Failed(err)) { "Failed: " # err };
+        };
+
+        // Reset to Idle
+        processingState := #Idle;
+        updatedAt := Time.now();
+
+        _logAdminAction(
+            "ADMIN_RESET_PROCESSING_STATE",
+            caller,
+            "Reset processing state from " # oldStateText # " to Idle",
+            true,
+            null
+        );
+
+        _logSecurityEvent(
+            #EmergencyAction,
+            caller,
+            "Admin reset processing state: " # oldStateText # " → Idle",
+            #Medium
+        );
+
+        Debug.print("✅ Admin reset processing state: " # oldStateText # " → Idle");
+
+        #ok(())
+    };
+
     // ================ EMERGENCY PAUSE ================
 
     public shared({caller}) func emergencyUnpause() : async Result.Result<(), Text> {
@@ -3600,14 +3838,15 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
 
         // Check 3: Cannot upgrade during active processing
+        // NOTE: We allow upgrades when Failed to enable bug fixes
         switch (processingState) {
             case (#Processing(_)) {
                 return #err("Cannot upgrade: Active processing in progress");
             };
-            case (#Failed(_)) {
-                return #err("Cannot upgrade: Processing failed, resolve first");
+            case _ {
+                // Allow upgrade when Idle, Completed, or Failed
+                // Failed state often needs upgrade to fix bugs
             };
-            case _ {};
         };
 
         // SECURITY FIX: Removed global reentrancy lock check
