@@ -11,6 +11,7 @@ import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Float "mo:base/Float";
 import Nat "mo:base/Nat";
+import Nat64 "mo:base/Nat64";
 import Error "mo:base/Error";
 // Import shared types (trust source)
 import DistributionTypes "../shared/types/DistributionTypes";
@@ -83,6 +84,18 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         case (#Upgrade(upgrade)) { upgrade.factory };
     };
 
+    let init_version: IUpgradeable.Version = switch (initArgs) {
+        case (#InitialSetup(setup)) {
+            Debug.print("📦 InitialSetup version: " # debug_show(setup.version));
+            setup.version
+        };
+        case (#Upgrade(upgrade)) {
+            // During upgrade, version is managed by VersionManager
+            // This is just the initial value, will be updated by completeUpgrade()
+            { major = 1; minor = 0; patch = 0 }
+        };
+    };
+
     let upgradeState: ?DistributionUpgradeTypes.DistributionRuntimeState = switch (initArgs) {
         case (#InitialSetup(_)) { null };
         case (#Upgrade(upgrade)) { ?upgrade.runtimeState };
@@ -105,8 +118,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         case (?state) { state.initialized };
     };
 
-    // Contract version for upgrade tracking
-    private var contractVersion: IUpgradeable.Version = { major = 1; minor = 0; patch = 0 };
+    // Contract version for upgrade tracking (passed from factory on fresh deploy)
+    private var contractVersion: IUpgradeable.Version = init_version;
 
     // ================ UPGRADE STATE MANAGEMENT ================
     // Contract self-locks when requesting upgrade, factory unlocks when done/failed/timeout
@@ -159,8 +172,10 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     private transient var whitelist: Trie.Trie<Principal, Bool> = Trie.empty();
     private transient var blacklist: Trie.Trie<Principal, Bool> = Trie.empty();
 
-    // Timer and token management
-    private var timerId: Nat = 0;
+    // Milestone timers (similar to Launchpad pattern)
+    private var distributionStartTimerId: ?Nat = null;  // Timer for auto-activation
+    private var distributionEndTimerId: ?Nat = null;     // Timer for auto-completion
+    private var balanceCheckTimerId: ?Nat = null;       // Recurring timer for balance checks (post-start)
     private var tokenCanister: ?ICRC.ICRCLedger = null;
 
     // ICTO Passport integration
@@ -189,9 +204,37 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
 
     // Initialize whitelist and participants from config on contract creation
     public shared({ caller }) func init() : async Result.Result<(), Text> {
-        if (not _isOwner(caller)) {
-            return #err("Unauthorized: Only owner can initialize distribution");
+        Debug.print("🔧 init() called by: " # Principal.toText(caller));
+        Debug.print("📋 Creator: " # Principal.toText(creator));
+        Debug.print("📋 Owner: " # Principal.toText(config.owner));
+        let factoryText = switch (factoryCanisterId) {
+            case (?factoryId) { Principal.toText(factoryId) };
+            case null { "null" };
         };
+        Debug.print("📋 Factory: " # factoryText);
+
+        // Allow factory, creator, or config.owner to initialize
+        let isFactory = switch (factoryCanisterId) {
+            case (?factoryId) {
+                let result = Principal.equal(caller, factoryId);
+                Debug.print("🔍 Factory check: caller == factory? " # debug_show(result));
+                result
+            };
+            case null {
+                Debug.print("🔍 Factory check: no factory configured");
+                false
+            };
+        };
+
+        let isOwner = _isOwner(caller);
+        Debug.print("🔍 Owner check: caller is owner? " # debug_show(isOwner));
+
+        if (not isOwner and not isFactory) {
+            Debug.print("❌ Authorization failed: caller is not owner or factory");
+            return #err("Unauthorized: Only owner or factory can initialize distribution");
+        };
+
+        Debug.print("✅ Authorization passed");
 
         if (initialized) {
             return #err("Distribution already initialized");
@@ -207,10 +250,11 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         // Initialize Launchpad features if linked
         _initializeLaunchpadFeatures();
 
-        // Start the timer
-        await startTimer();
+        // Setup milestone timers for automatic status transitions
+        await _setupMilestoneTimers();
 
         initialized := true;
+        Debug.print("✅ Manual initialization completed with milestone timers");
         #ok()
     };
 
@@ -268,6 +312,39 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         whitelistStable := [];
         blacklistStable := [];
         Debug.print("DistributionContract: Postupgrade completed");
+
+        // AUTO-INIT AND TIMER SETUP (Similar to Launchpad pattern)
+        // This ensures distribution is fully initialized and milestone timers run automatically
+        Debug.print("📍 postupgrade: Scheduling auto-init and timer setup...");
+        ignore Timer.setTimer<system>(
+            #seconds(1),  // 1 second delay to allow postupgrade to complete
+            func() : async () {
+                // If not initialized yet, auto-initialize
+                if (not initialized) {
+                    Debug.print("🔧 Auto-initializing distribution contract...");
+
+                    // Initialize token canister
+                    tokenCanister := ?actor(Principal.toText(config.tokenInfo.canisterId));
+                    transferFee := await _getTransferFee(tokenCanister);
+
+                    // Initialize whitelist and participants from config
+                    _initializeWhitelist();
+
+                    // Initialize Launchpad features if linked
+                    _initializeLaunchpadFeatures();
+
+                    initialized := true;
+                    Debug.print("✅ Auto-initialization completed");
+                };
+
+                // Setup milestone timers for automatic status transitions
+                // Uses one-time timers at exact timestamps (like Launchpad)
+                Debug.print("🔄 Setting up milestone timers...");
+                await _setupMilestoneTimers();
+
+                Debug.print("✅ postupgrade: Auto-init and timers configured");
+            }
+        );
 
         // Signal upgrade completion for factory detection
         Debug.print("UPGRADE_COMPLETED:" # Principal.toText(Principal.fromActor(self)) # ":" # debug_show(contractVersion));
@@ -529,15 +606,218 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         }
     };
     
-    private func _checkStartTime() : async () {
-        if (Time.now() >= config.distributionStart and status == #Created and initialized) {
-            ignore {
-                let contractBalance = await _getContractTokenBalance();
-                if (contractBalance >= config.totalAmount) {
-                    ignore activate();
+    // ================ MILESTONE TIMER MANAGEMENT (Similar to Launchpad) ================
+
+    /// Setup milestone timers for automatic status transitions
+    /// Uses one-time timers at exact timestamps instead of recurring checks
+    private func _setupMilestoneTimers() : async () {
+        let now = Time.now();
+
+        Debug.print("⏰ Setting up distribution milestone timers...");
+        Debug.print("   Current time: " # Int.toText(now));
+        Debug.print("   Distribution start: " # Int.toText(config.distributionStart));
+
+        // Timer 1: Distribution Start (Activate)
+        if (config.distributionStart > now and distributionStartTimerId == null) {
+            let nanosUntilStart = config.distributionStart - now;
+            let secondsUntilStart = nanosUntilStart / 1_000_000_000;
+            Debug.print("   ⏰ Setting timer for ACTIVATION in " # Int.toText(secondsUntilStart) # " seconds");
+
+            distributionStartTimerId := ?Timer.setTimer<system>(
+                #nanoseconds(Int.abs(nanosUntilStart)),
+                func() : async () {
+                    await _updateStatusToActive();
+                    distributionStartTimerId := null; // Clear after execution
+                }
+            );
+        } else if (config.distributionStart <= now) {
+            Debug.print("   ⏭️ Distribution start time already passed - checking activation now");
+            // Immediately check if we should activate
+            await _updateStatusToActive();
+        };
+
+        // Timer 2: Distribution End (Complete) - if configured
+        switch (config.distributionEnd) {
+            case (?endTime) {
+                Debug.print("   Distribution end: " # Int.toText(endTime));
+                if (endTime > now and distributionEndTimerId == null) {
+                    let nanosUntilEnd = endTime - now;
+                    let secondsUntilEnd = nanosUntilEnd / 1_000_000_000;
+                    Debug.print("   ⏰ Setting timer for COMPLETION in " # Int.toText(secondsUntilEnd) # " seconds");
+
+                    distributionEndTimerId := ?Timer.setTimer<system>(
+                        #nanoseconds(Int.abs(nanosUntilEnd)),
+                        func() : async () {
+                            await _updateStatusToCompleted();
+                            distributionEndTimerId := null; // Clear after execution
+                        }
+                    );
+                } else if (endTime <= now) {
+                    Debug.print("   ⏭️ Distribution end time already passed - no timer needed");
                 };
             };
+            case null {
+                Debug.print("   ℹ️ Distribution end time not configured");
+            };
         };
+
+        Debug.print("✅ Milestone timers setup complete");
+    };
+
+    /// Update status to Active (called by timer at distributionStart)
+    private func _updateStatusToActive() : async () {
+        if (status != #Created) {
+            Debug.print("⏭️ Already past Created status, skipping activation");
+            return;
+        };
+
+        if (not initialized) {
+            Debug.print("⚠️ Cannot activate: not initialized yet");
+            return;
+        };
+
+        Debug.print("🔄 Auto-activating distribution...");
+
+        // Check contract has sufficient token balance
+        let contractBalance = await _getContractTokenBalance();
+        if (contractBalance < config.totalAmount) {
+            Debug.print("⚠️ Cannot activate: Insufficient balance");
+            Debug.print("   Required: " # debug_show(config.totalAmount) # " " # config.tokenInfo.symbol);
+            Debug.print("   Available: " # debug_show(contractBalance / E8S) # " " # config.tokenInfo.symbol);
+
+            // Start recurring balance check if not already running
+            await _setupRecurringBalanceCheck();
+            return;
+        };
+
+        status := #Active;
+        Debug.print("✅ Distribution activated automatically at: " # Int.toText(Time.now()));
+
+        // Cancel balance check timer if running (no longer needed)
+        _cancelBalanceCheckTimer();
+    };
+
+    /// Setup recurring balance check for post-start activation attempts
+    /// This ensures that distributions can still activate even if tokens arrive late
+    ///
+    /// TRIGGER CONDITIONS:
+    /// - Distribution start time has passed
+    /// - Status is still #Created (not activated)
+    /// - Balance is insufficient
+    ///
+    /// CHECK FREQUENCY: Every 10 minutes (600 seconds)
+    ///
+    /// AUTO-STOP CONDITIONS:
+    /// - Status changes to #Active (balance sufficient, activation successful)
+    /// - Status changes to #Cancelled
+    /// - depositTokens() is called and succeeds
+    ///
+    /// CYCLE COST: ~3M cycles per check (very lightweight)
+    /// Max checks: 6 per hour, 144 per day
+    private func _setupRecurringBalanceCheck() : async () {
+        // Don't setup if already running
+        switch (balanceCheckTimerId) {
+            case (?_) {
+                Debug.print("   ⏱️ Balance check timer already running");
+                return;
+            };
+            case (null) {};
+        };
+
+        // Don't setup if not past start time
+        let now = Time.now();
+        if (now < config.distributionStart) {
+            Debug.print("   ⏱️ Start time not reached yet, skipping recurring check");
+            return;
+        };
+
+        Debug.print("   ⏱️ Setting up recurring balance check (every 10 minutes)");
+
+        balanceCheckTimerId := ?Timer.recurringTimer<system>(
+            #seconds(600), // Check every 10 minutes (responsive for late deposits)
+            func() : async () {
+                // Stop if status changed from Created
+                if (status != #Created) {
+                    Debug.print("⏱️ Balance check: Status changed to " # debug_show(status) # ", stopping checks");
+                    _cancelBalanceCheckTimer();
+                    return;
+                };
+
+                Debug.print("⏱️ Balance check: Checking if activation possible...");
+
+                // Check balance
+                let contractBalance = await _getContractTokenBalance();
+                Debug.print("   Current balance: " # Nat.toText(contractBalance / E8S));
+                Debug.print("   Required: " # Nat.toText(config.totalAmount / E8S));
+
+                if (contractBalance >= config.totalAmount) {
+                    Debug.print("✅ Balance check: Sufficient balance! Activating...");
+                    status := #Active;
+                    _cancelBalanceCheckTimer();
+                } else {
+                    let percentFunded = (contractBalance * 100) / config.totalAmount;
+                    Debug.print("   Balance check: " # Nat.toText(percentFunded) # "% funded, waiting for more tokens...");
+                };
+            }
+        );
+    };
+
+    /// Cancel the recurring balance check timer
+    private func _cancelBalanceCheckTimer() {
+        switch (balanceCheckTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                balanceCheckTimerId := null;
+                Debug.print("   ⏱️ Balance check timer cancelled");
+            };
+            case (null) {};
+        };
+    };
+
+    /// Update status to Completed (called by timer at distributionEnd)
+    private func _updateStatusToCompleted() : async () {
+        if (status == #Completed or status == #Cancelled) {
+            Debug.print("⏭️ Already completed or cancelled");
+            return;
+        };
+
+        Debug.print("🔄 Auto-completing distribution...");
+        status := #Completed;
+        Debug.print("✅ Distribution completed automatically at: " # Int.toText(Time.now()));
+    };
+
+    /// Cancel all milestone timers (used during pause/emergency)
+    private func _cancelAllTimers() {
+        Debug.print("🛑 Cancelling all timers...");
+
+        switch (distributionStartTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                distributionStartTimerId := null;
+                Debug.print("  ✅ Distribution start timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (distributionEndTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                distributionEndTimerId := null;
+                Debug.print("  ✅ Distribution end timer cancelled");
+            };
+            case null {};
+        };
+
+        switch (balanceCheckTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                balanceCheckTimerId := null;
+                Debug.print("  ✅ Balance check timer cancelled");
+            };
+            case null {};
+        };
+
+        Debug.print("✅ All timers cancelled");
     };
 
     // ================ PUBLIC INTERFACE ================
@@ -622,21 +902,34 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
 
     /// Validate if contract is ready for upgrade
     /// Checks for pending operations and critical state
+    ///
+    /// IMPORTANT: Similar to Launchpad pattern with auto-init support
+    /// - Fresh deploy (upgradeState = null): Always allow upgrade (will auto-init in postupgrade)
+    /// - Existing contract: Must be initialized before upgrade
     public query func canUpgrade() : async Result.Result<(), Text> {
-        // Check 1: Contract not in emergency or critical processing state
-        if (status == #Created and not initialized) {
-            return #err("Cannot upgrade: Contract not initialized");
+        // Check 1: For existing contracts (not fresh deploy), must be initialized
+        // Fresh deploy (upgradeState = null) will auto-init in postupgrade, so we allow upgrade
+        switch (upgradeState) {
+            case null {
+                // Fresh deploy - allow upgrade immediately
+                // Auto-init will happen in postupgrade after factory upgrade call
+                Debug.print("✅ canUpgrade: Fresh deploy - allowing upgrade (will auto-init in postupgrade)");
+            };
+            case (?state) {
+                // Existing contract - must be initialized
+                if (not state.initialized) {
+                    return #err("Cannot upgrade: Contract not initialized");
+                };
+            };
         };
 
-        // Check 2: No pending claims in progress (if status is Active)
-        // For distribution contracts, we allow upgrade during most states
-        // as claims are independent operations
+        // Check 2: Cannot upgrade if cancelled (permanent state)
+        if (status == #Cancelled) {
+            return #err("Cannot upgrade: Contract is cancelled");
+        };
 
-        // Check 3: Recent activity check (optional - commented out for flexibility)
-        // let timeSinceLastActivity = Time.now() - lastActivityTime;
-        // if (timeSinceLastActivity < 60_000_000_000) { // 60 seconds
-        //     return #err("Cannot upgrade: Recent activity detected (wait 60s)");
-        // };
+        // Check 3: For distribution contracts, we allow upgrade during most states
+        // as claims are independent operations and can resume after upgrade
 
         #ok()
     };
@@ -1242,7 +1535,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         #ok(participant)
     };
     
-    public shared({ caller }) func claim() : async Result.Result<Nat, Text> {
+    public shared({ caller }) func claim(claimAmount: ?Nat) : async Result.Result<Nat, Text> {
         // CHECKS: All validation first, no state changes
         if (not _isActive()) {
             return #err("Distribution is not currently active");
@@ -1282,18 +1575,30 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             case (#err(error)) { return #err("Calculation error: " # error) };
         };
 
-        let claimableAmount = if (unlockedAmount > participant.claimedAmount) {
+        let maxClaimableAmount = if (unlockedAmount > participant.claimedAmount) {
             Nat.sub(unlockedAmount, participant.claimedAmount)
         } else { 0 };
 
-        if (claimableAmount == 0) {
+        if (maxClaimableAmount == 0) {
             return #err("No tokens available to claim at this time");
         };
 
-        // Additional safety check for maximum claim amount per transaction
-        let maxClaimPerTx = 10000000000; // 100 tokens with 8 decimals
-        if (claimableAmount > maxClaimPerTx) {
-            return #err("Claim amount exceeds maximum per transaction");
+        // Determine actual claim amount (partial or full)
+        let actualClaimAmount = switch (claimAmount) {
+            case (?amount) {
+                // Partial claim specified
+                if (amount == 0) {
+                    return #err("Claim amount must be greater than 0");
+                };
+                if (amount > maxClaimableAmount) {
+                    return #err("Claim amount exceeds available tokens");
+                };
+                amount
+            };
+            case null {
+                // No amount specified - claim all available
+                maxClaimableAmount
+            };
         };
 
         // Check ICTO Passport score if required
@@ -1305,18 +1610,18 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         // EFFECTS: Update state before external calls
         let updatedParticipant = {
             participant with
-            claimedAmount = participant.claimedAmount + claimableAmount;
+            claimedAmount = participant.claimedAmount + actualClaimAmount;
             lastClaimTime = ?Time.now();
         };
 
         // Update participant state
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, updatedParticipant).0;
-        totalClaimed += claimableAmount;
+        totalClaimed += actualClaimAmount;
 
         // Create claim record for tracking
         let claimRecord: ClaimRecord = {
             participant = caller;
-            amount = claimableAmount;
+            amount = actualClaimAmount;
             timestamp = Time.now();
             blockHeight = null; // TODO: Get from blockchain
             transactionId = null; // Will be updated after transfer
@@ -1324,7 +1629,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         claimRecords.add(claimRecord);
 
         // INTERACTIONS: External calls last
-        let transferResult = await* _transfer(caller, claimableAmount);
+        let transferResult = await* _transfer(caller, actualClaimAmount);
         let txIndex = switch (transferResult) {
             case (#ok(index)) {
                 // Update claim record with transaction index
@@ -1341,14 +1646,14 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                     lastClaimTime = participant.lastClaimTime; // Original time
                 };
                 participants := Trie.put(participants, _principalKey(caller), Principal.equal, revertedParticipant).0;
-                totalClaimed -= claimableAmount;
+                totalClaimed -= actualClaimAmount;
                 let _ = claimRecords.removeLast(); // Remove failed claim record
 
                 return #err("Token transfer failed: " # debug_show(err));
             };
         };
-        
-        #ok(claimableAmount)
+
+        #ok(actualClaimAmount)
     };
 
     // Add blacklist checking function
@@ -1745,6 +2050,39 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             case null { 0 };
         }
     };
+
+    public query func getClaimInfo(principal: Principal) : async {
+        maxClaimable: Nat;
+        totalAllocated: Nat;
+        claimed: Nat;
+        remaining: Nat;
+    } {
+        switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
+            case (?participant) {
+                let unlockedAmount = _calculateUnlockedAmount(participant);
+                let maxClaimable = if (unlockedAmount > participant.claimedAmount) {
+                    Nat.sub(unlockedAmount, participant.claimedAmount)
+                } else { 0 };
+
+                {
+                    maxClaimable = maxClaimable;
+                    totalAllocated = participant.eligibleAmount;
+                    claimed = participant.claimedAmount;
+                    remaining = if (participant.eligibleAmount > participant.claimedAmount) {
+                        Nat.sub(participant.eligibleAmount, participant.claimedAmount)
+                    } else { 0 };
+                };
+            };
+            case null {
+                {
+                    maxClaimable = 0;
+                    totalAllocated = 0;
+                    claimed = 0;
+                    remaining = 0;
+                };
+            };
+        };
+    };
     
     public query func getAllParticipants() : async [Participant] {
         let buffer = Buffer.Buffer<Participant>(0);
@@ -1788,10 +2126,137 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         };
         
         status := #Active;
-        Timer.cancelTimer(timerId); // Cancel auto-start timer if running
+
+        // Cancel auto-activation timer if running (no longer needed)
+        switch (distributionStartTimerId) {
+            case (?id) {
+                Timer.cancelTimer(id);
+                distributionStartTimerId := null;
+                Debug.print("✅ Auto-activation timer cancelled (manually activated)");
+            };
+            case null {};
+        };
+
+        Debug.print("✅ Distribution manually activated at: " # Int.toText(Time.now()));
         #ok()
     };
-    
+
+    /// Deposit tokens to contract using ICRC-2 transfer_from
+    /// This allows the creator to deposit required tokens in a secure, auditable way
+    ///
+    /// SECURITY:
+    /// - Only owner can deposit
+    /// - Uses ICRC-2 approval mechanism (safer than direct transfer)
+    /// - Automatically attempts activation after successful deposit
+    /// - Cancels balance check timer once sufficient balance reached
+    ///
+    /// WORKFLOW:
+    /// 1. Owner approves distribution contract for totalAmount tokens
+    /// 2. Owner calls this function
+    /// 3. Contract pulls tokens from owner's account
+    /// 4. Contract attempts auto-activation if balance sufficient
+    public shared({ caller }) func depositTokens() : async Result.Result<Nat, Text> {
+        if (not _isOwner(caller)) {
+            return #err("Unauthorized: Only owner can deposit tokens");
+        };
+
+        if (status != #Created) {
+            return #err("Can only deposit tokens when status is Created. Current status: " # debug_show(status));
+        };
+
+        let tokenActor = switch (tokenCanister) {
+            case (?canister) canister;
+            case (null) {
+                return #err("Token canister not initialized");
+            };
+        };
+
+        Debug.print("💰 Depositing tokens to distribution contract...");
+        Debug.print("   From: " # Principal.toText(caller));
+        Debug.print("   Amount: " # Nat.toText(config.totalAmount));
+
+        // Check current balance before transfer
+        let balanceBefore = await _getContractTokenBalance();
+        let remainingNeeded = if (config.totalAmount > balanceBefore) {
+            Nat.sub(config.totalAmount, balanceBefore)
+        } else {
+            0
+        };
+
+        if (remainingNeeded == 0) {
+            return #err("Contract already has sufficient balance (" # Nat.toText(balanceBefore) # " / " # Nat.toText(config.totalAmount) # ")");
+        };
+
+        Debug.print("   Remaining needed: " # Nat.toText(remainingNeeded));
+
+        // Use ICRC-2 transfer_from to pull tokens from owner
+        let transferFromArgs : ICRC.TransferFromArgs = {
+            from = {
+                owner = caller;
+                subaccount = null;
+            };
+            to = {
+                owner = Principal.fromActor(self);
+                subaccount = null;
+            };
+            amount = remainingNeeded; // Only transfer what's needed
+            fee = ?transferFee;
+            memo = ?Text.encodeUtf8("Distribution token deposit");
+            created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
+            spender_subaccount = null;
+        };
+
+        let transferResult = await tokenActor.icrc2_transfer_from(transferFromArgs);
+
+        switch (transferResult) {
+            case (#Ok(blockIndex)) {
+                Debug.print("✅ Tokens deposited successfully!");
+                Debug.print("   Block Index: " # Nat.toText(blockIndex));
+
+                // Check new balance
+                let balanceAfter = await _getContractTokenBalance();
+                Debug.print("   New Balance: " # Nat.toText(balanceAfter) # " / " # Nat.toText(config.totalAmount));
+
+                // Try to activate if we now have sufficient balance
+                if (balanceAfter >= config.totalAmount) {
+                    Debug.print("✅ Sufficient balance reached! Attempting activation...");
+
+                    // Cancel balance check timer if running
+                    switch (balanceCheckTimerId) {
+                        case (?id) {
+                            Timer.cancelTimer(id);
+                            balanceCheckTimerId := null;
+                            Debug.print("   ⏱️ Balance check timer cancelled");
+                        };
+                        case (null) {};
+                    };
+
+                    // Attempt activation
+                    await _updateStatusToActive();
+                };
+
+                #ok(blockIndex)
+            };
+            case (#Err(error)) {
+                let errorMsg = debug_show(error);
+                Debug.print("❌ Token deposit failed: " # errorMsg);
+
+                // Provide helpful error messages
+                let helpfulError = switch (error) {
+                    case (#InsufficientAllowance(_)) {
+                        "Insufficient allowance. Please approve the distribution contract for " # Nat.toText(remainingNeeded) # " tokens first using icrc2_approve()."
+                    };
+                    case (#InsufficientFunds(_)) {
+                        "Insufficient funds in your account. Required: " # Nat.toText(remainingNeeded) # " tokens."
+                    };
+                    case (_) errorMsg;
+                };
+
+                #err("Token deposit failed: " # helpfulError)
+            };
+        }
+    };
+
     public shared({ caller }) func pause() : async Result.Result<(), Text> {
         if (not _isOwner(caller)) {
             return #err("Unauthorized: Only owner can pause distribution");
@@ -1828,7 +2293,9 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         };
         
         status := #Cancelled;
-        Timer.cancelTimer(timerId); // Cancel timer
+
+        // Cancel all milestone timers
+        _cancelAllTimers();
         
         // Return remaining tokens to owner if any
         let balance = await _getContractTokenBalance();
@@ -1911,17 +2378,38 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     };
     
     // ================ TIMER MANAGEMENT ================
-    
-    public func startTimer() : async () {
-        timerId := Timer.recurringTimer<system>(#seconds(30), _checkStartTime);
+
+    /// Manually setup milestone timers (for testing/recovery)
+    /// Normally called automatically in postupgrade()
+    public shared({ caller }) func setupTimers() : async Result.Result<(), Text> {
+        if (not _isOwner(caller)) {
+            return #err("Unauthorized: Only owner can setup timers");
+        };
+
+        Debug.print("🔧 Manual timer setup requested by owner");
+        await _setupMilestoneTimers();
+        #ok(())
     };
-    
-    public func cancelTimer() : async () {
-        Timer.cancelTimer(timerId);
+
+    /// Cancel all milestone timers (for pause/emergency)
+    public shared({ caller }) func cancelTimers() : async Result.Result<(), Text> {
+        if (not _isOwner(caller)) {
+            return #err("Unauthorized: Only owner can cancel timers");
+        };
+
+        _cancelAllTimers();
+        #ok(())
     };
-    
-    public query func getTimerStatus() : async { timerId: Nat; isRunning: Bool } {
-        { timerId = timerId; isRunning = timerId > 0 }
+
+    /// Get timer status for debugging
+    public query func getTimerStatus() : async {
+        distributionStartTimer: ?Nat;
+        distributionEndTimer: ?Nat;
+    } {
+        {
+            distributionStartTimer = distributionStartTimerId;
+            distributionEndTimer = distributionEndTimerId;
+        }
     };
     
     // ================ LAUNCHPAD INTEGRATION FUNCTIONS ================

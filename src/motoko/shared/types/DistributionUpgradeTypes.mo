@@ -44,6 +44,13 @@ module {
         runtimeState: DistributionRuntimeState;
     };
 
+    /// Contract version (from IUpgradeable)
+    public type Version = {
+        major: Nat;
+        minor: Nat;
+        patch: Nat;
+    };
+
     /// Init args variant type for actor constructor
     /// Supports both fresh deployment and upgrade scenarios
     public type DistributionInitArgs = {
@@ -51,6 +58,7 @@ module {
             config: DistributionTypes.DistributionConfig;
             creator: Principal;
             factory: ?Principal;
+            version: Version;  // ← ADDED: Version from factory (like Launchpad)
         };
         #Upgrade: DistributionUpgradeArgs;
     };

@@ -1155,6 +1155,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         status
     };
 
+    /// Get deployed canisters (token, distribution, DAO, DEX pool, etc.)
+    /// Returns all canisters deployed through the launchpad pipeline
+    public query func getDeployedCanisters() : async LaunchpadTypes.DeployedContracts {
+        deployedContracts
+    };
+
     /// Manual status check and update (backup mechanism if timers fail)
     /// Can be called by anyone to trigger status update based on current time
     public shared func checkAndUpdateStatus() : async Result.Result<LaunchpadTypes.LaunchpadStatus, Text> {
@@ -3008,6 +3014,24 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                             case (?manager) {
                                 var i = fromStep;
                                 label retryLoop while (i < 6) {
+                                    // CRITICAL FIX: Start step execution first to set status to #Running
+                                    Debug.print("   Starting step " # Nat.toText(i) # "...");
+                                    let startResult = manager.startStepExecution(i);
+                                    switch (startResult) {
+                                        case (#err(e)) {
+                                            // If step is already running or completed, that's OK
+                                            if (not Text.contains(e, #text "already")) {
+                                                _markPipelineFailed();
+                                                return #err("Failed to start step " # Nat.toText(i) # ": " # e);
+                                            };
+                                            Debug.print("   Step already started, proceeding...");
+                                        };
+                                        case (#ok(_executionId)) {
+                                            Debug.print("   ✅ Step started with execution ID: " # _executionId);
+                                        };
+                                    };
+
+                                    // Now execute the step
                                     let result = await manager.executeCustomStep(i);
                                     switch (result) {
                                         case (#ok(_data)) {
@@ -3042,12 +3066,15 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         };
 
         Debug.print("⚠️ Admin force restart pipeline");
-        
+
         // Reset pipeline state
         pipelineExecutionState := null;
         refundPipelineManager := null;
         deploymentPipelineManager := null;
-        
+
+        // CRITICAL FIX: Reset processingState to clear old errors
+        processingState := #Idle;
+
         // Determine which pipeline to run based on current status
         let shouldRefund = (status == #Failed or totalRaised < softCapInSmallestUnit());
         
@@ -3212,6 +3239,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 required = false;
             },
             {
+                name = "Deposit Tokens to Distribution";
+                stage = #VestingSetup;
+                executor = executorFactory.createDistributionDepositExecutor();
+                required = false;
+            },
+            {
                 name = "Deploy DAO";
                 stage = #DAODeployment;
                 executor = executorFactory.createDAODeploymentExecutor();
@@ -3245,14 +3278,84 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
         var stepIndex = 0;
         label deployLoop while (stepIndex < steps.size()) {
             Debug.print("📍 Step " # Nat.toText(stepIndex + 1) # "/" # Nat.toText(steps.size()));
-            
-            // Execute step (executeCustomStep handles complete lifecycle: start → execute → complete/fail → release lock)
+
+            // EXPLICIT FIX: Start step before executing (belt and suspenders approach)
+            Debug.print("   Starting step execution...");
+            let startResult = pipelineManager.startStepExecution(stepIndex);
+            switch (startResult) {
+                case (#err(e)) {
+                    // Only fail if it's a real error (not "already started")
+                    if (not Text.contains(e, #text "already")) {
+                        _markPipelineFailed();
+                        processingState := #Failed("Failed to start step " # Nat.toText(stepIndex) # ": " # e);
+                        Debug.print("❌ Failed to start step: " # e);
+                        break deployLoop;
+                    };
+                    Debug.print("   (Step already started or will auto-start)");
+                };
+                case (#ok(execId)) {
+                    Debug.print("   ✅ Step started: " # execId);
+                };
+            };
+
+            // Execute step (executeCustomStep will handle auto-start as backup)
             let result = await pipelineManager.executeCustomStep(stepIndex);
-            
-            // Step 3: Complete or fail based on result
+
+            // Complete or fail based on result
             switch (result) {
                 case (#ok(resultData)) {
                     Debug.print("✅ Step " # Nat.toText(stepIndex + 1) # " completed successfully");
+
+                    // IMPORTANT: Save deployed canister IDs to deployedContracts
+                    switch (resultData) {
+                        case (#TokenDeployed(tokenData)) {
+                            deployedContracts := {
+                                deployedContracts with
+                                tokenCanister = ?tokenData.canisterId;
+                            };
+                            Debug.print("💾 Saved token canister: " # Principal.toText(tokenData.canisterId));
+                        };
+                        case (#DistributionDeployed(distData)) {
+                            // Add distribution contracts to vestingContracts array
+                            let distributionEntries = Array.map<Principal, (Text, Principal)>(
+                                distData.canisters,
+                                func(canisterId) {
+                                    ("Distribution_" # Principal.toText(canisterId), canisterId)
+                                }
+                            );
+                            deployedContracts := {
+                                deployedContracts with
+                                vestingContracts = Array.append(deployedContracts.vestingContracts, distributionEntries);
+                            };
+                            Debug.print("💾 Saved " # Nat.toText(distData.canisters.size()) # " distribution canister(s)");
+                        };
+                        case (#DAODeployed(daoData)) {
+                            deployedContracts := {
+                                deployedContracts with
+                                daoCanister = ?daoData.canisterId;
+                            };
+                            Debug.print("💾 Saved DAO canister: " # Principal.toText(daoData.canisterId));
+                        };
+                        case (#LiquidityCreated(liquidityData)) {
+                            deployedContracts := {
+                                deployedContracts with
+                                liquidityPool = ?liquidityData.poolId;
+                            };
+                            Debug.print("💾 Saved liquidity pool: " # Principal.toText(liquidityData.poolId));
+                        };
+                        case (#TokensDeposited(depositData)) {
+                            // Tokens successfully deposited to distribution contract
+                            // Distribution canister already saved in vestingContracts from DistributionDeployed step
+                            Debug.print("💰 Tokens deposited to distribution: " # Principal.toText(depositData.distributionCanisterId));
+                            Debug.print("   Amount: " # Nat.toText(depositData.amount));
+                            Debug.print("   Approve Block: " # Nat.toText(depositData.approveBlockIndex));
+                            Debug.print("   Deposit Block: " # Nat.toText(depositData.depositBlockIndex));
+                        };
+                        case (_) {
+                            // Other result types (FeesProcessed, RefundProcessed) don't need canister IDs
+                        };
+                    };
+
                     _updateProcessingProgress(stepIndex + 1, #FinalCleanup);
                     stepIndex += 1;
                 };
@@ -3270,7 +3373,18 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
             _markPipelineCompleted();
             status := #Claiming;
             processingState := #Completed;
-            Debug.print("✅ Deployment pipeline completed");
+            Debug.print("✅ Deployment pipeline completed - tokens ready for claiming");
+            Debug.print("   Moving to final state...");
+
+            // Auto-transition to Completed after a short delay (symmetric with refund flow)
+            ignore Timer.setTimer<system>(
+                #seconds(5),  // 5 seconds delay
+                func() : async () {
+                    status := #Completed;
+                    updatedAt := Time.now();
+                    Debug.print("🏁 Launchpad finalized - all processes completed for successful sale");
+                }
+            );
         };
     };
 

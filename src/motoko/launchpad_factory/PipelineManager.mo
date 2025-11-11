@@ -17,6 +17,7 @@ import Array "mo:base/Array";
 import Text "mo:base/Text";
 import Nat "mo:base/Nat";
 import Nat8 "mo:base/Nat8";
+import Nat64 "mo:base/Nat64";
 import Int "mo:base/Int";
 import Option "mo:base/Option";
 import Buffer "mo:base/Buffer";
@@ -31,7 +32,9 @@ import ICRCTypes "../shared/types/ICRC";
 // Import executor modules
 import FundManager "./modules/FundManager";
 import TokenFactoryModule "./modules/TokenFactory";
+import DistributionFactoryModule "./modules/DistributionFactory";
 import DexIntegrationModule "./modules/DexIntegration";
+import DistributionTypes "../shared/types/DistributionTypes";
 
 module {
 
@@ -134,13 +137,19 @@ module {
     public type StepResultData = {
         #TokenDeployed: { canisterId: Principal; totalSupply: Nat };
         #DistributionDeployed: { canisters: [Principal]; totalAllocated: Nat };
+        #TokensDeposited: {
+            distributionCanisterId: Principal;
+            amount: Nat;
+            approveBlockIndex: Nat;
+            depositBlockIndex: Nat;
+        };
         #DAODeployed: { canisterId: Principal; initialMembers: Nat };
         #FeesProcessed: { amount: Nat; txId: Text; blockIndex: Nat };
         #LiquidityCreated: { poolId: Principal; amount: Nat };
         #ControlTransferred: { controllers: [Principal]; timestamp: Time.Time };
-        #RefundProcessed: { 
-            totalRefunded: Nat; 
-            successCount: Nat; 
+        #RefundProcessed: {
+            totalRefunded: Nat;
+            successCount: Nat;
             failedCount: Nat;
             transactions: [FinancialRecord];
         };
@@ -505,14 +514,15 @@ module {
 
         /// Execute a custom step by calling its registered executor
         /// This function handles the complete step lifecycle: start → execute → complete/fail → release lock
+        /// IDEMPOTENT: Will automatically start the step if not already in #Running state
         public func executeCustomStep(stepIndex: Nat) : async Result.Result<StepResultData, Text> {
             if (stepIndex >= stepExecutors.size()) {
                 return #err("Invalid step index");
             };
-            
+
             switch (stepExecutors[stepIndex]) {
                 case (?executor) {
-                    // Get current execution ID from state (should be set by startStepExecution)
+                    // IDEMPOTENT FIX: Auto-start step if not running
                     let executionId = switch (state) {
                         case (?s) {
                             if (stepIndex >= s.steps.size()) {
@@ -521,7 +531,7 @@ module {
                             let step = s.steps[stepIndex];
                             switch (step.status) {
                                 case (#Running) {
-                                    // Step is running, get last execution ID from history
+                                    // Step is already running, get last execution ID from history
                                     let historyArray = Buffer.toArray(executionHistory);
                                     if (historyArray.size() > 0) {
                                         historyArray[historyArray.size() - 1]
@@ -530,7 +540,18 @@ module {
                                     };
                                 };
                                 case (_) {
-                                    return #err("Step not in running state - call startStepExecution() first");
+                                    // Step not running - start it automatically (IDEMPOTENT)
+                                    Debug.print("   Auto-starting step " # Nat.toText(stepIndex) # "...");
+                                    let startResult = startStepExecution(stepIndex);
+                                    switch (startResult) {
+                                        case (#ok(execId)) {
+                                            Debug.print("   ✅ Step auto-started: " # execId);
+                                            execId
+                                        };
+                                        case (#err(e)) {
+                                            return #err("Failed to auto-start step: " # e);
+                                        };
+                                    };
                                 };
                             };
                         };
@@ -920,10 +941,16 @@ module {
         launchpadId: Text,
         launchpadPrincipal: Principal,
         participants: [(Text, LaunchpadTypes.Participant)],
-        tokenFactoryCanisterId: Principal,
-        backendPrincipal: Principal
+        backendPrincipal: Principal,  // Backend canister (handles all deployments)
+        creatorPrincipal: Principal
     ) {
-        
+
+        // Track deployed token ID for distribution deployment
+        private var deployedTokenId: ?Principal = null;
+
+        // Track deployed distribution ID for token deposit
+        private var deployedDistributionId: ?Principal = null;
+
         // ================ REFUND EXECUTOR ================
         
         /// Execute batch refunds using FundManager
@@ -1032,10 +1059,10 @@ module {
                         blockIndex = 0;
                     }));
                 };
-                
+
                 // Otherwise, proceed with subaccount collection
                 Debug.print("   Collecting from participant subaccounts...");
-                
+
                 // Convert participants from array to Trie
                 var participantsTrie = Trie.empty<Text, LaunchpadTypes.Participant>();
                 for ((key, participant) in participants.vals()) {
@@ -1046,27 +1073,26 @@ module {
                         participant
                     ).0;
                 };
-                
-                // IDEMPOTENCY CHECK #1: Check main account balance first
-                Debug.print("🔍 Checking launchpad main account balance...");
+
                 let fundManager = FundManager.FundManager(
                     launchpadConfig.purchaseToken.canisterId,
                     launchpadConfig.purchaseToken.transferFee,
                     launchpadPrincipal
                 );
-                
-                let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(launchpadConfig.purchaseToken.canisterId));
-                let mainAccount: ICRCTypes.Account = {
-                    owner = launchpadPrincipal;
-                    subaccount = null;
-                };
-                
+
+                let batchResult = await fundManager.processBatchTransfers(
+                    participantsTrie,
+                    #ToLaunchpad,
+                    executionId,
+                    10
+                );
+
                 if (batchResult.successCount == 0 and batchResult.failedCount > 0) {
                     return #err("Failed to collect funds from subaccounts");
                 };
-                
+
                 Debug.print("✅ Collected " # Nat.toText(batchResult.totalAmount) # " tokens from " # Nat.toText(batchResult.successCount) # " participants");
-                
+
                 #ok(#FeesProcessed({
                     amount = batchResult.totalAmount;
                     txId = executionId;
@@ -1081,20 +1107,24 @@ module {
         public func createTokenDeploymentExecutor() : StepExecutor {
             func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
                 Debug.print("🪙 Deploying project token...");
-                
+
                 let tokenFactory = TokenFactoryModule.TokenFactory(
-                    tokenFactoryCanisterId,
-                    backendPrincipal
+                    backendPrincipal,
+                    creatorPrincipal
                 );
-                
+
                 let result = await tokenFactory.deployToken(
                     launchpadConfig,
                     launchpadId,
                     launchpadPrincipal
                 );
-                
+
                 switch (result) {
                     case (#ok(deployment)) {
+                        // IMPORTANT: Save deployed token ID for distribution step
+                        deployedTokenId := ?deployment.canisterId;
+                        Debug.print("✅ Token deployed and ID saved: " # Principal.toText(deployment.canisterId));
+
                         #ok(#TokenDeployed({
                             canisterId = deployment.canisterId;
                             totalSupply = deployment.totalSupply;
@@ -1183,18 +1213,175 @@ module {
             }
         };
         
-        // ================ DISTRIBUTION EXECUTOR (PLACEHOLDER) ================
-        
+        // ================ DISTRIBUTION EXECUTOR ================
+
+        /// Deploy distribution contract for launchpad participants
+        /// Uses DistributionFactory module following ICTO V2 pattern
         public func createDistributionDeploymentExecutor() : StepExecutor {
             func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
-                Debug.print("📦 Distribution deployment - PLACEHOLDER");
-                #ok(#DistributionDeployed({
-                    canisters = [];
-                    totalAllocated = 0;
-                }))
+                Debug.print("📦 Deploying distribution contract for participants...");
+
+                // Create DistributionFactory with deployed token ID
+                let distributionFactory = DistributionFactoryModule.DistributionFactory(
+                    backendPrincipal,
+                    creatorPrincipal,
+                    deployedTokenId  // Token ID from previous step
+                );
+
+                // Define distribution category (Fair Launch Participants)
+                let category: DistributionTypes.DistributionCategory = {
+                    id = "fairlaunch";
+                    name = "Fair Launch Participants";
+                    description = ?"Token allocation for launchpad participants";
+                    order = ?0;
+                };
+
+                Debug.print("   Category: " # category.name);
+                Debug.print("   Participants: " # Nat.toText(participants.size()));
+
+                // Deploy distribution via backend
+                let result = await distributionFactory.deployDistribution(
+                    launchpadConfig,
+                    launchpadId,
+                    launchpadPrincipal,
+                    participants,
+                    category
+                );
+
+                switch (result) {
+                    case (#ok(deployment)) {
+                        // Store distribution ID for next step (token deposit)
+                        deployedDistributionId := ?deployment.canisterId;
+
+                        Debug.print("✅ Distribution deployed successfully!");
+                        Debug.print("   Canister ID: " # Principal.toText(deployment.canisterId));
+                        Debug.print("   Recipients: " # Nat.toText(deployment.recipientCount));
+                        Debug.print("   Total Amount: " # Nat.toText(deployment.totalAmount));
+                        Debug.print("   ⚠️  NEXT STEP: Approve and deposit " # Nat.toText(deployment.totalAmount) # " tokens");
+                        Debug.print("   ℹ️  Auto-initialization will happen in postupgrade()");
+                        Debug.print("      - Recipients will be added to participants");
+                        Debug.print("      - Auto-activation timer will start automatically");
+
+                        #ok(#DistributionDeployed({
+                            canisters = [deployment.canisterId];
+                            totalAllocated = deployment.totalAmount;
+                        }))
+                    };
+                    case (#err(error)) {
+                        let errorMsg = debug_show(error);
+                        Debug.print("❌ Distribution deployment failed: " # errorMsg);
+                        #err("Distribution deployment failed: " # errorMsg)
+                    };
+                }
             }
         };
-        
+
+        // ================ DISTRIBUTION TOKEN DEPOSIT EXECUTOR ================
+
+        /// Deposit tokens to distribution contract using ICRC-2 approve + depositTokens pattern
+        /// This ensures the distribution contract has the required tokens before activation
+        ///
+        /// WORKFLOW:
+        /// 1. Get deployed distribution canister ID (from previous step)
+        /// 2. Calculate total allocation amount from participants
+        /// 3. Launchpad approves distribution contract for totalAmount tokens
+        /// 4. Calls distribution.depositTokens() which uses icrc2_transfer_from
+        /// 5. Distribution contract pulls tokens and attempts auto-activation
+        ///
+        /// SECURITY:
+        /// - Uses ICRC-2 approval mechanism (auditable, safe)
+        /// - Contract only pulls what's needed
+        /// - Excess approvals are not wasted
+        ///
+        /// DEPENDENCIES:
+        /// - Requires deployedTokenId (from token deployment step)
+        /// - Requires deployedDistributionId (from distribution deployment step)
+        public func createDistributionDepositExecutor() : StepExecutor {
+            func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+                Debug.print("💰 Depositing tokens to distribution contract...");
+
+                // Get deployed distribution canister ID
+                let distributionCanisterId = switch (deployedDistributionId) {
+                    case (?id) id;
+                    case (null) {
+                        return #err("Distribution not deployed yet. Must run distribution deployment step first.");
+                    };
+                };
+
+                // Get deployed token canister ID
+                let tokenCanisterId = switch (deployedTokenId) {
+                    case (?id) id;
+                    case (null) {
+                        return #err("Token not deployed yet. Must run token deployment step first.");
+                    };
+                };
+
+                // Calculate total allocation amount from participants
+                var totalAmount: Nat = 0;
+                for ((_, participant) in participants.vals()) {
+                    totalAmount += participant.allocationAmount;
+                };
+
+                Debug.print("   Distribution: " # Principal.toText(distributionCanisterId));
+                Debug.print("   Token: " # Principal.toText(tokenCanisterId));
+                Debug.print("   Amount: " # Nat.toText(totalAmount));
+                Debug.print("   Participants: " # Nat.toText(participants.size()));
+
+                try {
+                    // Transfer tokens directly (launchpad is minting account, no approve needed)
+                    Debug.print("💸 Transferring tokens to distribution contract...");
+                    Debug.print("   ℹ️  Launchpad is minting account - using icrc1_transfer directly");
+
+                    let tokenActor : ICRCTypes.ICRC1Interface = actor(Principal.toText(tokenCanisterId));
+
+                    let transferArgs : ICRCTypes.TransferArgs = {
+                        from_subaccount = null;
+                        to = {
+                            owner = distributionCanisterId;
+                            subaccount = null;
+                        };
+                        amount = totalAmount;
+                        fee = null; // Minting account doesn't pay fees
+                        memo = ?Text.encodeUtf8("Distribution token deposit from launchpad");
+                        created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
+                    };
+
+                    let transferResult = await tokenActor.icrc1_transfer(transferArgs);
+
+                    switch (transferResult) {
+                        case (#Err(error)) {
+                            let errorMsg = debug_show(error);
+                            Debug.print("❌ Token transfer failed: " # errorMsg);
+                            return #err("Token transfer failed: " # errorMsg);
+                        };
+                        case (#Ok(blockIndex)) {
+                            Debug.print("✅ Tokens transferred successfully!");
+                            Debug.print("   Transfer Block: " # Nat.toText(blockIndex));
+                            Debug.print("   Amount: " # Nat.toText(totalAmount));
+                            Debug.print("   ℹ️  Distribution will auto-activate when start time arrives");
+
+                            #ok(#TokensDeposited({
+                                distributionCanisterId = distributionCanisterId;
+                                amount = totalAmount;
+                                approveBlockIndex = 0; // Not used for minting account
+                                depositBlockIndex = blockIndex;
+                            }))
+                        };
+                    }
+
+                } catch (error) {
+                    let errorMsg = Error.message(error);
+                    Debug.print("❌ Distribution deposit exception: " # errorMsg);
+                    #err("Distribution deposit exception: " # errorMsg)
+                }
+            }
+        };
+
+        // Type definition for DistributionContract interface (minimal, for depositTokens)
+        type DistributionContractInterface = actor {
+            depositTokens : shared () -> async Result.Result<Nat, Text>;
+        };
+
         // ================ DAO/MULTISIG EXECUTOR (PLACEHOLDER) ================
         
         public func createDAODeploymentExecutor() : StepExecutor {

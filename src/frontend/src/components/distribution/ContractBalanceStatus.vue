@@ -1,17 +1,17 @@
 <template>
-  <div v-if="shouldShow" class="bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30 rounded-lg p-4">
+  <div v-if="shouldShow" :class="urgencyClass">
     <!-- Header -->
     <div class="flex items-center justify-between mb-3">
       <div class="flex items-center space-x-3">
-        <div class="w-8 h-8 bg-amber-100 dark:bg-amber-900/40 rounded-full flex items-center justify-center flex-shrink-0">
-          <ClockIcon class="w-4 h-4 text-amber-600 dark:text-amber-400" />
+        <div :class="iconWrapperClass">
+          <component :is="urgencyIcon" :class="iconClass" />
         </div>
         <div class="flex-1">
-          <p class="text-sm font-medium text-amber-800 dark:text-amber-200">
-            Distribution start pending fund allocation
+          <p :class="titleClass">
+            {{ urgencyTitle }}
           </p>
-          <p class="text-xs text-amber-700 dark:text-amber-300 mt-1">
-            Contract requires 100% funding before distribution can start. {{ balanceStatus }}
+          <p :class="subtitleClass">
+            {{ urgencyMessage }}
           </p>
         </div>
       </div>
@@ -80,8 +80,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
-import { ClockIcon, RefreshCwIcon, ShieldCheckIcon } from 'lucide-vue-next'
+import { computed, onMounted, ref } from 'vue'
+import { ClockIcon, RefreshCwIcon, ShieldCheckIcon, AlertTriangleIcon, AlertCircleIcon } from 'lucide-vue-next'
 import { parseTokenAmount } from '@/utils/token'
 import LabelCopyIcon from '@/icons/LabelCopyIcon.vue'
 
@@ -92,6 +92,7 @@ interface Props {
   tokenSymbol: string
   tokenDecimals: number
   contractStatus: string
+  distributionStart?: bigint  // Start time in nanoseconds
   refreshing?: boolean
   autoCheckBalance?: boolean
 }
@@ -138,6 +139,166 @@ const balanceStatus = computed(() => {
     return 'Click refresh to check current balance.'
   }
   return `Currently ${progressPercentage.value.toFixed(1)}% funded.`
+})
+
+// Time urgency calculation
+const timeUntilStart = computed(() => {
+  if (!props.distributionStart) return null
+
+  const now = BigInt(Date.now()) * 1_000_000n // Convert to nanoseconds
+  const startTime = props.distributionStart
+
+  if (startTime <= now) {
+    return { passed: true, hours: 0 }
+  }
+
+  const diffNanos = startTime - now
+  const diffMillis = Number(diffNanos / 1_000_000n)
+  const diffHours = diffMillis / (1000 * 60 * 60)
+
+  return { passed: false, hours: diffHours }
+})
+
+const urgencyLevel = computed(() => {
+  const time = timeUntilStart.value
+
+  // If start time passed and still no balance
+  if (time?.passed && Number(props.currentBalance) === 0) {
+    return 'critical' // Red - Distribution should be active but no funds
+  }
+
+  if (!time || time.passed) return 'high' // Orange - Past start time
+
+  // Time-based urgency before start
+  if (time.hours <= 1) return 'critical'      // < 1 hour
+  if (time.hours <= 24) return 'high'         // < 1 day
+  if (time.hours <= 72) return 'medium'       // < 3 days
+  return 'low' // > 3 days
+})
+
+const urgencyClass = computed(() => {
+  const base = 'border rounded-lg p-4'
+  switch (urgencyLevel.value) {
+    case 'critical':
+      return `${base} bg-red-50 dark:bg-red-900/10 border-red-300 dark:border-red-800/40`
+    case 'high':
+      return `${base} bg-orange-50 dark:bg-orange-900/10 border-orange-300 dark:border-orange-800/40`
+    case 'medium':
+      return `${base} bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/30`
+    default:
+      return `${base} bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-800/30`
+  }
+})
+
+const urgencyIcon = computed(() => {
+  switch (urgencyLevel.value) {
+    case 'critical':
+      return AlertCircleIcon
+    case 'high':
+      return AlertTriangleIcon
+    default:
+      return ClockIcon
+  }
+})
+
+const iconWrapperClass = computed(() => {
+  const base = 'w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0'
+  switch (urgencyLevel.value) {
+    case 'critical':
+      return `${base} bg-red-100 dark:bg-red-900/40`
+    case 'high':
+      return `${base} bg-orange-100 dark:bg-orange-900/40`
+    case 'medium':
+      return `${base} bg-amber-100 dark:bg-amber-900/40`
+    default:
+      return `${base} bg-blue-100 dark:bg-blue-900/40`
+  }
+})
+
+const iconClass = computed(() => {
+  const base = 'w-4 h-4'
+  switch (urgencyLevel.value) {
+    case 'critical':
+      return `${base} text-red-600 dark:text-red-400 animate-pulse`
+    case 'high':
+      return `${base} text-orange-600 dark:text-orange-400`
+    case 'medium':
+      return `${base} text-amber-600 dark:text-amber-400`
+    default:
+      return `${base} text-blue-600 dark:text-blue-400`
+  }
+})
+
+const titleClass = computed(() => {
+  const base = 'text-sm font-medium'
+  switch (urgencyLevel.value) {
+    case 'critical':
+      return `${base} text-red-800 dark:text-red-200`
+    case 'high':
+      return `${base} text-orange-800 dark:text-orange-200`
+    case 'medium':
+      return `${base} text-amber-800 dark:text-amber-200`
+    default:
+      return `${base} text-blue-800 dark:text-blue-200`
+  }
+})
+
+const subtitleClass = computed(() => {
+  const base = 'text-xs mt-1'
+  switch (urgencyLevel.value) {
+    case 'critical':
+      return `${base} text-red-700 dark:text-red-300`
+    case 'high':
+      return `${base} text-orange-700 dark:text-orange-300`
+    case 'medium':
+      return `${base} text-amber-700 dark:text-amber-300`
+    default:
+      return `${base} text-blue-700 dark:text-blue-300`
+  }
+})
+
+const urgencyTitle = computed(() => {
+  const time = timeUntilStart.value
+
+  if (time?.passed) {
+    return '🚨 URGENT: Distribution start time passed - Requires immediate funding'
+  }
+
+  if (!time) return 'Distribution pending fund allocation'
+
+  if (time.hours <= 1) {
+    const minutes = Math.floor(time.hours * 60)
+    return `⚠️ CRITICAL: Distribution starts in ${minutes} minutes!`
+  }
+  if (time.hours <= 24) {
+    const hours = Math.floor(time.hours)
+    return `⚠️ URGENT: Distribution starts in ${hours} hours`
+  }
+  if (time.hours <= 72) {
+    const days = Math.floor(time.hours / 24)
+    return `Distribution starts in ${days} days`
+  }
+
+  const days = Math.floor(time.hours / 24)
+  return `Distribution starts in ${days} days`
+})
+
+const urgencyMessage = computed(() => {
+  const time = timeUntilStart.value
+  const progress = progressPercentage.value.toFixed(1)
+
+  if (time?.passed) {
+    if (Number(props.currentBalance) === 0) {
+      return `Distribution should be active but contract has ZERO balance! Transfer ${formatBalance(props.requiredAmount)} ${props.tokenSymbol} immediately.`
+    }
+    return `Distribution start time reached but balance insufficient (${progress}% funded). Contract will auto-activate once fully funded.`
+  }
+
+  if (!time) {
+    return `Contract requires 100% funding before distribution can start. ${balanceStatus.value}`
+  }
+
+  return `Contract requires full funding (${formatBalance(props.requiredAmount)} ${props.tokenSymbol}) before start time. Currently ${progress}% funded.`
 })
 
 const formatBalance = (amount: bigint | number) => {

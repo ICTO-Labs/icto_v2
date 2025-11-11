@@ -139,7 +139,7 @@
         </div>
 
         <!-- Contract Balance Status (only show for owners) -->
-        <ContractBalanceStatus 
+        <ContractBalanceStatus
           v-if="details && isOwner"
           :contract-id="canisterId"
           :current-balance="contractBalance"
@@ -147,6 +147,7 @@
           :token-symbol="details.tokenInfo.symbol"
           :token-decimals="details.tokenInfo.decimals"
           :contract-status="distributionStatus"
+          :distribution-start="details.distributionStart"
           :refreshing="checkingBalance"
           @refresh="checkBalance"
           @initial-check="checkBalance"
@@ -747,6 +748,18 @@
       </div>
     </div>
   </AdminLayout>
+
+  <!-- Claim Modal -->
+  <ClaimModal
+    v-if="showClaimModal && claimInfo"
+    :distribution-id="canisterId"
+    :claim-info="claimInfo"
+    :token-symbol="details?.tokenInfo.symbol || 'TOKEN'"
+    :token-decimals="details?.tokenInfo.decimals || 8"
+    @close="showClaimModal = false"
+    @claimed="handleClaim"
+    @refresh="refreshClaimInfo"
+  />
 </template>
 
 <script setup lang="ts">
@@ -792,7 +805,8 @@ import ProgressBar from '@/components/common/ProgressBar.vue'
 import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
 import CampaignTimeline from '@/components/campaign/CampaignTimeline.vue'
 import ContractStatus from '@/components/distribution/ContractStatus.vue'
-import type { DistributionDetails, DistributionStats } from '@/types/distribution'
+import ClaimModal from '@/components/distribution/ClaimModal.vue'
+import type { DistributionDetails, DistributionStats, ClaimInfo } from '@/types/distribution'
 import type { CampaignTimeline as CampaignTimelineType } from '@/types/campaignPhase'
 import { detectCampaignPhase, getPhaseConfig } from '@/utils/campaignPhase'
 import { CampaignPhase } from '@/types/campaignPhase'
@@ -807,6 +821,7 @@ import { cyclesToT } from '@/utils/common'
 import { parseTokenAmount } from '@/utils/token'
 import { formatDate } from '@/utils/dateFormat'
 import { toast } from 'vue-sonner'
+import { formatTokenAmount } from '@/utils/token'
 import { useTheme } from '@/components/layout/ThemeProvider.vue'
 
 const route = useRoute()
@@ -817,6 +832,8 @@ const error = ref<string | null>(null)
 const details = ref<DistributionDetails | null>(null)
 const stats = ref<DistributionStats | null>(null)
 const claiming = ref(false)
+const showClaimModal = ref(false)
+const claimInfo = ref<ClaimInfo | null>(null)
 const refreshing = ref(false)
 const eligibilityLoading = ref(false)
 const eligibilityStatus = ref(false)
@@ -1189,29 +1206,63 @@ const checkEligibility = async () => {
 
 const claimTokens = async () => {
   try {
+    // Fetch claim info for the modal
+    await refreshClaimInfo()
+    showClaimModal.value = true
+  } catch (err) {
+    console.error('Error fetching claim info:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : 'Failed to fetch claim info'))
+  }
+}
+
+const refreshClaimInfo = async () => {
+  try {
+    // Fetch fresh claim info
+    claimInfo.value = await DistributionService.getClaimInfo(canisterId.value)
+  } catch (err) {
+    console.error('Error refreshing claim info:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : 'Failed to refresh claim info'))
+  }
+}
+
+const handleClaim = async (amount: number) => {
+  try {
     claiming.value = true
-    const result = await DistributionService.claimTokens(canisterId.value)
+
+    // Convert human readable amount to raw amount (smallest unit)
+    const rawAmount = formatTokenAmount(amount, details.value?.tokenInfo.decimals || 8)
+    const result = await DistributionService.claimTokens(canisterId.value, rawAmount.toFixed())
+
+    // Update local amounts using raw amount
+    const claimAmountBigInt = BigInt(rawAmount)
+
     if ('ok' in result) {
       toast.success('Successfully claimed tokens')
+      showClaimModal.value = false
+
+      // Refresh claim info to get updated amounts
+      await refreshClaimInfo()
+
+      // Update local amounts using raw amount
+      const claimAmountBigInt = BigInt(rawAmount)
+      alreadyClaimed.value += claimAmountBigInt
+      availableToClaim.value -= claimAmountBigInt
+
+      // Add to claim history
+      claimHistory.value.unshift({
+        id: Date.now().toString(),
+        amount: claimAmountBigInt,
+        date: formatDate(new Date(), { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }),
+        txHash: Math.random().toString(36).substring(2, 18)
+      })
+
+      await refreshData()
     } else {
       toast.error('Error: ' + result.err)
     }
-
-    // Update available and claimed amounts
-    alreadyClaimed.value += availableToClaim.value
-    availableToClaim.value = BigInt(0)
-
-    // Add to claim history
-    claimHistory.value.unshift({
-      id: Date.now().toString(),
-      amount: availableToClaim.value,
-      date: formatDate(new Date(), { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }),
-      txHash: Math.random().toString(36).substring(2, 18)
-    })
-
-    await refreshData()
   } catch (err) {
     console.error('Error claiming tokens:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : 'Failed to claim tokens'))
   } finally {
     claiming.value = false
   }

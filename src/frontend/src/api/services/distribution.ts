@@ -176,10 +176,13 @@ export class DistributionService {
   }
 
   // Claim tokens from distribution
-  static async claimTokens(canisterId: string): Promise<Result> {
+  static async claimTokens(canisterId: string, claimAmount?: string): Promise<Result> {
     try {
       const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
-      const result = await distributionContract.claim();
+      // claimAmount is string representation of raw amount
+      // For opt nat, send as array [BigInt(amount)] or [] for none
+      const amount = claimAmount !== undefined ? [BigInt(claimAmount)] : [];
+      const result = await distributionContract.claim(amount);
       return result as unknown as Result;
     } catch (error) {
       toast.error('Error: ' + error)
@@ -341,6 +344,47 @@ export class DistributionService {
     } catch (error) {
       toast.error('Error: ' + error)
       console.error(`Error fetching claimable amount for ${principalId} in ${canisterId}:`, error);
+      throw error;
+    }
+  }
+
+  // Get claim info for the modal (includes all necessary data for partial claims)
+  static async getClaimInfo(canisterId: string): Promise<{
+    totalAllocated: number;
+    maxClaimable: number;
+    claimed: number;
+    remaining: number;
+  }> {
+    try {
+      const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
+      // Use whoami to get comprehensive user context including claim info
+      const context = await distributionContract.whoami();
+
+      // Extract participant data for calculating claim info
+      const participant = context.participant;
+      if (!participant) {
+        return {
+          totalAllocated: 0,
+          maxClaimable: 0,
+          claimed: 0,
+          remaining: 0
+        };
+      }
+
+      const totalAllocated = Number(participant.eligibleAmount || 0);
+      const claimed = Number(participant.claimedAmount || 0);
+      const claimableAmount = Number(context.claimableAmount || 0);
+      const remaining = Math.max(0, totalAllocated - claimed);
+
+      return {
+        totalAllocated,
+        maxClaimable: claimableAmount,
+        claimed,
+        remaining
+      };
+    } catch (error) {
+      toast.error('Error: ' + error)
+      console.error(`Error fetching claim info for ${canisterId}:`, error);
       throw error;
     }
   }
