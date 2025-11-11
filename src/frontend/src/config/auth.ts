@@ -30,10 +30,12 @@ export function initializePNP(): PNP {
             delegationTargets,
             derivationOrigin: isDev ? "http://localhost:5173" : "https://" + frontendCanisterId + ".icp0.io",
             identityProvider: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
-
+            fetchRootKeys: isDev === true, // For local development
             adapters: {
                 ii: {
                     enabled: true,
+                    hostUrl: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
+                    iiProviderUrl: isDev ? "http://rdmx6-jaaaa-aaaaa-aaadq-cai.localhost:4943" : "https://identity.ic0.app",
                     localIdentityCanisterId: import.meta.env.VITE_INTERNET_IDENTITY_CANISTER_ID,
                 },
                 plug: {
