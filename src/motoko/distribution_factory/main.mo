@@ -319,42 +319,48 @@ persistent actor class DistributionFactory() = this {
             // Pass factory principal for callbacks (Factory Storage Standard)
             let factoryPrincipal = ?Principal.fromActor(this);
 
-            // Use #InitialSetup variant for fresh deployment
-            let initArgs: DistributionUpgradeTypes.DistributionInitArgs = #InitialSetup({
-                config = args.config;
-                creator = args.owner;
-                factory = factoryPrincipal;
-            });
-
-            let distributionCanister = await DistributionContractClass.DistributionContract(initArgs);
-            
-            // Get the canister's principal
-            let canisterId = Principal.fromActor(distributionCanister);
-
-            // VERSION MANAGEMENT: Register contract IMMEDIATELY after deployment
-            // (before activation, because activation can fail but contract is already deployed)
+            // VERSION MANAGEMENT: Determine version BEFORE deployment (like Launchpad)
             let contractVersion = switch (versionManager.getLatestStableVersion()) {
                 case (?latestVersion) {
                     // Use latest uploaded version if available
+                    Debug.print("📦 Using latest stable version: " # _versionToText(latestVersion));
                     latestVersion
                 };
                 case null {
                     // Fallback to initial version if no WASM versions uploaded yet
+                    Debug.print("📦 No stable version found, using fallback: 1.0.0");
                     { major = 1; minor = 0; patch = 0 }
                 };
             };
 
+            // Use #InitialSetup variant for fresh deployment
+            // IMPORTANT: Pass version to constructor (like Launchpad)
+            let initArgs: DistributionUpgradeTypes.DistributionInitArgs = #InitialSetup({
+                config = args.config;
+                creator = args.owner;
+                factory = factoryPrincipal;
+                version = contractVersion;  // ← CRITICAL: Pass version to contract
+            });
+
+            let distributionCanister = await DistributionContractClass.DistributionContract(initArgs);
+
+            // Get the canister's principal
+            let canisterId = Principal.fromActor(distributionCanister);
+
+            // VERSION MANAGEMENT: Register contract IMMEDIATELY after deployment
             versionManager.registerContract(canisterId, contractVersion, false);
             Debug.print("✅ Registered contract " # Principal.toText(canisterId) # " with version " # _versionToText(contractVersion));
 
-            // Activate the distribution
-            switch (await distributionCanister.activate()) {
+            // Initialize the distribution (setup timers, load recipients, etc.)
+            // CRITICAL: Call init() NOT activate() - following Launchpad pattern
+            Debug.print("🔧 Initializing distribution contract (setup timers)...");
+            switch (await distributionCanister.init()) {
                 case (#ok(_)) {
-                    Debug.print("✅ Distribution activated successfully: " # Principal.toText(canisterId));
+                    Debug.print("✅ Distribution initialized successfully (timers setup)");
                 };
                 case (#err(msg)) {
-                    Debug.print("⚠️ Warning: Failed to activate distribution: " # msg);
-                    // Continue anyway, can be activated later
+                    Debug.print("❌ Failed to initialize distribution: " # msg);
+                    return #err("Failed to initialize distribution: " # msg);
                 };
             };
             

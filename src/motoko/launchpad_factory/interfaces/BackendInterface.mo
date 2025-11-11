@@ -35,11 +35,11 @@ module {
         /// Deploy a new distribution contract via backend
         /// @param config - Distribution configuration
         /// @param projectId - Optional project ID
-        /// @returns Result with canister ID or error message
+        /// @returns Result with deployment result containing canister ID or error message
         deployDistribution : (
             config: DistributionFactoryTypes.DistributionConfig,
             projectId: ?Text
-        ) -> async Result.Result<Principal, Text>;
+        ) -> async Result.Result<DistributionFactoryTypes.DeploymentResult, Text>;
         
         // ================ DAO FACTORY ================
         

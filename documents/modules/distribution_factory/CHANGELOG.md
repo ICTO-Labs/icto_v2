@@ -56,6 +56,235 @@
 
 ## 📜 Changelog Entries
 
+### 2025-11-10 - Distribution Activation & Token Deposit Mechanism (Updated)
+
+**Status:** ✅ Completed
+**Agent:** Claude
+**Type:** Feature Enhancement
+**Priority:** Critical
+
+**Task Checklist:**
+- [x] Analyze existing distribution activation flow
+- [x] Implement recurring balance check timer in DistributionContract
+- [x] Add depositTokens() function with ICRC-2 transfer_from support
+- [x] Add distribution token deposit executor to PipelineManager
+- [x] Enhance ContractBalanceStatus with time-sensitive urgency warnings
+- [x] Update DistributionDetail to pass distributionStart prop
+- [x] Update documentation with new workflow
+
+**Summary:**
+Implemented comprehensive solution for distribution contract activation and token deposit mechanism. Addresses critical issue where distributions could get stuck in #Created status if tokens weren't deposited before start time. New recurring balance check timer (checks hourly) ensures contracts can activate even if tokens arrive late. Added secure depositTokens() function using ICRC-2 approve/transfer_from pattern. Pipeline now includes automatic token deposit step. Frontend shows time-sensitive warnings (critical/high/medium/low urgency) based on time until distribution start.
+
+**Files Modified:**
+- `src/motoko/distribution_factory/DistributionContract.mo` (modified)
+  - Added `balanceCheckTimerId` variable
+  - Added `depositTokens()` function with ICRC-2 transfer_from
+  - Added `_setupRecurringBalanceCheck()` private function (checks every 10 minutes)
+  - Added `_cancelBalanceCheckTimer()` private function
+  - Modified `_updateStatusToActive()` to start recurring check on failure
+  - Modified `_cancelAllTimers()` to include balance check timer
+
+- `src/motoko/launchpad_factory/PipelineManager.mo` (modified)
+  - Added `deployedDistributionId` variable to track distribution canister
+  - Modified `createDistributionDeploymentExecutor()` to store distribution ID
+  - Modified `createDistributionDepositExecutor()` to use tracked IDs (no params needed)
+  - Added automatic totalAmount calculation from participants
+  - Added `#TokensDeposited` variant to `StepResultData` type
+  - Added `DistributionContractInterface` type definition
+
+- `src/motoko/launchpad_factory/LaunchpadContract.mo` (modified)
+  - Added handler for `#TokensDeposited` in pipeline result processing
+  - Distribution canisters now properly saved to `vestingContracts` array
+
+- `src/frontend/src/components/distribution/ContractBalanceStatus.vue` (modified)
+  - Added `distributionStart` prop
+  - Implemented time urgency calculation logic
+  - Added 4-level urgency system (critical/high/medium/low)
+  - Dynamic styling based on urgency level
+  - Time-sensitive warning messages with countdown
+
+- `src/frontend/src/views/Distribution/DistributionDetail.vue` (modified)
+  - Added `:distribution-start` prop to ContractBalanceStatus
+
+- `documents/modules/distribution_factory/CHANGELOG.md` (modified)
+
+**Breaking Changes:** None - All changes are backward compatible
+
+**Security Features:**
+- ICRC-2 approval mechanism (no direct token transfer required)
+- Only contract owner can call depositTokens()
+- Contract only pulls exact amount needed
+- Auditable on-chain transactions (approve + transfer_from)
+- Automatic activation after successful deposit
+
+**Workflow Improvements:**
+
+**Before (Problematic):**
+```
+1. Deploy distribution → status: #Created
+2. Timer set for distributionStart (one-time only)
+3. ⚠️ If balance insufficient at start time:
+   - Timer fails → expires
+   - Contract stuck forever in #Created
+   - Manual intervention required
+```
+
+**After (Robust):**
+```
+1. Deploy distribution → status: #Created
+2. Timer set for distributionStart
+3. At start time, if balance insufficient:
+   - Recurring check starts (every 1 hour)
+   - Continues checking until activated or cancelled
+4. Two activation paths:
+   a) Auto: Recurring timer detects sufficient balance → activate
+   b) Manual: Owner calls depositTokens() → auto-activate
+```
+
+**Usage Examples:**
+
+**Single Distribution (Frontend):**
+```typescript
+// 1. Deploy distribution
+await backend.deployDistribution(config)
+
+// 2. Approve contract for tokens
+await tokenCanister.icrc2_approve({
+  spender: distributionCanisterId,
+  amount: totalAmount
+})
+
+// 3. Deposit tokens
+await distributionContract.depositTokens()
+// → Contract auto-activates when start time arrives
+```
+
+**Launchpad Pipeline (AUTOMATIC):**
+```motoko
+// Step 1: Deploy token
+// Step 2: Deploy distribution
+//   → Stores deployedDistributionId automatically
+//   → Saves to launchpad.vestingContracts array
+
+// Step 3: Deposit tokens (NEW!)
+let depositExecutor = pipelineManager.createDistributionDepositExecutor();
+//   ✅ Gets deployedTokenId automatically
+//   ✅ Gets deployedDistributionId automatically
+//   ✅ Calculates totalAmount from participants automatically
+
+// Executor handles:
+// 1. Approve distribution for tokens
+// 2. Call depositTokens()
+// 3. Log transaction blocks
+// 4. Result saved to launchpad with #TokensDeposited
+
+// Result: Distribution canister visible in LaunchpadDetail deployed canisters list!
+```
+
+**SNS/Manual Case:**
+```motoko
+// 1. Create distribution via proposal
+await backend.deployDistribution(config)
+
+// 2. Wait for proposal adoption...
+
+// 3. Treasury transfers tokens to contract
+await treasury.icrc1_transfer({
+    to: distributionContract,
+    amount: totalAmount
+})
+
+// 4. Contract automatically detects balance and activates
+// OR manually trigger:
+await distributionContract.activate()
+```
+
+**Frontend Warnings:**
+- **Critical (Red, Pulsing)**: < 1 hour until start OR past start time with zero balance
+- **High (Orange)**: < 24 hours until start OR past start time with partial balance
+- **Medium (Amber)**: < 72 hours until start
+- **Low (Blue)**: > 72 hours until start
+
+**Technical Notes:**
+- Recurring timer checks every **10 minutes** (600 seconds) - Fast response to late deposits
+- Timer **auto-cancels immediately** when status changes from #Created to #Active
+- Timer persists across upgrades (recreated in postupgrade if still needed)
+- Balance check is very lightweight (~3M cycles per check)
+- **No wasted cycles** - Timer stops as soon as contract activates
+- Max checks: 6/hour, 144/day (~432M cycles/day if continuously checking)
+
+**Testing Recommendations:**
+1. Test depositTokens() with insufficient allowance → should provide helpful error
+2. Test depositTokens() with sufficient allowance → should auto-activate
+3. Test recurring timer activation after start time
+4. Test manual activation with activate() function
+5. Test frontend urgency warnings at different time intervals
+6. Test pipeline deposit step in end-to-end launchpad flow
+
+**Notes:**
+This is a critical enhancement that ensures distribution contracts can never get permanently stuck due to late token deposits. The recurring balance check provides a safety net while maintaining security and efficiency. The time-sensitive frontend warnings help owners take action before start time.
+
+**Compilation Fixes (2025-11-10):**
+- Fixed missing `Nat64` import for timestamp conversion
+- Fixed `_setupRecurringBalanceCheck()` to be async for `<system>` capability requirement
+- Fixed missing `spender_subaccount` field in ICRC-2 TransferFromArgs
+- Both distribution_factory and launchpad_factory now build successfully ✅
+
+**Pipeline Integration Fixes (2025-11-10):**
+- Added "Deposit Tokens to Distribution" step to launchpad pipeline (LaunchpadContract.mo:3241-3246)
+- Fixed `createDistributionDepositExecutor()` to use `icrc1_transfer` instead of approve pattern
+  - Reason: Launchpad is minting account, cannot use `icrc2_approve` (would trap with "minting account cannot delegate mints")
+  - Changed from: approve → transfer_from
+  - Changed to: direct icrc1_transfer from minting account
+- Fixed fee parameter: `fee = null` (minting account doesn't pay transfer fees)
+  - Was: `fee = ?tokenFee` → Error: `#BadFee({expected_fee = 0})`
+  - Now: `fee = null` → Minting privilege, no fee required ✅
+- Added `Nat64` import to PipelineManager.mo for timestamp conversion
+- Pipeline now correctly transfers tokens from launchpad (minter) to distribution contract ✅
+
+**Auto-Finalization Fix (2025-11-11):**
+- Fixed launchpad not auto-transitioning to `#Completed` status after pipeline completes (LaunchpadContract.mo:3379-3387)
+- Added auto-transition timer (5 seconds) after deployment pipeline completes
+  - Symmetric with refund flow: `#Failed` → `#Refunded` → `#Finalized`
+  - Now success flow: `#Successful` → `#Claiming` → `#Completed`
+- Frontend timeline now correctly shows "Finalized" step as completed
+- Issue: Pipeline reached 100% but timeline stuck on "Pipeline" step
+- Root cause: Status remained at `#Claiming`, never transitioned to `#Completed`
+- Solution: Auto-transition using Timer.setTimer after pipeline completes ✅
+
+---
+
+### 2025-11-10 - Documentation Reorganization
+
+**Status:** ✅ Completed
+**Agent:** Claude
+**Type:** Documentation
+**Priority:** High
+
+**Task Checklist:**
+- [x] Identify standalone docs that need reorganization
+- [x] Move distribution-specific docs to distribution_factory module
+- [x] Create common features folder for shared components
+- [x] Remove standalone docs that don't follow structure
+- [x] Update CHANGELOG.md in affected modules
+
+**Summary:**
+Successfully reorganized documentation to follow existing factory-based structure instead of creating standalone files. Moved distribution upgrade documentation to the proper module location and created dedicated folders for common features like Pipeline and VersionManager. All documentation is now properly interconnected and follows the established project structure.
+
+**Files Modified:**
+- `docs/DISTRIBUTION_UPGRADE_MECHANISM.md` (moved to modules/distribution_factory/UPGRADE_MECHANISM.md)
+- `docs/DISTRIBUTION_FRESH_DEPLOY_FIX.md` (moved to modules/distribution_factory/FRESH_DEPLOY_FIX.md)
+- `documents/common_features/README.md` (created)
+- `documents/common_features/version_management/README.md` (created)
+- `documents/common_features/version_management/CHANGELOG.md` (created)
+
+**Breaking Changes:** None
+
+**Notes:**
+Following user feedback to maintain consistency with existing docs/ structure organized by factory. All standalone docs have been properly organized.
+
+---
+
 ### 2025-10-06 - Initial Module Setup
 
 **Status:** ✅ Completed

@@ -820,17 +820,26 @@
 						<!-- Participants Section -->
 						<div class="w-full mt-6">
 							<div class="mx-auto">
-							<Participants 
+							<Participants
 								ref="participantsRef"
-								:canister-id="canisterId" 
+								:canister-id="canisterId"
 								:purchase-token-symbol="purchaseTokenSymbol"
-								:purchase-token-decimals="purchaseTokenDecimals" 
+								:purchase-token-decimals="purchaseTokenDecimals"
 								:sale-token-symbol="saleTokenSymbol"
 								:launchpad-status="launchpadStatusText"
 							/>
 							</div>
 						</div>
 
+						<!-- Deployed Canisters Section -->
+						<div class="w-full mt-6" v-if="projectStatus === 'Successful'">
+							<div class="mx-auto">
+							<DeployedCanisters
+								:launchpad-id="canisterId"
+								:launchpad-actor="launchpadActor"
+							/>
+							</div>
+						</div>
 
 					</div>
 					<div class="lg:col">
@@ -1052,6 +1061,7 @@ import URLImageInput from '@/components/common/URLImageInput.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import VersionManagement from '@/components/common/VersionManagement.vue'
 import Participants from '@/components/launchpad/Participants.vue'
+import DeployedCanisters from '@/components/launchpad/DeployedCanisters.vue'
 import AffiliateStats from '@/components/launchpad/AffiliateStats.vue'
 import RaisedFundsAllocation from '@/components/launchpad/RaisedFundsAllocation.vue'
 import FundAllocationOverview from '@/components/launchpad/FundAllocationOverview.vue'
@@ -1087,6 +1097,16 @@ const isSavingImages = ref(false)
 // Version Management Ref
 const versionManagementRef = ref<InstanceType<any> | null>(null)
 const participantsRef = ref<InstanceType<any> | null>(null)
+
+// Launchpad actor for child components
+const launchpadActor = computed(() => {
+	if (!canisterId.value) return null
+	return launchpadContractActor({
+		canisterId: canisterId.value,
+		requiresSigning: false,
+		anon: false
+	})
+})
 // 🆕 NEW: Use Dual-Status System
 const launchpadRef = computed(() => launchpad.value)
 const { 
@@ -1860,9 +1880,9 @@ const handleDeployToken = async () => {
 
 // Version Management Methods
 const handleVersionUpgraded = async () => {
-	// Reload launchpad data after successful upgrade
+	// Reload launchpad data after successful upgrade - use full refresh to get latest contract info
 	toast.success('Contract upgraded successfully!')
-	await fetchData()
+	await fullRefresh(true) // Silent full refresh to get version and potentially new data
 }
 
 
@@ -1934,6 +1954,7 @@ const calculateDexPercentage = (lpValue: any): string => {
 
 
 // Methods
+// Full data fetch - includes images (called on initial load)
 const fetchData = async () => {
 	loading.value = true
 	error.value = null
@@ -1963,16 +1984,13 @@ const fetchData = async () => {
 			cover: projectImages.value.cover || ''
 		}
 
-		// Fetch contract version and project images
+		// Fetch contract version and project images (only on full load)
 		try {
-			const launchpadActor = launchpadContractActor({
-				canisterId: canisterId.value,
-				requiresSigning: false,
-				anon: false
-			})
+			const actor = launchpadActor.value
+			if (!actor) return
 
 			// Fetch version
-			const version = await launchpadActor.getVersion()
+			const version = await actor.getVersion()
 			// Convert version object to string format
 			if (typeof version === 'string') {
 				contractVersion.value = version
@@ -1982,8 +2000,8 @@ const fetchData = async () => {
 			}
 			console.log('📦 Contract version:', contractVersion.value)
 
-			// Fetch project images (logo and cover)
-			const images = await launchpadActor.getProjectImages()
+			// Fetch project images (logo and cover) - ONLY on full load
+			const images = await actor.getProjectImages()
 			projectImages.value = {
 				logo: images.logo?.[0] || '',
 				cover: images.cover?.[0] || ''
@@ -2012,6 +2030,46 @@ const fetchData = async () => {
 		error.value = err instanceof Error ? err.message : 'Failed to load launchpad'
 	} finally {
 		loading.value = false
+	}
+}
+
+// Core stats fetch - excludes images (called for auto-refresh)
+const fetchCoreStats = async () => {
+	if (!launchpad.value) return
+
+	try {
+		console.log('🔄 [fetchCoreStats] Fetching core stats only (excluding images)...')
+
+		// Fetch launchpad data from service (without images)
+		const data = await launchpadService.getLaunchpad(canisterId.value)
+		if (data) {
+			// Update only the core stats and status
+			launchpad.value = {
+				...launchpad.value,
+				stats: data.stats,
+				status: data.status,
+				config: launchpad.value.config // Keep existing config (doesn't change often)
+			}
+			console.log('✅ [fetchCoreStats] Core stats updated')
+		}
+
+		// Fetch updated contract version (lightweight)
+		try {
+			const actor = launchpadActor.value
+			if (actor) {
+				const version = await actor.getVersion()
+				if (typeof version === 'string') {
+					contractVersion.value = version
+				} else if (version && typeof version === 'object') {
+					contractVersion.value = `${(version as any).major || 0}.${(version as any).minor || 0}.${(version as any).patch || 0}`
+				}
+			}
+		} catch (versionError) {
+			console.warn('⚠️ Could not fetch contract version:', versionError)
+		}
+	} catch (error) {
+		console.error('Error fetching core stats:', error)
+		throw error
 	}
 }
 
@@ -2131,14 +2189,11 @@ const fetchUserParticipation = async () => {
 	try {
 		const { Principal } = await import('@dfinity/principal')
 
-		const launchpadActor = launchpadContractActor({
-			canisterId: canisterId.value,
-			requiresSigning: false,
-			anon: false
-		})
+		const actor = launchpadActor.value
+		if (!actor) return
 
 		// Get participant info from contract
-		const participant = await launchpadActor.getParticipant(Principal.fromText(authStore.principal))
+		const participant = await actor.getParticipant(Principal.fromText(authStore.principal))
 
 		if (participant && participant[0]) {
 			const participantData = participant[0]
@@ -2168,12 +2223,13 @@ const fetchUserParticipation = async () => {
 	}
 }
 
-// Refresh all stats and user data
+// Refresh core stats and user data (optimized for auto-refresh)
 const refreshStats = async (silent = false) => {
 	refreshingStats.value = true
 	try {
-		// Reload main data
-		await fetchData()
+		// Reload only core stats (excluding images) - much faster!
+		await fetchCoreStats()
+
 		// Reload user-specific data
 		if (authStore.isConnected) {
 			await Promise.all([
@@ -2181,10 +2237,10 @@ const refreshStats = async (silent = false) => {
 				fetchUserParticipation()
 			])
 		}
-		
+
 		// Trigger flash animation
 		statsUpdateKey.value++
-		
+
 		if (!silent) {
 			toast.success('Stats refreshed successfully!')
 		}
@@ -2201,39 +2257,74 @@ const refreshStats = async (silent = false) => {
 	}
 }
 
+// Full refresh function that includes images (use manual refresh or when needed)
+const fullRefresh = async (silent = false) => {
+	refreshingStats.value = true
+	try {
+		// Reload all data including images
+		await fetchData()
+
+		// Reload user-specific data
+		if (authStore.isConnected) {
+			await Promise.all([
+				fetchUserPassportScore(),
+				fetchUserParticipation()
+			])
+		}
+
+		// Trigger flash animation
+		statsUpdateKey.value++
+
+		if (!silent) {
+			toast.success('Data fully refreshed!')
+		}
+	} catch (error) {
+		console.error('Error doing full refresh:', error)
+		if (!silent) {
+			toast.error('Failed to refresh data')
+		}
+	} finally {
+		// Small delay to ensure animation triggers
+		setTimeout(() => {
+			refreshingStats.value = false
+		}, 100)
+	}
+}
+
 // Handle countdown end - auto refresh to get new status
 const handleCountdownEnd = async () => {
 	console.log('⏰ [LaunchpadDetail] Countdown ended, refreshing status...')
-	
+
 	// Wait a bit for backend to process status change
 	await new Promise(resolve => setTimeout(resolve, 2000))
-	
-	// First refresh
-	await refreshStats(true)
-	
+
+	// First refresh - use full refresh since major status changes might have occurred
+	await fullRefresh(true)
+
 	// Also refresh participants immediately
 	if (participantsRef.value?.fetchParticipants) {
 		console.log('👥 [LaunchpadDetail] Refreshing participants...')
 		await participantsRef.value.fetchParticipants()
 	}
-	
+
 	// Retry after 5 seconds to ensure backend has updated
 	// (useful for status transitions like SaleActive → SaleEnded → Failed)
+	// Use core stats refresh for subsequent retries (lighter weight)
 	setTimeout(async () => {
 		console.log('🔄 [LaunchpadDetail] Retry refresh after countdown...')
 		await refreshStats(true)
-		
+
 		// Refresh participants again
 		if (participantsRef.value?.fetchParticipants) {
 			await participantsRef.value.fetchParticipants()
 		}
 	}, 5000)
-	
+
 	// Final retry after 10 seconds
 	setTimeout(async () => {
 		console.log('🔄 [LaunchpadDetail] Final refresh after countdown...')
 		await refreshStats(true)
-		
+
 		// Final participants refresh
 		if (participantsRef.value?.fetchParticipants) {
 			await participantsRef.value.fetchParticipants()

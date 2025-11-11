@@ -209,4 +209,12 @@ export interface DistributionCanister {
 //   stats: DistributionStats;
 // }
 
+// Claim Modal Types
+export interface ClaimInfo {
+  totalAllocated: number;
+  maxClaimable: number;
+  claimed: number;
+  remaining: number;
+}
+
 // Creation response types
