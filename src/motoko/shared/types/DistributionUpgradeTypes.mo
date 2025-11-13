@@ -14,8 +14,8 @@ module {
         createdAt: Time.Time;
         initialized: Bool;
 
-        // Participant data (from Tries)
-        participants: [(Principal, DistributionTypes.Participant)];
+        // Participant data (from Tries) - V2.0: Now MultiCategoryParticipant
+        participants: [(Principal, DistributionTypes.MultiCategoryParticipant)];
         claimRecords: [DistributionTypes.ClaimRecord];
         whitelist: [(Principal, Bool)];
         blacklist: [(Principal, Bool)];
