@@ -1,13 +1,86 @@
 <template>
 	<AdminLayout>
 		<div class="min-h-screen dark:from-gray-900 dark:to-gray-800">
-			<!-- Loading State -->
-			<!-- <div v-if="loading" class="flex items-center justify-center min-h-screen">
-				<div class="text-center">
-					<div class="inline-block animate-spin rounded-full h-16 w-16 border-b-2 border-[#d8a735]"></div>
-					<p class="mt-4 text-gray-600 dark:text-gray-400">Loading launchpad details...</p>
+			<!-- Skeleton Loading State -->
+			<div v-if="loading" class="mx-auto animate-pulse">
+				<!-- Breadcrumb Skeleton -->
+				<div class="h-6 bg-gray-200 dark:bg-gray-700 rounded w-48 mb-6"></div>
+
+				<!-- Hero Section Skeleton -->
+				<div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm overflow-hidden mb-6 border border-gray-200 dark:border-gray-700">
+					<!-- Header gradient skeleton -->
+					<div class="bg-gradient-to-r from-gray-200 to-gray-300 dark:from-gray-700 dark:to-gray-600 p-6 h-32"></div>
+
+					<!-- Progress bar skeleton -->
+					<div class="px-6 py-4 bg-gray-50 dark:bg-gray-900 space-y-3">
+						<div class="flex justify-between">
+							<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32"></div>
+							<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-16"></div>
+						</div>
+						<div class="h-2 bg-gray-200 dark:bg-gray-700 rounded-full w-full"></div>
+						<div class="flex justify-between">
+							<div class="h-3 bg-gray-200 dark:bg-gray-700 rounded w-40"></div>
+							<div class="h-3 bg-gray-200 dark:bg-gray-700 rounded w-40"></div>
+						</div>
+					</div>
 				</div>
-			</div> -->
+
+				<!-- Content Grid Skeleton -->
+				<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+					<!-- Left Column -->
+					<div class="lg:col-span-2 space-y-6">
+						<!-- Tabs skeleton -->
+						<div class="flex space-x-2 bg-gray-100 dark:bg-gray-800 p-1 rounded-lg">
+							<div class="h-10 bg-gray-200 dark:bg-gray-700 rounded w-32"></div>
+							<div class="h-10 bg-gray-200 dark:bg-gray-700 rounded w-32"></div>
+							<div class="h-10 bg-gray-200 dark:bg-gray-700 rounded w-32"></div>
+						</div>
+
+						<!-- Content card skeleton -->
+						<div class="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+							<div class="h-6 bg-gray-200 dark:bg-gray-700 rounded w-48 mb-4"></div>
+							<div class="space-y-3">
+								<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
+								<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-5/6"></div>
+								<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-4/6"></div>
+							</div>
+						</div>
+					</div>
+
+					<!-- Right Column -->
+					<div class="space-y-6">
+						<!-- Action card skeleton -->
+						<div class="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+							<div class="h-6 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-4"></div>
+							<div class="space-y-3">
+								<div class="h-12 bg-gray-200 dark:bg-gray-700 rounded w-full"></div>
+								<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+							</div>
+						</div>
+
+						<!-- Timeline skeleton -->
+						<div class="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+							<div class="h-6 bg-gray-200 dark:bg-gray-700 rounded w-24 mb-4"></div>
+							<div class="space-y-4">
+								<div class="flex items-center space-x-3">
+									<div class="h-10 w-10 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+									<div class="flex-1">
+										<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-2"></div>
+										<div class="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div>
+									</div>
+								</div>
+								<div class="flex items-center space-x-3">
+									<div class="h-10 w-10 bg-gray-200 dark:bg-gray-700 rounded-full"></div>
+									<div class="flex-1">
+										<div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-32 mb-2"></div>
+										<div class="h-3 bg-gray-200 dark:bg-gray-700 rounded w-24"></div>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
 
 			<!-- Error State -->
 			<div v-if="error" class="flex items-center justify-center min-h-screen">
@@ -1098,15 +1171,29 @@ const isSavingImages = ref(false)
 const versionManagementRef = ref<InstanceType<any> | null>(null)
 const participantsRef = ref<InstanceType<any> | null>(null)
 
-// Launchpad actor for child components
-const launchpadActor = computed(() => {
+// Launchpad actors: separate public (anon) and authenticated
+// Public actor - for unauthenticated users to view launchpad data
+const publicLaunchpadActor = computed(() => {
 	if (!canisterId.value) return null
 	return launchpadContractActor({
 		canisterId: canisterId.value,
 		requiresSigning: false,
-		anon: false
+		anon: true  // ✅ Use anonymous actor for public data
 	})
 })
+
+// Authenticated actor - for user-specific operations (only when connected)
+const userLaunchpadActor = computed(() => {
+	if (!canisterId.value || !authStore.isConnected) return null
+	return launchpadContractActor({
+		canisterId: canisterId.value,
+		requiresSigning: false,
+		anon: false  // Requires authentication
+	})
+})
+
+// Legacy actor for backward compatibility (uses public by default)
+const launchpadActor = computed(() => publicLaunchpadActor.value)
 // 🆕 NEW: Use Dual-Status System
 const launchpadRef = computed(() => launchpad.value)
 const { 
@@ -1985,9 +2072,13 @@ const fetchData = async () => {
 		}
 
 		// Fetch contract version and project images (only on full load)
+		// ✅ Use public actor - no authentication required for public data
 		try {
-			const actor = launchpadActor.value
-			if (!actor) return
+			const actor = publicLaunchpadActor.value
+			if (!actor) {
+				console.warn('⚠️ Public actor not available')
+				return
+			}
 
 			// Fetch version
 			const version = await actor.getVersion()
@@ -2009,6 +2100,7 @@ const fetchData = async () => {
 			console.log('🖼️ Project images:', projectImages.value)
 		} catch (versionError) {
 			console.warn('⚠️ Could not fetch contract version or images:', versionError)
+			// Not a critical error - continue without version/images
 		}
 
 		// After conversion to e8s format
@@ -2054,6 +2146,7 @@ const fetchCoreStats = async () => {
 		}
 
 		// Fetch updated contract version (lightweight)
+		// ✅ Use public actor for version check
 		try {
 			const actor = launchpadActor.value
 			if (actor) {
