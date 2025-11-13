@@ -49,6 +49,13 @@ module DistributionTypes {
         note: ?Text;
     };
 
+    // Multi-category recipient for unified distributions
+    public type MultiCategoryRecipient = {
+        address: Principal;
+        categories: [CategoryAllocation];   // Multiple categories with different vesting
+        note: ?Text;
+    };
+
 
 
     // Distribution Configuration
@@ -99,6 +106,12 @@ module DistributionTypes {
 
         // External Integrations
         externalCheckers: ?[(Text, Principal)];
+
+        // ========== MULTI-CATEGORY SUPPORT (V2.0) ==========
+        // Optional multi-category recipients
+        // If set: Use multi-category mode (direct storage)
+        // If null: Use legacy mode (auto-convert to default category)
+        multiCategoryRecipients: ?[MultiCategoryRecipient];
     };
 
     public type TokenInfo = {
@@ -248,6 +261,87 @@ module DistributionTypes {
         failureCount: Nat;
     };
 
+    // ================ UNIFIED DISTRIBUTION TYPES ================
+    // Single unified contract with multiple categories organized by ID
+
+    // Individual category distribution within unified contract
+    public type CategoryDistribution = {
+        categoryId: Nat;                    // Numeric ID (1=participants, 2=team, 3=advisors, etc.)
+        categoryInfo: DistributionCategory; // Category metadata
+        recipients: [Recipient];            // Recipients for this category (legacy - will be merged)
+        totalAmount: Nat;                   // Total tokens for this category
+        vestingSchedule: VestingSchedule;   // Vesting schedule for this category
+    };
+
+    // Multi-category distribution configuration for unified contract
+    public type MultiCategoryDistributionConfig = {
+        // Basic Information
+        title: Text;
+        description: Text;
+        isPublic: Bool;
+        campaignType: CampaignType;
+
+        // Launchpad Integration
+        launchpadContext: ?LaunchpadContext;
+
+        // Token Configuration
+        tokenInfo: TokenInfo;
+        totalAmount: Nat;
+
+        // Multi-category recipients with different vesting schedules
+        multiCategoryRecipients: [MultiCategoryRecipient];
+
+        // Eligibility & Permissions
+        eligibilityType: EligibilityType;
+        recipientMode: RecipientMode;
+        maxRecipients: ?Nat;
+
+        // Timing
+        distributionStart: Time.Time;
+        distributionEnd: ?Time.Time;
+
+        // Fees & Permissions
+        feeStructure: FeeStructure;
+        allowCancel: Bool;
+        allowModification: Bool;
+
+        // Owner & Governance
+        owner: Principal;
+        governance: ?Principal;
+        multiSigGovernance: ?MultiSigGovernance;
+        externalCheckers: ?[(Text, Principal)];
+    };
+
+    // Unified distribution request for single contract deployment
+    public type UnifiedDistributionRequest = {
+        launchpadId: Principal;
+        projectMetadata: ProjectMetadata;
+        batchId: Text;
+        tokenInfo: TokenInfo;
+        categories: [CategoryDistribution]; // Array of categories with ID-based organization
+        totalAmount: Nat;                   // Total tokens across all categories
+        distributionStart: Time.Time;       // When distribution starts
+    };
+
+    public type UnifiedDistributionResult = {
+        batchId: Text;
+        launchpadId: Principal;
+        unifiedCanisterId: Principal;       // Single canister ID for all categories
+        categories: [CategoryDeploymentResult];
+        totalAmount: Nat;
+        successCount: Nat;
+        failureCount: Nat;
+    };
+
+    public type CategoryDeploymentResult = {
+        categoryId: Nat;
+        categoryInfo: DistributionCategory;
+        result: {
+            #Ok: Text;      // Category successfully deployed in unified contract
+            #Err: Text;      // Error message for this category
+        };
+    };
+
     public type DistributionDeploymentResult = {
         category: DistributionCategory;
         result: {
@@ -333,6 +427,7 @@ module DistributionTypes {
         #Paused;
         #Completed;
         #Cancelled;
+        #Failed;
     };
 
     // Deployment Result
@@ -363,6 +458,31 @@ module DistributionTypes {
         #PartialClaim;
     };
 
+    // ================ MULTI-CATEGORY PARTICIPANT TYPES ================
+    // Support for participants with multiple allocations and vesting schedules
+
+    public type CategoryAllocation = {
+        categoryId: Nat;                    // Category identifier (1=sale, 2=team, etc.)
+        categoryName: Text;                 // Category display name
+        amount: Nat;                        // Total allocation for this category
+        claimedAmount: Nat;                 // Amount already claimed from this category
+        vestingSchedule: VestingSchedule;   // Category-specific vesting schedule
+        vestingStart: Time.Time;            // Category-specific vesting start time
+        note: ?Text;                        // Category-specific note
+    };
+
+    // Legacy single-category participant for backward compatibility
+    public type LegacyParticipant = {
+        principal: Principal;
+        registeredAt: Time.Time;
+        eligibleAmount: Nat;
+        claimedAmount: Nat;
+        lastClaimTime: ?Time.Time;
+        status: ParticipantStatus;
+        vestingStart: ?Time.Time;
+        note: ?Text; // From Recipient.note
+    };
+
     public type Participant = {
         principal: Principal;
         registeredAt: Time.Time;
@@ -372,6 +492,18 @@ module DistributionTypes {
         status: ParticipantStatus;
         vestingStart: ?Time.Time;
         note: ?Text; // From Recipient.note
+    };
+
+    // Multi-category participant for future implementation
+    public type MultiCategoryParticipant = {
+        principal: Principal;
+        registeredAt: Time.Time;
+        categories: [CategoryAllocation];   // Multi-category allocations
+        totalEligible: Nat;                 // Sum of all category amounts
+        totalClaimed: Nat;                  // Sum of all claimed amounts
+        lastClaimTime: ?Time.Time;
+        status: ParticipantStatus;
+        note: ?Text;                        // General participant note
     };
 
     public type ClaimRecord = {

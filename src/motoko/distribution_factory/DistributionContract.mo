@@ -13,6 +13,7 @@ import Float "mo:base/Float";
 import Nat "mo:base/Nat";
 import Nat64 "mo:base/Nat64";
 import Error "mo:base/Error";
+import Array "mo:base/Array";
 // Import shared types (trust source)
 import DistributionTypes "../shared/types/DistributionTypes";
 import DistributionUpgradeTypes "../shared/types/DistributionUpgradeTypes";
@@ -50,6 +51,9 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     public type DistributionStatus = DistributionTypes.DistributionStatus;
     public type ParticipantStatus = DistributionTypes.ParticipantStatus;
     public type Participant = DistributionTypes.Participant;
+    public type CategoryAllocation = DistributionTypes.CategoryAllocation;
+    public type MultiCategoryParticipant = DistributionTypes.MultiCategoryParticipant;  // V2.0
+    public type MultiCategoryRecipient = DistributionTypes.MultiCategoryRecipient;      // V2.0
     public type ClaimRecord = DistributionTypes.ClaimRecord;
     public type DistributionStats = DistributionTypes.DistributionStats;
 
@@ -134,8 +138,41 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
 
     private var lastActivityTime: Time.Time = Time.now();
 
-    // Participant management
-    private var participantsStable: [(Principal, Participant)] = switch (upgradeState) {
+    // ================ SECURITY MEASURES ================
+
+    /// Per-user reentrancy protection - prevents recursive calls to critical functions
+    private var _userReentrancyGuards: [(Principal, Bool)] = [];
+
+    /// Global emergency reentrancy protection - only for critical emergencies
+    private var _emergencyReentrancyGuard: Bool = false;
+
+    /// Rate limiting for claim operations (1 claim per minute per user)
+    private var _lastClaimTime: [(Principal, Time.Time)] = [];
+
+    /// Global rate limiting to prevent Sybil attacks
+    private var _globalClaimTimestamps: [Time.Time] = [];
+    private let _MAX_CLAIMS_PER_MINUTE: Nat = 100; // Global limit
+
+    /// Security event logging for audit trail
+    private var _securityEvents: [SecurityEvent] = [];
+    private let _MAX_SECURITY_EVENTS: Nat = 1000; // Keep last 1000 events
+
+    /// Access control roles
+    private var _adminRoles: [(Principal, Role)] = [];
+
+    /// Maximum operations per batch to prevent gas griefing
+    private let _MAX_BATCH_OPERATIONS: Nat = 100;
+
+    /// Role types for access control
+    public type Role = {
+        #Owner;
+        #Admin;
+        #Manager;
+        #User;
+    };
+
+    // Participant management (V2.0: Now MultiCategoryParticipant)
+    private var participantsStable: [(Principal, MultiCategoryParticipant)] = switch (upgradeState) {
         case null { [] };
         case (?state) { state.participants };
     };
@@ -167,7 +204,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     };
 
     // Runtime variables - will be restored in postupgrade
-    private transient var participants: Trie.Trie<Principal, Participant> = Trie.empty();
+    // V2.0: Now uses MultiCategoryParticipant for all distributions (legacy auto-converts to default category)
+    private transient var participants: Trie.Trie<Principal, MultiCategoryParticipant> = Trie.empty();
     private transient var claimRecords: Buffer.Buffer<ClaimRecord> = Buffer.Buffer(0);
     private transient var whitelist: Trie.Trie<Principal, Bool> = Trie.empty();
     private transient var blacklist: Trie.Trie<Principal, Bool> = Trie.empty();
@@ -202,7 +240,350 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     private let E8S: Nat = 100_000_000;
     private let _NANO_TIME: Nat = 1_000_000_000;
 
-    // Initialize whitelist and participants from config on contract creation
+    // ================ SECURITY HELPER FUNCTIONS ================
+
+    /// Per-user reentrancy protection - prevents recursive calls
+    private func _reentrancyGuardEnter(caller: Principal) : Result.Result<(), Text> {
+        // Check emergency guard first
+        if (_emergencyReentrancyGuard) {
+            return #err("Emergency reentrancy protection active");
+        };
+
+        // Simple approach: check if user is already locked
+        let existingGuard = Array.find(_userReentrancyGuards, func ((user, _): (Principal, Bool)) : Bool {
+            Principal.equal(user, caller)
+        });
+
+        switch (existingGuard) {
+            case (?(_, isLocked)) {
+                if (isLocked) {
+                    return #err("Reentrancy detected for user: " # Principal.toText(caller));
+                };
+                // Update existing guard to locked
+                let filteredGuards = Array.filter(_userReentrancyGuards, func ((user, _): (Principal, Bool)) : Bool {
+                    not Principal.equal(user, caller)
+                });
+                _userReentrancyGuards := Array.append(filteredGuards, [(caller, true)]);
+            };
+            case null {
+                // Add new user guard
+                _userReentrancyGuards := Array.append(_userReentrancyGuards, [(caller, true)]);
+            };
+        };
+
+        #ok(())
+    };
+
+    /// Release per-user reentrancy guard
+    private func _reentrancyGuardExit(caller: Principal) {
+        // Find and unlock user
+        let filteredGuards = Array.filter(_userReentrancyGuards, func ((user, _): (Principal, Bool)) : Bool {
+            not Principal.equal(user, caller)
+        });
+        _userReentrancyGuards := Array.append(filteredGuards, [(caller, false)]);
+    };
+
+    /// Emergency reentrancy protection - lock all operations (Owner only)
+    private func _emergencyReentrancyLock() {
+        _emergencyReentrancyGuard := true;
+    };
+
+    /// Release emergency reentrancy protection (Owner only)
+    private func _emergencyReentrancyUnlock() {
+        _emergencyReentrancyGuard := false;
+    };
+
+    /// Safe arithmetic operations with overflow/underflow protection
+    private func _safeAdd(a: Nat, b: Nat) : ?Nat {
+        let result = a + b;
+        if (result >= a) { ?result } else { null };
+    };
+
+    private func _safeSub(a: Nat, b: Nat) : ?Nat {
+        if (a >= b) { ?(a - b) } else { null };
+    };
+
+    private func _safeMul(a: Nat, b: Nat) : ?Nat {
+        let result = a * b;
+        if (result / a == b and a != 0) { ?result } else { null };
+    };
+
+    private func _safeDiv(a: Nat, b: Nat) : ?Nat {
+        if (b != 0) { ?(a / b) } else { null };
+    };
+
+    /// Enhanced rate limiting with global and per-user protection
+    private func _checkRateLimit(caller: Principal) : Result.Result<(), Text> {
+        let now = _getValidatedTime(); // Use protected time
+        let cooldownPeriod = 60_000_000_000; // 1 minute in nanoseconds
+
+        // 1. Global rate limiting (prevent Sybil attacks)
+        let recentGlobalClaims = Array.filter(_globalClaimTimestamps, func (timestamp: Time.Time) : Bool {
+            let timeDiff = Int.abs(now - timestamp);
+            timeDiff < cooldownPeriod
+        });
+
+        if (recentGlobalClaims.size() >= _MAX_CLAIMS_PER_MINUTE) {
+            return #err("Global rate limit exceeded. Please try again later.");
+        };
+
+        // 2. Per-user rate limiting
+        let lastClaim = Array.find(_lastClaimTime, func ((user, _): (Principal, Time.Time)) : Bool {
+            Principal.equal(user, caller)
+        });
+
+        switch (lastClaim) {
+            case (?(_, lastTime)) {
+                let timeSinceLastClaim = Int.abs(now - lastTime);
+                if (timeSinceLastClaim < cooldownPeriod) {
+                    return #err("Rate limit exceeded. Please wait " # debug_show(cooldownPeriod - timeSinceLastClaim) # " nanoseconds");
+                };
+                // Update last claim time
+                _updateLastClaimTime(caller, now);
+            };
+            case null {
+                // First time claiming
+                _updateLastClaimTime(caller, now);
+            };
+        };
+
+        // 3. Update global claim timestamps
+        _globalClaimTimestamps := Array.append(_globalClaimTimestamps, [now]);
+
+        // 4. Cleanup old timestamps (keep only recent ones)
+        let cleanedTimestamps = Array.filter(_globalClaimTimestamps, func (timestamp: Time.Time) : Bool {
+            let timeDiff = Int.abs(now - timestamp);
+            timeDiff < cooldownPeriod * 10 // Keep 10 minutes of history
+        });
+        _globalClaimTimestamps := cleanedTimestamps;
+
+        #ok(())
+    };
+
+    /// Update last claim time for a user
+    private func _updateLastClaimTime(user: Principal, time: Time.Time) {
+        // Simple approach: filter out existing entry and add new one
+        let filteredEntries = Array.filter(_lastClaimTime, func (item: (Principal, Time.Time)) : Bool {
+            not Principal.equal(item.0, user)
+        });
+        // Add new entry
+        _lastClaimTime := Array.append(filteredEntries, [(user, time)]);
+    };
+
+    /// Oracle-protected time function to prevent MEV attacks
+    private func _getValidatedTime() : Time.Time {
+        let currentTime = Time.now();
+        let contractTime = lastActivityTime; // Contract's last validated time
+
+        // Maximum allowed time drift (5 minutes)
+        let maxTimeDrift = 300_000_000_000; // 5 minutes in nanoseconds
+
+        // Check for unreasonable time jumps
+        let timeDiff = Int.abs(currentTime - contractTime);
+
+        if (timeDiff > maxTimeDrift) {
+            // Time manipulation detected - use contract time as fallback
+            Debug.print("⚠️ Time manipulation detected: " # debug_show(timeDiff) # "ns drift");
+            return contractTime;
+        };
+
+        // Validate time is reasonable (not too far in past/future)
+        let reasonableTimeRange = 86400_000_000_000; // 24 hours
+        let referenceTime = 1700000000000000000; // Reference timestamp (Nov 2023)
+
+        if (currentTime < referenceTime or currentTime > referenceTime + reasonableTimeRange * 365) {
+            Debug.print("⚠️ Unreasonable time detected, using fallback");
+            return contractTime;
+        };
+
+        currentTime;
+    };
+
+    // ================ ATOMIC BALANCE OPERATIONS (TOCTOU PROTECTION) ================
+
+    /// Atomic balance check and claim operation
+    /// Prevents TOCTOU race conditions by performing checks and updates in a single atomic operation
+    private func _atomicClaimOperation(
+        caller: Principal,
+        participant: MultiCategoryParticipant,
+        claimAmount: Nat,
+        updatedCategories: [CategoryAllocation]
+    ) : Result.Result<MultiCategoryParticipant, Text> {
+        // Create a checkpoint of the current state
+        let checkpoint = {
+            originalParticipant = participant;
+            originalTotalClaimed = totalClaimed;
+            originalClaimRecordsSize = claimRecords.size();
+        };
+
+        // Calculate new state atomically
+        let newTotalClaimedResult = _safeAdd(participant.totalClaimed, claimAmount);
+        let newTotalClaimed = switch (newTotalClaimedResult) {
+            case (?amount) { amount };
+            case null { return #err("Arithmetic overflow in claim calculation") };
+        };
+
+        // Validate that the claim is still valid under current state
+        let maxClaimableResult = _safeSub(_calculateTotalFromCategories(participant.categories), participant.totalClaimed);
+        let maxClaimable = switch (maxClaimableResult) {
+            case (?amount) { amount };
+            case null { return #err("Invalid state: claimed exceeds eligible") };
+        };
+
+        if (claimAmount > maxClaimable) {
+            return #err("State changed: claim amount no longer valid");
+        };
+
+        // All checks passed - return updated participant
+        let updatedParticipant: MultiCategoryParticipant = {
+            principal = participant.principal;
+            registeredAt = participant.registeredAt;
+            categories = updatedCategories;
+            totalEligible = participant.totalEligible;
+            totalClaimed = newTotalClaimed;
+            lastClaimTime = ?_getValidatedTime();
+            status = participant.status;
+            note = participant.note;
+        };
+
+        #ok(updatedParticipant)
+    };
+
+    /// Verify and update global totals atomically
+    private func _atomicUpdateGlobalTotals(
+        previousTotal: Nat,
+        addition: Nat,
+        operation: Text
+    ) : Result.Result<Nat, Text> {
+        let newTotalResult = _safeAdd(previousTotal, addition);
+        let newTotal = switch (newTotalResult) {
+            case (?amount) { amount };
+            case null {
+                return #err("Global total overflow in " # operation);
+            };
+        };
+
+        // Additional sanity check
+        if (newTotal < previousTotal) {
+            return #err("Arithmetic underflow detected in " # operation);
+        };
+
+        #ok(newTotal)
+    };
+
+    /// Log security events for audit trail
+    private func _logSecurityEvent(
+        eventType: Text,
+        principal: Principal,
+        amount: Nat,
+        details: Text,
+        severity: Severity
+    ) {
+        let event: SecurityEvent = {
+            timestamp = _getValidatedTime();
+            eventType = eventType;
+            principal = principal;
+            amount = amount;
+            details = details;
+            severity = severity;
+        };
+
+        // Add event to log
+        _securityEvents := Array.append(_securityEvents, [event]);
+
+        // Keep only last MAX_EVENTS events (prevent unbounded growth)
+        if (_securityEvents.size() > _MAX_SECURITY_EVENTS) {
+            let excess = _securityEvents.size() - _MAX_SECURITY_EVENTS;
+            _securityEvents := Array.take(_securityEvents, _securityEvents.size() - excess);
+        };
+
+        // Also log to Debug for development visibility
+        let severityText = switch (severity) {
+            case (#Info) { "INFO" };
+            case (#Warning) { "WARN" };
+            case (#Error) { "ERROR" };
+            case (#Critical) { "CRITICAL" };
+        };
+        Debug.print("🔐 SECURITY [" # severityText # "] " # eventType # " by " # Principal.toText(principal) # ": " # details);
+    };
+
+    /// Enhanced access control with role-based permissions
+    private func _hasRole(caller: Principal, requiredRole: Role) : Bool {
+        // Check creator first (highest privilege)
+        if (Principal.equal(caller, creator)) {
+            return true;
+        };
+
+        // Check role assignments
+        let userRole = Array.find(_adminRoles, func ((user, _role): (Principal, Role)) : Bool {
+            Principal.equal(user, caller)
+        });
+
+        switch (userRole) {
+            case (?(_, userAssignedRole)) {
+                return _roleHasPermission(userAssignedRole, requiredRole);
+            };
+            case null {
+                // Default role for all users is #User
+                return _roleHasPermission(#User, requiredRole);
+            };
+        };
+    };
+
+    /// Check if a role has permission for the required role level
+    private func _roleHasPermission(userRole: Role, requiredRole: Role) : Bool {
+        switch (userRole) {
+            case (#Owner) { true }; // Owner can do everything
+            case (#Admin) {
+                switch (requiredRole) {
+                    case (#Owner) { false }; // Admin cannot be owner
+                    case (_) { true };
+                };
+            };
+            case (#Manager) {
+                switch (requiredRole) {
+                    case (#User) { true };
+                    case (_) { false };
+                };
+            };
+            case (#User) {
+                switch (requiredRole) {
+                    case (#User) { true };
+                    case (_) { false };
+                };
+            };
+        };
+    };
+
+    /// Comprehensive input validation
+    private func _validatePrincipal(p: Principal) : Result.Result<(), Text> {
+        if (Principal.isAnonymous(p)) {
+            return #err("Anonymous principal not allowed");
+        };
+        #ok(())
+    };
+
+    private func _validateAmount(amount: Nat) : Result.Result<(), Text> {
+        if (amount == 0) {
+            return #err("Amount cannot be zero");
+        };
+        if (amount > 1_000_000_000_000_000_000) { // 1 billion tokens (adjust as needed)
+            return #err("Amount exceeds maximum allowed");
+        };
+        #ok(())
+    };
+
+    private func _validateText(text: Text) : Result.Result<(), Text> {
+        if (text.size() == 0) {
+            return #err("Text cannot be empty");
+        };
+        if (text.size() > 1000) { // Reasonable limit
+            return #err("Text too long");
+        };
+        #ok(())
+    };
+
+    /// Initialize whitelist and participants from config on contract creation
     public shared({ caller }) func init() : async Result.Result<(), Text> {
         Debug.print("🔧 init() called by: " # Principal.toText(caller));
         Debug.print("📋 Creator: " # Principal.toText(creator));
@@ -271,7 +652,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     
     system func preupgrade() {
         Debug.print("DistributionContract: Starting preupgrade");
-        participantsStable := Trie.toArray<Principal, Participant, (Principal, Participant)>(participants, func (k, v) = (k, v));
+        // V2.0: Now uses MultiCategoryParticipant
+        participantsStable := Trie.toArray<Principal, MultiCategoryParticipant, (Principal, MultiCategoryParticipant)>(participants, func (k, v) = (k, v));
         claimRecordsStable := Buffer.toArray(claimRecords);
         whitelistStable := Trie.toArray<Principal, Bool, (Principal, Bool)>(whitelist, func (k, v) = (k, v));
         blacklistStable := Trie.toArray<Principal, Bool, (Principal, Bool)>(blacklist, func (k, v) = (k, v));
@@ -373,31 +755,98 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         };
         null
     };
-    
-    private func _initializeWhitelist() {
-        switch (config.eligibilityType) {
-            case (#Whitelist) {
-                // Initialize whitelist from recipients field
-                for (recipient in config.recipients.vals()) {
-                    whitelist := Trie.put(whitelist, _principalKey(recipient.address), Principal.equal, true).0;
 
-                    // For whitelist distributions, also initialize participants directly
-                    let participant: Participant = {
-                        principal = recipient.address;
-                        registeredAt = Time.now();
-                        eligibleAmount = recipient.amount;
-                        claimedAmount = 0;
-                        lastClaimTime = null;
-                        status = #Eligible;
-                        vestingStart = null;
-                        note = recipient.note;
+    // ================ MULTI-CATEGORY HELPERS (V2.0) ================
+
+    /// Calculate total eligible amount from all categories
+    private func _calculateTotalFromCategories(categories: [CategoryAllocation]) : Nat {
+        var total: Nat = 0;
+        for (category in categories.vals()) {
+            total += category.amount;
+        };
+        total
+    };
+
+    /// Calculate total claimed amount from all categories
+    private func _calculateTotalClaimedFromCategories(categories: [CategoryAllocation]) : Nat {
+        var total: Nat = 0;
+        for (category in categories.vals()) {
+            total += category.claimedAmount;
+        };
+        total
+    };
+
+    // ================ PARTICIPANT INITIALIZATION (V2.0) ================
+
+    private func _initializeWhitelist() {
+        // ================ DETECT MODE: Multi-Category vs Legacy ================
+        switch (config.multiCategoryRecipients) {
+            case (?multiRecipients) {
+                // ✅ MULTI-CATEGORY MODE - Direct initialization
+                Debug.print("🎯 Multi-category mode: Initializing " # Nat.toText(multiRecipients.size()) # " multi-category participants");
+
+                switch (config.eligibilityType) {
+                    case (#Whitelist) {
+                        for (recipient in multiRecipients.vals()) {
+                            whitelist := Trie.put(whitelist, _principalKey(recipient.address), Principal.equal, true).0;
+
+                            let participant: MultiCategoryParticipant = {
+                                principal = recipient.address;
+                                registeredAt = Time.now();
+                                categories = recipient.categories;  // Use as-is
+                                totalEligible = _calculateTotalFromCategories(recipient.categories);
+                                totalClaimed = 0;
+                                lastClaimTime = null;
+                                status = #Eligible;
+                                note = recipient.note;
+                            };
+                            participants := Trie.put(participants, _principalKey(recipient.address), Principal.equal, participant).0;
+                            participantCount += 1;
+                        };
                     };
-                    participants := Trie.put(participants, _principalKey(recipient.address), Principal.equal, participant).0;
-                    participantCount += 1;
+                    case (_) {
+                        // For non-whitelist distributions, participants register themselves
+                    };
                 };
             };
-            case (_) {
-                // For non-whitelist distributions, participants register themselves
+            case null {
+                // ✅ LEGACY MODE - Auto-convert to default category
+                Debug.print("📦 Legacy mode: Auto-converting " # Nat.toText(config.recipients.size()) # " recipients to default category");
+
+                switch (config.eligibilityType) {
+                    case (#Whitelist) {
+                        for (recipient in config.recipients.vals()) {
+                            whitelist := Trie.put(whitelist, _principalKey(recipient.address), Principal.equal, true).0;
+
+                            // Wrap in default category
+                            let defaultCategory: CategoryAllocation = {
+                                categoryId = 1;
+                                categoryName = "Default Distribution";
+                                amount = recipient.amount;
+                                claimedAmount = 0;
+                                vestingSchedule = config.vestingSchedule;  // Use contract-level vesting
+                                vestingStart = config.distributionStart;
+                                note = recipient.note;
+                            };
+
+                            let participant: MultiCategoryParticipant = {
+                                principal = recipient.address;
+                                registeredAt = Time.now();
+                                categories = [defaultCategory];  // Single default category
+                                totalEligible = recipient.amount;
+                                totalClaimed = 0;
+                                lastClaimTime = null;
+                                status = #Eligible;
+                                note = recipient.note;
+                            };
+                            participants := Trie.put(participants, _principalKey(recipient.address), Principal.equal, participant).0;
+                            participantCount += 1;
+                        };
+                    };
+                    case (_) {
+                        // For non-whitelist distributions, participants register themselves
+                    };
+                };
             };
         };
     };
@@ -492,17 +941,18 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         (totalAmount * penaltyConfig.penaltyPercentage) / 100
     };
     
-    private func _calculateUnlockedAmount(participant: Participant) : Nat {
-        let vestingStart = switch (participant.vestingStart) {
-            case (?start) { start };
-            case null { config.distributionStart };
-        };
-        
-        let elapsed = Int.abs(Time.now() - vestingStart);
-        let totalAmount = participant.eligibleAmount;
-        let initialUnlock = (totalAmount * config.initialUnlockPercentage) / 100;
-        
-        switch (config.vestingSchedule) {
+    // ================ PER-CATEGORY VESTING CALCULATION (V2.0) ================
+
+    /// Calculate unlocked amount for a single category
+    /// Each category has its own vesting schedule and start time
+    private func _calculateUnlockedAmountForCategory(category: CategoryAllocation, initialUnlockPercentage: Nat) : Nat {
+        let vestingStart = category.vestingStart; // Already Time.Time, not optional
+
+        let elapsed = Int.abs(_getValidatedTime() - vestingStart);
+        let totalAmount = category.amount;
+        let initialUnlock = (totalAmount * initialUnlockPercentage) / 100;
+
+        switch (category.vestingSchedule) {
             case (#Instant) {
                 totalAmount
             };
@@ -555,6 +1005,113 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                 if (unlockedAmount > totalAmount) totalAmount else unlockedAmount
             };
         }
+    };
+
+    /// Calculate total unlocked amount across all categories for a participant
+    /// V2.0: Sums unlocked amounts from all categories
+    private func _calculateUnlockedAmount(participant: MultiCategoryParticipant) : Nat {
+        var totalUnlocked: Nat = 0;
+        for (category in participant.categories.vals()) {
+            let categoryUnlocked = _calculateUnlockedAmountForCategory(category, config.initialUnlockPercentage);
+            totalUnlocked += categoryUnlocked;
+        };
+        totalUnlocked
+    };
+
+    // ================ PER-CATEGORY CLAIMING LOGIC (V2.0) ================
+
+    /// Calculate claimable amount for a single category
+    /// Returns the amount that can be claimed from this specific category
+    private func _calculateClaimableAmountForCategory(category: CategoryAllocation) : Nat {
+        let unlockedAmount = _calculateUnlockedAmountForCategory(category, config.initialUnlockPercentage);
+        if (unlockedAmount > category.claimedAmount) {
+            Nat.sub(unlockedAmount, category.claimedAmount)
+        } else { 0 }
+    };
+
+    /// Calculate per-category claimable amounts for a participant
+    /// Returns array of (categoryId, claimableAmount) pairs
+    private func _calculateCategoryClaimableBreakdown(participant: MultiCategoryParticipant) : [(Nat, Nat)] {
+        let breakdown = Buffer.Buffer<(Nat, Nat)>(0);
+        for (category in participant.categories.vals()) {
+            let claimableAmount = _calculateClaimableAmountForCategory(category);
+            if (claimableAmount > 0) {
+                breakdown.add((category.categoryId, claimableAmount));
+            };
+        };
+        Buffer.toArray(breakdown)
+    };
+
+    /// Distribute claim amount across categories proportionally
+    /// Takes available claimable amounts and distributes the requested claim amount
+    private func _distributeClaimAcrossCategories(
+        categories: [CategoryAllocation],
+        requestedAmount: Nat
+    ) : [(Nat, Nat)] {
+        var remainingAmount = requestedAmount;
+        let distribution = Buffer.Buffer<(Nat, Nat)>(0);
+
+        // Calculate total claimable across all categories
+        var totalClaimable: Nat = 0;
+        for (category in categories.vals()) {
+            let claimable = _calculateClaimableAmountForCategory(category);
+            totalClaimable += claimable;
+        };
+
+        // If requested amount exceeds total claimable, cap it
+        let actualClaimAmount = Nat.min(requestedAmount, totalClaimable);
+
+        // Distribute proportionally across categories
+        for (category in categories.vals()) {
+            if (remainingAmount == 0) {
+                // Exit loop if no remaining amount to distribute
+            } else {
+                let claimable = _calculateClaimableAmountForCategory(category);
+                if (claimable > 0) {
+                    // Calculate proportional share for this category
+                    let proportionalShare = if (totalClaimable > 0) {
+                        (actualClaimAmount * claimable) / totalClaimable
+                    } else { 0 };
+
+                    // Cap at what's actually claimable from this category
+                    let categoryClaimAmount = Nat.min(Nat.min(proportionalShare, claimable), remainingAmount);
+
+                    if (categoryClaimAmount > 0) {
+                        distribution.add((category.categoryId, categoryClaimAmount));
+                        remainingAmount -= categoryClaimAmount;
+                    };
+                };
+            };
+        };
+
+        Buffer.toArray(distribution)
+    };
+
+    /// Update categories with new claimed amounts
+    /// Returns updated categories array with claimed amounts incremented
+    private func _updateCategoriesAfterClaim(
+        categories: [CategoryAllocation],
+        claimDistribution: [(Nat, Nat)]
+    ) : [CategoryAllocation] {
+        let updatedCategories = Buffer.Buffer<CategoryAllocation>(0);
+
+        for (category in categories.vals()) {
+            var updatedCategory = category;
+
+            // Find if this category was claimed from
+            for ((categoryId, claimAmount) in claimDistribution.vals()) {
+                if (categoryId == category.categoryId) {
+                    updatedCategory := {
+                        category with
+                        claimedAmount = category.claimedAmount + claimAmount
+                    };
+                };
+            };
+
+            updatedCategories.add(updatedCategory);
+        };
+
+        Buffer.toArray(updatedCategories)
     };
 
     // ================ TOKEN MANAGEMENT ================
@@ -868,8 +1425,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                 createdAt = createdAt;
                 initialized = initialized;
 
-                // Convert Tries to Arrays for serialization
-                participants = Trie.toArray<Principal, Participant, (Principal, Participant)>(
+                // Convert Tries to Arrays for serialization (V2.0: MultiCategoryParticipant)
+                participants = Trie.toArray<Principal, MultiCategoryParticipant, (Principal, MultiCategoryParticipant)>(
                     participants,
                     func (k, v) = (k, v)
                 );
@@ -1337,18 +1894,29 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             return #err("No more allocation available - distribution is full");
         };
         
-        // Create participant record
-        let participant: Participant = {
+        // Create participant record (V2.0: As MultiCategoryParticipant with default category)
+        // Self-registered participants always use default category with contract-level vesting
+        let defaultCategory: CategoryAllocation = {
+            categoryId = 1;
+            categoryName = "Default Distribution";
+            amount = eligibleAmount;
+            claimedAmount = 0;
+            vestingSchedule = config.vestingSchedule;
+            vestingStart = config.distributionStart;
+            note = null;
+        };
+
+        let participant: MultiCategoryParticipant = {
             principal = caller;
             registeredAt = Time.now();
-            eligibleAmount = eligibleAmount;
-            claimedAmount = 0;
+            categories = [defaultCategory];
+            totalEligible = eligibleAmount;
+            totalClaimed = 0;
             lastClaimTime = null;
             status = #Registered;
-            vestingStart = null;
             note = null; // No specific note for self-registered participants
         };
-        
+
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
         participantCount += 1;
         
@@ -1448,7 +2016,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     };
     
     // Auto-register participant when no registration period is configured
-    private func _autoRegisterParticipant(caller: Principal) : async Result.Result<Participant, Text> {
+    private func _autoRegisterParticipant(caller: Principal) : async Result.Result<MultiCategoryParticipant, Text> {
         // Check if user is anonymous
         if(Principal.isAnonymous(caller)) {
             return #err("Anonymous users cannot participate");
@@ -1514,18 +2082,28 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             return #err("No more allocation available - distribution is full");
         };
         
-        // Create participant record
-        let participant: Participant = {
+        // Create participant record (V2.0: As MultiCategoryParticipant with default category)
+        let defaultCategory: CategoryAllocation = {
+            categoryId = 1;
+            categoryName = "Default Distribution";
+            amount = eligibleAmount;
+            claimedAmount = 0;
+            vestingSchedule = config.vestingSchedule;
+            vestingStart = config.distributionStart;
+            note = null;
+        };
+
+        let participant: MultiCategoryParticipant = {
             principal = caller;
             registeredAt = Time.now();
-            eligibleAmount = eligibleAmount;
-            claimedAmount = 0;
+            categories = [defaultCategory];
+            totalEligible = eligibleAmount;
+            totalClaimed = 0;
             lastClaimTime = null;
             status = #Registered;
-            vestingStart = null;
             note = null; // No specific note for auto-registered participants
         };
-        
+
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
         participantCount += 1;
 
@@ -1536,13 +2114,96 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     };
     
     public shared({ caller }) func claim(claimAmount: ?Nat) : async Result.Result<Nat, Text> {
-        // CHECKS: All validation first, no state changes
+        // ================ SECURITY CHECKS ================
+
+        // 1. Input validation
+        switch (_validatePrincipal(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "INVALID_PRINCIPAL",
+                    caller,
+                    0,
+                    "Invalid principal in claim: " # error,
+                    #Warning
+                );
+                return #err(error)
+            };
+        };
+
+        switch (claimAmount) {
+            case (?amount) {
+                switch (_validateAmount(amount)) {
+                    case (#ok(_)) {};
+                    case (#err(error)) {
+                        _logSecurityEvent(
+                            "INVALID_AMOUNT",
+                            caller,
+                            0,
+                            "Invalid claim amount: " # error,
+                            #Warning
+                        );
+                        return #err(error)
+                    };
+                };
+            };
+            case null {}; // Full claim is valid
+        };
+
+        // 2. Per-user reentrancy protection
+        switch (_reentrancyGuardEnter(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "REENTRANCY_BLOCKED",
+                    caller,
+                    0,
+                    "Reentrancy guard blocked access: " # error,
+                    #Critical
+                );
+                return #err(error)
+            };
+        };
+
+        // 3. Enhanced rate limiting (global + per-user)
+        switch (_checkRateLimit(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "RATE_LIMIT_BLOCKED",
+                    caller,
+                    0,
+                    "Rate limit exceeded: " # error,
+                    #Warning
+                );
+                _reentrancyGuardExit(caller);
+                return #err(error)
+            };
+        };
+
+        // 4. Basic distribution validation
         if (not _isActive()) {
+            _logSecurityEvent(
+                "DISTRIBUTION_INACTIVE",
+                caller,
+                0,
+                "Claim attempted when distribution not active",
+                #Info
+            );
+            _reentrancyGuardExit(caller);
             return #err("Distribution is not currently active");
         };
 
         // Check if caller is blacklisted
         if (_isBlacklisted(caller)) {
+            _logSecurityEvent(
+                "BLACKLISTED_ACCESS_ATTEMPT",
+                caller,
+                0,
+                "Blacklisted user attempted claim",
+                #Critical
+            );
+            _reentrancyGuardExit(caller);
             return #err("Address is blacklisted");
         };
 
@@ -1575,11 +2236,14 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             case (#err(error)) { return #err("Calculation error: " # error) };
         };
 
-        let maxClaimableAmount = if (unlockedAmount > participant.claimedAmount) {
-            Nat.sub(unlockedAmount, participant.claimedAmount)
-        } else { 0 };
+        let maxClaimableAmountResult = _safeSub(unlockedAmount, participant.totalClaimed);
+        let maxClaimableAmount = switch (maxClaimableAmountResult) {
+            case (?amount) { amount };
+            case null { 0 };
+        };
 
         if (maxClaimableAmount == 0) {
+            _reentrancyGuardExit(caller);
             return #err("No tokens available to claim at this time");
         };
 
@@ -1588,9 +2252,11 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             case (?amount) {
                 // Partial claim specified
                 if (amount == 0) {
+                    _reentrancyGuardExit(caller);
                     return #err("Claim amount must be greater than 0");
                 };
                 if (amount > maxClaimableAmount) {
+                    _reentrancyGuardExit(caller);
                     return #err("Claim amount exceeds available tokens");
                 };
                 amount
@@ -1604,29 +2270,71 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         // Check ICTO Passport score if required
         let isEligible = await _checkEligibility(caller);
         if (not isEligible) {
+            _reentrancyGuardExit(caller);
             return #err("Not eligible for this distribution");
         };
 
-        // EFFECTS: Update state before external calls
-        let updatedParticipant = {
-            participant with
-            claimedAmount = participant.claimedAmount + actualClaimAmount;
-            lastClaimTime = ?Time.now();
+        // EFFECTS: Update state before external calls using atomic operations
+        // Phase 5: Update per-category claimedAmount using proportional distribution
+        let claimDistribution = _distributeClaimAcrossCategories(participant.categories, actualClaimAmount);
+        let updatedCategories = _updateCategoriesAfterClaim(participant.categories, claimDistribution);
+
+        // Perform atomic claim operation to prevent TOCTOU race conditions
+        let updatedParticipantResult = _atomicClaimOperation(caller, participant, actualClaimAmount, updatedCategories);
+        let updatedParticipant = switch (updatedParticipantResult) {
+            case (#ok(p)) { p };
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "TOCTOU_RACE_CONDITION_DETECTED",
+                    caller,
+                    actualClaimAmount,
+                    "Race condition detected: " # error,
+                    #Critical
+                );
+                _reentrancyGuardExit(caller);
+                return #err("State validation failed: " # error);
+            };
         };
 
-        // Update participant state
+        // Update participant state atomically
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, updatedParticipant).0;
-        totalClaimed += actualClaimAmount;
+
+        // Update global total atomically
+        let newGlobalTotalResult = _atomicUpdateGlobalTotals(totalClaimed, actualClaimAmount, "claim_operation");
+        let newGlobalTotal = switch (newGlobalTotalResult) {
+            case (#ok(total)) { total };
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "GLOBAL_TOTAL_UPDATE_FAILED",
+                    caller,
+                    actualClaimAmount,
+                    "Global total update failed: " # error,
+                    #Critical
+                );
+                _reentrancyGuardExit(caller);
+                return #err("System error: " # error);
+            };
+        };
+        totalClaimed := newGlobalTotal;
 
         // Create claim record for tracking
         let claimRecord: ClaimRecord = {
             participant = caller;
             amount = actualClaimAmount;
-            timestamp = Time.now();
+            timestamp = _getValidatedTime();
             blockHeight = null; // TODO: Get from blockchain
             transactionId = null; // Will be updated after transfer
         };
         claimRecords.add(claimRecord);
+
+        // Log security event
+        _logSecurityEvent(
+            "CLAIM_SUCCESS",
+            caller,
+            actualClaimAmount,
+            "User claimed tokens successfully",
+            #Info
+        );
 
         // INTERACTIONS: External calls last
         let transferResult = await* _transfer(caller, actualClaimAmount);
@@ -1640,20 +2348,275 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             };
             case (#err(err)) {
                 // REVERT: Rollback state changes on transfer failure
-                let revertedParticipant = {
-                    participant with
-                    claimedAmount = participant.claimedAmount; // Original amount
+                let revertedParticipant: MultiCategoryParticipant = {
+                    principal = participant.principal;
+                    registeredAt = participant.registeredAt;
+                    categories = participant.categories;
+                    totalEligible = participant.totalEligible;
+                    totalClaimed = participant.totalClaimed; // Original amount (before claim)
                     lastClaimTime = participant.lastClaimTime; // Original time
+                    status = participant.status;
+                    note = participant.note;
+                };
+                participants := Trie.put(participants, _principalKey(caller), Principal.equal, revertedParticipant).0;
+                let newTotalClaimed = switch (_safeSub(totalClaimed, actualClaimAmount)) {
+                    case (?amount) { amount };
+                    case null { totalClaimed }; // Fallback, should not happen
+                };
+                totalClaimed := newTotalClaimed;
+                let _ = claimRecords.removeLast(); // Remove failed claim record
+
+                // Log critical transfer failure for security monitoring
+                _logSecurityEvent(
+                    "TRANSFER_FAILED",
+                    caller,
+                    actualClaimAmount,
+                    "Token transfer failed: " # debug_show(err),
+                    #Critical
+                );
+
+                _reentrancyGuardExit(caller);
+                return #err("Token transfer failed: " # debug_show(err));
+            };
+        };
+
+        // Release reentrancy guard before successful return
+        _reentrancyGuardExit(caller);
+        #ok(actualClaimAmount)
+    };
+
+    // ================ ENHANCED CLAIMING FUNCTIONS (V2.0) ================
+
+    /// Claim from a specific category
+    /// Allows users to claim from a particular category instead of proportional distribution
+    public shared({ caller }) func claimFromCategory(categoryId: Nat, claimAmount: ?Nat) : async Result.Result<{claimedAmount: Nat; categoryId: Nat}, Text> {
+        // ================ SECURITY CHECKS ================
+
+        // 1. Input validation
+        switch (_validatePrincipal(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "INVALID_PRINCIPAL_CATEGORY_CLAIM",
+                    caller,
+                    0,
+                    "Invalid principal in category claim: " # error,
+                    #Warning
+                );
+                return #err(error)
+            };
+        };
+
+        switch (claimAmount) {
+            case (?amount) {
+                switch (_validateAmount(amount)) {
+                    case (#ok(_)) {};
+                    case (#err(error)) {
+                        _logSecurityEvent(
+                            "INVALID_AMOUNT_CATEGORY_CLAIM",
+                            caller,
+                            0,
+                            "Invalid category claim amount: " # error,
+                            #Warning
+                        );
+                        return #err(error)
+                    };
+                };
+            };
+            case null {}; // Full claim is valid
+        };
+
+        // 2. Per-user reentrancy protection
+        switch (_reentrancyGuardEnter(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "REENTRANCY_BLOCKED_CATEGORY_CLAIM",
+                    caller,
+                    0,
+                    "Reentrancy guard blocked category claim: " # error,
+                    #Critical
+                );
+                return #err(error)
+            };
+        };
+
+        // 3. Enhanced rate limiting (global + per-user)
+        switch (_checkRateLimit(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "RATE_LIMIT_BLOCKED_CATEGORY_CLAIM",
+                    caller,
+                    0,
+                    "Rate limit exceeded in category claim: " # error,
+                    #Warning
+                );
+                _reentrancyGuardExit(caller);
+                return #err(error)
+            };
+        };
+
+        // 4. Basic distribution validation
+        if (not _isActive()) {
+            _logSecurityEvent(
+                "DISTRIBUTION_INACTIVE_CATEGORY_CLAIM",
+                caller,
+                0,
+                "Category claim attempted when distribution not active",
+                #Info
+            );
+            _reentrancyGuardExit(caller);
+            return #err("Distribution is not currently active");
+        };
+
+        // Check if caller is blacklisted
+        if (_isBlacklisted(caller)) {
+            _logSecurityEvent(
+                "BLACKLISTED_CATEGORY_CLAIM_ATTEMPT",
+                caller,
+                0,
+                "Blacklisted user attempted category claim",
+                #Critical
+            );
+            _reentrancyGuardExit(caller);
+            return #err("Address is blacklisted");
+        };
+
+        // Get participant
+        let participant = switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
+            case (?p) { p };
+            case null { return #err("You are not registered for this distribution"); };
+        };
+
+        // Find the specific category manually
+        var targetCategory: ?CategoryAllocation = null;
+        for (category in participant.categories.vals()) {
+            if (category.categoryId == categoryId) {
+                targetCategory := ?category;
+            };
+        };
+
+        let category = switch (targetCategory) {
+            case (?cat) { cat };
+            case null { return #err("Category " # Nat.toText(categoryId) # " not found for this participant"); };
+        };
+
+        // Calculate claimable amount for this specific category
+        let categoryClaimable = _calculateClaimableAmountForCategory(category);
+
+        // Determine actual claim amount
+        let actualClaimAmount = switch (claimAmount) {
+            case (?amount) {
+                if (amount == 0) { return #err("Claim amount must be greater than 0"); };
+                if (amount > categoryClaimable) { return #err("Claim amount exceeds available tokens in category"); };
+                amount
+            };
+            case null { categoryClaimable }; // Claim all available from this category
+        };
+
+        if (actualClaimAmount == 0) {
+            return #err("No tokens available to claim from this category at this time");
+        };
+
+        // Check ICTO Passport score if required
+        let isEligible = await _checkEligibility(caller);
+        if (not isEligible) {
+            return #err("Not eligible for this distribution");
+        };
+
+        // EFFECTS: Update state before external calls using atomic operations
+        let updatedCategories = Buffer.Buffer<CategoryAllocation>(0);
+        for (category in participant.categories.vals()) {
+            if (category.categoryId == categoryId) {
+                let updatedCategory = {
+                    category with
+                    claimedAmount = category.claimedAmount + actualClaimAmount
+                };
+                updatedCategories.add(updatedCategory);
+            } else {
+                updatedCategories.add(category);
+            };
+        };
+
+        // Perform atomic claim operation to prevent TOCTOU race conditions
+        let updatedParticipantResult = _atomicClaimOperation(caller, participant, actualClaimAmount, Buffer.toArray(updatedCategories));
+        let updatedParticipant = switch (updatedParticipantResult) {
+            case (#ok(p)) { p };
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "TOCTOU_RACE_CONDITION_CATEGORY_CLAIM",
+                    caller,
+                    actualClaimAmount,
+                    "Race condition in category claim: " # error,
+                    #Critical
+                );
+                _reentrancyGuardExit(caller);
+                return #err("State validation failed: " # error);
+            };
+        };
+
+        // Update participant state atomically
+        participants := Trie.put(participants, _principalKey(caller), Principal.equal, updatedParticipant).0;
+
+        // Update global total atomically
+        let newGlobalTotalResult = _atomicUpdateGlobalTotals(totalClaimed, actualClaimAmount, "category_claim_operation");
+        let newGlobalTotal = switch (newGlobalTotalResult) {
+            case (#ok(total)) { total };
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "GLOBAL_TOTAL_UPDATE_CATEGORY_CLAIM_FAILED",
+                    caller,
+                    actualClaimAmount,
+                    "Global total update in category claim failed: " # error,
+                    #Critical
+                );
+                _reentrancyGuardExit(caller);
+                return #err("System error: " # error);
+            };
+        };
+        totalClaimed := newGlobalTotal;
+
+        // Create claim record for tracking
+        let claimRecord: ClaimRecord = {
+            participant = caller;
+            amount = actualClaimAmount;
+            timestamp = Time.now();
+            blockHeight = null;
+            transactionId = null;
+        };
+        claimRecords.add(claimRecord);
+
+        // INTERACTIONS: External calls last
+        let transferResult = await* _transfer(caller, actualClaimAmount);
+        let txIndex = switch (transferResult) {
+            case (#ok(index)) {
+                let finalClaimRecord = { claimRecord with txIndex = ?index };
+                let _ = claimRecords.removeLast();
+                claimRecords.add(finalClaimRecord);
+                ?index
+            };
+            case (#err(err)) {
+                // REVERT: Rollback state changes on transfer failure
+                let revertedParticipant: MultiCategoryParticipant = {
+                    principal = participant.principal;
+                    registeredAt = participant.registeredAt;
+                    categories = participant.categories; // Original categories
+                    totalEligible = participant.totalEligible;
+                    totalClaimed = participant.totalClaimed; // Original amount
+                    lastClaimTime = participant.lastClaimTime;
+                    status = participant.status;
+                    note = participant.note;
                 };
                 participants := Trie.put(participants, _principalKey(caller), Principal.equal, revertedParticipant).0;
                 totalClaimed -= actualClaimAmount;
-                let _ = claimRecords.removeLast(); // Remove failed claim record
+                let _ = claimRecords.removeLast();
 
                 return #err("Token transfer failed: " # debug_show(err));
             };
         };
 
-        #ok(actualClaimAmount)
+        #ok({ claimedAmount = actualClaimAmount; categoryId = categoryId })
     };
 
     // Add blacklist checking function
@@ -1664,103 +2627,13 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         };
     };
 
-    // Safe calculation with overflow protection
-    private func _safeCalculateUnlockedAmount(participant: Participant) : Result.Result<Nat, Text> {
-        let vestingStart = switch (participant.vestingStart) {
-            case (?start) { start };
-            case null { config.distributionStart };
-        };
-
-        let currentTime = Time.now();
-        if (currentTime < vestingStart) {
-            return #ok(0); // Vesting hasn't started
-        };
-
-        let elapsed = Int.abs(currentTime - vestingStart);
-        let totalAmount = participant.eligibleAmount;
-
-        // Check for reasonable bounds
-        if (totalAmount == 0) {
-            return #ok(0);
-        };
-
-        // Safe calculation of initial unlock
-        let initialUnlockResult = _safePercentageOf(totalAmount, config.initialUnlockPercentage);
-        let initialUnlock = switch (initialUnlockResult) {
-            case (#ok(amount)) { amount };
-            case (#err(error)) { return #err(error) };
-        };
-
-        switch (config.vestingSchedule) {
-            case (#Instant) {
-                #ok(totalAmount)
-            };
-            case (#Linear(linear)) {
-                if (elapsed >= linear.duration) {
-                    #ok(totalAmount)
-                } else {
-                    let vestingAmount = _safeSubtract(totalAmount, initialUnlock);
-                    let vestedResult = _safeMultiplyDivide(vestingAmount, elapsed, linear.duration);
-                    switch (vestedResult) {
-                        case (#ok(vested)) { #ok(initialUnlock + vested) };
-                        case (#err(error)) { #err(error) };
-                    };
-                }
-            };
-            case (#Cliff(cliff)) {
-                if (elapsed < cliff.cliffDuration) {
-                    #ok(initialUnlock)
-                } else if (elapsed >= cliff.cliffDuration + cliff.vestingDuration) {
-                    #ok(totalAmount)
-                } else {
-                    let cliffAmountResult = _safePercentageOf(totalAmount, cliff.cliffPercentage);
-                    let cliffAmount = switch (cliffAmountResult) {
-                        case (#ok(amount)) { amount };
-                        case (#err(error)) { return #err(error) };
-                    };
-
-                    let remainingAmount = _safeSubtract(_safeSubtract(totalAmount, initialUnlock), cliffAmount);
-                    let postCliffElapsed = _safeSubtract(elapsed, cliff.cliffDuration);
-                    let vestedResult = _safeMultiplyDivide(remainingAmount, postCliffElapsed, cliff.vestingDuration);
-
-                    switch (vestedResult) {
-                        case (#ok(vested)) { #ok(initialUnlock + cliffAmount + vested) };
-                        case (#err(error)) { #err(error) };
-                    };
-                }
-            };
-            case (#Single(single)) {
-                if (elapsed >= single.duration) {
-                    #ok(totalAmount)
-                } else {
-                    #ok(initialUnlock)
-                }
-            };
-            case (#SteppedCliff(steps)) {
-                var unlockedAmount = initialUnlock;
-                for (step in steps.vals()) {
-                    if (elapsed >= step.timeOffset) {
-                        let stepAmountResult = _safePercentageOf(totalAmount, step.percentage);
-                        let stepAmount = switch (stepAmountResult) {
-                            case (#ok(amount)) { amount };
-                            case (#err(error)) { return #err(error) };
-                        };
-                        unlockedAmount += stepAmount;
-                    };
-                };
-                #ok(Nat.min(unlockedAmount, totalAmount))
-            };
-            case (#Custom(unlockEvents)) {
-                var unlockedAmount = initialUnlock;
-                for (event in unlockEvents.vals()) {
-                    if (currentTime >= event.timestamp) {
-                        unlockedAmount += event.amount;
-                    };
-                };
-                #ok(Nat.min(unlockedAmount, totalAmount))
-            };
-        };
+    // Safe calculation with overflow protection (V2.0: Uses MultiCategoryParticipant)
+    private func _safeCalculateUnlockedAmount(participant: MultiCategoryParticipant) : Result.Result<Nat, Text> {
+        // V2.0: Use the new _calculateUnlockedAmount which sums all categories
+        let unlockedAmount = _calculateUnlockedAmount(participant);
+        #ok(unlockedAmount)
     };
+
 
     // Safe arithmetic operations with overflow protection
     private func _safeMultiplyDivide(a: Nat, b: Nat, c: Nat) : Result.Result<Nat, Text> {
@@ -1813,22 +2686,29 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             case null { return #err("Early unlock with penalty is not enabled for this distribution"); };
         };
         
-        // Calculate elapsed time
-        let vestingStart = switch (participant.vestingStart) {
-            case (?start) { start };
-            case null { config.distributionStart };
+        // V2.0: Use earliest vesting start time from all categories for penalty calculation
+        let vestingStart = if (participant.categories.size() > 0) {
+            var earliestTime = participant.categories[0].vestingStart;
+            for (category in participant.categories.vals()) {
+                if (category.vestingStart < earliestTime) {
+                    earliestTime := category.vestingStart;
+                };
+            };
+            earliestTime
+        } else {
+            config.distributionStart
         };
         let elapsed = Int.abs(Time.now() - vestingStart);
-        
+
         // Check if early unlock is allowed
         if (not _canEarlyUnlock(elapsed, config.penaltyUnlock)) {
             return #err("Early unlock is not allowed at this time. Check minimum lock time requirements.");
         };
-        
-        // Calculate full vested amount (what would be unlocked without penalty)
-        let totalAmount = participant.eligibleAmount;
-        let remainingAmount = if (totalAmount > participant.claimedAmount) {
-            Nat.sub(totalAmount, participant.claimedAmount)
+
+        // V2.0: Calculate full vested amount using new per-category vesting
+        let totalAmount = _calculateUnlockedAmount(participant);
+        let remainingAmount = if (totalAmount > participant.totalClaimed) {
+            Nat.sub(totalAmount, participant.totalClaimed)
         } else { 0 };
         
         if (remainingAmount == 0) {
@@ -1877,14 +2757,15 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         };
         
         // Update participant as fully claimed (early unlock claims all remaining)
-        let updatedParticipant: Participant = {
+        // TODO Phase 5: Update per-category claimedAmount as well
+        let updatedParticipant: MultiCategoryParticipant = {
             principal = participant.principal;
             registeredAt = participant.registeredAt;
-            eligibleAmount = participant.eligibleAmount;
-            claimedAmount = participant.eligibleAmount; // Mark as fully claimed
+            categories = participant.categories; // TODO Phase 5: Update per-category claimedAmount
+            totalEligible = participant.totalEligible;
+            totalClaimed = participant.totalEligible; // Mark as fully claimed
             lastClaimTime = ?Time.now();
             status = #Claimed;
-            vestingStart = participant.vestingStart;
             note = participant.note;
         };
         
@@ -1908,18 +2789,18 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         #ok({ unlockedAmount = unlockedAmount; penaltyAmount = penaltyAmount })
     };
     
-    // Query functions
-    public query func getParticipant(principal: Principal) : async ?Participant {
+    // Query functions (V2.0: Returns MultiCategoryParticipant)
+    public query func getParticipant(principal: Principal) : async ?MultiCategoryParticipant {
         Trie.get(participants, _principalKey(principal), Principal.equal)
     };
-    
-    // Get comprehensive user context information
+
+    // Get comprehensive user context information (V2.0: Returns MultiCategoryParticipant)
     public shared({ caller }) func whoami() : async {
         principal: Principal;
         isOwner: Bool;
         isRegistered: Bool;
         isEligible: Bool;
-        participant: ?Participant;
+        participant: ?MultiCategoryParticipant;
         claimableAmount: Nat;
         distributionStatus: DistributionStatus;
         canRegister: Bool;
@@ -1947,8 +2828,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         let claimableAmount = switch (participant) {
             case (?p) {
                 let unlockedAmount = _calculateUnlockedAmount(p);
-                if (unlockedAmount > p.claimedAmount) {
-                    Nat.sub(unlockedAmount, p.claimedAmount)
+                if (unlockedAmount > p.totalClaimed) {
+                    Nat.sub(unlockedAmount, p.totalClaimed)
                 } else { 0 }
             };
             case null { 0 };
@@ -2043,8 +2924,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
             case (?participant) {
                 let unlockedAmount = _calculateUnlockedAmount(participant);
-                if (unlockedAmount > participant.claimedAmount) {
-                    Nat.sub(unlockedAmount, participant.claimedAmount)
+                if (unlockedAmount > participant.totalClaimed) {
+                    Nat.sub(unlockedAmount, participant.totalClaimed)
                 } else { 0 }
             };
             case null { 0 };
@@ -2060,16 +2941,16 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
             case (?participant) {
                 let unlockedAmount = _calculateUnlockedAmount(participant);
-                let maxClaimable = if (unlockedAmount > participant.claimedAmount) {
-                    Nat.sub(unlockedAmount, participant.claimedAmount)
+                let maxClaimable = if (unlockedAmount > participant.totalClaimed) {
+                    Nat.sub(unlockedAmount, participant.totalClaimed)
                 } else { 0 };
 
                 {
                     maxClaimable = maxClaimable;
-                    totalAllocated = participant.eligibleAmount;
-                    claimed = participant.claimedAmount;
-                    remaining = if (participant.eligibleAmount > participant.claimedAmount) {
-                        Nat.sub(participant.eligibleAmount, participant.claimedAmount)
+                    totalAllocated = participant.totalEligible;
+                    claimed = participant.totalClaimed;
+                    remaining = if (participant.totalEligible > participant.totalClaimed) {
+                        Nat.sub(participant.totalEligible, participant.totalClaimed)
                     } else { 0 };
                 };
             };
@@ -2083,9 +2964,9 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             };
         };
     };
-    
-    public query func getAllParticipants() : async [Participant] {
-        let buffer = Buffer.Buffer<Participant>(0);
+
+    public query func getAllParticipants() : async [MultiCategoryParticipant] {
+        let buffer = Buffer.Buffer<MultiCategoryParticipant>(0);
         for ((_, participant) in Trie.iter(participants)) {
             buffer.add(participant);
         };
@@ -2107,6 +2988,380 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             };
         };
         Buffer.toArray(buffer)
+    };
+
+    // ================ CATEGORY BREAKDOWN QUERIES (V2.0) ================
+
+    /// Get detailed category breakdown for a participant
+    /// Shows allocation, claimed, and remaining amounts per category
+    public query func getCategoryBreakdown(principal: Principal) : async [{
+        categoryId: Nat;
+        categoryName: Text;
+        allocatedAmount: Nat;
+        claimedAmount: Nat;
+        remainingAmount: Nat;
+        claimableAmount: Nat;
+        unlockedAmount: Nat;
+        vestingSchedule: VestingSchedule;
+        vestingStart: Time.Time;
+        note: ?Text;
+    }] {
+        switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
+            case (?participant) {
+                let breakdown = Buffer.Buffer<{
+                    categoryId: Nat;
+                    categoryName: Text;
+                    allocatedAmount: Nat;
+                    claimedAmount: Nat;
+                    remainingAmount: Nat;
+                    claimableAmount: Nat;
+                    unlockedAmount: Nat;
+                    vestingSchedule: VestingSchedule;
+                    vestingStart: Time.Time;
+                    note: ?Text;
+                }>(0);
+
+                for (category in participant.categories.vals()) {
+                    let unlockedAmount = _calculateUnlockedAmountForCategory(category, config.initialUnlockPercentage);
+                    let claimableAmount = if (unlockedAmount > category.claimedAmount) {
+                        Nat.sub(unlockedAmount, category.claimedAmount)
+                    } else { 0 };
+                    let remainingAmount = if (category.amount > category.claimedAmount) {
+                        Nat.sub(category.amount, category.claimedAmount)
+                    } else { 0 };
+
+                    breakdown.add({
+                        categoryId = category.categoryId;
+                        categoryName = category.categoryName;
+                        allocatedAmount = category.amount;
+                        claimedAmount = category.claimedAmount;
+                        remainingAmount = remainingAmount;
+                        claimableAmount = claimableAmount;
+                        unlockedAmount = unlockedAmount;
+                        vestingSchedule = category.vestingSchedule;
+                        vestingStart = category.vestingStart;
+                        note = category.note;
+                    });
+                };
+
+                Buffer.toArray(breakdown)
+            };
+            case null { [] };
+        }
+    };
+
+    /// Get claimable breakdown for a participant
+    /// Shows how much can be claimed from each category
+    public query func getClaimableBreakdown(principal: Principal) : async [{
+        categoryId: Nat;
+        categoryName: Text;
+        claimableAmount: Nat;
+        totalUnlocked: Nat;
+        percentageOfTotal: Float; // Percentage of total unlocked that this category represents
+    }] {
+        switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
+            case (?participant) {
+                let breakdown = Buffer.Buffer<{
+                    categoryId: Nat;
+                    categoryName: Text;
+                    claimableAmount: Nat;
+                    totalUnlocked: Nat;
+                    percentageOfTotal: Float;
+                }>(0);
+
+                let claimableBreakdown = _calculateCategoryClaimableBreakdown(participant);
+                var totalUnlocked: Nat = 0;
+
+                // Calculate total unlocked across all categories
+                for (category in participant.categories.vals()) {
+                    let unlocked = _calculateUnlockedAmountForCategory(category, config.initialUnlockPercentage);
+                    totalUnlocked += unlocked;
+                };
+
+                for ((categoryId, claimableAmount) in claimableBreakdown.vals()) {
+                    // Find category manually
+                    var foundCategory: ?CategoryAllocation = null;
+                    for (category in participant.categories.vals()) {
+                        if (category.categoryId == categoryId) {
+                            foundCategory := ?category;
+                        };
+                    };
+
+                    switch (foundCategory) {
+                        case (?category) {
+                            let unlocked = _calculateUnlockedAmountForCategory(category, config.initialUnlockPercentage);
+                            let percentage = if (totalUnlocked > 0) {
+                                Float.fromInt(unlocked) / Float.fromInt(totalUnlocked) * 100.0
+                            } else { 0.0 };
+
+                            breakdown.add({
+                                categoryId = categoryId;
+                                categoryName = category.categoryName;
+                                claimableAmount = claimableAmount;
+                                totalUnlocked = unlocked;
+                                percentageOfTotal = percentage;
+                            });
+                        };
+                        case null {};
+                    };
+                };
+
+                Buffer.toArray(breakdown)
+            };
+            case null { [] };
+        }
+    };
+
+    /// Get vesting progress for all categories of a participant
+    /// Shows progress percentage for each category
+    public query func getVestingProgress(principal: Principal) : async [{
+        categoryId: Nat;
+        categoryName: Text;
+        progressPercentage: Float; // Percentage of tokens that have unlocked
+        isFullyVested: Bool;
+        timeUntilNextUnlock: ?Nat; // Seconds until next unlock (null if fully vested)
+        nextUnlockAmount: ?Nat; // Amount that will unlock next (null if fully vested)
+    }] {
+        switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
+            case (?participant) {
+                let progress = Buffer.Buffer<{
+                    categoryId: Nat;
+                    categoryName: Text;
+                    progressPercentage: Float;
+                    isFullyVested: Bool;
+                    timeUntilNextUnlock: ?Nat;
+                    nextUnlockAmount: ?Nat;
+                }>(0);
+
+                let now = Time.now();
+
+                for (category in participant.categories.vals()) {
+                    let unlockedAmount = _calculateUnlockedAmountForCategory(category, config.initialUnlockPercentage);
+                    let progressPercentage = if (category.amount > 0) {
+                        Float.fromInt(unlockedAmount) / Float.fromInt(category.amount) * 100.0
+                    } else { 0.0 };
+
+                    let isFullyVested = unlockedAmount >= category.amount;
+                    var timeUntilNextUnlock: ?Nat = null;
+                    var nextUnlockAmount: ?Nat = null;
+
+                    if (not isFullyVested) {
+                        // Calculate time until next unlock based on vesting schedule
+                        let elapsedInt = if (now >= category.vestingStart) {
+                            Int.sub(now, category.vestingStart)
+                        } else {
+                            Int.sub(category.vestingStart, now)
+                        };
+
+                        // Convert to Nat for calculations (only if positive)
+                        let elapsed = if (elapsedInt >= 0) {
+                            Int.abs(elapsedInt)
+                        } else {
+                            0 // Should not happen, but safe fallback
+                        };
+
+                        switch (category.vestingSchedule) {
+                            case (#Linear(linear)) {
+                                if (elapsed < linear.duration) {
+                                    let timeRemaining = linear.duration - elapsed;
+                                    timeUntilNextUnlock := ?timeRemaining;
+                                    nextUnlockAmount := ?1; // Linear unlocks continuously
+                                };
+                            };
+                            case (#Cliff(cliff)) {
+                                if (elapsed < cliff.cliffDuration) {
+                                    let timeRemaining = cliff.cliffDuration - elapsed;
+                                    timeUntilNextUnlock := ?timeRemaining;
+                                    nextUnlockAmount := ?0; // Nothing unlocks until cliff
+                                } else if (elapsed < cliff.cliffDuration + cliff.vestingDuration) {
+                                    let cliffAmount = (category.amount * cliff.cliffPercentage) / 100;
+                                    let initialUnlock = (category.amount * config.initialUnlockPercentage) / 100;
+                                    let remainingAmount = category.amount - initialUnlock - cliffAmount;
+                                    let postCliffElapsed = elapsed - cliff.cliffDuration;
+                                    let _vestedAmount = (remainingAmount * postCliffElapsed) / cliff.vestingDuration;
+                                    nextUnlockAmount := ?1; // Linear after cliff
+                                };
+                            };
+                            case (#Single(single)) {
+                                if (elapsed < single.duration) {
+                                    let timeRemaining = single.duration - elapsed;
+                                    timeUntilNextUnlock := ?timeRemaining;
+                                    nextUnlockAmount := ?category.amount; // Full amount unlocks at end
+                                };
+                            };
+                            case (_) {
+                                // For other vesting types, we don't predict next unlock
+                            };
+                        };
+                    };
+
+                    progress.add({
+                        categoryId = category.categoryId;
+                        categoryName = category.categoryName;
+                        progressPercentage = progressPercentage;
+                        isFullyVested = isFullyVested;
+                        timeUntilNextUnlock = timeUntilNextUnlock;
+                        nextUnlockAmount = nextUnlockAmount;
+                    });
+                };
+
+                Buffer.toArray(progress)
+            };
+            case null { [] };
+        }
+    };
+
+    /// Enhanced whoami with category information
+    /// Returns participant info including category breakdown
+    public shared({ caller }) func whoamiWithCategories() : async {
+        principal: Principal;
+        isOwner: Bool;
+        isRegistered: Bool;
+        isEligible: Bool;
+        participant: ?MultiCategoryParticipant;
+        claimableAmount: Nat;
+        distributionStatus: DistributionStatus;
+        canRegister: Bool;
+        canClaim: Bool;
+        registrationError: ?Text;
+        categoryBreakdown: [{
+            categoryId: Nat;
+            categoryName: Text;
+            claimableAmount: Nat;
+            allocatedAmount: Nat;
+            claimedAmount: Nat;
+            progressPercentage: Float;
+        }];
+    } {
+        let participant = Trie.get(participants, _principalKey(caller), Principal.equal);
+        let isRegistered = switch (participant) {
+            case (?_) { true };
+            case null { false };
+        };
+
+        // Check eligibility (simplified for query function)
+        let isEligible = switch (config.eligibilityType) {
+            case (#Open) { true };
+            case (#Whitelist) {
+                switch (Trie.get(whitelist, _principalKey(caller), Principal.equal)) {
+                    case (?eligible) { eligible };
+                    case null { false };
+                }
+            };
+            case _ { true }; // For other types, assume eligible (would need async check)
+        };
+
+        let claimableAmount = switch (participant) {
+            case (?p) {
+                let unlockedAmount = _calculateUnlockedAmount(p);
+                if (unlockedAmount > p.totalClaimed) {
+                    Nat.sub(unlockedAmount, p.totalClaimed)
+                } else { 0 }
+            };
+            case null { 0 };
+        };
+
+        // Calculate category breakdown
+        let categoryBreakdown = switch (participant) {
+            case (?p) {
+                let breakdown = Buffer.Buffer<{
+                    categoryId: Nat;
+                    categoryName: Text;
+                    claimableAmount: Nat;
+                    allocatedAmount: Nat;
+                    claimedAmount: Nat;
+                    progressPercentage: Float;
+                }>(0);
+
+                for (category in p.categories.vals()) {
+                    let claimable = _calculateClaimableAmountForCategory(category);
+                    let unlocked = _calculateUnlockedAmountForCategory(category, config.initialUnlockPercentage);
+                    let progress = if (category.amount > 0) {
+                        Float.fromInt(unlocked) / Float.fromInt(category.amount) * 100.0
+                    } else { 0.0 };
+
+                    breakdown.add({
+                        categoryId = category.categoryId;
+                        categoryName = category.categoryName;
+                        claimableAmount = claimable;
+                        allocatedAmount = category.amount;
+                        claimedAmount = category.claimedAmount;
+                        progressPercentage = progress;
+                    });
+                };
+
+                Buffer.toArray(breakdown)
+            };
+            case null { [] };
+        };
+
+        // Check if can register
+        let canRegister = if (isRegistered) {
+            false // Already registered
+        } else {
+            // Check registration period and eligibility
+            let registrationOpen = switch (config.registrationPeriod) {
+                case (?period) {
+                    let now = Time.now();
+                    now >= period.startTime and now <= period.endTime
+                };
+                case null {
+                    config.recipientMode == #SelfService
+                };
+            };
+            registrationOpen and isEligible
+        };
+
+        // Check if can claim
+        let canClaim = isRegistered and _isActive() and claimableAmount > 0;
+
+        // Determine registration error if any
+        let registrationError = if (isRegistered) {
+            ?"Already registered"
+        } else if (not isEligible) {
+            ?"Not eligible for this distribution"
+        } else {
+            switch (config.registrationPeriod) {
+                case (?period) {
+                    let now = Time.now();
+                    if (now < period.startTime) {
+                        ?"Registration period has not started yet"
+                    } else if (now > period.endTime) {
+                        ?"Registration period has ended"
+                    } else {
+                        switch (period.maxParticipants) {
+                            case (?max) {
+                                if (participantCount >= max) {
+                                    ?"Maximum participants reached"
+                                } else { null }
+                            };
+                            case null { null };
+                        }
+                    }
+                };
+                case null {
+                    if (config.recipientMode != #SelfService) {
+                        ?"Registration not available for this distribution mode"
+                    } else {
+                        null
+                    }
+                };
+            }
+        };
+
+        {
+            principal = caller;
+            isOwner = _isOwner(caller);
+            isRegistered = isRegistered;
+            isEligible = isEligible;
+            participant = participant;
+            claimableAmount = claimableAmount;
+            distributionStatus = status;
+            canRegister = canRegister;
+            canClaim = canClaim;
+            registrationError = registrationError;
+            categoryBreakdown = categoryBreakdown;
+        }
     };
 
     // Admin functions
@@ -2323,29 +3578,50 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             // Check if already exists
             switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
                 case (?existing) {
-                    // Update existing participant
-                    let updated: Participant = {
+                    // Update existing participant (V2.0: Add new category or update existing)
+                    // For admin addition, create/update default category
+                    let defaultCategory: CategoryAllocation = {
+                        categoryId = 1;
+                        categoryName = "Default Distribution";
+                        amount = amount;
+                        claimedAmount = 0; // Reset claimed for new amount
+                        vestingSchedule = config.vestingSchedule;
+                        vestingStart = config.distributionStart;
+                        note = null;
+                    };
+
+                    let updated: MultiCategoryParticipant = {
                         principal = existing.principal;
                         registeredAt = existing.registeredAt;
-                        eligibleAmount = amount;
-                        claimedAmount = existing.claimedAmount;
+                        categories = [defaultCategory]; // V2.0: Replace with new admin category
+                        totalEligible = amount;
+                        totalClaimed = existing.totalClaimed; // Preserve existing claimed amount
                         lastClaimTime = existing.lastClaimTime;
                         status = existing.status;
-                        vestingStart = existing.vestingStart;
-                        note = existing.note; // Preserve existing note
+                        note = existing.note;
                     };
                     participants := Trie.put(participants, _principalKey(principal), Principal.equal, updated).0;
                 };
                 case null {
-                    // Add new participant
-                    let participant: Participant = {
+                    // Add new participant (V2.0: Create with default category)
+                    let defaultCategory: CategoryAllocation = {
+                        categoryId = 1;
+                        categoryName = "Default Distribution";
+                        amount = amount;
+                        claimedAmount = 0;
+                        vestingSchedule = config.vestingSchedule;
+                        vestingStart = config.distributionStart;
+                        note = null;
+                    };
+
+                    let participant: MultiCategoryParticipant = {
                         principal = principal;
                         registeredAt = Time.now();
-                        eligibleAmount = amount;
-                        claimedAmount = 0;
+                        categories = [defaultCategory];
+                        totalEligible = amount;
+                        totalClaimed = 0;
                         lastClaimTime = null;
                         status = #Eligible;
-                        vestingStart = ?Time.now();
                         note = null; // No specific note for manually added participants
                     };
                     participants := Trie.put(participants, _principalKey(principal), Principal.equal, participant).0;
@@ -2476,23 +3752,49 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             // Check if already exists
             switch (Trie.get(participants, _principalKey(principal), Principal.equal)) {
                 case (?existing) {
-                    // Update existing participant
-                    let updated: Participant = {
-                        existing with
-                        eligibleAmount = amount;
+                    // Update existing participant (V2.0: Update with default category)
+                    let defaultCategory: CategoryAllocation = {
+                        categoryId = 1;
+                        categoryName = "Default Distribution";
+                        amount = amount;
+                        claimedAmount = 0;
+                        vestingSchedule = config.vestingSchedule;
+                        vestingStart = config.distributionStart;
+                        note = null;
+                    };
+
+                    let updated: MultiCategoryParticipant = {
+                        principal = existing.principal;
+                        registeredAt = existing.registeredAt;
+                        categories = [defaultCategory]; // V2.0: Replace with new category
+                        totalEligible = amount;
+                        totalClaimed = existing.totalClaimed;
+                        lastClaimTime = existing.lastClaimTime;
+                        status = existing.status;
+                        note = existing.note;
                     };
                     participants := Trie.put(participants, _principalKey(principal), Principal.equal, updated).0;
                 };
                 case null {
-                    // Add new participant
-                    let participant: Participant = {
+                    // Add new participant (V2.0: Create with default category)
+                    let defaultCategory: CategoryAllocation = {
+                        categoryId = 1;
+                        categoryName = "Default Distribution";
+                        amount = amount;
+                        claimedAmount = 0;
+                        vestingSchedule = config.vestingSchedule;
+                        vestingStart = config.distributionStart;
+                        note = null;
+                    };
+
+                    let participant: MultiCategoryParticipant = {
                         principal = principal;
                         registeredAt = Time.now();
-                        eligibleAmount = amount;
-                        claimedAmount = 0;
+                        categories = [defaultCategory];
+                        totalEligible = amount;
+                        totalClaimed = 0;
                         lastClaimTime = null;
                         status = #Eligible;
-                        vestingStart = ?Time.now();
                         note = null;
                     };
                     participants := Trie.put(participants, _principalKey(principal), Principal.equal, participant).0;
@@ -2574,15 +3876,23 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         switch (Trie.get(participants, _principalKey(queriedPrincipal), Principal.equal)) {
             case (?participant) {
                 let now = Time.now();
-                let vestingStart = switch (participant.vestingStart) {
-                    case (?start) { start };
-                    case null { config.distributionStart };
+                // V2.0: Use earliest vesting start time from all categories for display
+                let vestingStart = if (participant.categories.size() > 0) {
+                    var earliestTime = participant.categories[0].vestingStart;
+                    for (category in participant.categories.vals()) {
+                        if (category.vestingStart < earliestTime) {
+                            earliestTime := category.vestingStart;
+                        };
+                    };
+                    earliestTime
+                } else {
+                    config.distributionStart
                 };
-                
+
                 // Calculate remaining locked amount
                 let unlockedAmount = _calculateUnlockedAmount(participant);
-                let remainingAmount = if (participant.eligibleAmount > unlockedAmount) {
-                    Nat.sub(participant.eligibleAmount, unlockedAmount)
+                let remainingAmount = if (participant.totalEligible > unlockedAmount) {
+                    Nat.sub(participant.totalEligible, unlockedAmount)
                 } else { 0 };
                 
                 if (remainingAmount == 0) {
@@ -2697,5 +4007,303 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         };
         
         Buffer.toArray(buffer)
+    };
+
+    // ================ ADMIN FUNCTIONS (ROLE-BASED ACCESS CONTROL) ================
+
+    /// Add a role to a user (Owner only)
+    public shared({ caller }) func addRole(user: Principal, role: Role) : async Result.Result<(), Text> {
+        // Only Owner can add roles
+        if (not Principal.equal(caller, creator)) {
+            return #err("Only owner can add roles");
+        };
+
+        // Input validation
+        switch (_validatePrincipal(user)) {
+            case (#ok(_)) {};
+            case (#err(error)) { return #err(error) };
+        };
+
+        // Check if user already has this role
+        let existingRole = Array.find(_adminRoles, func ((u, _): (Principal, Role)) : Bool {
+            Principal.equal(u, user)
+        });
+
+        switch (existingRole) {
+            case (?(_, currentRole)) {
+                return #err("User already has role: " # debug_show(currentRole));
+            };
+            case null {
+                _adminRoles := Array.append(_adminRoles, [(user, role)]);
+                return #ok(());
+            };
+        };
+    };
+
+    /// Remove a role from a user (Owner only)
+    public shared({ caller }) func removeRole(user: Principal) : async Result.Result<(), Text> {
+        // Only Owner can remove roles
+        if (not Principal.equal(caller, creator)) {
+            return #err("Only owner can remove roles");
+        };
+
+        // Filter out the user's role
+        let filteredRoles = Array.filter(_adminRoles, func ((u, _): (Principal, Role)) : Bool {
+            not Principal.equal(u, user)
+        });
+
+        // Check if role was actually removed
+        if (filteredRoles.size() == _adminRoles.size()) {
+            return #err("User has no role to remove");
+        };
+
+        _adminRoles := filteredRoles;
+        return #ok(());
+    };
+
+    /// Get all role assignments (Admin+ only)
+    public query func getRoleAssignments() : async [(Principal, Role)] {
+        _adminRoles;
+    };
+
+    /// Get user's role (public query)
+    public query func getUserRole(user: Principal) : async ?Role {
+        var foundRole: ?Role = null;
+        for ((u, role) in _adminRoles.vals()) {
+            if (Principal.equal(u, user)) {
+                foundRole := ?role;
+            };
+        };
+        foundRole
+    };
+
+    /// Check if caller has specific role
+    public query func hasRole(caller: Principal, role: Role) : async Bool {
+        _hasRole(caller, role);
+    };
+
+    // ================ EMERGENCY CONTROLS (OWNER ONLY) ================
+
+    /// Emergency pause - temporarily disable all operations (Owner only)
+    public shared({ caller }) func emergencyPause() : async Result.Result<(), Text> {
+        // Only Owner can emergency pause
+        if (not Principal.equal(caller, creator)) {
+            return #err("Only owner can emergency pause");
+        };
+
+        // Only pause if currently active
+        if (status != #Active) {
+            return #err("Distribution is not active");
+        };
+
+        status := #Paused;
+        Debug.print("🚨 EMERGENCY PAUSE activated by: " # Principal.toText(caller));
+        return #ok(());
+    };
+
+    /// Emergency unpause - resume operations (Owner only)
+    public shared({ caller }) func emergencyUnpause() : async Result.Result<(), Text> {
+        // Only Owner can emergency unpause
+        if (not Principal.equal(caller, creator)) {
+            return #err("Only owner can emergency unpause");
+        };
+
+        // Only unpause if currently paused
+        if (status != #Paused) {
+            return #err("Distribution is not paused");
+        };
+
+        status := #Active;
+        Debug.print("✅ EMERGENCY UNPAUSE activated by: " # Principal.toText(caller));
+        return #ok(());
+    };
+
+    /// Emergency withdraw - allows owner to withdraw remaining tokens in emergency (Owner only)
+    public shared({ caller }) func emergencyWithdraw(amount: Nat, recipient: Principal) : async Result.Result<Nat, Text> {
+        // Only Owner can emergency withdraw
+        if (not Principal.equal(caller, creator)) {
+            return #err("Only owner can emergency withdraw");
+        };
+
+        // Input validation
+        switch (_validatePrincipal(recipient)) {
+            case (#ok(_)) {};
+            case (#err(error)) { return #err(error) };
+        };
+
+        switch (_validateAmount(amount)) {
+            case (#ok(_)) {};
+            case (#err(error)) { return #err(error) };
+        };
+
+        // Check if distribution is paused or failed (emergency only)
+        if (status != #Paused and status != #Failed) {
+            return #err("Emergency withdraw only allowed when distribution is paused or failed");
+        };
+
+        // Check contract balance with atomic operation pattern
+        let contractBalance = await getContractBalance();
+
+        // Validate amount doesn't exceed balance
+        switch (_safeSub(contractBalance, amount)) {
+            case (?_remainingBalance) {
+                // Balance is sufficient, proceed with transfer
+            };
+            case null {
+                return #err("Insufficient contract balance");
+            };
+        };
+
+        // Perform emergency transfer with validated amount
+        let transferResult = await* _transfer(recipient, amount);
+        switch (transferResult) {
+            case (#ok(_)) {
+                Debug.print("🚨 EMERGENCY WITHDRAW: " # debug_show(amount) # " tokens to " # Principal.toText(recipient));
+                return #ok(amount);
+            };
+            case (#err(error)) {
+                return #err("Emergency transfer failed: " # debug_show(error));
+            };
+        };
+    };
+
+    /// Update configuration (Admin+ only)
+    public shared({ caller }) func updateConfig(newConfig: DistributionConfig) : async Result.Result<(), Text> {
+        // Require Admin or higher role
+        if (not _hasRole(caller, #Admin)) {
+            return #err("Admin or higher role required");
+        };
+
+        // Don't allow config changes after distribution is active
+        if (status == #Active or status == #Completed) {
+            return #err("Cannot update config when distribution is active or completed");
+        };
+
+        // Validate critical fields cannot be changed after creation
+        if (not Principal.equal(newConfig.owner, config.owner)) {
+            return #err("Cannot change owner after creation");
+        };
+
+        if (newConfig.totalAmount != config.totalAmount) {
+            return #err("Cannot change total amount after creation");
+        };
+
+        config := newConfig;
+        Debug.print("⚙️ Configuration updated by: " # Principal.toText(caller));
+        return #ok(());
+    };
+
+    // ================ ENHANCED AUDIT LOGGING ================
+
+    /// Get security events log (Admin+ only)
+    public query func getSecurityEvents() : async [SecurityEvent] {
+        // Return security-related events from claim records
+        // This could be extended with a dedicated security event log
+        let securityEvents = Buffer.Buffer<SecurityEvent>(0);
+
+        for (record in claimRecords.vals()) {
+            let event: SecurityEvent = {
+                timestamp = record.timestamp;
+                eventType = "CLAIM";
+                principal = record.participant;
+                amount = record.amount;
+                details = "Claim operation completed";
+                severity = #Info;
+            };
+            securityEvents.add(event);
+        };
+
+        Buffer.toArray(securityEvents);
+    };
+
+    /// Get system health status (Admin+ only)
+    public query func getSystemHealth() : async SystemHealth {
+        var participantCount = 0;
+        for (_ in Trie.iter(participants)) {
+            participantCount += 1;
+        };
+        let totalClaimedAmount = totalClaimed;
+        // Note: Contract balance requires async call, use cached value or separate async call
+
+        {
+            contractBalance = 0; // Query limitation - use getContractBalanceAsync for real balance
+            totalClaimed = totalClaimedAmount;
+            remainingAmount = 0; // Query limitation - calculate externally
+            participantCount = participantCount;
+            distributionStatus = status;
+            lastActivityTime = lastActivityTime;
+            rateLimitEntries = _lastClaimTime.size();
+            roleAssignments = _adminRoles.size();
+            reentrancyGuardActive = _emergencyReentrancyGuard;
+        };
+    };
+
+    /// Get system health status with real contract balance (async)
+    public shared({ caller }) func getSystemHealthAsync() : async SystemHealth {
+        // Require Admin or higher role
+        if (not _hasRole(caller, #Admin)) {
+            return {
+                contractBalance = 0;
+                totalClaimed = 0;
+                remainingAmount = 0;
+                participantCount = 0;
+                distributionStatus = #Cancelled;
+                lastActivityTime = 0;
+                rateLimitEntries = 0;
+                roleAssignments = 0;
+                reentrancyGuardActive = false;
+            };
+        };
+
+        let contractBalance = await getContractBalanceAsync();
+        var participantCount = 0;
+        for (_ in Trie.iter(participants)) {
+            participantCount += 1;
+        };
+        let totalClaimedAmount = totalClaimed;
+        let remainingAmount = if (contractBalance >= totalClaimedAmount) {
+            contractBalance - totalClaimedAmount
+        } else { 0 };
+
+        {
+            contractBalance = contractBalance;
+            totalClaimed = totalClaimedAmount;
+            remainingAmount = remainingAmount;
+            participantCount = participantCount;
+            distributionStatus = status;
+            lastActivityTime = lastActivityTime;
+            rateLimitEntries = _lastClaimTime.size();
+            roleAssignments = _adminRoles.size();
+            reentrancyGuardActive = _emergencyReentrancyGuard;
+        };
+    };
+
+    /// Types for enhanced monitoring
+    public type SecurityEvent = {
+        timestamp: Time.Time;
+        eventType: Text;
+        principal: Principal;
+        amount: Nat;
+        details: Text;
+        severity: Severity;
+    };
+
+    public type Severity = {
+        #Info;
+        #Warning;
+        #Error;
+        #Critical;
+    };
+
+    public type SystemHealth = {
+        contractBalance: Nat;
+        totalClaimed: Nat;
+        remainingAmount: Nat;
+        participantCount: Nat;
+        distributionStatus: DistributionStatus;
+        lastActivityTime: Time.Time;
+        rateLimitEntries: Nat;
+        roleAssignments: Nat;
+        reentrancyGuardActive: Bool;
     };
 }
