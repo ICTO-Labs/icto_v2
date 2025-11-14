@@ -112,6 +112,62 @@ module DistributionTypes {
         // If set: Use multi-category mode (direct storage)
         // If null: Use legacy mode (auto-convert to default category)
         multiCategoryRecipients: ?[MultiCategoryRecipient];
+
+        // ========== SPRINT 2: RATE LIMITING ==========
+        rateLimitConfig: ?RateLimitConfig;
+
+        // ========== SPRINT 3: MERKLE TREE ==========
+        // Legacy mode (default): usingMerkleSystem = false or null
+        // Merkle mode: usingMerkleSystem = true + merkleConfig
+        usingMerkleSystem: ?Bool;  // ?null = default false (legacy), ?true = enable Merkle
+        merkleConfig: ?MerkleConfig;
+    };
+
+    // Sprint 2: Rate Limiting Configuration
+    public type RateLimitConfig = {
+        enabled: Bool;
+        maxClaimsPerWindow: Nat;     // e.g., 1 claim
+        windowDurationNs: Nat;        // e.g., 86400000000000 (24 hours)
+        enforcementLevel: RateLimitEnforcement;
+    };
+
+    public type RateLimitEnforcement = {
+        #Warning;  // Log only, don't block
+        #Soft;     // Delay next claim
+        #Hard;     // Block claim entirely
+    };
+
+    // Sprint 2: Claim Event for rate limit tracking
+    public type ClaimEvent = {
+        timestamp: Time.Time;
+        categoryId: Nat;
+        amount: Nat;
+    };
+
+    // Sprint 2: Pagination types for large queries
+    public type PaginationConfig = {
+        page: Nat;       // 0-indexed
+        pageSize: Nat;   // Max 100
+    };
+
+    public type PaginatedResponse<T> = {
+        data: [T];
+        page: Nat;
+        pageSize: Nat;
+        totalPages: Nat;
+        totalItems: Nat;
+    };
+
+    // Sprint 3: Merkle Tree types for scalable recipient storage
+    public type MerkleProof = {
+        leaf: Blob;        // Hash of (address, amount, categoryId)
+        siblings: [Blob];  // Sibling hashes for verification path
+        root: Blob;        // Merkle root
+    };
+
+    public type MerkleConfig = {
+        enabled: Bool;
+        roots: [(Nat, Blob)]; // categoryId -> merkle root
     };
 
     public type TokenInfo = {
@@ -468,6 +524,11 @@ module DistributionTypes {
         claimedAmount: Nat;                 // Amount already claimed from this category
         vestingSchedule: VestingSchedule;   // Category-specific vesting schedule
         vestingStart: Time.Time;            // Category-specific vesting start time
+
+        // ✨ NEW: Per-Category Passport Verification (Sprint 1)
+        passportScore: Nat;                 // 0 = disabled, 1-100 = minimum score required
+        passportProvider: Text;             // "ICTO", "Gitcoin", "Civic", etc.
+
         note: ?Text;                        // Category-specific note
     };
 
