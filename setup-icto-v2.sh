@@ -18,6 +18,39 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
+# Network selection (global)
+NETWORK="local"  # default network
+
+# Allow user to pass network flag as first argument: ./setup-icto-v2.sh [ic|local]
+if [[ -n "$1" ]]; then
+    case "$1" in
+        ic)
+            NETWORK="ic"
+            ;;
+        local)
+            NETWORK="local"
+            ;;
+        *)
+            echo -e "${RED}Invalid network: $1${NC}"
+            echo "Usage: $0 [ic|local]"
+            exit 1
+            ;;
+    esac
+fi
+
+# If IC mainnet selected, ask for confirmation once more
+if [[ "$NETWORK" == "ic" ]]; then
+    echo -e "${YELLOW}You selected IC mainnet deployment.${NC}"
+    read -p "Are you sure you want to deploy to IC mainnet? (y/N): " confirm_ic
+    if [[ "$confirm_ic" != "y" && "$confirm_ic" != "Y" ]]; then
+        echo -e "${YELLOW}IC mainnet not confirmed. Falling back to local network.${NC}"
+        NETWORK="local"
+    fi
+fi
+
+echo -e "${CYAN}Using network: ${NETWORK}${NC}"
+echo ""
+
 # Global variables for canister IDs
 BACKEND_ID=""
 TOKEN_FACTORY_ID=""
@@ -31,16 +64,16 @@ LAUNCHPAD_FACTORY_ID=""
 
 # Function to load canister IDs
 load_canister_ids() {
-    if [ -f ".dfx/local/canister_ids.json" ]; then
-        BACKEND_ID=$(dfx canister id backend 2>/dev/null || echo "")
-        TOKEN_FACTORY_ID=$(dfx canister id token_factory 2>/dev/null || echo "")
-        AUDIT_STORAGE_ID=$(dfx canister id audit_storage 2>/dev/null || echo "")
-        INVOICE_STORAGE_ID=$(dfx canister id invoice_storage 2>/dev/null || echo "")
-        TEMPLATE_FACTORY_ID=$(dfx canister id template_factory 2>/dev/null || echo "")
-        DISTRIBUTION_FACTORY_ID=$(dfx canister id distribution_factory 2>/dev/null || echo "")
-        MULTISIG_FACTORY_ID=$(dfx canister id multisig_factory 2>/dev/null || echo "")
-        DAO_FACTORY_ID=$(dfx canister id dao_factory 2>/dev/null || echo "")
-        LAUNCHPAD_FACTORY_ID=$(dfx canister id launchpad_factory 2>/dev/null || echo "")
+    if [ -f ".dfx/$NETWORK/canister_ids.json" ]; then
+        BACKEND_ID=$(dfx canister id backend --network "$NETWORK" 2>/dev/null || echo "")
+        TOKEN_FACTORY_ID=$(dfx canister id token_factory --network "$NETWORK" 2>/dev/null || echo "")
+        AUDIT_STORAGE_ID=$(dfx canister id audit_storage --network "$NETWORK" 2>/dev/null || echo "")
+        INVOICE_STORAGE_ID=$(dfx canister id invoice_storage --network "$NETWORK" 2>/dev/null || echo "")
+        TEMPLATE_FACTORY_ID=$(dfx canister id template_factory --network "$NETWORK" 2>/dev/null || echo "")
+        DISTRIBUTION_FACTORY_ID=$(dfx canister id distribution_factory --network "$NETWORK" 2>/dev/null || echo "")
+        MULTISIG_FACTORY_ID=$(dfx canister id multisig_factory --network "$NETWORK" 2>/dev/null || echo "")
+        DAO_FACTORY_ID=$(dfx canister id dao_factory --network "$NETWORK" 2>/dev/null || echo "")
+        LAUNCHPAD_FACTORY_ID=$(dfx canister id launchpad_factory --network "$NETWORK" 2>/dev/null || echo "")
     fi
 }
 
@@ -131,26 +164,26 @@ step_1_deploy_canisters() {
 
     # Deploy infrastructure canisters with fixed IDs
     echo -e "${YELLOW}Deploying infrastructure...${NC}"
-    dfx deploy icp_ledger --specified-id ryjl3-tyaaa-aaaaa-aaaba-cai
-    dfx deploy internet_identity --specified-id rdmx6-jaaaa-aaaaa-aaadq-cai
+    dfx deploy icp_ledger --specified-id ryjl3-tyaaa-aaaaa-aaaba-cai --network "$NETWORK"
+    dfx deploy internet_identity --specified-id rdmx6-jaaaa-aaaaa-aaadq-cai --network "$NETWORK"
 
     # Deploy core backend
     echo -e "${YELLOW}Deploying backend gateway...${NC}"
-    dfx deploy backend
+    dfx deploy backend --network "$NETWORK"
 
     # Deploy independent storage services
     echo -e "${YELLOW}Deploying independent storage services...${NC}"
-    dfx deploy audit_storage      # Append-only audit trail logs
-    dfx deploy invoice_storage    # Secure payment record storage
+    dfx deploy audit_storage --network "$NETWORK"     # Append-only audit trail logs
+    dfx deploy invoice_storage --network "$NETWORK"   # Secure payment record storage
 
     # Deploy factory services
     echo -e "${YELLOW}Deploying factory services...${NC}"
-    dfx deploy token_factory
-    dfx deploy template_factory
-    dfx deploy distribution_factory
-    dfx deploy multisig_factory
-    dfx deploy dao_factory
-    dfx deploy launchpad_factory
+    dfx deploy token_factory --network "$NETWORK"
+    dfx deploy template_factory --network "$NETWORK"
+    dfx deploy distribution_factory --network "$NETWORK"
+    dfx deploy multisig_factory --network "$NETWORK"
+    dfx deploy dao_factory --network "$NETWORK"
+    dfx deploy launchpad_factory --network "$NETWORK"
 
     echo -e "${GREEN}✅ All canisters deployed successfully${NC}"
     echo ""
@@ -174,7 +207,7 @@ step_2_generate_dids() {
 
     for contract in "${CONTRACT_TEMPLATES[@]}"; do
         echo -e "${YELLOW}Generating DID for ${contract}...${NC}"
-        dfx generate ${contract}
+        dfx generate ${contract} --network "$NETWORK"
 
         if [ $? -eq 0 ]; then
             echo -e "${GREEN}✅ ${contract} DID generated${NC}"
@@ -217,23 +250,26 @@ step_4_add_cycles() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
 
-    echo -e "${YELLOW}Fabricating cycles for factories (100T each)...${NC}"
-    dfx ledger fabricate-cycles --canister token_factory --t 100
-    dfx ledger fabricate-cycles --canister distribution_factory --t 100
-    dfx ledger fabricate-cycles --canister multisig_factory --t 100
-    dfx ledger fabricate-cycles --canister dao_factory --t 100
-    dfx ledger fabricate-cycles --canister launchpad_factory --t 100
+    if [[ "$NETWORK" == "local" ]]; then
+        echo -e "${YELLOW}Fabricating cycles for factories (100T each) on local replica...${NC}"
+        dfx ledger fabricate-cycles --canister token_factory --t 100 --network "$NETWORK"
+        dfx ledger fabricate-cycles --canister distribution_factory --t 100 --network "$NETWORK"
+        dfx ledger fabricate-cycles --canister multisig_factory --t 100 --network "$NETWORK"
+        dfx ledger fabricate-cycles --canister dao_factory --t 100 --network "$NETWORK"
+        dfx ledger fabricate-cycles --canister launchpad_factory --t 100 --network "$NETWORK"
 
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✅ Cycles added successfully to all factories${NC}"
-        echo -e "${GREEN}   • Token Factory: 100T cycles${NC}"
-        echo -e "${GREEN}   • Distribution Factory: 100T cycles${NC}"
-        echo -e "${GREEN}   • Multisig Factory: 100T cycles${NC}"
-        echo -e "${GREEN}   • DAO Factory: 100T cycles${NC}"
-        echo -e "${GREEN}   • Launchpad Factory: 100T cycles${NC}"
+        if [ $? -eq 0 ]; then
+            echo -e "${GREEN}✅ Cycles added successfully to all factories${NC}"
+            echo -e "${GREEN}   • Token Factory: 100T cycles${NC}"
+            echo -e "${GREEN}   • Distribution Factory: 100T cycles${NC}"
+            echo -e "${GREEN}   • Multisig Factory: 100T cycles${NC}"
+            echo -e "${GREEN}   • DAO Factory: 100T cycles${NC}"
+            echo -e "${GREEN}   • Launchpad Factory: 100T cycles${NC}"
+        else
+            echo -e "${RED}❌ Failed to add cycles${NC}"
+        fi
     else
-        echo -e "${RED}❌ Failed to add cycles${NC}"
-        return 1
+        echo -e "${YELLOW}Skipping fabricate-cycles: NETWORK=${NETWORK} (intended for local development only).${NC}"
     fi
     echo ""
     sleep 2
@@ -264,7 +300,7 @@ step_5_add_to_whitelists() {
     for service in "${SERVICES[@]}"; do
         echo -e "${YELLOW}Adding backend to ${service} whitelist...${NC}"
 
-        if dfx canister call "$service" "addToWhitelist" "(principal \"${BACKEND_ID}\")"; then
+        if dfx canister call "$service" "addToWhitelist" "(principal \"${BACKEND_ID}\")" --network "$NETWORK"; then
             SUCCESS_SERVICES="$SUCCESS_SERVICES $service"
             echo -e "${GREEN}✅ Backend added to ${service} whitelist${NC}"
         else
@@ -299,16 +335,7 @@ step_6_load_wasm() {
     echo -e "${BLUE}═══════════════════════════════════════════════════════════════${NC}"
     echo ""
 
-    # Detect network (check if running on IC or local)
-    NETWORK="local"
-    if dfx ping ic >/dev/null 2>&1; then
-        read -p "Are you deploying to IC mainnet? (y/n) [n]: " use_ic
-        if [[ "$use_ic" == "y" || "$use_ic" == "Y" ]]; then
-            NETWORK="ic"
-        fi
-    fi
-
-    echo -e "${CYAN}Network detected: ${NETWORK}${NC}"
+    echo -e "${CYAN}Network selected: ${NETWORK}${NC}"
     echo ""
 
     if [[ "$NETWORK" == "ic" ]]; then
@@ -417,7 +444,7 @@ step_6_load_wasm() {
 
         # Clear existing chunks buffer
         echo -e "${YELLOW}Clearing chunks buffer...${NC}"
-        dfx canister call token_factory clearChunks >/dev/null 2>&1 || true
+        dfx canister call token_factory clearChunks --network "$NETWORK" >/dev/null 2>&1 || true
 
         # Upload chunks
         for ((chunk=0; chunk<CHUNK_COUNT; chunk++))
@@ -434,7 +461,7 @@ step_6_load_wasm() {
             awk '{print "(vec {" $0 "})"}')
 
             # Upload chunk
-            upload_result=$(dfx canister call token_factory uploadChunk "$chunk_data" 2>&1 || echo "FAILED")
+            upload_result=$(dfx canister call token_factory uploadChunk "$chunk_data" --network "$NETWORK" 2>&1 || echo "FAILED")
 
             if [[ "$upload_result" == *"ok"* ]]; then
                 echo -e "${GREEN}  ✅ Chunk $((chunk + 1)) uploaded${NC}"
@@ -457,7 +484,7 @@ step_6_load_wasm() {
             fi
         done | sed 's/;$//')
 
-        finalize_result=$(dfx canister call token_factory addWasm "(vec { $vec_nat8_hex })" 2>&1 || echo "FAILED")
+        finalize_result=$(dfx canister call token_factory addWasm "(vec { $vec_nat8_hex })" --network "$NETWORK" 2>&1 || echo "FAILED")
 
         if [[ "$finalize_result" == *"ok"* ]]; then
             echo -e "${GREEN}✅ WASM upload finalized successfully${NC}"
@@ -475,7 +502,7 @@ step_6_load_wasm() {
     # Verify WASM upload
     echo ""
     echo -e "${YELLOW}Verifying WASM upload...${NC}"
-    WASM_INFO=$(dfx canister call token_factory getCurrentWasmInfo "()" 2>&1 || echo "FAILED")
+    WASM_INFO=$(dfx canister call token_factory getCurrentWasmInfo "()" --network "$NETWORK" 2>&1 || echo "FAILED")
 
     if [[ "$WASM_INFO" == *"FAILED"* ]]; then
         echo -e "${YELLOW}⚠️  Could not verify WASM info${NC}"
@@ -512,7 +539,7 @@ step_7_setup_microservices() {
         multisigFactory = opt principal \"$MULTISIG_FACTORY_ID\";
         daoFactory = opt principal \"$DAO_FACTORY_ID\";
         launchpadFactory = opt principal \"$LAUNCHPAD_FACTORY_ID\";
-    })" 2>&1 || echo "FAILED")
+    })" --network "$NETWORK" 2>&1 || echo "FAILED")
 
     if [[ "$SETUP_RESULT" == *"FAILED"* ]] || [[ "$SETUP_RESULT" == *"err"* ]]; then
         echo -e "${RED}❌ Microservices setup failed:${NC}"
@@ -533,7 +560,7 @@ step_8_health_checks() {
     echo ""
 
     echo -e "${YELLOW}Checking token deployment type info...${NC}"
-    TOKEN_INFO=$(dfx canister call backend getDeploymentTypeInfo "(\"Token\")" 2>&1 || echo "FAILED")
+    TOKEN_INFO=$(dfx canister call backend getDeploymentTypeInfo "(\"Token\")" --network "$NETWORK" 2>&1 || echo "FAILED")
     if [[ "$TOKEN_INFO" == *"FAILED"* ]]; then
         echo -e "${YELLOW}⚠️  Token deployment type info not available${NC}"
     else
@@ -541,7 +568,7 @@ step_8_health_checks() {
     fi
 
     echo -e "${YELLOW}Checking token_factory health...${NC}"
-    TOKEN_HEALTH=$(dfx canister call token_factory getServiceHealth "()" 2>&1 || echo "FAILED")
+    TOKEN_HEALTH=$(dfx canister call token_factory getServiceHealth "()" --network "$NETWORK" 2>&1 || echo "FAILED")
     if [[ "$TOKEN_HEALTH" == *"FAILED"* ]]; then
         echo -e "${YELLOW}⚠️  Token factory health check failed${NC}"
     else
@@ -549,7 +576,7 @@ step_8_health_checks() {
     fi
 
     echo -e "${YELLOW}Checking audit_storage health...${NC}"
-    AUDIT_HEALTH=$(dfx canister call audit_storage getStorageStats "()" 2>&1 || echo "FAILED")
+    AUDIT_HEALTH=$(dfx canister call audit_storage getStorageStats "()" --network "$NETWORK" 2>&1 || echo "FAILED")
     if [[ "$AUDIT_HEALTH" == *"FAILED"* ]]; then
         echo -e "${YELLOW}⚠️  Audit storage health check failed${NC}"
     else
@@ -584,7 +611,7 @@ step_9_configure_fees() {
         IFS='|' read -r key value description <<< "$setting"
 
         echo -e "${YELLOW}Setting ${description}...${NC}"
-        CONFIG_RESULT=$(dfx canister call backend adminSetConfigValue "(\"${key}\", \"${value}\")" 2>&1 || echo "FAILED")
+        CONFIG_RESULT=$(dfx canister call backend adminSetConfigValue "(\"${key}\", \"${value}\")" --network "$NETWORK" 2>&1 || echo "FAILED")
 
         if [[ "$CONFIG_RESULT" == *"FAILED"* ]] || [[ "$CONFIG_RESULT" == *"err"* ]]; then
             echo -e "${RED}  ❌ Failed to set ${key}${NC}"
@@ -611,7 +638,7 @@ step_9_configure_fees() {
         IFS='|' read -r service_name expected_value <<< "$verify"
         icp_value=$(echo "scale=2; ${expected_value}/100000000" | bc)
 
-        FEE_CHECK=$(dfx canister call backend getServiceFee "(\"${service_name}\")" 2>&1 || echo "FAILED")
+        FEE_CHECK=$(dfx canister call backend getServiceFee "(\"${service_name}\")" --network "$NETWORK" 2>&1 || echo "FAILED")
 
         # Format expected value with underscores like Candid does (e.g., 50_000_000)
         # Remove underscores from FEE_CHECK for comparison
@@ -661,7 +688,7 @@ step_11_system_verification() {
     echo ""
 
     echo -e "${YELLOW}Checking microservices setup status...${NC}"
-    SETUP_STATUS=$(dfx canister call backend getMicroserviceSetupStatus "()" 2>&1 || echo "FAILED")
+    SETUP_STATUS=$(dfx canister call backend getMicroserviceSetupStatus "()" --network "$NETWORK" 2>&1 || echo "FAILED")
     if [[ "$SETUP_STATUS" == *"true"* ]]; then
         echo -e "${GREEN}✅ Microservices setup: Completed${NC}"
     else
@@ -669,7 +696,7 @@ step_11_system_verification() {
     fi
 
     echo -e "${YELLOW}Checking all services health...${NC}"
-    HEALTH_CHECK=$(dfx canister call backend getMicroserviceHealth "()" 2>&1 || echo "FAILED")
+    HEALTH_CHECK=$(dfx canister call backend getMicroserviceHealth "()" --network "$NETWORK" 2>&1 || echo "FAILED")
     if [[ "$HEALTH_CHECK" == *"FAILED"* ]]; then
         echo -e "${YELLOW}⚠️  Health check not available${NC}"
     else
@@ -677,7 +704,7 @@ step_11_system_verification() {
     fi
 
     echo -e "${YELLOW}Getting system status...${NC}"
-    SYSTEM_STATUS=$(dfx canister call backend getSystemStatus "()" 2>&1 || echo "FAILED")
+    SYSTEM_STATUS=$(dfx canister call backend getSystemStatus "()" --network "$NETWORK" 2>&1 || echo "FAILED")
     if [[ "$SYSTEM_STATUS" == *"FAILED"* ]]; then
         echo -e "${YELLOW}⚠️  System status not available${NC}"
     else
