@@ -576,4 +576,113 @@ export class DistributionService {
       throw error;
     }
   }
+
+  // ================ SPRINT 1: EMERGENCY CONTROLS ================
+
+  /**
+   * Trigger global emergency pause - blocks all claims
+   */
+  static async globalEmergencyPause(canisterId: string): Promise<void> {
+    const actor = distributionContractActor(canisterId);
+    const result: any = await actor.globalEmergencyPause();
+
+    if ('err' in result) {
+      throw new Error(result.err);
+    }
+  }
+
+  /**
+   * Resume after global emergency pause
+   */
+  static async globalEmergencyResume(canisterId: string): Promise<void> {
+    const actor = distributionContractActor(canisterId);
+    const result: any = await actor.globalEmergencyResume();
+
+    if ('err' in result) {
+      throw new Error(result.err);
+    }
+  }
+
+  /**
+   * Pause specific category
+   */
+  static async pauseCategory(canisterId: string, categoryId: number): Promise<void> {
+    const actor = distributionContractActor(canisterId);
+    const result: any = await actor.pauseCategory(BigInt(categoryId));
+
+    if ('err' in result) {
+      throw new Error(result.err);
+    }
+  }
+
+  /**
+   * Resume specific category
+   */
+  static async resumeCategory(canisterId: string, categoryId: number): Promise<void> {
+    const actor = distributionContractActor(canisterId);
+    const result: any = await actor.resumeCategory(BigInt(categoryId));
+
+    if ('err' in result) {
+      throw new Error(result.err);
+    }
+  }
+
+  /**
+   * Emergency withdraw all tokens (requires global pause first)
+   */
+  static async globalEmergencyWithdraw(canisterId: string): Promise<void> {
+    const actor = distributionContractActor(canisterId);
+    const result: any = await actor.globalEmergencyWithdraw();
+
+    if ('err' in result) {
+      throw new Error(result.err);
+    }
+  }
+
+  /**
+   * Add emergency contact who can trigger emergency pause
+   */
+  static async addEmergencyContact(canisterId: string, contactPrincipal: string): Promise<void> {
+    const actor = distributionContractActor(canisterId);
+    const result: any = await actor.addEmergencyContact(Principal.fromText(contactPrincipal));
+
+    if ('err' in result) {
+      throw new Error(result.err);
+    }
+  }
+
+  /**
+   * Remove emergency contact
+   */
+  static async removeEmergencyContact(canisterId: string, contactPrincipal: string): Promise<void> {
+    const actor = distributionContractActor(canisterId);
+    const result: any = await actor.removeEmergencyContact(Principal.fromText(contactPrincipal));
+
+    if ('err' in result) {
+      throw new Error(result.err);
+    }
+  }
+
+  /**
+   * Get emergency control status
+   */
+  static async getEmergencyStatus(canisterId: string): Promise<{
+    globalPaused: boolean;
+    pausedCategories: [number, boolean][];
+    emergencyContacts: string[];
+  }> {
+    const actor = distributionContractActor(canisterId);
+    const status: any = await actor.getEmergencyStatus();
+
+    return {
+      globalPaused: status.globalPaused,
+      pausedCategories: status.pausedCategories.map(([id, isPaused]: [bigint, boolean]) => [
+        Number(id),
+        isPaused
+      ]),
+      emergencyContacts: status.emergencyContacts.map((p: any) => p.toText())
+    };
+  }
 };
+
+export const distributionService = DistributionService;

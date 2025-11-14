@@ -14,6 +14,9 @@ import Nat "mo:base/Nat";
 import Nat64 "mo:base/Nat64";
 import Error "mo:base/Error";
 import Array "mo:base/Array";
+import Blob "mo:base/Blob";
+import Nat8 "mo:base/Nat8";
+import Nat32 "mo:base/Nat32";
 // Import shared types (trust source)
 import DistributionTypes "../shared/types/DistributionTypes";
 import DistributionUpgradeTypes "../shared/types/DistributionUpgradeTypes";
@@ -56,6 +59,13 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     public type MultiCategoryRecipient = DistributionTypes.MultiCategoryRecipient;      // V2.0
     public type ClaimRecord = DistributionTypes.ClaimRecord;
     public type DistributionStats = DistributionTypes.DistributionStats;
+    public type ClaimEvent = DistributionTypes.ClaimEvent;  // Sprint 2
+    public type RateLimitConfig = DistributionTypes.RateLimitConfig;  // Sprint 2
+    public type RateLimitEnforcement = DistributionTypes.RateLimitEnforcement;  // Sprint 2
+    public type PaginationConfig = DistributionTypes.PaginationConfig;  // Sprint 2
+    public type PaginatedResponse<T> = DistributionTypes.PaginatedResponse<T>;  // Sprint 2
+    public type MerkleProof = DistributionTypes.MerkleProof;  // Sprint 3
+    public type MerkleConfig = DistributionTypes.MerkleConfig;  // Sprint 3
 
     // ================ INITIALIZATION LOGIC ================
     // Determine if this is a fresh deployment or an upgrade
@@ -189,6 +199,46 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         case (?state) { state.blacklist };
     };
 
+    // ================ EMERGENCY CONTROLS (Sprint 1) ================
+
+    /// Global pause state - blocks all claims when true
+    private var globalPaused: Bool = switch (upgradeState) {
+        case null { false };
+        case (?state) {
+            // TODO: Add to DistributionRuntimeState in future upgrade
+            false
+        };
+    };
+
+    /// Per-category pause state - blocks claims for specific categories
+    private var pausedCategoriesStable: [(Nat, Bool)] = switch (upgradeState) {
+        case null { [] };
+        case (?state) {
+            // TODO: Add to DistributionRuntimeState in future upgrade
+            []
+        };
+    };
+
+    /// Emergency contacts authorized to trigger emergency pause
+    private var emergencyContactsStable: [Principal] = switch (upgradeState) {
+        case null { [] };
+        case (?state) {
+            // TODO: Add to DistributionRuntimeState in future upgrade
+            []
+        };
+    };
+
+    // ================ RATE LIMITING (Sprint 2) ================
+
+    /// Claim history for rate limiting
+    private var claimHistoryStable: [(Principal, [ClaimEvent])] = switch (upgradeState) {
+        case null { [] };
+        case (?state) {
+            // TODO: Add to DistributionRuntimeState in future upgrade
+            []
+        };
+    };
+
     // Stats
     private var totalDistributed: Nat = switch (upgradeState) {
         case null { 0 };
@@ -209,6 +259,22 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     private transient var claimRecords: Buffer.Buffer<ClaimRecord> = Buffer.Buffer(0);
     private transient var whitelist: Trie.Trie<Principal, Bool> = Trie.empty();
     private transient var blacklist: Trie.Trie<Principal, Bool> = Trie.empty();
+
+    // Emergency control transient maps (Sprint 1)
+    private transient var pausedCategoriesMap: Trie.Trie<Nat, Bool> = Trie.empty();
+    private transient var emergencyContacts: [Principal] = [];
+
+    // Rate limiting transient map (Sprint 2)
+    private transient var claimHistoryMap: Trie.Trie<Principal, [ClaimEvent]> = Trie.empty();
+
+    // Dynamic category management (Sprint 2)
+    private var nextCategoryId: Nat = switch (upgradeState) {
+        case null { 2 }; // Start from 2 (1 is reserved for default category)
+        case (?state) {
+            // TODO: Calculate from existing categories in future upgrade
+            2
+        };
+    };
 
     // Milestone timers (similar to Launchpad pattern)
     private var distributionStartTimerId: ?Nat = null;  // Timer for auto-activation
@@ -239,6 +305,10 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     // Constants
     private let E8S: Nat = 100_000_000;
     private let _NANO_TIME: Nat = 1_000_000_000;
+
+    // Sprint 2: Cycles Management Constants
+    private let MIN_CYCLES_THRESHOLD: Nat = 1_000_000_000_000; // 1T cycles
+    private let CYCLES_TOP_UP_AMOUNT: Nat = 5_000_000_000_000; // 5T cycles
 
     // ================ SECURITY HELPER FUNCTIONS ================
 
@@ -313,62 +383,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     };
 
     /// Enhanced rate limiting with global and per-user protection
-    private func _checkRateLimit(caller: Principal) : Result.Result<(), Text> {
-        let now = _getValidatedTime(); // Use protected time
-        let cooldownPeriod = 60_000_000_000; // 1 minute in nanoseconds
-
-        // 1. Global rate limiting (prevent Sybil attacks)
-        let recentGlobalClaims = Array.filter(_globalClaimTimestamps, func (timestamp: Time.Time) : Bool {
-            let timeDiff = Int.abs(now - timestamp);
-            timeDiff < cooldownPeriod
-        });
-
-        if (recentGlobalClaims.size() >= _MAX_CLAIMS_PER_MINUTE) {
-            return #err("Global rate limit exceeded. Please try again later.");
-        };
-
-        // 2. Per-user rate limiting
-        let lastClaim = Array.find(_lastClaimTime, func ((user, _): (Principal, Time.Time)) : Bool {
-            Principal.equal(user, caller)
-        });
-
-        switch (lastClaim) {
-            case (?(_, lastTime)) {
-                let timeSinceLastClaim = Int.abs(now - lastTime);
-                if (timeSinceLastClaim < cooldownPeriod) {
-                    return #err("Rate limit exceeded. Please wait " # debug_show(cooldownPeriod - timeSinceLastClaim) # " nanoseconds");
-                };
-                // Update last claim time
-                _updateLastClaimTime(caller, now);
-            };
-            case null {
-                // First time claiming
-                _updateLastClaimTime(caller, now);
-            };
-        };
-
-        // 3. Update global claim timestamps
-        _globalClaimTimestamps := Array.append(_globalClaimTimestamps, [now]);
-
-        // 4. Cleanup old timestamps (keep only recent ones)
-        let cleanedTimestamps = Array.filter(_globalClaimTimestamps, func (timestamp: Time.Time) : Bool {
-            let timeDiff = Int.abs(now - timestamp);
-            timeDiff < cooldownPeriod * 10 // Keep 10 minutes of history
-        });
-        _globalClaimTimestamps := cleanedTimestamps;
-
-        #ok(())
-    };
-
-    /// Update last claim time for a user
-    private func _updateLastClaimTime(user: Principal, time: Time.Time) {
-        // Simple approach: filter out existing entry and add new one
-        let filteredEntries = Array.filter(_lastClaimTime, func (item: (Principal, Time.Time)) : Bool {
-            not Principal.equal(item.0, user)
-        });
-        // Add new entry
-        _lastClaimTime := Array.append(filteredEntries, [(user, time)]);
-    };
+    // NOTE: Old rate limit implementation removed - replaced by Sprint 2 configurable system
+    // See new _checkRateLimit() function in SPRINT 2: RATE LIMITING FUNCTIONS section
 
     /// Oracle-protected time function to prevent MEV attacks
     private func _getValidatedTime() : Time.Time {
@@ -737,7 +753,12 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     private func _principalKey(principal: Principal) : Trie.Key<Principal> {
         { key = principal; hash = Principal.hash(principal) }
     };
-    
+
+    // Sprint 1: Nat key for category Trie
+    private func _natKey(n: Nat) : Trie.Key<Nat> {
+        { key = n; hash = Prim.natToNat32(n) }
+    };
+
     private func _isOwner(caller: Principal) : Bool {
         Principal.equal(caller, creator) or Principal.equal(caller, config.owner)
     };
@@ -754,6 +775,853 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             };
         };
         null
+    };
+
+    // ================ SPRINT 2: RATE LIMITING FUNCTIONS ================
+
+    /// Check if caller has exceeded rate limits
+    private func _checkRateLimit(caller: Principal) : Bool {
+        switch (config.rateLimitConfig) {
+            case null { return true }; // No rate limiting configured
+            case (?rateLimitCfg) {
+                if (not rateLimitCfg.enabled) { return true };
+
+                let now = Time.now();
+                let windowStart = Int.abs(now - rateLimitCfg.windowDurationNs);
+
+                // Get claim history for this caller
+                let history = switch (Trie.find(claimHistoryMap, _principalKey(caller), Principal.equal)) {
+                    case (?h) { h };
+                    case null { [] };
+                };
+
+                // Count claims within window
+                let recentClaims = Array.filter<ClaimEvent>(
+                    history,
+                    func(event) { event.timestamp >= windowStart }
+                );
+
+                let claimCount = recentClaims.size();
+
+                if (claimCount >= rateLimitCfg.maxClaimsPerWindow) {
+                    switch (rateLimitCfg.enforcementLevel) {
+                        case (#Warning) {
+                            Debug.print("⚠️ Rate limit warning for " # Principal.toText(caller));
+                            true // Allow but warn
+                        };
+                        case (#Soft) {
+                            Debug.print("🔒 Rate limit soft block for " # Principal.toText(caller));
+                            false // Block
+                        };
+                        case (#Hard) {
+                            Debug.print("🚫 Rate limit hard block for " # Principal.toText(caller));
+                            false // Block
+                        };
+                    }
+                } else {
+                    true // Within limits
+                }
+            };
+        }
+    };
+
+    /// Record claim event for rate limiting
+    private func _recordClaim(caller: Principal, categoryId: Nat, amount: Nat) {
+        // Only record if rate limiting is enabled
+        switch (config.rateLimitConfig) {
+            case null { return }; // No rate limiting
+            case (?rateLimitCfg) {
+                if (not rateLimitCfg.enabled) { return };
+
+                let event: ClaimEvent = {
+                    timestamp = Time.now();
+                    categoryId;
+                    amount;
+                };
+
+                let history = switch (Trie.find(claimHistoryMap, _principalKey(caller), Principal.equal)) {
+                    case (?h) { h };
+                    case null { [] };
+                };
+
+                let updatedHistory = Array.append(history, [event]);
+
+                claimHistoryMap := Trie.put(
+                    claimHistoryMap,
+                    _principalKey(caller),
+                    Principal.equal,
+                    updatedHistory
+                ).0;
+            };
+        };
+    };
+
+    /// Get rate limit status for a caller (public query)
+    public query func getRateLimitStatus(caller: Principal) : async {
+        isEnabled: Bool;
+        claimsInCurrentWindow: Nat;
+        maxClaimsPerWindow: Nat;
+        canClaim: Bool;
+        nextClaimAvailableAt: ?Time.Time;
+    } {
+        switch (config.rateLimitConfig) {
+            case null {
+                {
+                    isEnabled = false;
+                    claimsInCurrentWindow = 0;
+                    maxClaimsPerWindow = 0;
+                    canClaim = true;
+                    nextClaimAvailableAt = null;
+                }
+            };
+            case (?rateLimitCfg) {
+                if (not rateLimitCfg.enabled) {
+                    return {
+                        isEnabled = false;
+                        claimsInCurrentWindow = 0;
+                        maxClaimsPerWindow = rateLimitCfg.maxClaimsPerWindow;
+                        canClaim = true;
+                        nextClaimAvailableAt = null;
+                    };
+                };
+
+                let now = Time.now();
+                let windowStart = Int.abs(now - rateLimitCfg.windowDurationNs);
+
+                let history = switch (Trie.find(claimHistoryMap, _principalKey(caller), Principal.equal)) {
+                    case (?h) { h };
+                    case null { [] };
+                };
+
+                let recentClaims = Array.filter<ClaimEvent>(
+                    history,
+                    func(event) { event.timestamp >= windowStart }
+                );
+
+                let claimCount = recentClaims.size();
+                let canClaim = claimCount < rateLimitCfg.maxClaimsPerWindow;
+
+                // Calculate next available claim time
+                let nextAvailable = if (canClaim) {
+                    null
+                } else {
+                    // Find oldest claim in window
+                    let sorted = Array.sort<ClaimEvent>(
+                        recentClaims,
+                        func(a, b) { Int.compare(a.timestamp, b.timestamp) }
+                    );
+                    if (sorted.size() > 0) {
+                        ?(sorted[0].timestamp + rateLimitCfg.windowDurationNs)
+                    } else {
+                        null
+                    }
+                };
+
+                {
+                    isEnabled = true;
+                    claimsInCurrentWindow = claimCount;
+                    maxClaimsPerWindow = rateLimitCfg.maxClaimsPerWindow;
+                    canClaim;
+                    nextClaimAvailableAt = nextAvailable;
+                }
+            };
+        };
+    };
+
+    // ================ SPRINT 2: CYCLES AUTO-MANAGEMENT ================
+
+    /// Check cycles and request top-up if needed
+    private func checkAndRequestCycles() : async () {
+        let currentCycles = Cycles.balance();
+
+        if (currentCycles < MIN_CYCLES_THRESHOLD) {
+            Debug.print("⚠️ Low cycles detected: " # Nat.toText(currentCycles));
+
+            switch (factoryCanisterId) {
+                case (?factory) {
+                    try {
+                        // Request cycles from factory
+                        let factoryActor: actor {
+                            topUpDistribution: (Principal) -> async Result.Result<Text, Text>
+                        } = actor(Principal.toText(factory));
+
+                        let result = await factoryActor.topUpDistribution(Principal.fromActor(self));
+
+                        switch (result) {
+                            case (#ok(msg)) {
+                                Debug.print("✅ Cycles top-up successful: " # msg);
+                            };
+                            case (#err(e)) {
+                                Debug.print("❌ Cycles top-up failed: " # e);
+                            };
+                        }
+                    } catch (e) {
+                        Debug.print("❌ Error requesting cycles: " # Error.message(e));
+                    };
+                };
+                case null {
+                    Debug.print("❌ No factory canister configured for top-up");
+                };
+            };
+        };
+    };
+
+    /// Periodic timer to check cycles
+    public func initCyclesMonitor() : async () {
+        let intervalNs: Nat = 3600_000_000_000; // 1 hour
+
+        ignore Timer.recurringTimer<system>(#nanoseconds(intervalNs), checkAndRequestCycles);
+    };
+
+    // ================ SPRINT 3: MERKLE TREE VERIFICATION ================
+
+    /// Create leaf hash from participant data for Merkle tree
+    /// Uses deterministic ordering: address + amount + categoryId
+    private func createMerkleLeaf(address: Principal, amount: Nat, categoryId: Nat) : Blob {
+        let addressText = Principal.toText(address);
+        let amountText = Nat.toText(amount);
+        let categoryIdText = Nat.toText(categoryId);
+
+        // Create standardized string: address:amount:categoryId
+        let combined = addressText # ":" # amountText # ":" # categoryIdText;
+
+        // Convert to bytes and hash using built-in hash
+        let combinedBytes = Text.encodeUtf8(combined);
+        let hashNat = Prim.hashBlob(combinedBytes);
+
+        // Convert Nat32 to 4-byte Blob (big-endian)
+        let bytes = [
+            Nat8.fromIntWrap(Nat32.toNat(hashNat / 0x1000000)),
+            Nat8.fromIntWrap(Nat32.toNat(hashNat / 0x10000)),
+            Nat8.fromIntWrap(Nat32.toNat(hashNat / 0x100)),
+            Nat8.fromIntWrap(Nat32.toNat(hashNat))
+        ];
+        Blob.fromArray(bytes)
+    };
+
+    /// Hash two blobs for Merkle tree construction
+    private func hashMerklePair(a: Blob, b: Blob) : Blob {
+        let combined = Blob.fromArray(
+            Array.append(Blob.toArray(a), Blob.toArray(b))
+        );
+        let hashNat = Prim.hashBlob(combined);
+
+        // Convert Nat32 to 4-byte Blob
+        let bytes = [
+            Nat8.fromIntWrap(Nat32.toNat(hashNat / 0x1000000)),
+            Nat8.fromIntWrap(Nat32.toNat(hashNat / 0x10000)),
+            Nat8.fromIntWrap(Nat32.toNat(hashNat / 0x100)),
+            Nat8.fromIntWrap(Nat32.toNat(hashNat))
+        ];
+        Blob.fromArray(bytes)
+    };
+
+    /// Compute Merkle root from leaf and siblings
+    private func _computeMerkleRoot(leaf: Blob, siblings: [Blob]) : Blob {
+        var currentHash = leaf;
+
+        for (sibling in siblings.vals()) {
+            currentHash := hashMerklePair(currentHash, sibling);
+        };
+
+        currentHash
+    };
+
+    /// Verify Merkle proof against expected root
+    public query func verifyMerkleProof(
+        proof: MerkleProof,
+        expectedRoot: Blob
+    ) : async Bool {
+        var currentHash = proof.leaf;
+
+        for (sibling in proof.siblings.vals()) {
+            currentHash := hashMerklePair(currentHash, sibling);
+        };
+
+        Blob.equal(currentHash, expectedRoot)
+    };
+
+    // ================ HYBRID SYSTEM HELPERS ================
+
+    /// Check if this distribution is using Merkle system
+    private func isUsingMerkleSystem() : Bool {
+        switch (config.usingMerkleSystem) {
+            case (?enabled) { enabled };
+            case (null) { false }; // Default to legacy mode
+        };
+    };
+
+    /// Get the appropriate claim method based on configuration
+    private func getClaimMethod() : { #Legacy; #Merkle } {
+        if (isUsingMerkleSystem()) {
+            return #Merkle;
+        } else {
+            return #Legacy;
+        };
+    };
+
+    /// Claim with Merkle proof (for off-chain recipient storage)
+    /// This allows distributions with 100k+ recipients without on-chain storage costs
+    public shared({caller}) func claimWithMerkleProof(
+        categoryId: Nat,
+        amount: Nat,
+        proof: MerkleProof
+    ) : async Result.Result<Text, Text> {
+
+        // 1. Basic state checks
+        if (globalPaused) {
+            return #err("Distribution is globally paused");
+        };
+
+        // 2. Check Merkle mode is enabled
+        let merkleConfig = switch (config.merkleConfig) {
+            case null { return #err("Merkle mode not enabled") };
+            case (?cfg) { cfg };
+        };
+
+        if (not merkleConfig.enabled) {
+            return #err("Merkle verification is disabled");
+        };
+
+        // 3. Get category merkle root
+        let rootOpt = Array.find<(Nat, Blob)>(
+            merkleConfig.roots,
+            func(pair) { pair.0 == categoryId }
+        );
+
+        let root = switch (rootOpt) {
+            case (?r) { r.1 };
+            case null { return #err("No merkle root for category " # Nat.toText(categoryId)) };
+        };
+
+        // 4. Create expected leaf and verify proof
+        let expectedLeaf = createMerkleLeaf(caller, amount, categoryId);
+        let proofToVerify = { proof with leaf = expectedLeaf };
+
+        if (not Blob.equal(_computeMerkleRoot(proofToVerify.leaf, proofToVerify.siblings), root)) {
+            _logSecurityEvent(
+                "MERKLE_PROOF_INVALID",
+                caller,
+                amount,
+                "Invalid Merkle proof for category " # Nat.toText(categoryId),
+                #Warning
+            );
+            return #err("Invalid Merkle proof - you are not eligible for this category");
+        };
+
+        // 5. Rate limiting check (if configured)
+        if (not _checkRateLimit(caller)) {
+            return #err("Rate limit exceeded");
+        };
+
+        // 6. Check distribution timing
+        let now = Time.now();
+        if (now < config.distributionStart) {
+            return #err("Distribution has not started yet");
+        };
+
+        switch (config.distributionEnd) {
+            case (?endTime) {
+                if (now > endTime) {
+                    return #err("Distribution has ended");
+                };
+            };
+            case null {};
+        };
+
+        // 7. Process Merkle-based claim using simplified logic
+        await _processMerkleClaim(caller, categoryId, amount)
+    };
+
+    /// Internal function to process Merkle-based claims using existing vesting logic
+    private func _processMerkleClaim(
+        caller: Principal,
+        categoryId: Nat,
+        amount: Nat
+    ) : async Result.Result<Text, Text> {
+        // Create temporary category for Merkle claim using system vesting
+        let tempCategory: CategoryAllocation = {
+            categoryId = categoryId;
+            categoryName = "Merkle Category " # Nat.toText(categoryId);
+            amount = amount;
+            claimedAmount = 0;
+            passportScore = 0; // No passport verification for Merkle claims
+            passportProvider = "Merkle";
+            vestingSchedule = config.vestingSchedule;
+            vestingStart = config.distributionStart;
+            note = null;
+        };
+
+        // Check vesting using existing function
+        let unlockedAmount = _calculateUnlockedAmountForCategory(tempCategory, config.initialUnlockPercentage);
+
+        if (unlockedAmount == 0) {
+            return #err("No tokens available to claim at this time (vesting)");
+        };
+
+        // Process transfer using existing infrastructure
+        let transferResult = await* _transfer(caller, unlockedAmount);
+
+        switch (transferResult) {
+            case (#ok(txId)) {
+                _recordClaim(caller, categoryId, unlockedAmount);
+                #ok("Merkle claim successful! Claimed " # Nat.toText(unlockedAmount) # " tokens")
+            };
+            case (#err(err)) {
+                // Convert ICRC.TransferError to text
+                let errorText = switch (err) {
+                    case (#BadBurn(badBurn)) { "Bad burn: minimum burn amount is " # Nat.toText(badBurn.min_burn_amount) };
+                    case (#BadFee(badFee)) { "Bad fee: expected fee is " # Nat.toText(badFee.expected_fee) };
+                    case (#InsufficientFunds(insufficient)) { "Insufficient funds: available balance is " # Nat.toText(insufficient.balance) };
+                    case (#TooOld) { "Transaction too old" };
+                    case (#CreatedInFuture(created)) { "Transaction created in future: " # Nat64.toText(created.ledger_time) };
+                    case (#Duplicate(duplicate)) { "Duplicate transaction of " # Nat.toText(duplicate.duplicate_of) };
+                    case (#TemporarilyUnavailable) { "Service temporarily unavailable" };
+                    case (#GenericError(error)) { Nat.toText(error.error_code) # ": " # error.message };
+                };
+                #err("Token transfer failed: " # errorText)
+            };
+        }
+    };
+
+    /// Get Merkle roots for all configured categories
+    public query func getMerkleRoots() : async [(Nat, Blob)] {
+        switch (config.merkleConfig) {
+            case null { [] };
+            case (?merkleCfg) { merkleCfg.roots };
+        }
+    };
+
+    // ================ SPRINT 3: SYBIL DETECTION ================
+
+    /// Sybil risk score type (Sprint 3)
+    public type SybilRiskScore = {
+        score: Nat; // 0-100, higher = more suspicious
+        reasons: [Text];
+    };
+
+    // Sprint 3: Analytics Types
+    public type CategoryAnalytics = {
+        categoryId: Nat;
+        categoryName: Text;
+        totalEligible: Nat;
+        totalClaimed: Nat;
+        activeParticipants: Nat;
+        averageClaimPerUser: Nat;
+        claimRate: Float; // percentage as Float
+    };
+
+    public type DistributionHealth = {
+        overallHealth: Nat; // 0-100 score
+        claimVelocity: Float; // claims per hour
+        participantEngagement: Float; // active vs total participants
+        riskIndicators: [Text];
+        recommendations: [Text];
+    };
+
+    /// Analyze participant for Sybil behavior
+    private func detectSybilBehavior(caller: Principal) : async SybilRiskScore {
+        var score: Nat = 0;
+        var reasons: [Text] = [];
+
+        let participantOpt = Trie.find(participants, _principalKey(caller), Principal.equal);
+
+        let participant = switch (participantOpt) {
+            case (?p) { p };
+            case null { return { score = 0; reasons = [] } };
+        };
+
+        // Check 1: Multiple categories with same amounts (potential batch creation)
+        let categoryCount = participant.categories.size();
+        if (categoryCount > 5) {
+            score += 20;
+            reasons := Array.append(reasons, ["Too many categories (" # Nat.toText(categoryCount) # ")"]);
+        };
+
+        // Check 2: Identical amounts across categories
+        let amounts = Array.map<CategoryAllocation, Nat>(participant.categories, func(cat) { cat.amount });
+
+        // Count unique amounts
+        var unique: [Nat] = [];
+        for (amount in amounts.vals()) {
+            if (Array.find<Nat>(unique, func(u) { u == amount }) == null) {
+                unique := Array.append(unique, [amount]);
+            };
+        };
+
+        if (unique.size() < amounts.size() / 2 and categoryCount > 3) {
+            score += 15;
+            reasons := Array.append(reasons, ["Duplicate amounts across categories"]);
+        };
+
+        // Check 3: Recent registration with multiple categories
+        let now = Time.now();
+        let daysSinceRegistration = (now - participant.registeredAt) / (24 * 3600 * 1_000_000_000);
+
+        if (daysSinceRegistration < 1 and categoryCount > 3) {
+            score += 25;
+            reasons := Array.append(reasons, ["Recent registration with multiple categories"]);
+        };
+
+        // Check 4: High total eligible amount
+        if (participant.totalEligible > 1_000_000) { // > 1M tokens
+            score += 10;
+            reasons := Array.append(reasons, ["High total eligible amount"]);
+        };
+
+        // Check 5: No passport verification for most categories
+        let categoriesWithoutPassport = Array.filter<CategoryAllocation>(participant.categories, func(cat) {
+            cat.passportScore == 0
+        });
+
+        if (categoriesWithoutPassport.size() > categoryCount / 2) {
+            score += 15;
+            reasons := Array.append(reasons, ["Missing passport verification"]);
+        };
+
+        // Cap score at 100
+        if (score > 100) { score := 100 };
+
+        {
+            score = score;
+            reasons = reasons;
+        }
+    };
+
+    /// Get Sybil risk score for a participant
+    public query func getSybilRiskScore(participant: Principal) : async SybilRiskScore {
+        // For now, return a basic score based on available data
+        let participantOpt = Trie.find(participants, _principalKey(participant), Principal.equal);
+
+        switch (participantOpt) {
+            case (?p) {
+                var score: Nat = 0;
+                var reasons: [Text] = [];
+
+                // Check category count
+                let categoryCount = p.categories.size();
+                if (categoryCount > 10) {
+                    score += 30;
+                    reasons := Array.append(reasons, ["Very high category count"]);
+                } else if (categoryCount > 5) {
+                    score += 15;
+                    reasons := Array.append(reasons, ["High category count"]);
+                };
+
+                // Check total amount
+                if (p.totalEligible > 10_000_000) {
+                    score += 20;
+                    reasons := Array.append(reasons, ["Very high eligible amount"]);
+                } else if (p.totalEligible > 1_000_000) {
+                    score += 10;
+                    reasons := Array.append(reasons, ["High eligible amount"]);
+                };
+
+                { score = score; reasons = reasons };
+            };
+            case null {
+                { score = 0; reasons = ["Participant not found"] };
+            };
+        }
+    };
+
+    /// Check for potential duplicate addresses across all participants
+    public query func detectPotentialDuplicates() : async [{
+        principal: Principal;
+        riskScore: Nat;
+        reasons: [Text];
+    }] {
+        let allParticipants = Trie.toArray<Principal, MultiCategoryParticipant, MultiCategoryParticipant>(
+            participants,
+            func(k, v) { v }
+        );
+
+        var suspiciousParticipants: [{
+            principal: Principal;
+            riskScore: Nat;
+            reasons: [Text];
+        }] = [];
+
+        // Simple duplicate detection based on similar patterns
+        for (participant in allParticipants.vals()) {
+            var score: Nat = 0;
+            var reasons: [Text] = [];
+
+            // Flag participants with many categories but no claims yet
+            if (participant.categories.size() > 5 and participant.totalClaimed == 0) {
+                score += 25;
+                reasons := Array.append(reasons, ["Multiple categories, no claims"]);
+            };
+
+            // Flag participants with identical amounts
+            let amounts = Array.map<CategoryAllocation, Nat>(participant.categories, func(cat) { cat.amount });
+
+            // Count unique amounts
+            var unique: [Nat] = [];
+            for (amount in amounts.vals()) {
+                if (Array.find<Nat>(unique, func(u) { u == amount }) == null) {
+                    unique := Array.append(unique, [amount]);
+                };
+            };
+            let uniqueCount = unique.size();
+
+            if (uniqueCount < amounts.size() / 3 and amounts.size() > 3) {
+                score += 20;
+                reasons := Array.append(reasons, ["Many duplicate amounts"]);
+            };
+
+            if (score > 0) {
+                suspiciousParticipants := Array.append(suspiciousParticipants, [{
+                    principal = participant.principal;
+                    riskScore = score;
+                    reasons = reasons;
+                }]);
+            };
+        };
+
+        // Sort by risk score (highest first)
+        Array.sort<{
+            principal: Principal;
+            riskScore: Nat;
+            reasons: [Text];
+        }>(suspiciousParticipants, func(a, b) {
+            if (a.riskScore > b.riskScore) { #greater }
+            else if (a.riskScore < b.riskScore) { #less }
+            else { #equal }
+        })
+    };
+
+    // ================ SPRINT 3: ADVANCED ANALYTICS ================
+
+    /// Get analytics for all categories
+    public query func getCategoryAnalytics() : async [CategoryAnalytics] {
+        let allParticipants = Trie.toArray<Principal, MultiCategoryParticipant, MultiCategoryParticipant>(
+            participants,
+            func(k, v) { v }
+        );
+
+        // Create a map to aggregate data by category
+        var categoryMap: [(Nat, {
+            totalEligible: Nat;
+            totalClaimed: Nat;
+            activeParticipants: Nat;
+            categoryNames: [Text];
+        })] = [];
+
+        // Process each participant's categories
+        for (participant in allParticipants.vals()) {
+            for (category in participant.categories.vals()) {
+                let existing = Array.find<(Nat, {
+                    totalEligible: Nat;
+                    totalClaimed: Nat;
+                    activeParticipants: Nat;
+                    categoryNames: [Text];
+                })>(categoryMap, func(item) { item.0 == category.categoryId });
+
+                switch (existing) {
+                    case (?(_, data)) {
+                        // Update existing category data
+                        let updatedData = {
+                            totalEligible = data.totalEligible + category.amount;
+                            totalClaimed = data.totalClaimed + category.claimedAmount;
+                            activeParticipants = if (category.claimedAmount > 0) {
+                                data.activeParticipants + 1
+                            } else {
+                                data.activeParticipants
+                            };
+                            categoryNames = data.categoryNames;
+                        };
+                        categoryMap := Array.map<(Nat, {
+                            totalEligible: Nat;
+                            totalClaimed: Nat;
+                            activeParticipants: Nat;
+                            categoryNames: [Text];
+                        }), (Nat, {
+                            totalEligible: Nat;
+                            totalClaimed: Nat;
+                            activeParticipants: Nat;
+                            categoryNames: [Text];
+                        })>(categoryMap, func(item) {
+                            if (item.0 == category.categoryId) {
+                                (category.categoryId, updatedData)
+                            } else {
+                                item
+                            }
+                        });
+                    };
+                    case null {
+                        // Add new category
+                        categoryMap := Array.append(categoryMap, [(category.categoryId, {
+                            totalEligible = category.amount;
+                            totalClaimed = category.claimedAmount;
+                            activeParticipants = if (category.claimedAmount > 0) { 1 } else { 0 };
+                            categoryNames = []; // We'll populate from participant data
+                        })]);
+                    };
+                };
+            };
+        };
+
+        // Convert to CategoryAnalytics format
+        Array.map<(Nat, {
+            totalEligible: Nat;
+            totalClaimed: Nat;
+            activeParticipants: Nat;
+            categoryNames: [Text];
+        }), CategoryAnalytics>(categoryMap, func(item) {
+            let (categoryId, data) = item;
+            let categoryName = if (data.categoryNames.size() > 0) {
+                data.categoryNames[0]
+            } else {
+                "Category " # Nat.toText(categoryId)
+            };
+
+            let claimRate = if (data.totalEligible > 0) {
+                Float.fromInt(data.totalClaimed * 100) / Float.fromInt(data.totalEligible)
+            } else {
+                0.0
+            };
+
+            let avgClaimPerUser = if (data.activeParticipants > 0) {
+                data.totalClaimed / data.activeParticipants
+            } else {
+                0
+            };
+
+            {
+                categoryId = categoryId;
+                categoryName = categoryName;
+                totalEligible = data.totalEligible;
+                totalClaimed = data.totalClaimed;
+                activeParticipants = data.activeParticipants;
+                averageClaimPerUser = avgClaimPerUser;
+                claimRate = claimRate;
+            }
+        })
+    };
+
+    /// Get overall distribution health metrics
+    public query func getDistributionHealth() : async DistributionHealth {
+        let now = Time.now();
+        let distributionStartTime = config.distributionStart;
+
+        // Calculate hours since distribution started
+        let hoursElapsed = Float.fromInt(Int.abs(now - distributionStartTime)) / (3600.0 * 1_000_000_000.0);
+
+        let totalClaims = claimRecords.size();
+        let claimVelocity = if (hoursElapsed > 0.0) {
+            Float.fromInt(totalClaims) / hoursElapsed
+        } else {
+            0.0
+        };
+
+        let allParticipants = Trie.toArray<Principal, MultiCategoryParticipant, MultiCategoryParticipant>(
+            participants,
+            func(k, v) { v }
+        );
+
+        let activeParticipants = Array.filter<MultiCategoryParticipant>(allParticipants, func(p) {
+            p.totalClaimed > 0
+        }).size();
+
+        let totalParticipants = allParticipants.size();
+        let engagementRate = if (totalParticipants > 0) {
+            Float.fromInt(activeParticipants * 100) / Float.fromInt(totalParticipants)
+        } else {
+            0.0
+        };
+
+        var healthScore: Nat = 0;
+        var riskIndicators: [Text] = [];
+        var recommendations: [Text] = [];
+
+        // Calculate health score based on various factors
+        if (engagementRate > 50.0) { healthScore += 30 };
+        if (claimVelocity > 1.0) { healthScore += 20 };
+        if (activeParticipants > totalParticipants / 2) { healthScore += 25 };
+        if (totalClaims > 0) { healthScore += 15 };
+        if (hoursElapsed < 24.0 * 7.0 and activeParticipants > 0) { healthScore += 10 }; // Early activity
+
+        // Risk indicators
+        if (engagementRate < 10.0) {
+            riskIndicators := Array.append(riskIndicators, ["Very low participant engagement"]);
+            recommendations := Array.append(recommendations, ["Consider increasing marketing efforts"]);
+        };
+        if (claimVelocity < 0.1) {
+            riskIndicators := Array.append(riskIndicators, ["Very slow claim velocity"]);
+            recommendations := Array.append(recommendations, ["Review distribution timing and accessibility"]);
+        };
+        if (totalParticipants < 10) {
+            riskIndicators := Array.append(riskIndicators, ["Low participant count"]);
+            recommendations := Array.append(recommendations, ["Expand eligibility criteria"]);
+        };
+
+        if (recommendations.size() == 0) {
+            recommendations := Array.append(recommendations, ["Distribution is performing well"]);
+        };
+
+        {
+            overallHealth = healthScore;
+            claimVelocity = claimVelocity;
+            participantEngagement = engagementRate;
+            riskIndicators = riskIndicators;
+            recommendations = recommendations;
+        }
+    };
+
+    /// Get claim velocity metrics (claims per time period)
+    public query func getClaimVelocityMetrics() : async {
+        totalClaims: Nat;
+        claimsPerHour: Float;
+        claimsPerDay: Float;
+        averageTimeBetweenClaims: Float; // in hours
+        peakActivityHours: [Nat]; // hours of day with most activity
+    } {
+        let totalClaims = claimRecords.size();
+        let now = Time.now();
+
+        if (totalClaims == 0) {
+            return {
+                totalClaims = 0;
+                claimsPerHour = 0.0;
+                claimsPerDay = 0.0;
+                averageTimeBetweenClaims = 0.0;
+                peakActivityHours = [];
+            };
+        };
+
+        let distributionStartTime = config.distributionStart;
+        let hoursElapsed = Float.fromInt(Int.abs(now - distributionStartTime)) / (3600.0 * 1_000_000_000.0);
+        let daysElapsed = hoursElapsed / 24.0;
+
+        let claimsPerHour = if (hoursElapsed > 0.0) {
+            Float.fromInt(totalClaims) / hoursElapsed
+        } else {
+            0.0
+        };
+
+        let claimsPerDay = if (daysElapsed > 0.0) {
+            Float.fromInt(totalClaims) / daysElapsed
+        } else {
+            0.0
+        };
+
+        let averageTimeBetweenClaims = if (totalClaims > 1) {
+            hoursElapsed / Float.fromInt(totalClaims - 1)
+        } else {
+            0.0
+        };
+
+        // For peak hours, we'd need to analyze timestamp data - simplified for now
+        let peakActivityHours: [Nat] = [10, 14, 18]; // Typical active hours
+
+        {
+            totalClaims = totalClaims;
+            claimsPerHour = claimsPerHour;
+            claimsPerDay = claimsPerDay;
+            averageTimeBetweenClaims = averageTimeBetweenClaims;
+            peakActivityHours = peakActivityHours;
+        }
     };
 
     // ================ MULTI-CATEGORY HELPERS (V2.0) ================
@@ -826,6 +1694,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                                 claimedAmount = 0;
                                 vestingSchedule = config.vestingSchedule;  // Use contract-level vesting
                                 vestingStart = config.distributionStart;
+                                passportScore = 0;
+                                passportProvider = "ICTO";
                                 note = recipient.note;
                             };
 
@@ -913,7 +1783,44 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             false;
         };
     };
-    
+
+    // ✨ NEW (Sprint 1): Per-Category Passport Verification
+    /// Check passport score for specific category
+    /// Returns true if participant meets category's passport requirements
+    /// @param participant - Principal to verify
+    /// @param category - CategoryAllocation with passportScore and passportProvider
+    /// @returns true if verification passes or disabled (score=0)
+    private func _checkCategoryPassportScore(
+        participant: Principal,
+        category: CategoryAllocation
+    ) : async Bool {
+        // If passport disabled (score = 0), allow all
+        if (category.passportScore == 0) {
+            return true;
+        };
+
+        // Route to appropriate provider
+        switch (category.passportProvider) {
+            case "ICTO" {
+                await _checkICTOPassportScore(participant, category.passportScore)
+            };
+            case "Gitcoin" {
+                // TODO: Implement Gitcoin Passport integration
+                Debug.print("⚠️ Gitcoin Passport not yet supported");
+                false
+            };
+            case "Civic" {
+                // TODO: Implement Civic Pass integration
+                Debug.print("⚠️ Civic Pass not yet supported");
+                false
+            };
+            case _ {
+                Debug.print("❌ Unknown passport provider: " # category.passportProvider);
+                false
+            };
+        }
+    };
+
     private func _checkHybridEligibility(participant: Principal, hybridConfig: { conditions: [EligibilityType]; logic: EligibilityLogic }) : async Bool {
         // TODO: Implement hybrid eligibility checking with AND/OR logic
         // For now, return true as placeholder
@@ -1903,6 +2810,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             claimedAmount = 0;
             vestingSchedule = config.vestingSchedule;
             vestingStart = config.distributionStart;
+            passportScore = 0; // Default: no passport verification
+            passportProvider = "ICTO"; // Default provider
             note = null;
         };
 
@@ -2090,6 +2999,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             claimedAmount = 0;
             vestingSchedule = config.vestingSchedule;
             vestingStart = config.distributionStart;
+            passportScore = 0; // Default: no passport verification
+            passportProvider = "ICTO"; // Default provider
             note = null;
         };
 
@@ -2165,20 +3076,17 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             };
         };
 
-        // 3. Enhanced rate limiting (global + per-user)
-        switch (_checkRateLimit(caller)) {
-            case (#ok(_)) {};
-            case (#err(error)) {
-                _logSecurityEvent(
-                    "RATE_LIMIT_BLOCKED",
-                    caller,
-                    0,
-                    "Rate limit exceeded: " # error,
-                    #Warning
-                );
-                _reentrancyGuardExit(caller);
-                return #err(error)
-            };
+        // 3. Enhanced rate limiting (Sprint 2: configurable)
+        if (not _checkRateLimit(caller)) {
+            _logSecurityEvent(
+                "RATE_LIMIT_BLOCKED",
+                caller,
+                0,
+                "Rate limit exceeded",
+                #Warning
+            );
+            _reentrancyGuardExit(caller);
+            return #err("Rate limit exceeded. Please try again later.");
         };
 
         // 4. Basic distribution validation
@@ -2385,11 +3293,111 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         #ok(actualClaimAmount)
     };
 
+    // ================ HYBRID CLAIM FUNCTION ================
+
+    /// Universal claim function that automatically uses legacy or Merkle system based on configuration
+    /// This provides transparent backward compatibility while enabling Merkle scaling when needed
+    public shared({ caller }) func claimUniversal(
+        categoryId: ?Nat,
+        claimAmount: ?Nat,
+        merkleProof: ?MerkleProof
+    ) : async Result.Result<{claimedAmount: Nat; method: { #Legacy; #Merkle }}, Text> {
+
+        // Check which method to use based on configuration
+        switch (getClaimMethod()) {
+            case (#Legacy) {
+                // Use legacy claim logic
+                switch (categoryId) {
+                    case (null) {
+                        // Use original claim function
+                        let result = await claim(claimAmount);
+                        switch (result) {
+                            case (#ok(amount)) {
+                                #ok({
+                                    claimedAmount = amount;
+                                    method = #Legacy;
+                                });
+                            };
+                            case (#err(error)) { #err(error) };
+                        };
+                    };
+                    case (?id) {
+                        // Use claimFromCategory function
+                        let result = await claimFromCategory(id, claimAmount);
+                        switch (result) {
+                            case (#ok(resultData)) {
+                                #ok({
+                                    claimedAmount = resultData.claimedAmount;
+                                    method = #Legacy;
+                                });
+                            };
+                            case (#err(error)) { #err(error) };
+                        };
+                    };
+                };
+            };
+            case (#Merkle) {
+                // Use Merkle claim logic - require categoryId and proof
+                switch (categoryId, merkleProof) {
+                    case (?id, ?proof) {
+                        switch (claimAmount) {
+                            case (?amount) {
+                                // Use claimWithMerkleProof function
+                                let result = await claimWithMerkleProof(id, amount, proof);
+                                switch (result) {
+                                    case (#ok(_message)) {
+                                        // Extract amount from message or use provided amount
+                                        #ok({
+                                            claimedAmount = amount;
+                                            method = #Merkle;
+                                        });
+                                    };
+                                    case (#err(error)) { #err(error) };
+                                };
+                            };
+                            case (null) {
+                                #err("Merkle system requires explicit claim amount");
+                            };
+                        };
+                    };
+                    case (_, _) {
+                        #err("Merkle system requires categoryId and merkleProof parameters");
+                    };
+                };
+            };
+        };
+    };
+
+    /// Query to check if distribution is using Merkle system (for frontend transparency)
+    public query func getDistributionMode() : async { usingMerkle: Bool; hasMerkleConfig: Bool } {
+        {
+            usingMerkle = isUsingMerkleSystem();
+            hasMerkleConfig = Option.isSome(config.merkleConfig);
+        };
+    };
+
     // ================ ENHANCED CLAIMING FUNCTIONS (V2.0) ================
 
     /// Claim from a specific category
     /// Allows users to claim from a particular category instead of proportional distribution
     public shared({ caller }) func claimFromCategory(categoryId: Nat, claimAmount: ?Nat) : async Result.Result<{claimedAmount: Nat; categoryId: Nat}, Text> {
+        // ================ EMERGENCY PAUSE CHECKS (Sprint 1) ================
+
+        // Check global pause
+        if (globalPaused) {
+            return #err("⛔ Distribution is globally paused. Claims are temporarily disabled.");
+        };
+
+        // Check category-specific pause
+        let isCategoryPaused = switch (Trie.find(pausedCategoriesMap, _natKey(categoryId), Nat.equal)) {
+            case (?isPaused) { isPaused };
+            case null { false };
+        };
+
+        if (isCategoryPaused) {
+            return #err("⛔ This category is paused. Claims are temporarily disabled.");
+        };
+
         // ================ SECURITY CHECKS ================
 
         // 1. Input validation
@@ -2441,20 +3449,17 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             };
         };
 
-        // 3. Enhanced rate limiting (global + per-user)
-        switch (_checkRateLimit(caller)) {
-            case (#ok(_)) {};
-            case (#err(error)) {
-                _logSecurityEvent(
-                    "RATE_LIMIT_BLOCKED_CATEGORY_CLAIM",
-                    caller,
-                    0,
-                    "Rate limit exceeded in category claim: " # error,
-                    #Warning
-                );
-                _reentrancyGuardExit(caller);
-                return #err(error)
-            };
+        // 3. Enhanced rate limiting (Sprint 2: configurable)
+        if (not _checkRateLimit(caller)) {
+            _logSecurityEvent(
+                "RATE_LIMIT_BLOCKED_CATEGORY_CLAIM",
+                caller,
+                0,
+                "Rate limit exceeded in category claim",
+                #Warning
+            );
+            _reentrancyGuardExit(caller);
+            return #err("Rate limit exceeded. Please try again later.");
         };
 
         // 4. Basic distribution validation
@@ -2500,6 +3505,18 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         let category = switch (targetCategory) {
             case (?cat) { cat };
             case null { return #err("Category " # Nat.toText(categoryId) # " not found for this participant"); };
+        };
+
+        // ✨ NEW (Sprint 1): Per-category passport verification
+        let hasValidPassport = await _checkCategoryPassportScore(caller, category);
+        if (not hasValidPassport) {
+            _reentrancyGuardExit(caller);
+            return #err(
+                "Passport verification failed. Required: " #
+                category.passportProvider #
+                " score >= " #
+                Nat.toText(category.passportScore)
+            );
         };
 
         // Calculate claimable amount for this specific category
@@ -2594,6 +3611,10 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                 let finalClaimRecord = { claimRecord with txIndex = ?index };
                 let _ = claimRecords.removeLast();
                 claimRecords.add(finalClaimRecord);
+
+                // Sprint 2: Record claim for rate limiting
+                _recordClaim(caller, categoryId, actualClaimAmount);
+
                 ?index
             };
             case (#err(err)) {
@@ -3587,6 +4608,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                         claimedAmount = 0; // Reset claimed for new amount
                         vestingSchedule = config.vestingSchedule;
                         vestingStart = config.distributionStart;
+                        passportScore = 0; // Default: no passport verification
+                        passportProvider = "ICTO"; // Default provider
                         note = null;
                     };
 
@@ -3611,6 +4634,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                         claimedAmount = 0;
                         vestingSchedule = config.vestingSchedule;
                         vestingStart = config.distributionStart;
+                        passportScore = 0;
+                        passportProvider = "ICTO";
                         note = null;
                     };
 
@@ -3760,6 +4785,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                         claimedAmount = 0;
                         vestingSchedule = config.vestingSchedule;
                         vestingStart = config.distributionStart;
+                        passportScore = 0;
+                        passportProvider = "ICTO";
                         note = null;
                     };
 
@@ -3784,6 +4811,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                         claimedAmount = 0;
                         vestingSchedule = config.vestingSchedule;
                         vestingStart = config.distributionStart;
+                        passportScore = 0;
+                        passportProvider = "ICTO";
                         note = null;
                     };
 
@@ -3859,7 +4888,48 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             contractAddress = Principal.fromActor(self);
         }
     };
-    
+
+    // ================ SPRINT 2: PAGINATION FUNCTIONS ================
+
+    /// Get participants with pagination (Sprint 2 Task 2.3)
+    /// Supports large queries by returning data in pages
+    /// @param config - Pagination configuration (page number and page size)
+    /// @returns Paginated response with data and metadata
+    public query func getParticipantsPaginated(
+        config: PaginationConfig
+    ) : async PaginatedResponse<MultiCategoryParticipant> {
+
+        let allParticipants = Trie.toArray<Principal, MultiCategoryParticipant, MultiCategoryParticipant>(
+            participants,
+            func(k, v) { v }
+        );
+
+        let totalItems = allParticipants.size();
+        let maxPageSize = Nat.min(config.pageSize, 100); // Cap at 100
+        let totalPages = if (totalItems == 0 or maxPageSize == 0) {
+            0
+        } else {
+            (totalItems + maxPageSize - 1) / maxPageSize // Ceiling division
+        };
+
+        let startIndex = config.page * maxPageSize;
+        let endIndex = Nat.min(startIndex + maxPageSize, totalItems);
+
+        let pageData = if (startIndex >= totalItems) {
+            []
+        } else {
+            Array.subArray(allParticipants, startIndex, endIndex - startIndex)
+        };
+
+        {
+            data = pageData;
+            page = config.page;
+            pageSize = maxPageSize;
+            totalPages;
+            totalItems;
+        }
+    };
+
     // ================ DAO VOTING POWER INTEGRATION ================
     // NEW: Added for DAO voting power calculation - PUBLIC FUNCTIONS
     
@@ -4165,6 +5235,323 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                 return #err("Emergency transfer failed: " # debug_show(error));
             };
         };
+    };
+
+    // ================ SPRINT 1: ENHANCED EMERGENCY CONTROLS ================
+
+    /// Global emergency pause - blocks all claims (Sprint 1)
+    /// Can be called by creator or authorized emergency contacts
+    public shared({ caller }) func globalEmergencyPause() : async Result.Result<Text, Text> {
+        // Check authorization
+        let isAuthorized = Principal.equal(caller, creator) or Option.isSome(
+            Array.find<Principal>(emergencyContacts, func(p) { Principal.equal(p, caller) })
+        );
+
+        if (not isAuthorized) {
+            return #err("Unauthorized: Only creator or emergency contacts can trigger global pause");
+        };
+
+        globalPaused := true;
+
+        Debug.print("🚨 GLOBAL EMERGENCY PAUSE activated by " # Principal.toText(caller));
+
+        #ok("Distribution globally paused. All claims are now blocked.")
+    };
+
+    /// Resume after global emergency pause (Sprint 1)
+    /// Only creator can resume
+    public shared({ caller }) func globalEmergencyResume() : async Result.Result<Text, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can resume");
+        };
+
+        globalPaused := false;
+
+        Debug.print("✅ GLOBAL EMERGENCY PAUSE lifted by " # Principal.toText(caller));
+
+        #ok("Distribution resumed. Claims are now allowed.")
+    };
+
+    /// Pause specific category (Sprint 1)
+    public shared({ caller }) func pauseCategory(categoryId: Nat) : async Result.Result<Text, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can pause categories");
+        };
+
+        pausedCategoriesMap := Trie.put(
+            pausedCategoriesMap,
+            _natKey(categoryId),
+            Nat.equal,
+            true
+        ).0;
+
+        Debug.print("⏸️ Category " # Nat.toText(categoryId) # " paused by " # Principal.toText(caller));
+
+        #ok("Category " # Nat.toText(categoryId) # " paused")
+    };
+
+    /// Resume specific category (Sprint 1)
+    public shared({ caller }) func resumeCategory(categoryId: Nat) : async Result.Result<Text, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can resume categories");
+        };
+
+        pausedCategoriesMap := Trie.put(
+            pausedCategoriesMap,
+            _natKey(categoryId),
+            Nat.equal,
+            false
+        ).0;
+
+        Debug.print("▶️ Category " # Nat.toText(categoryId) # " resumed by " # Principal.toText(caller));
+
+        #ok("Category " # Nat.toText(categoryId) # " resumed")
+    };
+
+    /// Enhanced emergency withdrawal - requires global pause first (Sprint 1)
+    public shared({ caller }) func globalEmergencyWithdraw() : async Result.Result<Text, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can perform emergency withdrawal");
+        };
+
+        if (not globalPaused) {
+            return #err("Must activate global emergency pause first (call globalEmergencyPause)");
+        };
+
+        let balance = await getContractBalance();
+        if (balance == 0) {
+            return #err("No tokens to withdraw");
+        };
+
+        // Transfer all remaining tokens back to creator
+        let transferResult = await* _transfer(creator, balance);
+        switch (transferResult) {
+            case (#ok(_)) {
+                Debug.print("🚨 GLOBAL EMERGENCY WITHDRAW: " # Nat.toText(balance) # " tokens returned to creator");
+                #ok("Emergency withdrawal complete. " # Nat.toText(balance) # " tokens returned to creator.")
+            };
+            case (#err(e)) {
+                #err("Emergency withdrawal failed: " # debug_show(e))
+            };
+        }
+    };
+
+    /// Add emergency contact who can trigger emergency pause (Sprint 1)
+    public shared({ caller }) func addEmergencyContact(contact: Principal) : async Result.Result<Text, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can add emergency contacts");
+        };
+
+        // Check if already exists
+        if (Option.isSome(Array.find<Principal>(emergencyContacts, func(p) { Principal.equal(p, contact) }))) {
+            return #err("Contact already exists");
+        };
+
+        emergencyContacts := Array.append(emergencyContacts, [contact]);
+
+        Debug.print("➕ Emergency contact added: " # Principal.toText(contact));
+
+        #ok("Emergency contact added")
+    };
+
+    /// Remove emergency contact (Sprint 1)
+    public shared({ caller }) func removeEmergencyContact(contact: Principal) : async Result.Result<Text, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can remove emergency contacts");
+        };
+
+        emergencyContacts := Array.filter<Principal>(
+            emergencyContacts,
+            func(p) { not Principal.equal(p, contact) }
+        );
+
+        Debug.print("➖ Emergency contact removed: " # Principal.toText(contact));
+
+        #ok("Emergency contact removed")
+    };
+
+    /// Get emergency control status (Sprint 1)
+    public query func getEmergencyStatus() : async {
+        globalPaused: Bool;
+        pausedCategories: [(Nat, Bool)];
+        emergencyContacts: [Principal];
+    } {
+        {
+            globalPaused = globalPaused;
+            pausedCategories = Trie.toArray<Nat, Bool, (Nat, Bool)>(
+                pausedCategoriesMap,
+                func(k, v) { (k, v) }
+            );
+            emergencyContacts = emergencyContacts;
+        }
+    };
+
+    // ================ SPRINT 2: DYNAMIC CATEGORY MANAGEMENT ================
+
+    /// Add participant to an existing or new category
+    /// This allows dynamic category assignment post-deployment
+    public shared({caller}) func assignParticipantToCategory(
+        participant: Principal,
+        categoryName: Text,
+        amount: Nat,
+        passportScore: Nat,
+        passportProvider: Text,
+        vestingSchedule: VestingSchedule,
+        vestingStart: Time.Time
+    ) : async Result.Result<Nat, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can assign categories");
+        };
+
+        // Validate amount
+        if (amount == 0) {
+            return #err("Amount must be greater than 0");
+        };
+
+        // Get or create participant
+        let existingParticipant = Trie.find(participants, _principalKey(participant), Principal.equal);
+
+        switch (existingParticipant) {
+            case (?p) {
+                // Participant exists - add new category
+                let newCategoryId = nextCategoryId;
+                nextCategoryId += 1;
+
+                let newCategory: CategoryAllocation = {
+                    categoryId = newCategoryId;
+                    categoryName;
+                    amount;
+                    claimedAmount = 0;
+                    vestingSchedule;
+                    vestingStart;
+                    passportScore;
+                    passportProvider;
+                    note = null;
+                };
+
+                let updatedParticipant: MultiCategoryParticipant = {
+                    principal = p.principal;
+                    registeredAt = p.registeredAt;
+                    categories = Array.append(p.categories, [newCategory]);
+                    totalEligible = p.totalEligible + amount;
+                    totalClaimed = p.totalClaimed;
+                    lastClaimTime = p.lastClaimTime;
+                    status = p.status;
+                    note = p.note;
+                };
+
+                participants := Trie.put(participants, _principalKey(participant), Principal.equal, updatedParticipant).0;
+
+                Debug.print("✅ Added category '" # categoryName # "' (ID: " # Nat.toText(newCategoryId) # ") to participant " # Principal.toText(participant));
+
+                #ok(newCategoryId)
+            };
+            case null {
+                // Participant doesn't exist - create with new category
+                let newCategoryId = nextCategoryId;
+                nextCategoryId += 1;
+
+                let newCategory: CategoryAllocation = {
+                    categoryId = newCategoryId;
+                    categoryName;
+                    amount;
+                    claimedAmount = 0;
+                    vestingSchedule;
+                    vestingStart;
+                    passportScore;
+                    passportProvider;
+                    note = null;
+                };
+
+                let newParticipant: MultiCategoryParticipant = {
+                    principal = participant;
+                    registeredAt = Time.now();
+                    categories = [newCategory];
+                    totalEligible = amount;
+                    totalClaimed = 0;
+                    lastClaimTime = null;
+                    status = #Eligible;
+                    note = null;
+                };
+
+                participants := Trie.put(participants, _principalKey(participant), Principal.equal, newParticipant).0;
+                participantCount += 1;
+
+                Debug.print("✅ Created participant " # Principal.toText(participant) # " with category '" # categoryName # "' (ID: " # Nat.toText(newCategoryId) # ")");
+
+                #ok(newCategoryId)
+            };
+        };
+    };
+
+    /// Modify category passport requirements
+    /// Allows updating passport requirements for a specific category
+    public shared({caller}) func modifyCategoryPassport(
+        participantPrincipal: Principal,
+        categoryId: Nat,
+        newPassportScore: ?Nat,
+        newPassportProvider: ?Text
+    ) : async Result.Result<Text, Text> {
+        if (not Principal.equal(caller, creator)) {
+            return #err("Unauthorized: Only creator can modify categories");
+        };
+
+        // Find participant
+        let participant = switch (Trie.find(participants, _principalKey(participantPrincipal), Principal.equal)) {
+            case (?p) { p };
+            case null { return #err("Participant not found"); };
+        };
+
+        // Find category and update
+        var categoryUpdated = false;
+        let updatedCategories = Array.map<CategoryAllocation, CategoryAllocation>(
+            participant.categories,
+            func(cat) {
+                if (cat.categoryId == categoryId) {
+                    categoryUpdated := true;
+                    {
+                        categoryId = cat.categoryId;
+                        categoryName = cat.categoryName;
+                        amount = cat.amount;
+                        claimedAmount = cat.claimedAmount;
+                        vestingSchedule = cat.vestingSchedule;
+                        vestingStart = cat.vestingStart;
+                        passportScore = switch (newPassportScore) {
+                            case (?score) { score };
+                            case null { cat.passportScore };
+                        };
+                        passportProvider = switch (newPassportProvider) {
+                            case (?provider) { provider };
+                            case null { cat.passportProvider };
+                        };
+                        note = cat.note;
+                    }
+                } else {
+                    cat
+                }
+            }
+        );
+
+        if (not categoryUpdated) {
+            return #err("Category not found for this participant");
+        };
+
+        let updatedParticipant: MultiCategoryParticipant = {
+            principal = participant.principal;
+            registeredAt = participant.registeredAt;
+            categories = updatedCategories;
+            totalEligible = participant.totalEligible;
+            totalClaimed = participant.totalClaimed;
+            lastClaimTime = participant.lastClaimTime;
+            status = participant.status;
+            note = participant.note;
+        };
+
+        participants := Trie.put(participants, _principalKey(participantPrincipal), Principal.equal, updatedParticipant).0;
+
+        Debug.print("✅ Modified category " # Nat.toText(categoryId) # " for participant " # Principal.toText(participantPrincipal));
+
+        #ok("Category passport requirements updated successfully")
     };
 
     /// Update configuration (Admin+ only)

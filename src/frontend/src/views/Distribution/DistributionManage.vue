@@ -154,7 +154,7 @@
         </div>
 
         <!-- Contract Balance Status -->
-        <ContractBalanceStatus 
+        <ContractBalanceStatus
           v-if="details"
           :contract-id="distributionId"
           :current-balance="contractBalance"
@@ -165,6 +165,17 @@
           :refreshing="checkingBalance"
           @refresh="checkBalance"
           @initial-check="checkBalance"
+          class="mb-8"
+        />
+
+        <!-- Emergency Control Panel (Sprint 1) -->
+        <EmergencyControlPanel
+          v-if="details && emergencyStatus"
+          :distribution-id="distributionId"
+          :is-paused="emergencyStatus.globalPaused"
+          :categories="distributionCategories"
+          :emergency-status="emergencyStatus"
+          @status-changed="handleEmergencyStatusChanged"
           class="mb-8"
         />
 
@@ -580,6 +591,7 @@ import AdminLayout from '@/components/layout/AdminLayout.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
 import ContractBalanceStatus from '@/components/distribution/ContractBalanceStatus.vue'
 import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
+import EmergencyControlPanel from '@/components/distribution/EmergencyControlPanel.vue'
 import VueApexCharts from 'vue3-apexcharts'
 import { 
   ArrowLeftIcon, AlertCircleIcon, RefreshCwIcon, SettingsIcon, CalendarIcon,
@@ -638,6 +650,11 @@ const claimHistory = ref<ClaimRecord[]>([])
 const contractBalance = ref(BigInt(0))
 const cyclesBalance = ref(0)
 const distributionStatus = ref<string>('')
+const emergencyStatus = ref<{
+  globalPaused: boolean;
+  pausedCategories: [number, boolean][];
+  emergencyContacts: string[];
+} | null>(null)
 
 // User context data
 const userContext = ref<{
@@ -806,6 +823,29 @@ const participantFilters = computed(() => {
     { key: 'partialClaim', label: 'Partial Claims', count: partialClaim },
     { key: 'claimed', label: 'Fully Claimed', count: claimed }
   ]
+})
+
+// Sprint 1: Extract categories for emergency control panel
+const distributionCategories = computed(() => {
+  if (!participants.value || participants.value.length === 0) return []
+
+  // Extract unique categories from participants
+  const categoryMap = new Map<number, string>()
+
+  participants.value.forEach(participant => {
+    if (participant.categories) {
+      participant.categories.forEach((cat: any) => {
+        if (!categoryMap.has(Number(cat.categoryId))) {
+          categoryMap.set(Number(cat.categoryId), cat.categoryName)
+        }
+      })
+    }
+  })
+
+  return Array.from(categoryMap.entries()).map(([id, name]) => ({
+    id,
+    name
+  }))
 })
 
 const filteredParticipants = computed(() => {
@@ -1127,9 +1167,10 @@ const fetchDetails = async () => {
     await Promise.all([
       fetchContractBalance(),
       fetchTimerStatus(),
-      fetchDistributionStatus()
+      fetchDistributionStatus(),
+      fetchEmergencyStatus()
     ])
-    
+
   } catch (err) {
     console.error('Error fetching distribution details:', err)
     error.value = err instanceof Error ? err.message : 'Failed to load distribution details'
@@ -1195,6 +1236,26 @@ const fetchDistributionStatus = async () => {
   } catch (err) {
     console.error('Error fetching distribution status:', err)
   }
+}
+
+// Sprint 1: Fetch emergency control status
+const fetchEmergencyStatus = async () => {
+  try {
+    const status = await DistributionService.getEmergencyStatus(distributionId.value)
+    emergencyStatus.value = status
+  } catch (err) {
+    console.error('Error fetching emergency status:', err)
+  }
+}
+
+// Sprint 1: Handle emergency status changes
+const handleEmergencyStatusChanged = async () => {
+  // Refresh emergency status and distribution details
+  await Promise.all([
+    fetchEmergencyStatus(),
+    fetchDistributionStatus(),
+    fetchDetails()
+  ])
 }
 
 const refreshData = async () => {
