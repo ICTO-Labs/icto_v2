@@ -2,9 +2,33 @@
 
 set -euo pipefail
 
+# Enhanced Launchpad Creation Script with Comprehensive Token Allocation
+#
 # Usage: ./create-launchpad.sh <identity> [project_index]
 # Example: ./create-launchpad.sh alice 3
 # If project_index not provided, random project will be selected
+#
+# CONFIGURABLE DISTRIBUTION PERCENTAGES:
+# - DIST_SALE_PARTICIPANTS: % for public sale (default: 20%)
+# - DIST_TEAM: % for core team (default: 15%)
+# - DIST_ADVISORS: % for advisors (default: 8%)
+# - DIST_MARKETING_PARTNERSHIPS: % for marketing (default: 12%)
+# - DIST_ECOSYSTEM_COMMUNITY: % for ecosystem/community (default: 15%)
+# - DIST_DEVELOPMENT_RESERVE: % for development (default: 10%)
+# - DIST_LIQUIDITY_POOL: % for liquidity (default: 10%)
+# - DIST_TREASURY: % for treasury (default: 10%)
+#
+# VESTING SCHEDULES:
+# - Sale: No vesting (immediate unlock)
+# - Team: 12 months linear, no cliff
+# - Advisors: 3-month cliff + 12 months linear
+# - Marketing: 6-month cliff + 18 months linear
+# - Ecosystem: 3-month cliff + 24 months linear
+# - Development: 12-month cliff + 24 months linear
+# - Liquidity: No vesting (immediate unlock for DEX)
+# - Treasury: 24 months linear, no cliff
+#
+# To customize: Edit the percentage variables below before running the script
 
 # Load config
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,6 +50,19 @@ if ! command -v jq &> /dev/null; then
   echo "Install: brew install jq (macOS) or apt-get install jq (Linux)"
   exit 1
 fi
+
+# Token Distribution Configuration (Percentage)
+DIST_SALE_PARTICIPANTS=20
+DIST_TEAM=15
+DIST_ADVISORS=8
+DIST_MARKETING_PARTNERSHIPS=12
+DIST_ECOSYSTEM_COMMUNITY=15
+DIST_DEVELOPMENT_RESERVE=10
+DIST_LIQUIDITY_POOL=10
+DIST_TREASURY=10
+
+# Vesting Schedule Constants (in nanoseconds)
+MONTH_NS=2592000000000000  # 30 days in nanoseconds
 
 # Load and select project
 if [ -z "$PROJECT_INDEX" ]; then
@@ -110,6 +147,12 @@ HARDCAP=$HARDCAP_ICP
 MIN_CONTRIBUTION=$MIN_CONTRIBUTION_ICP
 TOTAL_SALE_AMOUNT=$(echo "$HARDCAP * 100000000 / $TOKEN_PRICE" | bc)
 
+# Convert token amounts to human-readable format (divide by 10^8 for 8 decimals)
+function human_readable_tokens() {
+    local amount_e8s=$1
+    echo $(echo "scale=8; $amount_e8s / 100000000" | bc | sed 's/\.0*$//' | sed 's/\.\([0-9]*\)0*$/.\1/')
+}
+
 echo ""
 echo "==================================="
 echo "Launchpad Configuration"
@@ -123,8 +166,20 @@ echo "Sale Parameters:"
 echo "  Soft cap: $SOFTCAP ICP"
 echo "  Hard cap: $HARDCAP ICP"
 echo "  Min contribution: $MIN_CONTRIBUTION ICP"
-echo "  Token price: $TOKEN_PRICE e8s ($(echo "scale=4; $TOKEN_PRICE / 100000000" | bc) ICP per token)"
-echo "  Total sale amount: $TOTAL_SALE_AMOUNT tokens"
+echo "  Token price: $(echo "scale=8; $TOKEN_PRICE / 100000000" | bc | sed 's/\.0*$//' | sed 's/\.\([0-9]*\)0*$/.\1/') ICP per token"
+echo "  Total sale amount: $(human_readable_tokens $TOTAL_SALE_AMOUNT) tokens"
+echo ""
+
+echo "Token Distribution Categories:"
+echo "  🎯 Sale Participants:     $DIST_SALE_PARTICIPANTS% - $(human_readable_tokens $TOTAL_SALE_AMOUNT) tokens (No vesting)"
+echo "  👥 Team:                  $DIST_TEAM% - $(human_readable_tokens $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_TEAM / 100" | bc)) tokens (12 months linear, no cliff)"
+echo "  🤝 Advisors:              $DIST_ADVISORS%  - $(human_readable_tokens $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_ADVISORS / 100" | bc)) tokens (3-month cliff + 12 months)"
+echo "  📢 Marketing & Partners:  $DIST_MARKETING_PARTNERSHIPS% - $(human_readable_tokens $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_MARKETING_PARTNERSHIPS / 100" | bc)) tokens (6-month cliff + 18 months)"
+echo "  🌱 Ecosystem & Community: $DIST_ECOSYSTEM_COMMUNITY% - $(human_readable_tokens $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_ECOSYSTEM_COMMUNITY / 100" | bc)) tokens (3-month cliff + 24 months)"
+echo "  🔧 Development Reserve:   $DIST_DEVELOPMENT_RESERVE% - $(human_readable_tokens $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_DEVELOPMENT_RESERVE / 100" | bc)) tokens (12-month cliff + 24 months)"
+echo "  💧 Liquidity Pool:        $DIST_LIQUIDITY_POOL% - $(human_readable_tokens $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_LIQUIDITY_POOL / 100" | bc)) tokens (Immediate unlock)"
+echo "  🏛️  Treasury:             $DIST_TREASURY% - $(human_readable_tokens $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_TREASURY / 100" | bc)) tokens (24 months linear, no cliff)"
+echo "  Total Supply:            100% - $(human_readable_tokens $TOTAL_TOKEN_SUPPLY) tokens"
 echo "==================================="
 echo ""
 
@@ -244,42 +299,132 @@ RESULT=$(dfx canister call "$BACKEND_CANISTER" deployLaunchpad "(
     distribution = vec {
       record {
         name = \"Sale\";
-        description = opt \"Token sale allocation\";
-        percentage = $DIST_SALE;
+        description = opt \"Token sale allocation for public participants\";
+        percentage = $DIST_SALE_PARTICIPANTS;
         totalAmount = $TOTAL_SALE_AMOUNT;
         recipients = variant { SaleParticipants };
         vestingSchedule = null;
       };
       record {
         name = \"Team\";
-        description = opt \"Team allocation\";
+        description = opt \"Core team allocation with 12-month linear vesting\";
         percentage = $DIST_TEAM;
         totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_TEAM / 100" | bc);
         recipients = variant { FixedList = vec {
           record {
             address = principal \"$PRINCIPAL\";
             amount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_TEAM / 100" | bc);
-            description = null;
+            description = opt \"Team lead allocation\";
             vestingOverride = null;
           }
         }};
-        vestingSchedule = null;
+        vestingSchedule = opt record {
+          cliffDays = 0;
+          durationDays = 360;
+          immediateRelease = 0;
+          releaseFrequency = variant { Monthly };
+        };
       };
       record {
-        name = \"Liquidity\";
-        description = opt \"Liquidity pool\";
-        percentage = $DIST_LIQUIDITY;
-        totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_LIQUIDITY / 100" | bc);
+        name = \"Advisors\";
+        description = opt \"Advisors allocation with 3-month cliff + 12-month vesting\";
+        percentage = $DIST_ADVISORS;
+        totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_ADVISORS / 100" | bc);
+        recipients = variant { FixedList = vec {
+          record {
+            address = principal \"$PRINCIPAL\";
+            amount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_ADVISORS / 100" | bc);
+            description = opt \"Lead advisor allocation\";
+            vestingOverride = null;
+          }
+        }};
+        vestingSchedule = opt record {
+          cliffDays = 90;
+          durationDays = 450;
+          immediateRelease = 0;
+          releaseFrequency = variant { Monthly };
+        };
+      };
+      record {
+        name = \"Marketing & Partnerships\";
+        description = opt \"Marketing and strategic partnerships allocation\";
+        percentage = $DIST_MARKETING_PARTNERSHIPS;
+        totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_MARKETING_PARTNERSHIPS / 100" | bc);
+        recipients = variant { FixedList = vec {
+          record {
+            address = principal \"$PRINCIPAL\";
+            amount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_MARKETING_PARTNERSHIPS / 100" | bc);
+            description = opt \"Marketing budget allocation\";
+            vestingOverride = null;
+          }
+        }};
+        vestingSchedule = opt record {
+          cliffDays = 180;
+          durationDays = 720;
+          immediateRelease = 0;
+          releaseFrequency = variant { Monthly };
+        };
+      };
+      record {
+        name = \"Ecosystem & Community\";
+        description = opt \"Ecosystem development and community rewards\";
+        percentage = $DIST_ECOSYSTEM_COMMUNITY;
+        totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_ECOSYSTEM_COMMUNITY / 100" | bc);
+        recipients = variant { FixedList = vec {
+          record {
+            address = principal \"$PRINCIPAL\";
+            amount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_ECOSYSTEM_COMMUNITY / 100" | bc);
+            description = opt \"Ecosystem fund allocation\";
+            vestingOverride = null;
+          }
+        }};
+        vestingSchedule = opt record {
+          cliffDays = 90;
+          durationDays = 810;
+          immediateRelease = 0;
+          releaseFrequency = variant { Monthly };
+        };
+      };
+      record {
+        name = \"Development Reserve\";
+        description = opt \"Future development and protocol upgrades\";
+        percentage = $DIST_DEVELOPMENT_RESERVE;
+        totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_DEVELOPMENT_RESERVE / 100" | bc);
+        recipients = variant { FixedList = vec {
+          record {
+            address = principal \"$PRINCIPAL\";
+            amount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_DEVELOPMENT_RESERVE / 100" | bc);
+            description = opt \"Development reserve allocation\";
+            vestingOverride = null;
+          }
+        }};
+        vestingSchedule = opt record {
+          cliffDays = 360;
+          durationDays = 1080;
+          immediateRelease = 0;
+          releaseFrequency = variant { Monthly };
+        };
+      };
+      record {
+        name = \"Liquidity Pool\";
+        description = opt \"Initial liquidity provision for DEX listing\";
+        percentage = $DIST_LIQUIDITY_POOL;
+        totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_LIQUIDITY_POOL / 100" | bc);
         recipients = variant { LiquidityPool };
         vestingSchedule = null;
       };
       record {
         name = \"Treasury\";
-        description = opt \"Treasury reserve\";
+        description = opt \"Operational treasury with gradual release\";
         percentage = $DIST_TREASURY;
         totalAmount = $(echo "$TOTAL_TOKEN_SUPPLY * $DIST_TREASURY / 100" | bc);
         recipients = variant { TreasuryReserve };
-        vestingSchedule = null;
+        vestingSchedule = opt record {
+          cliffDays = 0;
+          durationDays = 720;
+          immediateRelease = 0;
+          releaseFrequency = variant { Monthly };
+        };
       };
     };
     tokenDistribution = null;

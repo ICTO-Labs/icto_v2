@@ -28,6 +28,7 @@ import LaunchpadTypes "../../shared/types/LaunchpadTypes";
 import DistributionTypes "../../shared/types/DistributionTypes";
 import ICRCTypes "../../shared/types/ICRC";
 import BackendInterface "../interfaces/BackendInterface";
+import DistributionFactoryTypes "../../backend/modules/distribution_factory/DistributionFactoryTypes";
 
 module {
 
@@ -56,15 +57,15 @@ module {
     // ================ DISTRIBUTION FACTORY MODULE ================
 
     public class DistributionFactory(
-        _backendCanisterId: Principal,  // Backend canister ID (not distribution_factory)
-        creatorPrincipal: Principal,
-        tokenCanisterId: ?Principal  // Deployed token ID (must be deployed first)
+        backendCanisterId_: Principal,  // Backend canister ID (not distribution_factory)
+        creatorPrincipal_: Principal,
+        tokenCanisterId_: ?Principal  // Deployed token ID (must be deployed first)
     ) {
 
         // Store constructor parameters as private variables
-        private let backendCanisterId: Principal = _backendCanisterId;
-        private let creatorPrincipal: Principal = creatorPrincipal;
-        private let tokenCanisterId: ?Principal = tokenCanisterId;
+        private let backendCanisterId = backendCanisterId_;
+        private let creatorPrincipal = creatorPrincipal_;
+        private let tokenCanisterId = tokenCanisterId_;
 
         // ================ VESTING CONVERSION ================
 
@@ -130,7 +131,83 @@ module {
             };
         };
 
-        
+        // ================ PASSPORT & VERIFICATION ================
+
+        /// Determine passport requirements for a category based on its ID
+        /// Different categories may have different passport requirements
+        private func determinePassportForCategory(
+            categoryId: Text,
+            categoryName: Text,
+            launchpadConfig: LaunchpadTypes.LaunchpadConfig
+        ) : (Nat, Text) {
+            // Map category to passport requirements
+            switch (categoryId) {
+                case ("participants" or "sale") {
+                    // High requirement for sale participants
+                    // Use minICTOPassportScore from saleParams if available
+                    let minScore = launchpadConfig.saleParams.minICTOPassportScore;
+                    (minScore, "ICTO")  // ICTO as default provider
+                };
+                case ("team") {
+                    (0, "")  // No passport required for team
+                };
+                case ("advisors") {
+                    (0, "")  // No passport required for advisors
+                };
+                case ("marketing") {
+                    (30, "Gitcoin")  // Medium requirement, Gitcoin provider
+                };
+                case ("airdrop") {
+                    (20, "Worldcoin")  // Low requirement, Worldcoin verification
+                };
+                case ("development") {
+                    (0, "")  // No passport for development fund
+                };
+                case (_) {
+                    // Check if category name contains certain keywords
+                    if (Text.contains(categoryName, #text "Sale") or Text.contains(categoryName, #text "Participant")) {
+                        (50, "ICTO")  // Sale-related categories
+                    } else if (Text.contains(categoryName, #text "Team") or Text.contains(categoryName, #text "Advisor")) {
+                        (0, "")  // Team/Advisor categories
+                    } else if (Text.contains(categoryName, #text "Marketing")) {
+                        (30, "Gitcoin")  // Marketing categories
+                    } else if (Text.contains(categoryName, #text "Airdrop")) {
+                        (20, "Worldcoin")  // Airdrop categories
+                    } else {
+                        (0, "")  // Default: no passport
+                    }
+                };
+            }
+        };
+
+        // ================ MERKLE TREE SUPPORT ================
+
+        /// Calculate total number of unique recipients across all categories
+        private func calculateTotalRecipients(
+            categories: [DistributionTypes.CategoryDistribution]
+        ) : Nat {
+            var totalRecipients: Nat = 0;
+            for (category in categories.vals()) {
+                totalRecipients += category.recipients.size();
+            };
+            totalRecipients
+        };
+
+        /// Simple merkle root calculation (placeholder - implement proper merkle tree)
+        /// TODO: Implement proper merkle tree hashing
+        private func calculateMerkleRoot(
+            recipients: [DistributionTypes.Recipient],
+            categoryId: Nat
+        ) : Blob {
+            // Simple hash placeholder - should implement proper merkle tree
+            let data = Text.encodeUtf8(
+                "category_" # Nat.toText(categoryId) #
+                "_recipients_" # Nat.toText(recipients.size())
+            );
+            data  // Return as simple blob for now
+        };
+
+
         /// Shared function to build a single category configuration
         /// Used by both token and raised funds distribution builders
         private func buildCategoryConfig(
@@ -190,6 +267,10 @@ module {
                 governance = null;
                 multiSigGovernance = null;
                 externalCheckers = null;
+                multiCategoryRecipients = null;  // Legacy single-category mode
+                usingMerkleSystem = null;  // Legacy mode doesn't use Merkle
+                merkleConfig = null;  // No Merkle for legacy
+                rateLimitConfig = null;  // No rate limiting for legacy
             }
         };
 
@@ -328,6 +409,12 @@ module {
 
                 // External Integrations
                 externalCheckers = null;
+
+                // Multi-category & Merkle (legacy mode - not used)
+                multiCategoryRecipients = null;
+                usingMerkleSystem = null;
+                merkleConfig = null;
+                rateLimitConfig = null;
             }
         };
 
@@ -335,15 +422,30 @@ module {
 
         /// Merge categories into MultiCategoryRecipients for unified contract
         /// This takes all categories and merges them by wallet address
+        /// ✨ NOW INCLUDES: Per-category passport requirements
         private func mergeCategoriesToMultiCategoryRecipients(
             categories: [DistributionTypes.CategoryDistribution],
-            launchpadId: Text
+            launchpadId: Text,
+            launchpadConfig: LaunchpadTypes.LaunchpadConfig,
+            distributionStartTime: Time.Time
         ) : [DistributionTypes.MultiCategoryRecipient] {
 
             let recipientMap = Buffer.Buffer<(Principal, [DistributionTypes.CategoryAllocation])>(100);
 
             // Merge categories by wallet address
             for (category in categories.vals()) {
+                // ✨ DETERMINE PASSPORT FOR THIS CATEGORY
+                let (passportScore, passportProvider) = determinePassportForCategory(
+                    category.categoryInfo.id,
+                    category.categoryInfo.name,
+                    launchpadConfig
+                );
+
+                Debug.print("      Passport for category " # Nat.toText(category.categoryId) #
+                           " (" # category.categoryInfo.name # "): " #
+                           Nat.toText(passportScore) #
+                           (if (passportProvider != "") { " via " # passportProvider } else { " (disabled)" }));
+
                 for (recipient in category.recipients.vals()) {
                     let categoryAllocation: DistributionTypes.CategoryAllocation = {
                         categoryId = category.categoryId;
@@ -351,9 +453,12 @@ module {
                         amount = recipient.amount;
                         claimedAmount = 0; // Initially unclaimed
                         vestingSchedule = category.vestingSchedule;
-                        vestingStart = category.categoryInfo.order != null ?
-                            Time.now() : // TODO: Use proper start time from config
-                            Time.now();
+                        vestingStart = distributionStartTime;  // ✅ Use proper start time
+
+                        // ✨ PER-CATEGORY PASSPORT
+                        passportScore = passportScore;
+                        passportProvider = passportProvider;
+
                         note = recipient.note;
                     };
 
@@ -599,15 +704,31 @@ module {
             Debug.print("   Total Categories: " # Nat.toText(categories.size()));
             Debug.print("   Total Tokens: " # Nat.toText(totalAllTokens));
 
-            // Merge categories into multi-category recipients
-            let multiCategoryRecipients = mergeCategoriesToMultiCategoryRecipients(categories, launchpadId);
+            // ================ MERKLE TREE DECISION ================
+            // 🔒 DISABLED: Always use legacy mode for now (Merkle to be implemented later)
+            let totalRecipients = calculateTotalRecipients(categories);
+            let useMerkle = false;  // Always false - Merkle not implemented yet
+
+            Debug.print("   Total Recipients: " # Nat.toText(totalRecipients));
+            Debug.print("   📋 Using Legacy mode (Merkle disabled)");
+
+            // Merkle config always null for now
+            let merkleConfig: ?DistributionTypes.MerkleConfig = null;
+
+            // ✅ Merge categories into multi-category recipients with passport
+            let multiCategoryRecipients = mergeCategoriesToMultiCategoryRecipients(
+                categories,
+                launchpadId,
+                config,  // ✅ Pass config for passport
+                config.timeline.claimStart  // ✅ Pass distribution start time
+            );
 
             Debug.print("   Unique Wallets: " # Nat.toText(multiCategoryRecipients.size()));
 
             // Create multi-category distribution configuration
             #ok({
                 title = config.projectInfo.name # " Token Distribution";
-                description = "Multi-category token distribution with different vesting schedules";
+                description = "Multi-category token distribution with per-category passport verification";
                 isPublic = false;
                 campaignType = #LaunchpadDistribution;
 
@@ -631,6 +752,8 @@ module {
 
                 tokenInfo = tokenInfo;
                 totalAmount = totalAllTokens;
+
+                // ✅ MULTI-CATEGORY RECIPIENTS (with per-category passport)
                 multiCategoryRecipients = multiCategoryRecipients;
 
                 eligibilityType = #Whitelist;
@@ -683,63 +806,63 @@ module {
             // Process raised funds allocations with dynamic organization
             for (allocation in config.raisedFundsAllocation.allocations.vals()) {
                 // ================ SKIP LIQUIDITY ALLOCATIONS ================
-                if (Text.contains(allocation.id, #text "liquidity") or Text.contains(allocation.name, #text "liquidity")) {
-                    Debug.print("   ⏭️ Skipping Liquidity allocation: " # allocation.name # " - handled directly in pipeline");
-                    continue; // Skip this allocation
-                }
+                if (not (Text.contains(allocation.id, #text "liquidity") or Text.contains(allocation.name, #text "liquidity"))) {
+                    // Process non-liquidity allocations
+                    Debug.print("   Category " # Nat.toText(nextCategoryId) # ": " # allocation.name);
 
-                Debug.print("   Category " # Nat.toText(nextCategoryId) # ": " # allocation.name);
-
-                // Build recipients from percentage allocation
-                let recipients: [DistributionTypes.Recipient] = Array.map<
-                    LaunchpadTypes.FundRecipient,
-                    DistributionTypes.Recipient
-                >(
-                    allocation.recipients,
-                    func(r: LaunchpadTypes.FundRecipient) : DistributionTypes.Recipient {
-                        let amount = (allocation.amount * Nat8.toNat(r.percentage)) / 100;
-                        {
-                            address = r.principal;
-                            amount = amount;
-                            note = r.name;
+                    // Build recipients from percentage allocation
+                    let recipients: [DistributionTypes.Recipient] = Array.map<
+                        LaunchpadTypes.FundRecipient,
+                        DistributionTypes.Recipient
+                    >(
+                        allocation.recipients,
+                        func(r: LaunchpadTypes.FundRecipient) : DistributionTypes.Recipient {
+                            let amount = (allocation.amount * Nat8.toNat(r.percentage)) / 100;
+                            {
+                                address = r.principal;
+                                amount = amount;
+                                note = r.name;
+                            }
                         }
-                    }
-                );
+                    );
 
-                totalAllFunds += allocation.amount;
+                    totalAllFunds += allocation.amount;
 
-                // Get vesting from first recipient (same logic as before)
-                let vesting: DistributionTypes.VestingSchedule = if (allocation.recipients.size() > 0) {
-                    if (allocation.recipients[0].vestingEnabled) {
-                        switch (allocation.recipients[0].vestingSchedule) {
-                            case (?schedule) convertVestingSchedule(schedule);
-                            case null #Instant;
-                        };
+                    // Get vesting from first recipient (same logic as before)
+                    let vesting: DistributionTypes.VestingSchedule = if (allocation.recipients.size() > 0) {
+                        if (allocation.recipients[0].vestingEnabled) {
+                            switch (allocation.recipients[0].vestingSchedule) {
+                                case (?schedule) convertVestingSchedule(schedule);
+                                case null #Instant;
+                            };
+                        } else {
+                            #Instant
+                        }
                     } else {
                         #Instant
-                    }
+                    };
+
+                    // Create category with sequential ID organization
+                    let categoryInfo = {
+                        id = allocation.id;
+                        name = allocation.name;
+                        description = ?("Raised " # config.purchaseToken.symbol # " allocation for " # allocation.name);
+                        order = ?nextCategoryId;
+                    };
+
+                    let categoryDistribution: DistributionTypes.CategoryDistribution = {
+                        categoryId = nextCategoryId;
+                        categoryInfo = categoryInfo;
+                        recipients = recipients;
+                        totalAmount = allocation.amount;
+                        vestingSchedule = vesting;
+                    };
+                    categoriesBuffer.add(categoryDistribution);
+                    Debug.print("      ✅ Category " # Nat.toText(nextCategoryId) # " (" # allocation.name # "): " # Nat.toText(recipients.size()) # " recipients, " # Nat.toText(allocation.amount) # " " # config.purchaseToken.symbol);
+                    nextCategoryId += 1;
                 } else {
-                    #Instant
+                    Debug.print("   ⏭️ Skipping Liquidity allocation: " # allocation.name # " - handled directly in pipeline");
                 };
-
-                // Create category with sequential ID organization
-                let categoryInfo = {
-                    id = allocation.id;
-                    name = allocation.name;
-                    description = ?("Raised " # config.purchaseToken.symbol # " allocation for " # allocation.name);
-                    order = ?nextCategoryId;
-                };
-
-                let categoryDistribution: DistributionTypes.CategoryDistribution = {
-                    categoryId = nextCategoryId;
-                    categoryInfo = categoryInfo;
-                    recipients = recipients;
-                    totalAmount = allocation.amount;
-                    vestingSchedule = vesting;
-                };
-                categoriesBuffer.add(categoryDistribution);
-                Debug.print("      ✅ Category " # Nat.toText(nextCategoryId) # " (" # allocation.name # "): " # Nat.toText(recipients.size()) # " recipients, " # Nat.toText(allocation.amount) # " " # config.purchaseToken.symbol);
-                nextCategoryId += 1;
             };
 
             Debug.print("   ℹ️ Note: Liquidity allocations skipped - handled directly in pipeline");
@@ -751,8 +874,21 @@ module {
             Debug.print("   Total Categories: " # Nat.toText(categories.size()));
             Debug.print("   Total Funds: " # Nat.toText(totalAllFunds) # " " # config.purchaseToken.symbol);
 
-            // Merge categories into multi-category recipients
-            let multiCategoryRecipients = mergeCategoriesToMultiCategoryRecipients(categories, launchpadId);
+            // ================ MERKLE TREE DECISION ================
+            // 🔒 DISABLED: Always use legacy mode for now (Merkle to be implemented later)
+            let totalRecipients = calculateTotalRecipients(categories);
+            let useMerkle = false;  // Always false - Merkle not implemented yet
+
+            Debug.print("   Total Recipients: " # Nat.toText(totalRecipients));
+            Debug.print("   📋 Using Legacy mode (Merkle disabled)");
+
+            // ✅ Merge categories into multi-category recipients with passport
+            let multiCategoryRecipients = mergeCategoriesToMultiCategoryRecipients(
+                categories,
+                launchpadId,
+                config,  // ✅ Pass config for passport
+                config.timeline.claimStart  // ✅ Pass distribution start time
+            );
 
             Debug.print("   Unique Wallets: " # Nat.toText(multiCategoryRecipients.size()));
 
@@ -1092,6 +1228,12 @@ module {
                     governance = null;
                     multiSigGovernance = null;
                     externalCheckers = null;
+
+                    // Multi-category & Merkle (legacy mode - not used)
+                    multiCategoryRecipients = null;
+                    usingMerkleSystem = null;
+                    merkleConfig = null;
+                    rateLimitConfig = null;
                 };
 
                 Debug.print("   Token: " # config.purchaseToken.symbol);
@@ -1266,9 +1408,72 @@ module {
                 }
             ]
         };
-    };
 
-    // ================ MODULE HELPER FUNCTIONS ================
+        // ================ UNIFIED DEPLOYMENT FUNCTIONS ================
+        // These functions should be INSIDE the class to access class members
+
+        /// Convert unified config to backend-compatible DistributionConfig
+        /// Backend supports multiCategoryRecipients directly, so we can pass it through
+        private func _convertUnifiedToBackendConfig(
+            unifiedConfig: DistributionTypes.MultiCategoryDistributionConfig
+        ) : DistributionFactoryTypes.DistributionConfig {
+
+            // Backend now supports multiCategoryRecipients directly
+            // Convert to single recipients for backward compatibility (sum all categories)
+            let backendRecipients = Array.map<DistributionTypes.MultiCategoryRecipient, DistributionTypes.Recipient>(
+                unifiedConfig.multiCategoryRecipients,
+                func(multiRecipient) {
+                    // Sum all category allocations for this recipient
+                    let totalAmount = Array.foldLeft<DistributionTypes.CategoryAllocation, Nat>(
+                        multiRecipient.categories,
+                        0,
+                        func(acc, allocation) { acc + allocation.amount }
+                    );
+
+                    {
+                        address = multiRecipient.address;
+                        amount = totalAmount;
+                        note = ?("Unified: " # Nat.toText(multiRecipient.categories.size()) # " categories");
+                    }
+                }
+            );
+
+            // Get representative vesting schedule (use #Instant as default)
+            // In reality, each category has its own vesting in multiCategoryRecipients
+            let vestingSchedule: DistributionTypes.VestingSchedule = #Instant;
+
+            {
+                title = unifiedConfig.title;
+                description = unifiedConfig.description;
+                isPublic = unifiedConfig.isPublic;
+                campaignType = unifiedConfig.campaignType;
+                launchpadContext = unifiedConfig.launchpadContext;
+                tokenInfo = unifiedConfig.tokenInfo;
+                totalAmount = unifiedConfig.totalAmount;
+                eligibilityType = unifiedConfig.eligibilityType;
+                eligibilityLogic = null;
+                recipientMode = unifiedConfig.recipientMode;
+                maxRecipients = unifiedConfig.maxRecipients;
+                recipients = backendRecipients;
+                vestingSchedule = vestingSchedule;
+                initialUnlockPercentage = 0;
+                penaltyUnlock = null;
+                registrationPeriod = null;
+                distributionStart = unifiedConfig.distributionStart;
+                distributionEnd = unifiedConfig.distributionEnd;
+                merkleConfig = null;  // Merkle not used for unified distributions
+                rateLimitConfig = null;  // Rate limiting handled per-category
+                usingMerkleSystem = ?false;  // Not using Merkle
+                feeStructure = unifiedConfig.feeStructure;
+                allowCancel = unifiedConfig.allowCancel;
+                allowModification = unifiedConfig.allowModification;
+                owner = unifiedConfig.owner;
+                governance = unifiedConfig.governance;
+                multiSigGovernance = unifiedConfig.multiSigGovernance;
+                externalCheckers = unifiedConfig.externalCheckers;
+                multiCategoryRecipients = ?unifiedConfig.multiCategoryRecipients;  // ✅ Pass multi-category data
+            }
+        };
 
     /// Parse error message from Distribution Factory
     public func parseDeploymentError(errorMsg: Text) : DeploymentError {
@@ -1467,7 +1672,7 @@ module {
             };
 
             Debug.print("✅ Unified Token Distribution built:");
-            Debug.print("   Total Categories: " # Nat.toText(unifiedRequest.categories.size()));
+            Debug.print("   Total Recipients: " # Nat.toText(unifiedRequest.multiCategoryRecipients.size()));
             Debug.print("   Total Tokens: " # Nat.toText(unifiedRequest.totalAmount));
 
             // Step 1: Get deployment fee from backend
@@ -1522,23 +1727,47 @@ module {
                 };
             };
 
-            // Step 3: Call Backend to deploy unified distribution
-            Debug.print("🚀 Calling Backend to deploy UNIFIED Token Distribution...");
+            // Step 3: Call Backend to deploy Distribution using existing endpoint
+            Debug.print("🚀 Calling Backend.deployDistribution() with unified data...");
 
-            let result = await backend.deployUnifiedDistribution(unifiedRequest);
+            // Convert unified config to backend-compatible format
+            let backendConfig = _convertUnifiedToBackendConfig(unifiedRequest);
+
+            // Deploy via existing deployDistribution endpoint
+            let result = await backend.deployDistribution(backendConfig, ?launchpadId);
 
             switch (result) {
-                case (#ok(unifiedResult)) {
-                    Debug.print("✅ Unified Token Distribution deployed successfully!");
-                    Debug.print("   Unified Canister ID: " # Principal.toText(unifiedResult.unifiedCanisterId));
-                    Debug.print("   Categories: " # Nat.toText(unifiedResult.categories.size()));
-                    Debug.print("   Total Amount: " # Nat.toText(unifiedResult.totalAmount));
+                case (#ok(deploymentResult)) {
+                    Debug.print("✅ Unified Distribution deployed via Backend!");
+                    Debug.print("   Canister ID: " # Principal.toText(deploymentResult.distributionCanisterId));
+                    Debug.print("   Total Recipients: " # Nat.toText(unifiedRequest.multiCategoryRecipients.size()));
+                    Debug.print("   Total Amount: " # Nat.toText(unifiedRequest.totalAmount));
                     Debug.print("   Fee Paid: " # Nat.toText(approvalAmount) # " (block: " # Nat.toText(feeBlockIndex) # ")");
+
+                    // Create simple unified result with single category for backend compatibility
+                    let unifiedResult: DistributionTypes.UnifiedDistributionResult = {
+                        batchId = "launchpad_" # launchpadId # "_unified_token";
+                        launchpadId = launchpadPrincipal;
+                        unifiedCanisterId = deploymentResult.distributionCanisterId;
+                        categories = [{
+                            categoryId = 1;
+                            categoryInfo = {
+                                id = "unified";
+                                name = "Unified Distribution";
+                                description = ?"Multi-category unified distribution deployed via backend";
+                                order = ?1;
+                            };
+                            result = #Ok("Unified distribution deployed successfully");
+                        }];
+                        totalAmount = unifiedRequest.totalAmount;
+                        successCount = 1;
+                        failureCount = 0;
+                    };
 
                     #ok(unifiedResult)
                 };
                 case (#err(errorMsg)) {
-                    Debug.print("❌ Unified Token Distribution deployment failed: " # errorMsg);
+                    Debug.print("❌ Unified Distribution deployment failed: " # errorMsg);
                     return #err(#DeploymentFailed(errorMsg));
                 };
             };
@@ -1585,7 +1814,7 @@ module {
             };
 
             Debug.print("✅ Unified Raised Funds Distribution built:");
-            Debug.print("   Total Categories: " # Nat.toText(unifiedRequest.categories.size()));
+            Debug.print("   Total Recipients: " # Nat.toText(unifiedRequest.multiCategoryRecipients.size()));
             Debug.print("   Total Funds: " # Nat.toText(unifiedRequest.totalAmount));
 
             // Step 1: Get deployment fee from backend
@@ -1640,18 +1869,42 @@ module {
                 };
             };
 
-            // Step 3: Call Backend to deploy unified raised funds distribution
-            Debug.print("🚀 Calling Backend to deploy UNIFIED Raised Funds Distribution...");
+            // Step 3: Call Backend to deploy Distribution using existing endpoint
+            Debug.print("🚀 Calling Backend.deployDistribution() with raised funds unified data...");
 
-            let result = await backend.deployUnifiedDistribution(unifiedRequest);
+            // Convert unified config to backend-compatible format
+            let backendConfig = _convertUnifiedToBackendConfig(unifiedRequest);
+
+            // Deploy via existing deployDistribution endpoint
+            let result = await backend.deployDistribution(backendConfig, ?launchpadId);
 
             switch (result) {
-                case (#ok(unifiedResult)) {
-                    Debug.print("✅ Unified Raised Funds Distribution deployed successfully!");
-                    Debug.print("   Unified Canister ID: " # Principal.toText(unifiedResult.unifiedCanisterId));
-                    Debug.print("   Categories: " # Nat.toText(unifiedResult.categories.size()));
-                    Debug.print("   Total Amount: " # Nat.toText(unifiedResult.totalAmount));
+                case (#ok(deploymentResult)) {
+                    Debug.print("✅ Unified Raised Funds Distribution deployed via Backend!");
+                    Debug.print("   Canister ID: " # Principal.toText(deploymentResult.distributionCanisterId));
+                    Debug.print("   Total Recipients: " # Nat.toText(unifiedRequest.multiCategoryRecipients.size()));
+                    Debug.print("   Total Funds: " # Nat.toText(unifiedRequest.totalAmount));
                     Debug.print("   Fee Paid: " # Nat.toText(approvalAmount) # " (block: " # Nat.toText(feeBlockIndex) # ")");
+
+                    // Create simple unified result with single category for backend compatibility
+                    let unifiedResult: DistributionTypes.UnifiedDistributionResult = {
+                        batchId = "launchpad_" # launchpadId # "_unified_raised_funds";
+                        launchpadId = launchpadPrincipal;
+                        unifiedCanisterId = deploymentResult.distributionCanisterId;
+                        categories = [{
+                            categoryId = 1;
+                            categoryInfo = {
+                                id = "unified-raised-funds";
+                                name = "Unified Raised Funds Distribution";
+                                description = ?"Multi-category raised funds distribution deployed via backend";
+                                order = ?1;
+                            };
+                            result = #Ok("Unified raised funds distribution deployed successfully");
+                        }];
+                        totalAmount = unifiedRequest.totalAmount;
+                        successCount = 1;
+                        failureCount = 0;
+                    };
 
                     #ok(unifiedResult)
                 };
@@ -1690,6 +1943,8 @@ module {
 
         output
     };
+
+    }; // Close DistributionFactory class
 }
 
 

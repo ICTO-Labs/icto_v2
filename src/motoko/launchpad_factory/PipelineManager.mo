@@ -1215,64 +1215,128 @@ module {
         
         // ================ DISTRIBUTION EXECUTOR ================
 
-        /// Deploy distribution contract for launchpad participants
-        /// Uses DistributionFactory module following ICTO V2 pattern
+        /// Deploy unified distribution contract for ALL launchpad categories
+        /// Uses new multi-category DistributionFactory with unified deployment
         public func createDistributionDeploymentExecutor() : StepExecutor {
             func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
-                Debug.print("📦 Deploying distribution contract for participants...");
+                Debug.print("📦 Deploying UNIFIED distribution contract for ALL categories...");
 
-                // Create DistributionFactory with deployed token ID
-                let distributionFactory = DistributionFactoryModule.DistributionFactory(
-                    backendPrincipal,
-                    creatorPrincipal,
-                    deployedTokenId  // Token ID from previous step
-                );
+                // Check if launchpad uses new TokenDistribution structure
+                switch (launchpadConfig.tokenDistribution) {
+                    case (?tokenDistributionConfig) {
+                        Debug.print("✅ Using new TokenDistribution structure with multi-categories");
+                        Debug.print("   Categories: Sale, Team, Liquidity Pool, Others");
+                        Debug.print("   Participants: " # Nat.toText(participants.size()));
 
-                // Define distribution category (Fair Launch Participants)
-                let category: DistributionTypes.DistributionCategory = {
-                    id = "fairlaunch";
-                    name = "Fair Launch Participants";
-                    description = ?"Token allocation for launchpad participants";
-                    order = ?0;
+                        // Validate token is deployed
+                        switch (deployedTokenId) {
+                            case (?tokenId) {
+                                // Create DistributionFactory with deployed token ID
+                                let distributionFactory = DistributionFactoryModule.DistributionFactory(
+                                    backendPrincipal,
+                                    creatorPrincipal,
+                                    ?tokenId  // Pass as optional
+                                );
+
+                                // Deploy UNIFIED distribution for ALL categories using new structure
+                                let result = await distributionFactory.deployUnifiedTokenDistribution(
+                                    launchpadConfig,
+                                    launchpadId,
+                                    launchpadPrincipal,
+                                    participants,
+                                    tokenId  // Pass as Principal
+                                );
+
+                                switch (result) {
+                                    case (#ok(unifiedResult)) {
+                                        // Store unified distribution ID for next step (token deposit)
+                                        deployedDistributionId := ?unifiedResult.unifiedCanisterId;
+
+                                        Debug.print("✅ Unified Distribution deployed successfully!");
+                                        Debug.print("   Unified Canister ID: " # Principal.toText(unifiedResult.unifiedCanisterId));
+                                        Debug.print("   Total Categories: " # Nat.toText(unifiedResult.categories.size()));
+                                        Debug.print("   Total Recipients: " # Nat.toText(participants.size()));
+                                        Debug.print("   Total Amount: " # Nat.toText(unifiedResult.totalAmount));
+                                        Debug.print("   ⚠️  NEXT STEP: Approve and deposit " # Nat.toText(unifiedResult.totalAmount) # " tokens");
+
+                                        #ok(#DistributionDeployed({
+                                            canisters = [unifiedResult.unifiedCanisterId];
+                                            totalAllocated = unifiedResult.totalAmount;
+                                        }))
+                                    };
+                                    case (#err(error)) {
+                                        let errorMsg = debug_show(error);
+                                        Debug.print("❌ Unified Distribution deployment failed: " # errorMsg);
+                                        #err("Unified distribution deployment failed: " # errorMsg)
+                                    };
+                                }
+                            };
+                            case (null) {
+                                Debug.print("❌ Token not deployed yet, cannot deploy distribution");
+                                #err("Token not deployed - cannot deploy unified distribution")
+                            };
+                        };
+                    };
+                    case (null) {
+                        Debug.print("⚠️  TokenDistribution not configured, falling back to legacy single-category distribution");
+                        Debug.print("   Category: Fair Launch Participants");
+                        Debug.print("   Participants: " # Nat.toText(participants.size()));
+
+                        // Validate token is deployed for legacy deployment
+                        switch (deployedTokenId) {
+                            case (?legacyTokenId) {
+                                // Create DistributionFactory for legacy deployment
+                                let distributionFactory = DistributionFactoryModule.DistributionFactory(
+                                    backendPrincipal,
+                                    creatorPrincipal,
+                                    ?legacyTokenId
+                                );
+
+                                // Define legacy distribution category
+                                let category: DistributionTypes.DistributionCategory = {
+                                    id = "fairlaunch";
+                                    name = "Fair Launch Participants";
+                                    description = ?"Token allocation for launchpad participants";
+                                    order = ?0;
+                                };
+
+                                // Deploy legacy distribution via backend
+                                let result = await distributionFactory.deployDistribution(
+                                    launchpadConfig,
+                                    launchpadId,
+                                    launchpadPrincipal,
+                                    participants,
+                                    category
+                                );
+
+                                switch (result) {
+                                    case (#ok(deployment)) {
+                                        deployedDistributionId := ?deployment.canisterId;
+
+                                        Debug.print("✅ Legacy Distribution deployed successfully!");
+                                        Debug.print("   Canister ID: " # Principal.toText(deployment.canisterId));
+                                        Debug.print("   Recipients: " # Nat.toText(deployment.recipientCount));
+                                        Debug.print("   Total Amount: " # Nat.toText(deployment.totalAmount));
+
+                                        #ok(#DistributionDeployed({
+                                            canisters = [deployment.canisterId];
+                                            totalAllocated = deployment.totalAmount;
+                                        }))
+                                    };
+                                    case (#err(error)) {
+                                        let errorMsg = debug_show(error);
+                                        Debug.print("❌ Legacy Distribution deployment failed: " # errorMsg);
+                                        #err("Legacy distribution deployment failed: " # errorMsg)
+                                    };
+                                }
+                            };
+                            case (null) {
+                                Debug.print("❌ Token not deployed yet, cannot deploy legacy distribution");
+                                #err("Token not deployed - cannot deploy legacy distribution")
+                            };
+                        }
+                    };
                 };
-
-                Debug.print("   Category: " # category.name);
-                Debug.print("   Participants: " # Nat.toText(participants.size()));
-
-                // Deploy distribution via backend
-                let result = await distributionFactory.deployDistribution(
-                    launchpadConfig,
-                    launchpadId,
-                    launchpadPrincipal,
-                    participants,
-                    category
-                );
-
-                switch (result) {
-                    case (#ok(deployment)) {
-                        // Store distribution ID for next step (token deposit)
-                        deployedDistributionId := ?deployment.canisterId;
-
-                        Debug.print("✅ Distribution deployed successfully!");
-                        Debug.print("   Canister ID: " # Principal.toText(deployment.canisterId));
-                        Debug.print("   Recipients: " # Nat.toText(deployment.recipientCount));
-                        Debug.print("   Total Amount: " # Nat.toText(deployment.totalAmount));
-                        Debug.print("   ⚠️  NEXT STEP: Approve and deposit " # Nat.toText(deployment.totalAmount) # " tokens");
-                        Debug.print("   ℹ️  Auto-initialization will happen in postupgrade()");
-                        Debug.print("      - Recipients will be added to participants");
-                        Debug.print("      - Auto-activation timer will start automatically");
-
-                        #ok(#DistributionDeployed({
-                            canisters = [deployment.canisterId];
-                            totalAllocated = deployment.totalAmount;
-                        }))
-                    };
-                    case (#err(error)) {
-                        let errorMsg = debug_show(error);
-                        Debug.print("❌ Distribution deployment failed: " # errorMsg);
-                        #err("Distribution deployment failed: " # errorMsg)
-                    };
-                }
             }
         };
 
