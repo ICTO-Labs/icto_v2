@@ -21,17 +21,39 @@ module DistributionTypes {
     // Launchpad Integration Types
     public type LaunchpadContext = {
         launchpadId: Principal;           // Reference to launchpad project
-        category: DistributionCategory;   // Type of distribution within launchpad
+        categoryId: ?Nat;                 // Reference to primary category (from categories array)
         projectMetadata: ProjectMetadata; // Project info for display
         batchId: ?Text;                   // For grouping multiple distributions from same launchpad
     };
 
-    // Dynamic distribution category - can be any text for flexibility
+    // ========== UNIFIED CATEGORY SYSTEM ==========
+    // Category Definition (Source of Truth)
+    // Used by BOTH Launchpad and Frontend Distribution
     public type DistributionCategory = {
-        id: Text;           // Unique identifier (e.g. "team", "advisors", "fairlaunch")
-        name: Text;         // Display name (e.g. "Team Allocation", "Advisor Vesting")
-        description: ?Text; // Optional description
-        order: ?Nat;        // Optional ordering for display
+        // Identity
+        id: Nat;                              // PRIMARY: Dynamic ID (1, 2, 3...)
+        name: Text;                           // Display name (e.g. "Seed Sale", "Team")
+        description: ?Text;                   // Detailed description
+        order: ?Nat;                          // Display order for UI
+
+        // Category Behavior
+        mode: CategoryMode;                   // Predefined (has recipients) or Open (self-register)
+
+        // Default Allocation Settings (templates for CategoryAllocation)
+        defaultVestingSchedule: VestingSchedule;
+        defaultVestingStart: Time.Time;
+        defaultPassportScore: Nat;            // 0 = disabled, 1-100 = required score
+        defaultPassportProvider: Text;        // "ICTO", "Gitcoin", "Civic", etc.
+
+        // Limits
+        maxParticipants: ?Nat;                // Maximum users allowed in this category
+        allocationPerUser: ?Nat;              // Fixed allocation per user (for Open mode)
+    };
+
+    // Category Mode
+    public type CategoryMode = {
+        #Predefined;  // Has predefined recipients via multiCategoryRecipients
+        #Open;        // Users self-register into this category
     };
 
     public type ProjectMetadata = {
@@ -108,8 +130,14 @@ module DistributionTypes {
         externalCheckers: ?[(Text, Principal)];
 
         // ========== MULTI-CATEGORY SUPPORT (V2.0) ==========
-        // Optional multi-category recipients
-        // If set: Use multi-category mode (direct storage)
+        // Category Definitions (Source of Truth) - NEW!
+        // Defines available categories with their rules and defaults
+        // REQUIRED for both Predefined and Open modes
+        categories: ?[DistributionCategory];
+
+        // Optional multi-category recipients (Instances)
+        // Predefined mode: Contains recipients with CategoryAllocations
+        // Open mode: Empty, users register later
         // If null: Use legacy mode (auto-convert to default category)
         multiCategoryRecipients: ?[MultiCategoryRecipient];
 
@@ -343,6 +371,10 @@ module DistributionTypes {
         // Token Configuration
         tokenInfo: TokenInfo;
         totalAmount: Nat;
+
+        // ========== MULTI-CATEGORY SUPPORT (V2.0) ==========
+        // Category Definitions (Source of Truth)
+        categories: ?[DistributionCategory];
 
         // Multi-category recipients with different vesting schedules
         multiCategoryRecipients: [MultiCategoryRecipient];
@@ -630,29 +662,12 @@ module DistributionTypes {
         }
     };
 
-    // Distribution Category helpers
-    public func createDistributionCategory(id: Text, name: Text, description: ?Text, order: ?Nat) : DistributionCategory {
-        {
-            id = id;
-            name = name;
-            description = description;
-            order = order;
-        }
-    };
-
-    // Predefined common categories for convenience
+    // Distribution Category helpers - DEPRECATED
+    // Categories are now defined per-distribution in DistributionConfig.categories
+    // This is kept for backward compatibility only
     public func getCommonCategories() : [DistributionCategory] {
-        [
-            { id = "fairlaunch"; name = "Fair Launch"; description = ?"Public sale allocation - TGE unlock"; order = ?1 },
-            { id = "team"; name = "Team"; description = ?"Team allocation - 12M cliff + 24M linear"; order = ?2 },
-            { id = "advisors"; name = "Advisors"; description = ?"Advisor allocation - 6M cliff + 24M linear"; order = ?3 },
-            { id = "marketing"; name = "Marketing"; description = ?"Marketing allocation - 3M cliff + 12M linear"; order = ?4 },
-            { id = "liquidity"; name = "Liquidity"; description = ?"Liquidity pool allocation - instant unlock"; order = ?5 },
-            { id = "treasury"; name = "Treasury"; description = ?"Treasury allocation - 24M single lock"; order = ?6 },
-            { id = "private"; name = "Private Sale"; description = ?"Private sale - 6M cliff + 18M linear"; order = ?7 },
-            { id = "seed"; name = "Seed"; description = ?"Seed round - 12M cliff + 18M linear"; order = ?8 },
-            { id = "strategic"; name = "Strategic"; description = ?"Strategic partners - 9M cliff + 15M linear"; order = ?9 }
-        ]
+        // Return empty array - categories should be defined in config
+        []
     };
 
     // Preset vesting schedules for common categories
@@ -737,7 +752,7 @@ module DistributionTypes {
     ) : DistributionConfig {
         let vestingSchedule = switch (overrideVesting) {
             case (?customVesting) { customVesting };
-            case null { getPresetVestingSchedule(category.id) };
+            case null { category.defaultVestingSchedule }; // Use category's default vesting
         };
 
         {
@@ -886,25 +901,44 @@ module DistributionTypes {
         }
     };
 
-    // Get distribution category from config
-    public func getDistributionCategory(config: DistributionConfig) : ?DistributionCategory {
-        switch (config.launchpadContext) {
-            case (?context) { ?context.category };
+    // Get primary distribution category from config
+    public func getPrimaryCategory(config: DistributionConfig) : ?DistributionCategory {
+        switch (config.categories) {
+            case (?cats) {
+                // Return first category or category matching launchpadContext.categoryId
+                switch (config.launchpadContext) {
+                    case (?context) {
+                        switch (context.categoryId) {
+                            case (?catId) {
+                                // Find category by ID
+                                Array.find<DistributionCategory>(cats, func(c) { c.id == catId })
+                            };
+                            case null {
+                                // Return first category if no specific ID
+                                if (cats.size() > 0) { ?cats[0] } else { null }
+                            };
+                        }
+                    };
+                    case null {
+                        // Return first category if no launchpad context
+                        if (cats.size() > 0) { ?cats[0] } else { null }
+                    };
+                }
+            };
             case null { null };
         }
     };
 
-    // Get category by ID from common categories
-    public func findCategoryById(id: Text) : ?DistributionCategory {
-        let categories = getCommonCategories();
-        Array.find<DistributionCategory>(categories, func(c) = c.id == id)
+    // Get category by ID from categories array
+    public func findCategoryById(categories: [DistributionCategory], id: Nat) : ?DistributionCategory {
+        Array.find<DistributionCategory>(categories, func(c) { c.id == id })
     };
 
     // Create launchpad-linked distribution config
     public func createLaunchpadDistributionConfig(
         baseConfig: DistributionConfig,
         launchpadId: Principal,
-        category: DistributionCategory,
+        categoryId: ?Nat,
         projectMetadata: ProjectMetadata,
         batchId: ?Text
     ) : DistributionConfig {
@@ -913,7 +947,7 @@ module DistributionTypes {
             campaignType = #LaunchpadDistribution;
             launchpadContext = ?{
                 launchpadId = launchpadId;
-                category = category;
+                categoryId = categoryId;
                 projectMetadata = projectMetadata;
                 batchId = batchId;
             };
@@ -987,6 +1021,38 @@ module DistributionTypes {
         };
 
         #Ok(())
+    };
+
+    // ========== BATCH RESULT TYPES FOR FLEXIBLE REGISTER/CLAIM ==========
+
+    /// Batch result for comprehensive category processing
+    public type BatchResult = {
+        success: Bool;
+        message: Text;
+        categories: [CategoryResult];
+    };
+
+    /// Individual category result for batch operations
+    public type CategoryResult = {
+        categoryId: Nat;
+        categoryName: Text;
+        success: Bool;
+        isValid: Bool;
+        allocation: Nat;
+        claimedAmount: ?Nat;
+        isRegistered: Bool;
+        errorMessage: ?Text;
+    };
+
+    /// Batch registration result
+    public type BatchRegisterResult = BatchResult;
+
+    /// Batch claim result with total amount claimed
+    public type BatchClaimResult = {
+        success: Bool;
+        message: Text;
+        categories: [CategoryResult];
+        totalAmount: Nat;
     };
 
 }

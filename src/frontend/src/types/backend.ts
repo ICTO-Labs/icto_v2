@@ -1,5 +1,5 @@
-import type { 
-  DeploymentRequest, 
+import type {
+  DeploymentRequest,
   DeploymentRecord,
   AuditEntry,
   ActionType,
@@ -10,8 +10,9 @@ import type {
   ServiceHealth,
   RefundRequest
 } from '../../../declarations/backend/backend.did'
+import type { Principal } from '@dfinity/principal'
 
-export type { 
+export type {
   DeploymentRequest,
   DeploymentRecord,
   AuditEntry,
@@ -122,67 +123,70 @@ export interface RegistrationPeriodBackend {
     maxParticipants?: bigint
 }
 
-export interface DistributionDeploymentRequest {
-    // Basic Information
-    title: string
-    description: string
-    isPublic: boolean
-    
-    // Token Configuration
-    tokenInfo: DistributionTokenInfo
-    totalAmount: bigint
-    
-    // Eligibility & Recipients
-    eligibilityType: EligibilityTypeBackend
-    eligibilityLogic?: EligibilityLogicBackend
-    recipientMode: 'Fixed' | 'Dynamic' | 'SelfService'
-    maxRecipients?: bigint
-    
-    // Vesting Configuration
-    vestingSchedule: VestingScheduleBackend
-    initialUnlockPercentage: bigint
-    
-    // Timing
-    registrationPeriod?: RegistrationPeriodBackend
-    distributionStart: bigint  // nanoseconds timestamp
-    distributionEnd?: bigint   // nanoseconds timestamp
-    
-    // Fees & Permissions
-    feeStructure: FeeStructureBackend
-    allowCancel: boolean
-    allowModification: boolean
-    
-    // Owner & Governance
-    owner: import('@dfinity/principal').Principal
-    governance?: import('@dfinity/principal').Principal
-    
-    // External Integrations
-    externalCheckers?: Array<[string, string]>  // (name, principal) tuples
+// Import the actual DistributionConfig from declarations
+import type {
+    DistributionConfig,
+    MultiCategoryRecipient,
+    Recipient,
+    VestingSchedule,
+    LaunchpadContext,
+    DistributionCategory,
+    TokenInfo,
+    EligibilityType,
+    EligibilityLogic,
+    FeeStructure,
+    MultiSigGovernance,
+    RecipientMode,
+    RegistrationPeriod,
+    PenaltyUnlock,
+    MerkleConfig,
+    RateLimitConfig,
+    CampaignType,
+    ExternalDeployerArgs
+} from '@/declarations/distribution_factory/distribution_factory.did'
+
+// Backend request parameters for distribution deployment
+export type DistributionDeploymentRequest = ExternalDeployerArgs
+
+// ================ FRONTEND-SPECIFIC TYPE ALIASES ================
+// These are type aliases for easier use in frontend components
+
+export type {
+    // Use imported types directly from declarations
+    DistributionConfig,
+    MultiCategoryRecipient,
+    Recipient,
+    VestingSchedule,
+    LaunchpadContext,
+    DistributionCategory,
+    TokenInfo,
+    EligibilityType,
+    EligibilityLogic,
+    FeeStructure,
+    MultiSigGovernance,
+    RecipientMode,
+    RegistrationPeriod,
+    PenaltyUnlock,
+    MerkleConfig,
+    RateLimitConfig,
+    CampaignType
 }
 
-export type VestingScheduleBackend = 
-    | { Instant: null }
-    | { Linear: { duration: bigint, frequency: UnlockFrequencyBackend } }
-    | { Cliff: { cliffDuration: bigint, cliffPercentage: bigint, vestingDuration: bigint, frequency: UnlockFrequencyBackend } }
-    | { SteppedCliff: Array<{ timeOffset: bigint, percentage: bigint }> }
-    | { Custom: Array<{ timestamp: bigint, amount: bigint }> }
+// Frontend-specific convenience types
+export type CategoryAllocationBackend = {
+    categoryId: bigint
+    categoryName: string
+    amount: bigint
+    claimedAmount: bigint
+    vestingSchedule: VestingSchedule
+    vestingStart: bigint  // Nanoseconds timestamp
 
-export type UnlockFrequencyBackend = 
-    | { Continuous: null }
-    | { Daily: null }
-    | { Weekly: null }
-    | { Monthly: null }
-    | { Quarterly: null }
-    | { Yearly: null }
-    | { Custom: bigint }
+    // Per-Category Passport Verification
+    passportScore: bigint     // 0 = disabled, 1-100 = minimum score required
+    passportProvider: string  // "ICTO", "Gitcoin", "Civic", etc.
 
-export type FeeStructureBackend = 
-    | { Free: null }
-    | { Fixed: bigint }
-    | { Percentage: bigint }
-    | { Progressive: Array<{ threshold: bigint, feeRate: bigint }> }
-    | { RecipientPays: null }
-    | { CreatorPays: null }
+    note?: string
+}
 
 export interface DeployDistributionResponse {
     distributionCanisterId: string

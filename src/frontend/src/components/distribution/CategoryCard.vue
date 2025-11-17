@@ -15,14 +15,19 @@
             />
           </button>
 
-          <div class="flex items-center gap-2">
+          <div class="flex items-center gap-2 flex-1">
             <input
               v-model="localCategory.name"
               @input="emitUpdate"
               type="text"
               placeholder="Category Name"
-              class="text-lg font-semibold bg-transparent border-none text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none"
+              class="text-lg font-semibold bg-transparent border-b-2 border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:border-blue-500 focus:outline-none text-gray-900 dark:text-white placeholder-gray-400 transition-colors px-1 py-1"
             />
+            <span class="text-xs text-gray-400 dark:text-gray-500">
+              <svg class="w-3 h-3 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+            </span>
           </div>
         </div>
 
@@ -44,15 +49,37 @@
 
       <!-- Collapsed Summary -->
       <div v-if="!isExpanded" class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-        <div class="flex items-center gap-4">
-          <span v-if="localCategory.mode === 'predefined'">
-            {{ recipientCount }} recipient{{ recipientCount > 1 ? 's' : '' }}
+        <div class="flex items-center gap-3">
+          <!-- Mode Badge -->
+          <span class="px-2 py-1 rounded-full text-xs font-medium"
+                :class="localCategory.mode === 'predefined'
+                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                  : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'">
+            {{ localCategory.mode === 'predefined' ? 'Predefined' : 'Open' }}
           </span>
-          <span v-else>
-            Up to {{ localCategory.maxRecipients || 0 }} recipients
+
+          <!-- Recipients Info -->
+          <span class="flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+            </svg>
+            <span v-if="localCategory.mode === 'predefined'">
+              {{ recipientCount }} recipient{{ recipientCount > 1 ? 's' : '' }}
+            </span>
+            <span v-else>
+              Up to {{ localCategory.maxRecipients || 0 }} recipients
+            </span>
           </span>
-          <span>•</span>
-          <span>{{ getVestingSummary() }}</span>
+
+          <span class="text-gray-300 dark:text-gray-600">•</span>
+
+          <!-- Vesting Info -->
+          <span class="flex items-center gap-1">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>{{ getVestingSummary() }}</span>
+          </span>
         </div>
       </div>
     </div>
@@ -73,48 +100,62 @@
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
             Distribution Mode
           </label>
-          <div class="grid grid-cols-1 gap-3">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
             <button
               type="button"
               @click="handleModeChange('predefined')"
-              class="flex items-center gap-3 px-4 py-3 rounded-lg border-2 transition-all"
+              class="flex items-start gap-2 px-3 py-3 rounded-lg border-2 transition-all"
               :class="localCategory.mode === 'predefined'
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                 : 'border-gray-300 dark:border-gray-600 hover:border-blue-300'"
             >
-              <div class="flex-shrink-0">
-                <div class="h-5 w-5 rounded-full border-2 flex items-center justify-center"
+              <div class="flex-shrink-0 mt-0.5">
+                <div class="h-4 w-4 rounded-full border-2 flex items-center justify-center"
                   :class="localCategory.mode === 'predefined'
                     ? 'border-blue-500 bg-blue-500'
                     : 'border-gray-300 dark:border-gray-600'">
-                  <div v-if="localCategory.mode === 'predefined'" class="h-2 w-2 rounded-full bg-white"></div>
+                  <div v-if="localCategory.mode === 'predefined'" class="h-1.5 w-1.5 rounded-full bg-white"></div>
                 </div>
               </div>
               <div class="flex-1 text-left">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">Predefined</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">Fixed recipients with predetermined amounts</div>
+                <div class="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                  Predefined
+                </div>
+                <div class="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                  Fixed recipients with predetermined amounts
+                </div>
+                <div class="text-xs bg-gray-100 dark:bg-gray-800 rounded p-1.5 text-gray-700 dark:text-gray-300">
+                  <span class="font-medium">Best for:</span> Salary, vesting, team rewards
+                </div>
               </div>
             </button>
 
             <button
               type="button"
               @click="handleModeChange('open')"
-              class="flex items-center gap-3 px-4 py-3 rounded-lg border-2 transition-all"
+              class="flex items-start gap-2 px-3 py-3 rounded-lg border-2 transition-all"
               :class="localCategory.mode === 'open'
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                 : 'border-gray-300 dark:border-gray-600 hover:border-blue-300'"
             >
-              <div class="flex-shrink-0">
-                <div class="h-5 w-5 rounded-full border-2 flex items-center justify-center"
+              <div class="flex-shrink-0 mt-0.5">
+                <div class="h-4 w-4 rounded-full border-2 flex items-center justify-center"
                   :class="localCategory.mode === 'open'
                     ? 'border-blue-500 bg-blue-500'
                     : 'border-gray-300 dark:border-gray-600'">
-                  <div v-if="localCategory.mode === 'open'" class="h-2 w-2 rounded-full bg-white"></div>
+                  <div v-if="localCategory.mode === 'open'" class="h-1.5 w-1.5 rounded-full bg-white"></div>
                 </div>
               </div>
               <div class="flex-1 text-left">
-                <div class="text-sm font-medium text-gray-900 dark:text-white">Open</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400">First-come, first-served with fixed amount per recipient</div>
+                <div class="text-sm font-semibold text-gray-900 dark:text-white mb-1">
+                  Open Registration
+                </div>
+                <div class="text-xs text-gray-600 dark:text-gray-400 mb-2">
+                  Users register themselves with fixed amounts
+                </div>
+                <div class="text-xs bg-gray-100 dark:bg-gray-800 rounded p-1.5 text-gray-700 dark:text-gray-300">
+                  <span class="font-medium">Best for:</span> Airdrops, community rewards, bounties
+                </div>
               </div>
             </button>
           </div>
@@ -132,12 +173,22 @@
             rows="6"
             placeholder="Enter recipients for this category, one per line&#10;Format: Principal,Amount,Note&#10;&#10;Example:&#10;be2us-64aaa-aaaah-qaabq-cai,10000,Early supporter&#10;rdmx6-jaaaa-aaaah-qcaiq-cai,5000,Community member"
             class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm font-mono"
-            :class="{ 'border-red-400': !localCategory.recipientsText?.trim() }"
+            :class="{ 'border-red-400 focus:border-red-500': localCategory.mode === 'predefined' && !localCategory.recipientsText?.trim() }"
           ></textarea>
           <div class="mt-2 flex items-center justify-between text-xs">
             <p class="text-gray-500">Format: Principal,Amount,Note (note is optional)</p>
             <p v-if="totalAmount > 0" class="text-blue-600 dark:text-blue-400 font-medium">
               Total: {{ formatNumber(totalAmount) }} tokens
+            </p>
+          </div>
+          <!-- Error message for predefined mode with no recipients -->
+          <div v-if="localCategory.mode === 'predefined' && !localCategory.recipientsText?.trim()"
+               class="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+            <p class="text-xs text-red-600 dark:text-red-400 flex items-center gap-1">
+              <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+              </svg>
+              At least one recipient is required for predefined distribution mode
             </p>
           </div>
         </div>
@@ -204,41 +255,44 @@
               </div>
 
               <!-- Passport Provider Selection -->
-              <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Passport Provider
-                </label>
-                <select
-                  v-model="passportProvider"
-                  class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-orange-500 focus:ring-orange-500 dark:bg-gray-700 dark:text-white text-sm"
-                >
-                  <option value="ICTO">ICTO Passport (Default)</option>
-                  <option value="Gitcoin" disabled>Gitcoin Passport (Coming Soon)</option>
-                  <option value="Civic" disabled>Civic Pass (Coming Soon)</option>
-                  <option value="Custom" disabled>Custom Provider (Coming Soon)</option>
-                </select>
-                <p class="mt-1 text-xs text-gray-500">
-                  Verification provider for identity scoring
-                </p>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Passport Provider
+                  </label>
+                  <select
+                    v-model="passportProvider"
+                    class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-orange-500 focus:ring-orange-500 dark:bg-gray-700 dark:text-white text-sm"
+                  >
+                    <option value="ICTO">ICTO Passport (Default)</option>
+                    <option value="Gitcoin" disabled>Gitcoin Passport (Coming Soon)</option>
+                    <option value="Civic" disabled>Civic Pass (Coming Soon)</option>
+                    <option value="Custom" disabled>Custom Provider (Coming Soon)</option>
+                  </select>
+                </div>
+
+                <!-- Minimum Score Input -->
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Minimum Passport Score
+                  </label>
+                  <input
+                    v-model.number="passportScore"
+                    type="number"
+                    min="0"
+                    placeholder="0"
+                    class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-orange-500 focus:ring-orange-500 dark:bg-gray-700 dark:text-white text-sm"
+                  />
+                </div>
               </div>
 
-              <!-- Minimum Score Input -->
-              <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Minimum Passport Score
-                </label>
-                <input
-                  v-model.number="passportScore"
-                  type="number"
-                  min="1"
-                  max="100"
-                  placeholder="50"
-                  class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-orange-500 focus:ring-orange-500 dark:bg-gray-700 dark:text-white text-sm"
-                />
-                <p class="mt-1 text-xs text-gray-500">
-                  Users must have a <span class="font-semibold text-orange-600 dark:text-orange-400">{{ passportProvider }}</span> score of <span class="font-semibold text-orange-600 dark:text-orange-400">{{ passportScore }}</span> or higher (1-100)
-                </p>
-              </div>
+              <!-- Description -->
+              <p class="mt-3 text-xs text-gray-500">
+                Users must have a <span class="font-semibold text-orange-600 dark:text-orange-400">{{ passportProvider }}</span> score of
+                <span class="font-semibold text-orange-600 dark:text-orange-400">{{ passportScore || 0 }}</span> or higher
+                <span v-if="passportScore > 0" class="text-orange-500">(minimum requirement enabled)</span>
+                <span v-else class="text-gray-500">(no minimum requirement)</span>
+              </p>
             </div>
           </div>
 
@@ -577,10 +631,16 @@ watch(() => props.category, (newValue) => {
 
 // Watch passport changes and sync to localCategory
 watch([enablePassport, passportScore, passportProvider], ([enabled, score, provider]) => {
-  if (localCategory.value.mode === 'open') {
-    // Simplified logic: if enabled, use score; if disabled, set to 0
-    localCategory.value.passportScore = enabled ? score : 0
-    localCategory.value.passportProvider = provider
+  const isOpenMode = localCategory.value.mode === 'open';
+
+  if (isOpenMode) {
+    // FIX: Use object spread to ensure Vue reactivity tracks changes
+    // Direct assignment might not trigger reactivity if fields don't exist initially
+    localCategory.value = {
+      ...localCategory.value,
+      passportScore: enabled ? score : 0,
+      passportProvider: provider
+    };
     emitUpdate()
   }
 })

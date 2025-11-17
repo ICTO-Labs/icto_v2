@@ -5,6 +5,7 @@ import type {
     NFTHolderConfig,
     TokenHolderConfig,
 } from '@/types/distribution';
+import type { CategoryData } from '@/components/distribution/CategoryCard.vue';
 import type {
     MotokoDistributionConfig,
     EligibilityTypeMotoko,
@@ -13,7 +14,8 @@ import type {
     VestingScheduleMotoko,
     UnlockFrequencyMotoko,
     FeeStructureMotoko,
-    RegistrationPeriodMotoko
+    RegistrationPeriodMotoko,
+    DistributionCategoryMotoko
 } from '@/types/motoko-backend';
 import { Principal } from '@dfinity/principal';
 import { keyToText } from './common';
@@ -30,7 +32,7 @@ export class DistributionUtils {
             title: config.title,
             description: config.description,
             isPublic: config.isPublic,
-            campaignType: this.convertCampaignType((config as any).campaignType),
+            campaignType: config.campaignType || { Airdrop: null }, // Already in correct variant format from buildDistributionConfig
             tokenInfo: {
                 canisterId: Principal.fromText(config.tokenInfo.canisterId.toString()),
                 symbol: config.tokenInfo.symbol,
@@ -38,16 +40,42 @@ export class DistributionUtils {
                 decimals: config.tokenInfo.decimals
             },
             totalAmount: formatTokenAmount(config.totalAmount, config.tokenInfo.decimals).toNumber(),
-            eligibilityType: this.convertEligibilityType(config.eligibilityType, config),
-            recipientMode: this.convertRecipientMode(config.recipientMode),
+            eligibilityType: config.eligibilityType, // Already in correct variant format from buildDistributionConfig
+            recipientMode: config.recipientMode, // Already in correct variant format from buildDistributionConfig
             vestingSchedule: this.convertVestingSchedule(config.vestingSchedule),
             initialUnlockPercentage: BigInt(config.initialUnlockPercentage),
-            penaltyUnlock: config.penaltyUnlock ? [this.convertPenaltyUnlock(config.penaltyUnlock)] : [], // Candid optional
-            distributionStart: BigInt(Math.floor(config.distributionStart.getTime()) * 1_000_000), // Convert to nanoseconds
+            penaltyUnlock: Array.isArray(config.penaltyUnlock) ? config.penaltyUnlock : [], // Already in Candid format from buildDistributionConfig
+            distributionStart: (() => {
+                const now = Date.now();
+                const buffer = 5 * 60 * 1000; // 5 minutes buffer
+                const minStartTime = now + buffer;
+
+                let startTime: number;
+                if (config.distributionStart) {
+                    if (typeof config.distributionStart.getTime === 'function') {
+                        // Date object
+                        startTime = config.distributionStart.getTime();
+                    } else {
+                        // BigInt nanoseconds, convert to milliseconds
+                        startTime = Number(config.distributionStart) / 1_000_000;
+                    }
+                } else {
+                    // Default to current time + buffer
+                    startTime = minStartTime;
+                }
+
+                // If start time is in the past or too close to now, adjust it
+                if (startTime < minStartTime) {
+                    console.warn(`⚠️ Distribution start time was in the past (${new Date(startTime).toISOString()}), adjusted to ${new Date(minStartTime).toISOString()}`);
+                    startTime = minStartTime;
+                }
+
+                return BigInt(Math.floor(startTime) * 1_000_000);
+            })(),
             feeStructure: this.convertFeeStructure(config.feeStructure),
             allowCancel: config.allowCancel,
             allowModification: config.allowModification,
-            owner: Principal.fromText(config.owner.toString()),
+            owner: config.owner instanceof Principal ? config.owner : Principal.fromText(config.owner.toString()),
             recipients: this.buildRecipientsArray(config),
             // registrationPeriod will be handled as Candid optional below
         };
@@ -63,12 +91,40 @@ export class DistributionUtils {
             result.registrationPeriod = [];
         }
 
-        // Handle other optional fields as Candid optionals
-        result.distributionEnd = config.distributionEnd ? [BigInt(Math.floor(config.distributionEnd.getTime()) * 1_000_000)] : [];
-        result.governance = (config.governance && config.governance.trim()) ? [Principal.fromText(config.governance)] : [];
-        result.externalCheckers = (config.externalCheckers && config.externalCheckers.length > 0) ?
-            [config.externalCheckers.map(checker => [checker.name, Principal.fromText(checker.canisterId)] as [string, Principal])] :
-            [];
+        // Handle distributionEnd - check if already converted or still needs conversion
+        if (Array.isArray(config.distributionEnd)) {
+            // Already converted by buildDistributionConfig
+            result.distributionEnd = config.distributionEnd;
+        } else if (config.distributionEnd && typeof config.distributionEnd.getTime === 'function') {
+            // Still a Date object, needs conversion
+            result.distributionEnd = [BigInt(Math.floor(config.distributionEnd.getTime()) * 1_000_000)];
+        } else {
+            // Undefined or invalid
+            result.distributionEnd = [];
+        }
+        // Handle governance - check if already converted or still needs conversion
+        if (Array.isArray(config.governance)) {
+            // Already converted by buildDistributionConfig
+            result.governance = config.governance;
+        } else if (config.governance && typeof config.governance === 'string' && config.governance.trim()) {
+            // Still a string, needs conversion
+            result.governance = [Principal.fromText(config.governance.trim())];
+        } else {
+            // Undefined, empty, or invalid
+            result.governance = [];
+        }
+        // Handle externalCheckers - check if already converted or still needs conversion
+        if (Array.isArray(config.externalCheckers) && config.externalCheckers.length > 0) {
+            // Check if already converted (contains [string, Principal] pairs)
+            const isConverted = config.externalCheckers.every(
+                (checker: any) => Array.isArray(checker) && checker.length === 2
+            );
+
+            result.externalCheckers = isConverted ? config.externalCheckers :
+                [config.externalCheckers.map((checker: any) => [checker.name, Principal.fromText(checker.canisterId)] as [string, Principal])];
+        } else {
+            result.externalCheckers = [];
+        }
 
         // Handle MultiSig Governance as Candid optional (disabled)
         result.multiSigGovernance = [];
@@ -76,7 +132,129 @@ export class DistributionUtils {
         // Handle LaunchpadContext as Candid optional (null for standalone distributions)
         result.launchpadContext = [];
 
+        // Handle Merkle System as Candid optional
+        if (config.usingMerkleSystem) {
+            if (Array.isArray(config.usingMerkleSystem)) {
+                // Already converted
+                result.usingMerkleSystem = config.usingMerkleSystem;
+            } else {
+                // Convert boolean to Candid optional
+                result.usingMerkleSystem = config.usingMerkleSystem ? [config.usingMerkleSystem] : [];
+            }
+        } else {
+            result.usingMerkleSystem = [];
+        }
+
+        // Handle MerkleConfig as Candid optional
+        if (config.merkleConfig) {
+            if (Array.isArray(config.merkleConfig)) {
+                // Already converted
+                result.merkleConfig = config.merkleConfig;
+            } else {
+                // Convert object to Candid optional
+                result.merkleConfig = [config.merkleConfig];
+            }
+        } else {
+            result.merkleConfig = [];
+        }
+
+        // Handle RateLimitConfig as Candid optional
+        if (config.rateLimitConfig) {
+            if (Array.isArray(config.rateLimitConfig)) {
+                // Already converted
+                result.rateLimitConfig = config.rateLimitConfig;
+            } else {
+                // Convert object to Candid optional
+                result.rateLimitConfig = [config.rateLimitConfig];
+            }
+        } else {
+            result.rateLimitConfig = [];
+        }
+
+        // Handle categories as Candid optional (NEW: unified category system)
+        if (config.categories && Array.isArray(config.categories)) {
+            // Convert frontend CategoryData[] to backend DistributionCategory[]
+            result.categories = [this.convertCategoriesToBackend(config.categories)];
+        } else {
+            result.categories = [];
+        }
+
+        // Handle multiCategoryRecipients as Candid optional
+        if (config.multiCategoryRecipients) {
+            if (Array.isArray(config.multiCategoryRecipients)) {
+                // Already converted
+                result.multiCategoryRecipients = config.multiCategoryRecipients;
+            } else {
+                // Convert object to Candid optional
+                result.multiCategoryRecipients = [config.multiCategoryRecipients];
+            }
+        } else {
+            result.multiCategoryRecipients = [];
+        }
+
         return result as MotokoDistributionConfig;
+    }
+
+    /**
+     * Convert frontend CategoryData array to backend DistributionCategory array
+     */
+    public static convertCategoriesToBackend(categories: CategoryData[]): DistributionCategoryMotoko[] {
+        return categories.map((category, index) => {
+            // Convert vesting schedule
+            const vestingSchedule = this.convertVestingSchedule(category.vestingSchedule);
+
+            // Convert vesting start date with validation
+            let vestingStartNs: bigint;
+            if (category.vestingStartDate) {
+                const vestingStartDate = new Date(category.vestingStartDate);
+                const timestamp = vestingStartDate.getTime();
+                // Validate timestamp is not NaN
+                if (isNaN(timestamp)) {
+                    // Default to current time if invalid
+                    vestingStartNs = BigInt(Date.now() * 1_000_000);
+                } else {
+                    vestingStartNs = BigInt(Math.floor(timestamp) * 1_000_000);
+                }
+            } else {
+                // Default to current time if not provided
+                vestingStartNs = BigInt(Date.now() * 1_000_000);
+            }
+
+            // Convert mode to backend format (handle both string and object formats)
+            let mode;
+            if (typeof category.mode === 'string') {
+                if (category.mode === 'open') {
+                    mode = { Open: null };
+                } else {
+                    mode = { Predefined: null };
+                }
+            } else if (category.mode && typeof category.mode === 'object') {
+                // Already in backend format, use as-is
+                mode = ('Open' in category.mode) ? { Open: null } : { Predefined: null };
+            } else {
+                mode = { Predefined: null };
+            }
+
+            // Validate numeric values before BigInt conversion
+            const categoryId = Number(category.id);
+            const passportScore = Number(category.passportScore || 0);
+            const maxRecipients = category.maxRecipients ? Number(category.maxRecipients) : null;
+            const amountPerRecipient = category.amountPerRecipient ? Number(category.amountPerRecipient) : null;
+
+            return {
+                id: BigInt(isNaN(categoryId) ? index + 1 : categoryId), // Use index + 1 as fallback
+                name: category.name || `Category ${index + 1}`,
+                description: [], // Optional, send as empty array
+                order: [], // Optional, send as empty array
+                mode: mode,
+                defaultVestingSchedule: vestingSchedule,
+                defaultVestingStart: vestingStartNs,
+                defaultPassportScore: BigInt(isNaN(passportScore) ? 0 : passportScore),
+                defaultPassportProvider: category.passportProvider || 'ICTO',
+                maxParticipants: maxRecipients !== null && !isNaN(maxRecipients) ? [BigInt(maxRecipients)] : [],
+                allocationPerUser: amountPerRecipient !== null && !isNaN(amountPerRecipient) ? [BigInt(amountPerRecipient)] : []
+            };
+        });
     }
 
     /**
@@ -99,8 +277,9 @@ export class DistributionUtils {
                     TokenHolder: {
                         canisterId: Principal.fromText(tokenConfig?.canisterId || ''),
                         minAmount: BigInt(tokenConfig?.minAmount || 0),
-                        snapshotTime: tokenConfig?.snapshotTime ?
-                            BigInt(tokenConfig.snapshotTime.getTime() * 1_000_000) : undefined
+                        snapshotTime: tokenConfig?.snapshotTime
+                            ? BigInt(tokenConfig.snapshotTime.getTime() * 1_000_000)
+                            : undefined
                     }
                 };
             
@@ -228,6 +407,10 @@ export class DistributionUtils {
      * Convert frontend RegistrationPeriod to backend RegistrationPeriodMotoko
      */
     private static convertRegistrationPeriod(period: any): RegistrationPeriodMotoko {
+        if (!period.startTime || !period.endTime) {
+            throw new Error('Registration period must have both startTime and endTime');
+        }
+
         return {
             startTime: BigInt(Math.floor(period.startTime.getTime()) * 1_000_000), // Convert to nanoseconds
             endTime: BigInt(Math.floor(period.endTime.getTime()) * 1_000_000),
@@ -240,19 +423,41 @@ export class DistributionUtils {
      * Convert frontend VestingSchedule to backend VestingScheduleMotoko
      */
     private static convertVestingSchedule(schedule: any): VestingScheduleMotoko {
+        // Handle null or undefined schedule
+        if (!schedule || schedule === null) {
+            return { Instant: null };
+        }
+
+        // Handle backend format (already converted)
+        if ('Instant' in schedule || 'Linear' in schedule || 'Cliff' in schedule || 'SteppedCliff' in schedule || 'Custom' in schedule) {
+            return schedule as VestingScheduleMotoko;
+        }
+
+        // Handle empty object or invalid schedule
+        if (!schedule.type || typeof schedule.type !== 'string') {
+            return { Instant: null };
+        }
+
+        // Handle frontend format
         switch (schedule.type) {
             case 'Instant':
                 return { Instant: null };
-            
+
             case 'Linear':
+                if (!schedule.config || schedule.config.duration === undefined) {
+                    return { Instant: null };
+                }
                 return {
                     Linear: {
                         duration: BigInt(schedule.config.duration),
                         frequency: this.convertUnlockFrequency(schedule.config.frequency)
                     }
                 };
-            
+
             case 'Cliff':
+                if (!schedule.config || schedule.config.cliffDuration === undefined) {
+                    return { Instant: null };
+                }
                 return {
                     Cliff: {
                         cliffDuration: BigInt(schedule.config.cliffDuration),
@@ -263,6 +468,9 @@ export class DistributionUtils {
                 };
             
             case 'Single':
+                if (!schedule.config || schedule.config.duration === undefined) {
+                    return { Instant: null };
+                }
                 return {
                     Single: {
                         duration: BigInt(schedule.config.duration)
@@ -270,17 +478,25 @@ export class DistributionUtils {
                 };
             
             case 'SteppedCliff':
+                if (!schedule.config || !Array.isArray(schedule.config)) {
+                    return { Instant: null };
+                }
                 return {
                     SteppedCliff: schedule.config.map((step: any) => ({
                         timeOffset: BigInt(step.timeOffset),
                         percentage: BigInt(step.percentage)
                     }))
                 };
-            
+
             case 'Custom':
+                if (!schedule.config || !Array.isArray(schedule.config)) {
+                    return { Instant: null };
+                }
                 return {
                     Custom: schedule.config.map((event: any) => ({
-                        timestamp: BigInt(Math.floor(event.timestamp.getTime()) * 1_000_000), // Convert to nanoseconds
+                        timestamp: event.timestamp
+                            ? BigInt(Math.floor(event.timestamp.getTime()) * 1_000_000) // Convert to nanoseconds
+                            : BigInt(Math.floor(new Date().getTime()) * 1_000_000), // Default to current time if undefined
                         amount: BigInt(event.amount)
                     }))
                 };

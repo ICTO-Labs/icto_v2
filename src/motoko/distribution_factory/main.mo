@@ -574,6 +574,18 @@ persistent actor class DistributionFactory() = this {
             return #err("Total amount must be greater than 0");
         };
 
+        // Validate categories - at least one category is required
+        switch (config.categories) {
+            case null {
+                return #err("At least one category is required");
+            };
+            case (?categories) {
+                if (categories.size() == 0) {
+                    return #err("At least one category is required");
+                };
+            };
+        };
+
         // Validate timing
         if (config.distributionStart <= Time.now()) {
             return #err("Distribution start time must be in the future");
