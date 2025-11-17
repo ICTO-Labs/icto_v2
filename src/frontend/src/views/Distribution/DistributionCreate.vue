@@ -206,6 +206,10 @@
 				<!-- Step 1: Categories & Distribution -->
 				<div v-if="currentStep === 1" class="space-y-6">
 					<CategoryManagement v-model="categories" />
+					<hr />
+					<!-- Global Config Panel -->
+					<GlobalConfigPanel v-model="globalConfig" />
+
 				</div>
 				<!-- Step 2: Settings & Payment -->
 				<div v-if="currentStep === 2" class="space-y-8">
@@ -388,45 +392,235 @@
 									</div>
 									</div>
 
-							<!-- Summary -->
-							<div
-								class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">Distribution
-									Summary</h4>
-								<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-									<div>
-										<span class="text-gray-500">Campaign:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.title || 'Not set' }}</span>
+							<!-- Comprehensive Distribution Summary -->
+							<div class="space-y-6">
+
+								<!-- Basic Information -->
+								<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+									<h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+										<InfoIcon class="h-5 w-5 text-gray-600 dark:text-gray-400" />
+										Distribution Summary
+									</h4>
+
+									<!-- Basic Info Grid -->
+									<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-6">
+										<div>
+											<span class="text-gray-500 dark:text-gray-400">Campaign:</span>
+											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.title || 'Not set' }}</span>
+										</div>
+										<div>
+											<span class="text-gray-500 dark:text-gray-400">Type:</span>
+											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.campaignType || 'Not set' }}</span>
+										</div>
+										<div>
+											<span class="text-gray-500 dark:text-gray-400">Token:</span>
+											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.tokenInfo.symbol || 'Not set' }}</span>
+										</div>
+										<div>
+											<span class="text-gray-500 dark:text-gray-400">Eligibility:</span>
+											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.eligibilityType) || 'Not set' }}</span>
+										</div>
+										<div>
+											<span class="text-gray-500 dark:text-gray-400">Fee Type:</span>
+											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.feeStructure) || 'Not set' }}</span>
+										</div>
+										<div>
+											<span class="text-gray-500 dark:text-gray-400">Public:</span>
+											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.isPublic ? 'Yes' : 'No' }}</span>
+										</div>
 									</div>
-									<div>
-										<span class="text-gray-500">Type:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.campaignType || 'Not set' }}</span>
+
+									<!-- Distribution Timing -->
+									<div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+										<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Distribution Timing</h5>
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Start Date:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">
+													{{ formData.distributionStart ? new Date(formData.distributionStart).toLocaleString() : 'Not set' }}
+												</span>
+											</div>
+											<div v-if="formData.distributionEnd">
+												<span class="text-gray-500 dark:text-gray-400">End Date:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">
+													{{ new Date(formData.distributionEnd).toLocaleString() }}
+												</span>
+											</div>
+										</div>
 									</div>
-									<div>
-										<span class="text-gray-500">Token:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.tokenInfo.symbol || 'Not set' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Total Amount:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.totalAmount || 0 }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Eligibility:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.eligibilityType) || 'Not set' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Vesting:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.vestingType || 'Not set' }}</span>
-									</div>
-									<div>
-										<span class="text-gray-500">Fee Type:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.feeStructure) || 'Not set' }}</span>
-									</div>
-									<div v-if="categories.length > 0">
-										<span class="text-gray-500">Categories:</span>
-										<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ categories.length }} categor{{ categories.length > 1 ? 'ies' : 'y' }}</span>
+
+									<!-- Registration Period (if enabled) -->
+									<div v-if="formData.hasRegistrationPeriod && formData.registrationPeriod" class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+										<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Registration Period</h5>
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Start:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">
+													{{ new Date(formData.registrationPeriod.startTime).toLocaleString() }}
+												</span>
+											</div>
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">End:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">
+													{{ new Date(formData.registrationPeriod.endTime).toLocaleString() }}
+												</span>
+											</div>
+											<div v-if="formData.registrationPeriod.maxParticipants">
+												<span class="text-gray-500 dark:text-gray-400">Max Participants:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">
+													{{ formData.registrationPeriod.maxParticipants }}
+												</span>
+											</div>
+										</div>
 									</div>
 								</div>
+
+								<!-- Categories Breakdown -->
+								<div v-if="categories.length > 0" class="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-800">
+									<h4 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">
+										Categories & Vesting Schedule
+									</h4>
+
+									<div class="space-y-4">
+										<div v-for="(category, idx) in categories" :key="idx"
+											class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
+
+											<!-- Category Header -->
+											<div class="flex items-start justify-between mb-3">
+												<div>
+													<h5 class="font-semibold text-gray-900 dark:text-white">{{ category.name }}</h5>
+													<p v-if="category.description" class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+														{{ category.description }}
+													</p>
+												</div>
+												<span class="text-xs px-2 py-1 rounded-full font-medium"
+													:class="category.mode === 'predefined'
+														? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200'
+														: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'">
+													{{ category.mode === 'predefined' ? 'Predefined' : 'Open Distribution' }}
+												</span>
+											</div>
+
+											<!-- Category Details -->
+											<div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+												<div>
+													<span class="text-gray-500 dark:text-gray-400">Recipients:</span>
+													<span class="ml-1 font-medium text-gray-900 dark:text-white">
+														{{ category.mode === 'predefined'
+															? parseCategoryRecipients(category.recipientsText).length
+															: (category.maxRecipients || 'Unlimited') }}
+													</span>
+												</div>
+												<div>
+													<span class="text-gray-500 dark:text-gray-400">Amount:</span>
+													<span class="ml-1 font-medium text-gray-900 dark:text-white">
+														{{ category.mode === 'predefined'
+															? parseCategoryRecipients(category.recipientsText).reduce((sum, r) => sum + r.amount, 0).toLocaleString()
+															: ((category.maxRecipients || 0) * (category.amountPerRecipient || 0)).toLocaleString() }}
+													</span>
+												</div>
+												<div>
+													<span class="text-gray-500 dark:text-gray-400">Initial Unlock:</span>
+													<span class="ml-1 font-medium text-gray-900 dark:text-white">
+														{{ category.initialUnlockPercentage || 0 }}%
+													</span>
+												</div>
+												<div>
+													<span class="text-gray-500 dark:text-gray-400">Vesting:</span>
+													<span class="ml-1 font-medium text-gray-900 dark:text-white">
+														{{ category.lockConfig?.lockType || 'Instant' }}
+													</span>
+												</div>
+											</div>
+
+											<!-- Vesting Details -->
+											<div v-if="category.lockConfig && category.lockConfig.lockType !== 'instant'"
+												class="bg-gray-50 dark:bg-gray-900/50 rounded p-3 text-xs space-y-2">
+
+												<!-- Linear Vesting -->
+												<div v-if="category.lockConfig.lockType === 'linear'">
+													<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+														<TimerIcon class="h-3 w-3" />
+														<span class="font-medium">Linear Vesting:</span>
+														<span>{{ category.lockConfig.linearConfig?.duration }} {{ category.lockConfig.linearConfig?.frequency || 'days' }}</span>
+													</div>
+												</div>
+
+												<!-- Cliff Vesting -->
+												<div v-if="category.lockConfig.lockType === 'cliff'">
+													<div class="space-y-1">
+														<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+															<UnlockIcon class="h-3 w-3" />
+															<span class="font-medium">Cliff:</span>
+															<span>{{ category.lockConfig.cliffConfig?.cliffDuration }} days → {{ category.lockConfig.cliffConfig?.cliffPercentage }}% unlock</span>
+														</div>
+														<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300 ml-5">
+															<span class="font-medium">Then:</span>
+															<span>{{ category.lockConfig.cliffConfig?.vestingDuration }} {{ category.lockConfig.cliffConfig?.frequency || 'days' }} linear vesting</span>
+														</div>
+													</div>
+												</div>
+
+												<!-- Stepped Cliff -->
+												<div v-if="category.lockConfig.lockType === 'stepped'">
+													<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300 mb-1">
+														<span class="font-medium">Stepped Unlocks:</span>
+													</div>
+													<div class="ml-5 space-y-1">
+														<div v-for="(step, stepIdx) in category.lockConfig.steppedCliffConfig?.steps" :key="stepIdx"
+															class="text-gray-600 dark:text-gray-400">
+															• Day {{ step.timeOffset }}: {{ step.percentage }}% unlock
+														</div>
+													</div>
+												</div>
+
+												<!-- Passport Requirement -->
+												<div v-if="category.passportScore && category.passportScore > 0"
+													class="flex items-center gap-2 text-amber-700 dark:text-amber-300 pt-2 border-t border-gray-200 dark:border-gray-700">
+													<span class="font-medium">Passport Required:</span>
+													<span>Min Score {{ category.passportScore }} ({{ category.passportProvider || 'ICTO' }})</span>
+												</div>
+											</div>
+										</div>
+
+										<!-- Total Summary -->
+										<div class="bg-blue-100 dark:bg-blue-900/30 rounded-lg p-4 mt-4">
+											<div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+												<div>
+													<span class="text-blue-700 dark:text-blue-300">Total Categories:</span>
+													<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">{{ categories.length }}</span>
+												</div>
+												<div>
+													<span class="text-blue-700 dark:text-blue-300">Total Recipients:</span>
+													<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">
+														{{ categories.reduce((sum, cat) => {
+															return sum + (cat.mode === 'predefined'
+																? parseCategoryRecipients(cat.recipientsText).length
+																: (cat.maxRecipients || 0))
+														}, 0) }}
+													</span>
+												</div>
+												<div>
+													<span class="text-blue-700 dark:text-blue-300">Total Amount:</span>
+													<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">
+														{{ categories.reduce((sum, cat) => {
+															return sum + (cat.mode === 'predefined'
+																? parseCategoryRecipients(cat.recipientsText).reduce((s, r) => s + r.amount, 0)
+																: ((cat.maxRecipients || 0) * (cat.amountPerRecipient || 0)))
+														}, 0).toLocaleString() }}
+													</span>
+												</div>
+											</div>
+										</div>
+									</div>
+								</div>
+
+								<!-- Global Configuration Summary -->
+								<GlobalConfigSummary
+									:config="globalConfig"
+									:on-edit="() => currentStep = 1"
+								/>
+
 							</div>
 
 							<!-- Payment Card -->
@@ -649,6 +843,10 @@ import type { FeePaymentTokenConfig } from '@/components/distribution/FeePayment
 import type { LockUIState } from '@/utils/lockConfig'
 import type { PenaltyUnlock } from '@/types/distribution'
 import { lockConfigToSingleVesting, cliffConfigToLockConfig } from '@/utils/lockConfig'
+import GlobalConfigPanel from '@/components/distribution/GlobalConfigPanel.vue'
+import GlobalConfigSummary from '@/components/distribution/GlobalConfigSummary.vue'
+import type { GlobalDistributionConfig } from '@/components/distribution/GlobalConfigPanel.vue'
+
 import { useSwal } from '@/composables/useSwal2'
 
 const router = useRouter()
@@ -662,6 +860,28 @@ const currentStep = ref(0)
 const isSubmitting = ref(false)
 const showSuccessModal = ref(false)
 const deploymentResult = ref<{ distributionCanisterId?: string } | null>(null)
+
+// Global config
+const globalConfig = ref<GlobalDistributionConfig>({
+  timeline: {
+    distributionStartTime: new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16), // Default: 5 minutes from now
+    enableRegistration: false,
+    registrationStartTime: new Date(Date.now()).toISOString().slice(0, 16),
+    registrationEndTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16), // Default: 1 day later
+    distributionEndTime: undefined
+  },
+  penaltyUnlock: {
+    enabled: false,
+    penaltyPercentage: 10,  // Default: 10% penalty
+    penaltyRecipient: undefined,  // undefined = burn, string = recipient address
+    minLockTime: 0  // Days before early unlock allowed
+  },
+  rateLimitConfig: {
+    enabled: false,
+    maxClaimsPerWindow: 1,  // Max claims per window
+    windowDuration: 1  // Window duration in days
+  }
+})
 
 // Payment state
 const isPaying = ref(false)
@@ -871,8 +1091,9 @@ const categories = ref<CategoryData[]>([
 	{
 		id: 1,
 		name: 'Default Category',
-		mode: 'predefined',
-		recipientsText: '',
+		mode: 'open', // Default to open mode (no recipients required)
+		maxRecipients: 1000,
+		amountPerRecipient: 1000,
 		passportScore: 0, // Default: disabled (no verification)
 		passportProvider: 'ICTO', // Default provider
 		vestingSchedule: null, // Default: No vesting (instant unlock)
@@ -977,9 +1198,11 @@ const canProceed = computed(() => {
 
 				// Check based on distribution method
 				if (category.mode === 'predefined') {
-					// PREDEFINED MODE: Allow proceeding without recipients for now (user can add them in Settings step)
-					// const recipients = parseCategoryRecipients(category.recipientsText)
-					// if (recipients.length === 0) return false
+					// PREDEFINED MODE: Must have at least one recipient
+					const recipients = parseCategoryRecipients(category.recipientsText)
+					if (recipients.length === 0) {
+						return false
+					}
 				} else {
 					// OPEN MODE: Must have complete config
 					if (!category.maxRecipients || category.maxRecipients <= 0) return false
@@ -1239,9 +1462,9 @@ const buildMultiCategoryRecipients = () => {
 			// Get or create recipient entry
 			if (!recipientMap.has(principal)) {
 				recipientMap.set(principal, {
-					address: principal,
+					address: Principal.fromText(principal), // Convert string to Principal
 					categories: [],
-					note: ''
+					note: [] // MultiCategoryRecipient note as opt text
 				})
 			}
 
@@ -1257,7 +1480,12 @@ const buildMultiCategoryRecipients = () => {
 				claimedAmount: 0,
 				vestingSchedule: buildCategoryVestingSchedule(category),
 				vestingStart: vestingStartNs,
-				note: recipient.note || category.note || ''
+
+				// Per-Category Passport Verification
+				passportScore: BigInt(category.passportScore || 0), // 0 = disabled
+				passportProvider: category.passportProvider || 'ICTO',
+
+				note: (recipient.note || category.note) && (recipient.note || category.note).trim() ? [recipient.note || category.note] : []
 			})
 		}
 	}
@@ -1308,12 +1536,70 @@ const buildDistributionConfig = () => {
 		}
 	}, 0)
 
+	// Determine recipientMode based on categories
+	// If all categories are 'predefined' → Fixed
+	// If any category is 'open' → SelfService
+	const hasOpenCategory = categories.value.some(cat => cat.mode === 'open')
+	const determinedRecipientMode = hasOpenCategory ? { SelfService: null } : { Fixed: null }
+
+	// Convert globalConfig to backend format with proper Candid optional format
+	const penaltyUnlockBackend = globalConfig.value.penaltyUnlock.enabled ? {
+		enableEarlyUnlock: true,
+		penaltyPercentage: BigInt(globalConfig.value.penaltyUnlock.penaltyPercentage),
+		// Candid optional: [] | [value]
+		penaltyRecipient: globalConfig.value.penaltyUnlock.penaltyRecipient
+			? [globalConfig.value.penaltyUnlock.penaltyRecipient]
+			: [],
+		minLockTime: globalConfig.value.penaltyUnlock.minLockTime
+			? [BigInt(globalConfig.value.penaltyUnlock.minLockTime * 24 * 60 * 60 * 1_000_000_000)] // Convert days to nanoseconds
+			: []
+	} : undefined
+
+	const rateLimitConfigBackend = globalConfig.value.rateLimitConfig.enabled ? {
+		enabled: true,
+		maxClaimsPerWindow: BigInt(globalConfig.value.rateLimitConfig.maxClaimsPerWindow),
+		windowDurationNs: BigInt(globalConfig.value.rateLimitConfig.windowDuration * 24 * 60 * 60 * 1_000_000_000), // Convert days to nanoseconds
+		enforcementLevel: { Hard: null } // Default to Hard enforcement
+	} : undefined
+
+	// Validate and normalize dates before conversion
+	const validateDate = (date: any): Date | null => {
+		if (!date) return null;
+
+		if (date instanceof Date) {
+			return isNaN(date.getTime()) ? null : date;
+		}
+
+		if (typeof date === 'string' || typeof date === 'number') {
+			const parsed = new Date(date);
+			return isNaN(parsed.getTime()) ? null : parsed;
+		}
+
+		return null;
+	};
+
+	const validDistributionStart = validateDate(formData.distributionStart) || new Date();
+	const validDistributionEnd = validateDate(formData.distributionEnd);
+
+	// Helper to convert campaignType to Candid variant format
+	const convertCampaignTypeToVariant = (type: string): any => {
+		switch (type) {
+			case 'Airdrop': return { Airdrop: null }
+			case 'Vesting': return { Vesting: null }
+			case 'Lock': return { Lock: null }
+			case 'LaunchpadDistribution': return { LaunchpadDistribution: null }
+			default: return { Airdrop: null }
+		}
+	}
+
 	// Convert form data to backend format
 	const config = {
 		title: formData.title,
 		description: formData.description,
 		isPublic: formData.isPublic,
-		campaignType: formData.campaignType || 'Airdrop',
+		campaignType: convertCampaignTypeToVariant(formData.campaignType || 'Airdrop'),
+
+		// Token Information
 		tokenInfo: {
 			canisterId: formData.tokenInfo.canisterId!,
 			symbol: formData.tokenInfo.symbol!,
@@ -1322,28 +1608,69 @@ const buildDistributionConfig = () => {
 		},
 		totalAmount: totalAmount,
 		eligibilityType: formData.eligibilityType,
-		// Multi-category recipients
-		multiCategoryRecipients: multiCategoryRecipients,
+
+		// Timeline Settings - Use values from globalConfig.timeline
+		distributionStart: BigInt(new Date(globalConfig.value.timeline.distributionStartTime).getTime() * 1_000_000),
+		distributionEnd: globalConfig.value.timeline.distributionEndTime
+			? [BigInt(new Date(globalConfig.value.timeline.distributionEndTime).getTime() * 1_000_000)]
+			: [],
+
+		// Registration Period - Build from timeline if enabled
+		registrationPeriod: globalConfig.value.timeline.enableRegistration &&
+			globalConfig.value.timeline.registrationStartTime &&
+			globalConfig.value.timeline.registrationEndTime
+			? [{
+				startTime: BigInt(new Date(globalConfig.value.timeline.registrationStartTime).getTime() * 1_000_000),
+				endTime: BigInt(new Date(globalConfig.value.timeline.registrationEndTime).getTime() * 1_000_000),
+				maxParticipants: [] // Optional, can be set per category
+			}]
+			: [],
+
+		launchpadContext: [], // Not implemented in UI
+		maxRecipients: formData.maxRecipients ? [BigInt(formData.maxRecipients)] : [],
+		governance: formData.governance && formData.governance.trim() ? [formData.governance.trim()] : [],
+		externalCheckers: formData.externalCheckers?.length ? [formData.externalCheckers] : [],
+		eligibilityLogic: [], // Not implemented in UI
+		allowModification: formData.allowModification,
+
+		// NEW: Unified Category System - Pass raw categories (will be converted by convertToBackendRequest)
+		categories: categories.value,
+
+		// Legacy multi-category recipients - Use proper Candid format
+		multiCategoryRecipients: multiCategoryRecipients.length > 0 ? [multiCategoryRecipients] : [],
 		recipients: [], // Empty for multi-category mode
-		vestingSchedule: { Instant: null }, // Ignored in multi-category mode
-		// Include token/NFT holder configurations
-		tokenHolderConfig: formData.tokenHolderConfig,
-		nftHolderConfig: formData.nftHolderConfig,
-		ictoPassportScore: formData.ictoPassportScore,
-		recipientMode: formData.recipientMode,
-		maxRecipients: formData.maxRecipients,
-		registrationPeriod: formData.registrationPeriod,
-		distributionStart: formData.distributionStart,
-		distributionEnd: formData.distributionEnd,
+
+		// Vesting Configuration
+		vestingSchedule: { Instant: null }, // Ignored in multi-category mode (per-category vesting used instead)
+		initialUnlockPercentage: formData.initialUnlockPercentage
+			? BigInt(formData.initialUnlockPercentage)
+			: BigInt(0), // Default 0% if not set
+
+		// Global Configuration (V2.0) - Use proper Candid format
+		penaltyUnlock: penaltyUnlockBackend ? [penaltyUnlockBackend] : [],
+		rateLimitConfig: rateLimitConfigBackend ? [rateLimitConfigBackend] : [],
+
+		// Merkle System (optional) - Use proper Candid [] | [Type] format
+		usingMerkleSystem: [], // Not implemented in UI yet
+		merkleConfig: [], // Not implemented in UI yet
+
+		// ✅ FIX: Use auto-determined recipientMode based on categories
+		// predefined categories → { Fixed: null }
+		// open categories → { SelfService: null }
+		recipientMode: determinedRecipientMode,
+
 		feeStructure: buildFeeStructure(),
 		allowCancel: formData.allowCancel,
-		allowModification: formData.allowModification,
-		owner: authStore?.principal || '',
-		governance: formData.governance || null,
-		externalCheckers: formData.externalCheckers?.length ? formData.externalCheckers : null,
+		owner: authStore?.principal ? Principal.fromText(authStore.principal) : Principal.anonymous(),
+
+		// MultiSig Governance (optional) - Use proper Candid format
+		multiSigGovernance: [], // Not implemented in UI yet
 	}
 
-	console.log('Multi-category distribution config being sent:', config)
+	console.log('✅ Multi-category distribution config (with global settings):', config)
+	console.log('📊 Penalty Unlock:', penaltyUnlockBackend)
+	console.log('⏱️  Rate Limit:', rateLimitConfigBackend)
+	console.log('👥 Recipient Mode:', determinedRecipientMode, hasOpenCategory ? '(has open categories)' : '(all predefined)')
 	return config
 }
 
@@ -1649,16 +1976,22 @@ const handlePayment = async () => {
 						// Process all steps to ensure data is properly set
 						processAllSteps()
 						const config = buildDistributionConfig()
+						console.log('Built config:', config);
+
+						// ✅ RESTORED: Use convertToBackendRequest but ensure it has all Candid fields
 						const backendRequest = DistributionUtils.convertToBackendRequest(config as any)
-						console.log('Backend request:', backendRequest);
-						// return;
+						console.log('Backend request from converter:', backendRequest);
+
 						// Convert eligibility type from Motoko to Backend format
 						const convertedRequest = {
 							...backendRequest,
 							eligibilityType: convertEligibilityType(backendRequest.eligibilityType),
-							recipientMode: convertRecipientMode(backendRequest.recipientMode),
+							// ✅ Keep recipientMode as variant object
+							recipientMode: backendRequest.recipientMode,
 							externalCheckers: convertExternalCheckers(backendRequest.externalCheckers)
 						}
+
+						console.log('Final deploy request:', convertedRequest);
 						const deployDistributionResult = await backendService.deployDistribution(convertedRequest)
 
 						if (!deployDistributionResult.success) {
@@ -1820,13 +2153,15 @@ const copyToClipboard = async (text: string) => {
 
 const validateTimeLogic = computed(() => {
 	const now = new Date()
-	
-	// Distribution start should be in the future (with some tolerance)
+
+	// Distribution start validation - we auto-adjust in backend, so just show warning
 	const distributionStart = new Date(distributionStartDate.value)
 	if (distributionStart < now) {
 		const timeDiff = now.getTime() - distributionStart.getTime()
-		if (timeDiff > 5 * 60 * 1000) { // Allow 5 minutes tolerance
-			return { valid: false, message: 'Distribution start time should be in the future' }
+		// No error - we'll auto-adjust to current time + 5 minutes in backend
+		// Just log for debugging
+		if (timeDiff > 5 * 60 * 1000) {
+			console.info('ℹ️ Distribution start time is in the past, will be auto-adjusted to current time + 5 minutes')
 		}
 	}
 	

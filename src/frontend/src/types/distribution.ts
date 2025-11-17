@@ -12,7 +12,29 @@ export interface TokenInfo {
   icon?: string;
 }
 
-export type { DistributionConfig, DistributionConfig as DistributionDetails, DistributionStats, Result };
+export type { DistributionConfig as DistributionConfigBackend, DistributionStats, Result };
+
+// Enhanced DistributionDetails with categories support
+export interface DistributionDetails extends DistributionConfigBackend {
+  categories?: DistributionCategory[];
+}
+
+// Category type from backend
+export interface DistributionCategory {
+  id: number;
+  name: string;
+  description?: string;
+  order?: number;
+  mode: 'Open' | 'Predefined';
+  defaultVestingSchedule: VestingSchedule;
+  defaultVestingStart: Date;
+  defaultPassportScore: number;
+  defaultPassportProvider: string;
+  maxParticipants?: number;
+  allocationPerUser?: number;
+}
+
+export type { DistributionConfig };
 export type { EligibilityType, DeploymentRecord, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic };
 // export type EligibilityType = 'Open' | 'Whitelist' | 'TokenHolder' | 'NFTHolder' | 'ICTOPassportScore' | 'Hybrid';
 // export type RecipientMode = 'Fixed' | 'Dynamic' | 'SelfService';

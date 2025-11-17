@@ -136,6 +136,7 @@
           :refreshing="checkingBalance"
           @refresh="checkBalance"
           @initial-check="checkBalance"
+          @fund="showFundModal = true"
         />
 
         <!-- ============================================ -->
@@ -317,6 +318,19 @@
                     <HistoryIcon class="w-4 h-4 mr-2 inline" />
                     Transactions
                   </button>
+                  <button
+                    v-if="categoryData.length > 0"
+                    @click="activeTab = 'categories'"
+                    :class="[
+                      'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
+                      activeTab === 'categories'
+                        ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                    ]"
+                  >
+                    <FilterIcon class="w-4 h-4 mr-2 inline" />
+                    Categories ({{ categoryData.length }})
+                  </button>
                 </div>
                 <div class="flex items-center space-x-2">
                   <button
@@ -442,6 +456,34 @@
                   </tbody>
                 </table>
               </div>
+
+              <!-- Categories Tab -->
+              <div v-if="activeTab === 'categories'">
+                <div v-if="categoryData.length > 0" class="space-y-4">
+                  <!-- Category hint -->
+                  <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <p class="text-sm text-blue-800 dark:text-blue-200">
+                      <FilterIcon class="w-4 h-4 inline mr-1" />
+                      This distribution has <strong>{{ categoryData.length }}</strong> category{{ categoryData.length > 1 ? 's' : '' }}. Click on a category to see details and participants.
+                    </p>
+                  </div>
+
+                  <!-- Category Cards -->
+                  <CategoryDetailsCard
+                    v-for="category in categoryData"
+                    :key="category.categoryId.toString()"
+                    :category="category"
+                    :participants="category.participants"
+                    :token-symbol="details.tokenInfo.symbol"
+                    :token-decimals="details.tokenInfo.decimals"
+                  />
+                </div>
+                <div v-else class="text-center py-12">
+                  <FilterIcon class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                  <p class="text-gray-500 dark:text-gray-400">No categories configured</p>
+                  <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">This distribution doesn't use the category system</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -513,6 +555,35 @@
       @claimed="handleClaim"
       @refresh="refreshClaimInfo"
     />
+
+    <!-- ============================================ -->
+    <!-- FUND CONTRACT MODAL (NEW) -->
+    <!-- ============================================ -->
+    <FundContractModal
+      v-if="details"
+      :is-open="showFundModal"
+      :contract-id="canisterId"
+      :required-amount="details.totalAmount"
+      :token-symbol="details.tokenInfo.symbol"
+      :token-decimals="details.tokenInfo.decimals"
+      :token-canister-id="details.tokenInfo.canisterId.toString()"
+      :user-balance="BigInt(0)"
+      @close="showFundModal = false"
+      @success="handleFundSuccess"
+    />
+
+    <!-- ============================================ -->
+    <!-- BATCH RESULT MODAL (NEW) -->
+    <!-- ============================================ -->
+    <BatchResultModal
+      v-if="batchResult"
+      :is-open="showBatchResultModal"
+      :result="batchResult"
+      :operation-type="batchOperationType"
+      :token-symbol="details?.tokenInfo.symbol || 'TOKEN'"
+      :token-decimals="details?.tokenInfo.decimals || 8"
+      @close="showBatchResultModal = false"
+    />
   </AdminLayout>
 </template>
 
@@ -544,8 +615,11 @@ import LockDetail from '@/components/distribution/LockDetail.vue'
 import MetricCard from '@/components/token/MetricCard.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
 import ContractBalanceStatus from '@/components/distribution/ContractBalanceStatus.vue'
+import FundContractModal from '@/components/distribution/FundContractModal.vue'
 import VueApexCharts from 'vue3-apexcharts'
 import ClaimModal from '@/components/distribution/ClaimModal.vue'
+import BatchResultModal from '@/components/distribution/BatchResultModal.vue'
+import CategoryDetailsCard from '@/components/distribution/CategoryDetailsCard.vue'
 import VueCountdown from '@chenfengyuan/vue-countdown'
 import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
 import type { DistributionDetails, DistributionStats, ClaimInfo } from '@/types/distribution'
@@ -591,7 +665,12 @@ const details = ref<DistributionDetails | null>(null)
 const stats = ref<DistributionStats | null>(null)
 const claiming = ref(false)
 const showClaimModal = ref(false)
+const showFundModal = ref(false)  // ✅ NEW: Fund contract modal
 const claimInfo = ref<ClaimInfo | null>(null)
+// Batch result modal state
+const showBatchResultModal = ref(false)
+const batchResult = ref<any>(null)
+const batchOperationType = ref<'register' | 'claim'>('register')
 const refreshing = ref(false)
 const eligibilityLoading = ref(false)
 const eligibilityStatus = ref(false)
@@ -1170,6 +1249,81 @@ const claimTimelineOptions = computed(() => ({
 }))
 
 // ============================================
+// CATEGORIES & PARTICIPANTS
+// ============================================
+const categories = computed(() => {
+  // @ts-ignore - categories may not be in type definition yet
+  return details.value?.categories || []
+})
+
+// Organize participants by category
+const participantsByCategory = computed(() => {
+  if (!participants.value || participants.value.length === 0 || !categories.value || categories.value.length === 0) {
+    return new Map()
+  }
+
+  const categoryMap = new Map<string, any[]>()
+
+  // Initialize map with all categories
+  categories.value.forEach((category: any) => {
+    const categoryId = category.id?.toString() || category.categoryId?.toString()
+    if (categoryId) {
+      categoryMap.set(categoryId, [])
+    }
+  })
+
+  // Distribute participants to their categories
+  participants.value.forEach((participant: any) => {
+    // Check if participant has categoryAllocations
+    if (participant.categoryAllocations && Array.isArray(participant.categoryAllocations)) {
+      participant.categoryAllocations.forEach(([categoryId, allocation]: [bigint, bigint]) => {
+        const catId = categoryId.toString()
+        if (categoryMap.has(catId)) {
+          categoryMap.get(catId)!.push({
+            principal: participant.principal,
+            allocation: allocation,
+            claimed: participant.claimedAmount || BigInt(0),
+            note: participant.note
+          })
+        }
+      })
+    }
+  })
+
+  return categoryMap
+})
+
+// Enhanced category data with participant info
+const categoryData = computed(() => {
+  if (!categories.value || categories.value.length === 0) {
+    return []
+  }
+
+  return categories.value.map((category: any) => {
+    const categoryId = (category.id || category.categoryId)?.toString()
+    const categoryParticipants = participantsByCategory.value.get(categoryId) || []
+
+    // Calculate total allocation for this category
+    const totalAllocation = categoryParticipants.reduce((sum: number, p: any) => sum + Number(p.allocation), 0)
+
+    return {
+      categoryId: category.id || category.categoryId,
+      name: category.name || `Category ${categoryId}`,
+      description: category.description && category.description.length > 0 ? category.description[0] : '',
+      mode: category.mode ? (('Predefined' in category.mode) ? 'Predefined' : 'Open') : 'Open',
+      totalAllocation: BigInt(totalAllocation),
+      vestingSchedule: category.defaultVestingSchedule || details.value?.vestingSchedule,
+      vestingStart: category.defaultVestingStart || details.value?.distributionStart,
+      passportScore: category.defaultPassportScore || BigInt(0),
+      passportProvider: category.defaultPassportProvider || 'ICTO',
+      maxParticipants: category.maxParticipants && category.maxParticipants.length > 0 ? category.maxParticipants[0] : null,
+      allocationPerUser: category.allocationPerUser && category.allocationPerUser.length > 0 ? category.allocationPerUser[0] : null,
+      participants: categoryParticipants
+    }
+  })
+})
+
+// ============================================
 // UTILITY FUNCTIONS
 // ============================================
 const formatNumber = (value: number) => {
@@ -1254,29 +1408,31 @@ const handleClaim = async (amount: number) => {
     claiming.value = true
 
     const rawAmount = formatTokenAmount(amount, details.value?.tokenInfo.decimals || 8)
-    const result = await DistributionService.claimTokens(canisterId.value, rawAmount.toFixed())
-
-    const claimAmountBigInt = BigInt(rawAmount.toFixed())
+    // Use batch claim (with no category ID = claim from all categories)
+    const result = await DistributionService.batchClaim(canisterId.value, undefined, rawAmount.toFixed())
 
     if ('ok' in result) {
-      toast.success('Successfully claimed tokens')
+      const batchData = result.ok
+      // Store result for modal display
+      batchResult.value = batchData
+      batchOperationType.value = 'claim'
+      showBatchResultModal.value = true
+
+      // Close the claim amount modal
       showClaimModal.value = false
 
+      // Show success toast
+      if (batchData.success) {
+        toast.success(batchData.message || 'Successfully claimed tokens')
+      } else {
+        toast.warning(batchData.message || 'Claim completed with some issues')
+      }
+
+      // Refresh claim info and data
       await refreshClaimInfo()
-
-      alreadyClaimed.value += claimAmountBigInt
-      availableToClaim.value -= claimAmountBigInt
-
-      claimHistory.value.unshift({
-        id: Date.now().toString(),
-        amount: claimAmountBigInt,
-        date: formatDate(new Date(), { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric' }),
-        txHash: Math.random().toString(36).substring(2, 18)
-      })
-
       await refreshData()
     } else {
-      toast.error('Error: ' + result.err)
+      toast.error('Claim failed: ' + result.err)
     }
   } catch (err) {
     console.error('Error claiming tokens:', err)
@@ -1284,6 +1440,21 @@ const handleClaim = async (amount: number) => {
   } finally {
     claiming.value = false
   }
+}
+
+// ✅ NEW: Handle successful contract funding
+const handleFundSuccess = async () => {
+  showFundModal.value = false
+  toast.success('Contract funded successfully! Refreshing balance...')
+
+  // Wait a moment for blockchain to process
+  await new Promise(resolve => setTimeout(resolve, 2000))
+
+  // Refresh contract balance
+  await checkBalance()
+
+  // Refresh all data to update status
+  await refreshData()
 }
 
 const checkBalance = async () => {
@@ -1339,15 +1510,31 @@ const fetchAllParticipants = async () => {
 const registerForCampaign = async () => {
   try {
     registering.value = true
-    const result = await DistributionService.register(canisterId.value)
+    // Use batch register (with no category ID = register for all Open categories)
+    const result = await DistributionService.batchRegister(canisterId.value)
+
     if ('ok' in result) {
-      toast.success('Successfully registered for campaign')
+      const batchData = result.ok
+      // Store result for modal display
+      batchResult.value = batchData
+      batchOperationType.value = 'register'
+      showBatchResultModal.value = true
+
+      // Show success toast
+      if (batchData.success) {
+        toast.success(batchData.message || 'Successfully registered for distribution')
+      } else {
+        toast.warning(batchData.message || 'Registration completed with some issues')
+      }
+
+      // Refresh data
+      await refreshData()
     } else {
-      toast.error('Error: ' + result.err)
+      toast.error('Registration failed: ' + result.err)
     }
-    await refreshData()
   } catch (err) {
-    toast.error('Error: ' + err)
+    console.error('Error in batch registration:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
   } finally {
     registering.value = false
   }

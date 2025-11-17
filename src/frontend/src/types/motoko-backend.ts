@@ -7,7 +7,7 @@ export interface MotokoDistributionConfig {
     title: string;
     description: string;
     isPublic: boolean;
-    
+
     // Token Configuration
     tokenInfo: {
         canisterId: Principal;
@@ -16,51 +16,64 @@ export interface MotokoDistributionConfig {
         decimals: number;
     };
     totalAmount: bigint;
-    
+
     // Eligibility & Recipients
     eligibilityType: EligibilityTypeMotoko;
     eligibilityLogic?: EligibilityLogicMotoko;
     recipientMode: RecipientModeMotoko;
     maxRecipients?: bigint;
-    
+
     // Vesting Configuration
     vestingSchedule: VestingScheduleMotoko;
     initialUnlockPercentage: bigint;
-    
+
     // Timing
     registrationPeriod?: RegistrationPeriodMotoko;
     distributionStart: bigint;  // nanoseconds timestamp
     distributionEnd?: bigint;   // nanoseconds timestamp
-    
+
     // Fees & Permissions
     feeStructure: FeeStructureMotoko;
     allowCancel: boolean;
     allowModification: boolean;
-    
+
     // Owner & Governance
     owner: Principal;
     governance?: Principal;
-    
+
     // External Integrations
     externalCheckers?: Array<[string, Principal]>;  // (name, principal) tuples
 
     // Launchpad Integration (optional)
     launchpadContext?: LaunchpadContextMotoko;
+
+    // Unified Category System (NEW)
+    categories?: DistributionCategoryMotoko[];
+
+    // Legacy multi-category support (optional)
+    multiCategoryRecipients?: any[];
 }
 
 // Launchpad Context matching Motoko backend
 export interface LaunchpadContextMotoko {
     launchpadId: Principal;
-    category: DistributionCategoryMotoko;
+    categoryId?: bigint;
     projectMetadata: ProjectMetadataMotoko;
     batchId?: string;
 }
 
 export interface DistributionCategoryMotoko {
-    id: string;
+    id: bigint;
     name: string;
     description?: string;
     order?: bigint;
+    mode: { Predefined: null } | { Open: null };
+    defaultVestingSchedule: VestingScheduleMotoko;
+    defaultVestingStart: bigint;
+    defaultPassportScore: bigint;
+    defaultPassportProvider: string;
+    maxParticipants?: bigint[];
+    allocationPerUser?: bigint[];
 }
 
 export interface ProjectMetadataMotoko {

@@ -100,6 +100,18 @@ module DistributionFactoryService {
             return #err("Total amount must be greater than 0");
         };
 
+        // Validate categories - at least one category is required
+        switch (config.categories) {
+            case null {
+                return #err("At least one category is required");
+            };
+            case (?categories) {
+                if (categories.size() == 0) {
+                    return #err("At least one category is required");
+                };
+            };
+        };
+
         // Validate timing
         if (config.distributionStart <= Time.now()) {
             return #err("Distribution start time must be in the future");
@@ -227,7 +239,7 @@ module DistributionFactoryService {
                     campaignType = #LaunchpadDistribution;
                     launchpadContext = ?{
                         launchpadId = launchpadId;
-                        category = category;
+                        categoryId = ?category.id;  // Use category ID
                         projectMetadata = projectMetadata;
                         batchId = ?batchId;
                     };
@@ -270,11 +282,11 @@ module DistributionFactoryService {
                         title = category.name # " - " # projectMetadata.name;
                         totalAmount = totalAmount;
                         recipients = recipients;
-                        vestingSchedule = DistributionFactoryTypes.getPresetVestingSchedule(categoryId);
+                        vestingSchedule = DistributionFactoryTypes.getPresetVestingSchedule(Nat.toText(category.id));
                         campaignType = #LaunchpadDistribution;
                         launchpadContext = ?{
                             launchpadId = launchpadId;
-                            category = category;
+                            categoryId = ?category.id;  // Use category ID
                             projectMetadata = projectMetadata;
                             batchId = ?batchId;
                         };
@@ -324,7 +336,12 @@ module DistributionFactoryService {
         let categories = Array.map<DistributionFactoryTypes.DistributionConfig, Text>(
             batchRequest.distributions,
             func(config) = switch (config.launchpadContext) {
-                case (?context) { context.category.id };
+                case (?context) {
+                    switch (context.categoryId) {
+                        case (?catId) { Nat.toText(catId) };
+                        case null { "unknown" };
+                    }
+                };
                 case null { "unknown" };
             }
         );
@@ -368,7 +385,12 @@ module DistributionFactoryService {
         var allParticipants: [(Principal, Text)] = []; // (participant, category)
         for (config in batchRequest.distributions.vals()) {
             let categoryId = switch (config.launchpadContext) {
-                case (?context) { context.category.id };
+                case (?context) {
+                    switch (context.categoryId) {
+                        case (?catId) { Nat.toText(catId) };
+                        case null { "unknown" };
+                    }
+                };
                 case null { "unknown" };
             };
 
@@ -408,7 +430,12 @@ module DistributionFactoryService {
             func(config) = switch (config.vestingSchedule) {
                 case (#Instant) {
                     switch (config.launchpadContext) {
-                        case (?context) { ?context.category.id };
+                        case (?context) {
+                            switch (context.categoryId) {
+                                case (?catId) { ?Nat.toText(catId) };
+                                case null { null };
+                            }
+                        };
                         case null { null };
                     }
                 };

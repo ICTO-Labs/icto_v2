@@ -1294,10 +1294,17 @@ module {
 
                                 // Define legacy distribution category
                                 let category: DistributionTypes.DistributionCategory = {
-                                    id = "fairlaunch";
+                                    id = 1;  // Numeric ID
                                     name = "Fair Launch Participants";
                                     description = ?"Token allocation for launchpad participants";
                                     order = ?0;
+                                    mode = #Predefined;
+                                    defaultVestingSchedule = #Instant;
+                                    defaultVestingStart = 0;
+                                    defaultPassportScore = 0;
+                                    defaultPassportProvider = "ICTO";
+                                    maxParticipants = null;
+                                    allocationPerUser = null;
                                 };
 
                                 // Deploy legacy distribution via backend

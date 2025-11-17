@@ -198,6 +198,35 @@ export class DistributionService {
     return result as unknown as Result;
   }
 
+  // Batch register for distribution (with optional category ID)
+  static async batchRegister(canisterId: string, categoryId?: number): Promise<any> {
+    try {
+      const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
+      const categoryIdOpt = categoryId !== undefined ? [BigInt(categoryId)] : [];
+      const result = await distributionContract.register(categoryIdOpt);
+      return result;
+    } catch (error) {
+      toast.error('Error: ' + error)
+      console.error(`Error in batch register for ${canisterId}:`, error);
+      throw error;
+    }
+  }
+
+  // Batch claim tokens (with optional category ID and claim amount)
+  static async batchClaim(canisterId: string, categoryId?: number, claimAmount?: string): Promise<any> {
+    try {
+      const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
+      const categoryIdOpt = categoryId !== undefined ? [BigInt(categoryId)] : [];
+      const amountOpt = claimAmount !== undefined ? [BigInt(claimAmount)] : [];
+      const result = await distributionContract.claimBatch(categoryIdOpt, amountOpt);
+      return result;
+    } catch (error) {
+      toast.error('Error: ' + error)
+      console.error(`Error in batch claim for ${canisterId}:`, error);
+      throw error;
+    }
+  }
+
   // ================ ADMIN MANAGEMENT FUNCTIONS ================
   
   // Initialize the distribution contract
@@ -518,11 +547,35 @@ export class DistributionService {
     canRegister: boolean;
     canClaim: boolean;
     registrationError?: string;
+    userBalance?: bigint;
   }> {
     try {
       const distributionContract = distributionContractActor({ canisterId, anon: false, requiresSigning: true });
       const context = await distributionContract.whoami();
-      
+
+      // Fetch distribution config to get token info
+      let userBalance: bigint | undefined;
+      try {
+        const config = await distributionContract.getConfig();
+        if (config?.tokenInfo?.canisterId) {
+          const token: Token = {
+            canisterId: config.tokenInfo.canisterId.toString(),
+            symbol: config.tokenInfo.symbol || 'TOKEN',
+            name: config.tokenInfo.name || 'Token',
+            decimals: config.tokenInfo.decimals || 8,
+            standards: ['ICRC-1'],
+            metrics: { totalSupply: 0, holders: 0, marketCap: 0, price: 0, volume: 0 }
+          };
+
+          // Get user's token balance
+          userBalance = await IcrcService.getIcrc1Balance(token, context.principal);
+        }
+      } catch (balanceError) {
+        console.warn('Failed to fetch user balance:', balanceError);
+        // Don't throw - just set undefined
+        userBalance = undefined;
+      }
+
       return {
         principal: context.principal.toString(),
         isOwner: context.isOwner,
@@ -533,7 +586,8 @@ export class DistributionService {
         distributionStatus: Object.keys(context.distributionStatus)[0], // Extract variant key
         canRegister: context.canRegister,
         canClaim: context.canClaim,
-        registrationError: context.registrationError?.[0] // Extract optional text
+        registrationError: context.registrationError?.[0], // Extract optional text
+        userBalance
       };
     } catch (error) {
       toast.error('Error: ' + error)
@@ -682,6 +736,108 @@ export class DistributionService {
       ]),
       emergencyContacts: status.emergencyContacts.map((p: any) => p.toText())
     };
+  }
+
+  /**
+   * Deposit tokens to distribution contract
+   * Owner must first approve the contract to spend tokens before calling this
+   *
+   * @param canisterId - Distribution contract canister ID
+   * @returns Result indicating success or error
+   *
+   * Note: The contract automatically transfers all approved tokens using icrc2_transfer_from
+   */
+  static async depositTokens(canisterId: string): Promise<Result> {
+    try {
+      const distributionContract = distributionContractActor({
+        canisterId,
+        anon: false,
+        requiresSigning: true
+      });
+
+      // Call the depositTokens method on the distribution contract
+      // The contract will transfer tokens from owner to itself using icrc2_transfer_from
+      // No amount parameter needed - it transfers all approved tokens
+      const result = await distributionContract.depositTokens();
+
+      if ('err' in result) {
+        throw new Error(result.err);
+      }
+
+      return result as unknown as Result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      toast.error('Deposit failed: ' + errorMessage);
+      console.error(`Error depositing tokens to ${canisterId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fund distribution contract (approve + deposit in one call)
+   * This is a convenience method that combines approval and deposit
+   *
+   * @param canisterId - Distribution contract canister ID
+   * @param tokenInfo - Token information (canisterId, symbol, decimals)
+   * @param amount - Amount of tokens to deposit
+   * @returns Object with approve and deposit results
+   */
+  static async fundContract(
+    canisterId: string,
+    tokenInfo: { canisterId: string; symbol: string; decimals: number },
+    amount: bigint
+  ): Promise<{ approveResult: any; depositResult: Result }> {
+    try {
+      const token: Token = {
+        canisterId: tokenInfo.canisterId,
+        symbol: tokenInfo.symbol,
+        name: tokenInfo.symbol,
+        decimals: tokenInfo.decimals,
+        standards: ['ICRC-2'],
+        metrics: { totalSupply: 0, holders: 0, marketCap: 0, price: 0, volume: 0 }
+      };
+
+      // Get token transfer fee
+      let transferFee = BigInt(10000); // Default ICRC-1 fee
+      try {
+        transferFee = await IcrcService.getTokenFee(token);
+        console.log('Token transfer fee:', transferFee);
+      } catch (error) {
+        console.warn('Failed to get token fee, using default:', error);
+      }
+
+      // Step 1: Approve distribution contract to spend tokens (amount + fee)
+      // Need to approve more than amount to cover the icrc2_transfer_from fee
+      const approvalAmount = amount + transferFee;
+      console.log(`Step 1: Approving ${approvalAmount} ${tokenInfo.symbol} (${amount} + ${transferFee} fee) for contract ${canisterId}`);
+
+      const approveResult = await IcrcService.icrc2Approve(
+        token,
+        Principal.fromText(canisterId),
+        approvalAmount,
+        {}
+      );
+
+      if ('Err' in approveResult) {
+        throw new Error(`Approval failed: ${JSON.stringify(approveResult.Err)}`);
+      }
+
+      console.log('Approval successful:', approveResult);
+
+      // Step 2: Deposit tokens to contract
+      console.log(`Step 2: Depositing ${amount} ${tokenInfo.symbol} to contract`);
+
+      const depositResult = await this.depositTokens(canisterId);
+
+      console.log('Deposit successful:', depositResult);
+
+      return { approveResult, depositResult };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      toast.error('Funding failed: ' + errorMessage);
+      console.error('Contract funding error:', error);
+      throw error;
+    }
   }
 };
 

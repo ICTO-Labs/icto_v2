@@ -26,6 +26,22 @@
       </button>
     </div>
 
+    <!-- Fund Contract CTA (NEW) -->
+    <div class="mb-4">
+      <button
+        @click="emit('fund')"
+        class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200"
+      >
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
+        </svg>
+        <span>Fund Contract (Approve & Deposit)</span>
+      </button>
+      <p class="text-xs text-center mt-2 text-amber-600 dark:text-amber-400">
+        This will approve {{ formatBalance(requiredAmount) }} {{ tokenSymbol }} and deposit to contract in one flow
+      </p>
+    </div>
+
     <!-- Two Column Layout -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <!-- Contract Address Column -->
@@ -105,6 +121,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   refresh: []
   'initial-check': []
+  fund: []  // ✅ NEW: Trigger fund contract flow
 }>()
 
 // Auto-check balance on mount if enabled

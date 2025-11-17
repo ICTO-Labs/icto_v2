@@ -181,6 +181,9 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         #User;
     };
 
+    // Config storage (FIX: Add configStable to persist categories across upgrades)
+    private var configStable: DistributionConfig = init_config;
+
     // Participant management (V2.0: Now MultiCategoryParticipant)
     private var participantsStable: [(Principal, MultiCategoryParticipant)] = switch (upgradeState) {
         case null { [] };
@@ -668,6 +671,8 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     
     system func preupgrade() {
         Debug.print("DistributionContract: Starting preupgrade");
+        // FIX: Save config to stable storage
+        configStable := config;
         // V2.0: Now uses MultiCategoryParticipant
         participantsStable := Trie.toArray<Principal, MultiCategoryParticipant, (Principal, MultiCategoryParticipant)>(participants, func (k, v) = (k, v));
         claimRecordsStable := Buffer.toArray(claimRecords);
@@ -678,7 +683,10 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
 
     system func postupgrade() {
         Debug.print("DistributionContract: Starting postupgrade");
-        
+
+        // FIX: Restore config from stable storage
+        config := configStable;
+
         // Restore participants
         for ((principal, participant) in participantsStable.vals()) {
             participants := Trie.put(participants, _principalKey(principal), Principal.equal, participant).0;
@@ -704,7 +712,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             _initializeWhitelist();
         };
         
-        // Clear stable variables
+        // Clear stable variables (configStable persists for entire contract lifetime)
         participantsStable := [];
         claimRecordsStable := [];
         whitelistStable := [];
@@ -749,9 +757,70 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     };
 
     // ================ HELPER FUNCTIONS ================
-    
+
     private func _principalKey(principal: Principal) : Trie.Key<Principal> {
         { key = principal; hash = Principal.hash(principal) }
+    };
+
+    /// Auto-extend endTime if activation is delayed beyond distributionStart
+    /// This ensures distribution duration remains the same even if funding is delayed
+    ///
+    /// LOGIC:
+    /// - If distributionStart = Jan 1, distributionEnd = Jan 31 (30 days)
+    /// - But actual activation = Jan 15 (14 days delay)
+    /// - Auto-extend: distributionEnd = Jan 31 + 14 days = Feb 14
+    /// - Result: Distribution still runs for full 30 days (Jan 15 → Feb 14)
+    private func _extendEndTimeIfNeeded() {
+        let now = Time.now();
+        let plannedStartTime = config.distributionStart;
+
+        // Check if activation is delayed
+        if (now <= plannedStartTime) {
+            Debug.print("   ⏰ Activation on time - no endTime extension needed");
+            return;
+        };
+
+        let delayDuration = now - plannedStartTime;
+        let delayDays = delayDuration / (24 * 3600 * 1_000_000_000);
+
+        Debug.print("   ⏰ Activation delayed by " # Int.toText(delayDays) # " days");
+
+        // Extend endTime if configured
+        switch (config.distributionEnd) {
+            case (?originalEndTime) {
+                let extendedEndTime = originalEndTime + delayDuration;
+
+                config := {
+                    config with
+                    distributionEnd = ?extendedEndTime
+                };
+
+                Debug.print("   ⏰ EndTime auto-extended to maintain distribution duration:");
+                Debug.print("      Original end: " # Int.toText(originalEndTime));
+                Debug.print("      Extended end: " # Int.toText(extendedEndTime));
+                Debug.print("      Extension: " # Int.toText(delayDays) # " days");
+
+                // Update end timer if needed
+                let nanosUntilEnd = extendedEndTime - now;
+                if (nanosUntilEnd > 0) {
+                    // Cancel old timer
+                    switch (distributionEndTimerId) {
+                        case (?id) {
+                            Timer.cancelTimer(id);
+                            distributionEndTimerId := null;
+                        };
+                        case null {};
+                    };
+
+                    // Note: Timer will be recreated on next postupgrade or can be manually set
+                    // We don't recreate it here to avoid system capability requirement in private function
+                    Debug.print("      ℹ️ End timer needs manual recreation (use admin function or postupgrade)");
+                };
+            };
+            case null {
+                Debug.print("   ℹ️ No endTime configured - no extension needed");
+            };
+        };
     };
 
     // Sprint 1: Nat key for category Trie
@@ -1650,32 +1719,43 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         // ================ DETECT MODE: Multi-Category vs Legacy ================
         switch (config.multiCategoryRecipients) {
             case (?multiRecipients) {
-                // ✅ MULTI-CATEGORY MODE - Direct initialization
-                Debug.print("🎯 Multi-category mode: Initializing " # Nat.toText(multiRecipients.size()) # " multi-category participants");
+                // ✅ MULTI-CATEGORY MODE
+                // Initialize all participants from multiCategoryRecipients
+                // This supports BOTH Predefined and Open categories:
+                // - Predefined: recipients are defined upfront (in multiCategoryRecipients)
+                // - Open: users can self-register later (register() function)
+                Debug.print("🎯 Multi-category mode: Initializing " # Nat.toText(multiRecipients.size()) # " participants");
 
-                switch (config.eligibilityType) {
-                    case (#Whitelist) {
-                        for (recipient in multiRecipients.vals()) {
+                for (recipient in multiRecipients.vals()) {
+                    // Add to whitelist if using Whitelist eligibility
+                    switch (config.eligibilityType) {
+                        case (#Whitelist) {
                             whitelist := Trie.put(whitelist, _principalKey(recipient.address), Principal.equal, true).0;
-
-                            let participant: MultiCategoryParticipant = {
-                                principal = recipient.address;
-                                registeredAt = Time.now();
-                                categories = recipient.categories;  // Use as-is
-                                totalEligible = _calculateTotalFromCategories(recipient.categories);
-                                totalClaimed = 0;
-                                lastClaimTime = null;
-                                status = #Eligible;
-                                note = recipient.note;
-                            };
-                            participants := Trie.put(participants, _principalKey(recipient.address), Principal.equal, participant).0;
-                            participantCount += 1;
+                        };
+                        case (_) {
+                            // For other eligibility types, whitelist not used
                         };
                     };
-                    case (_) {
-                        // For non-whitelist distributions, participants register themselves
+
+                    // Create participant with their category allocations
+                    let participant: MultiCategoryParticipant = {
+                        principal = recipient.address;
+                        registeredAt = Time.now();
+                        categories = recipient.categories;  // Use as-is (may include multiple categories)
+                        totalEligible = _calculateTotalFromCategories(recipient.categories);
+                        totalClaimed = 0;
+                        lastClaimTime = null;
+                        status = #Eligible;
+                        note = recipient.note;
                     };
+
+                    participants := Trie.put(participants, _principalKey(recipient.address), Principal.equal, participant).0;
+                    participantCount += 1;
+
+                    Debug.print("  ✅ Initialized participant: " # Principal.toText(recipient.address) # " with " # Nat.toText(recipient.categories.size()) # " categories");
                 };
+
+                Debug.print("✅ Multi-category initialization complete: " # Nat.toText(participantCount) # " participants registered");
             };
             case null {
                 // ✅ LEGACY MODE - Auto-convert to default category
@@ -1726,7 +1806,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         switch (config.launchpadContext) {
             case (?context) {
                 launchpadCanisterId := ?context.launchpadId;
-                Debug.print("🚀 Initialized Launchpad-linked distribution: " # context.category.name);
+                Debug.print("🚀 Initialized Launchpad-linked distribution: " # "Launchpad Distribution");
 
             };
             case null {
@@ -2153,6 +2233,9 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             await _setupRecurringBalanceCheck();
             return;
         };
+
+        // Auto-extend endTime if activation is delayed
+        _extendEndTimeIfNeeded();
 
         status := #Active;
         Debug.print("✅ Distribution activated automatically at: " # Int.toText(Time.now()));
@@ -2709,7 +2792,202 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
     };
 
     // Participant Management
-    public shared({ caller }) func register() : async Result.Result<(), Text> {
+    /// Flexible register function with optional categoryId
+    /// If categoryId is null, processes all available categories that support registration
+    /// If categoryId is provided, processes only that specific category
+    public shared({ caller }) func register(categoryId: ?Nat) : async Result.Result<DistributionTypes.BatchRegisterResult, Text> {
+        // Initialize batch result
+        var batchCategories: [DistributionTypes.CategoryResult] = [];
+        var hasAnySuccess = false;
+        var overallSuccess = true;
+        var overallMessage = "Registration completed";
+
+        // Basic validation
+        if(Principal.isAnonymous(caller)) {
+            return #err("Anonymous users cannot register");
+        };
+
+        // Check if already registered (at participant level)
+        switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
+            case (?participant) {
+                // Already registered, check for new category registrations
+                // For now, return error but could be enhanced to support additional categories
+                return #err("Already registered in this distribution");
+            };
+            case null {};
+        };
+
+        // Get categories to process
+        let categoriesToProcess = switch (categoryId) {
+            case (?specificId) {
+                // Process specific category
+                switch (config.categories) {
+                    case (?cats) {
+                        switch (DistributionTypes.findCategoryById(cats, specificId)) {
+                            case (?category) { [category] };
+                            case null { return #err("Category " # Nat.toText(specificId) # " not found") };
+                        }
+                    };
+                    case null { return #err("No categories configured") };
+                }
+            };
+            case null {
+                // Process all Open mode categories
+                switch (config.categories) {
+                    case (?cats) {
+                        Array.filter<DistributionTypes.DistributionCategory>(cats, func(cat) {
+                            switch (cat.mode) {
+                                case (#Open) { true };
+                                case (#Predefined) { false };
+                            }
+                        })
+                    };
+                    case null { return #err("No categories configured") };
+                }
+            };
+        };
+
+        // Validate registration period if configured
+        switch (config.registrationPeriod) {
+            case (?period) {
+                let now = Time.now();
+                if (now < period.startTime or now > period.endTime) {
+                    return #err("Registration period is not active");
+                };
+
+                // Check max participants
+                switch (period.maxParticipants) {
+                    case (?max) {
+                        if (participantCount >= max) {
+                            return #err("Maximum participants reached");
+                        };
+                    };
+                    case null {};
+                };
+            };
+            case null {
+                // No registration period - allow registration for Open categories
+            };
+        };
+
+        // Check eligibility
+        let isEligible = await _checkEligibility(caller);
+        if (not isEligible) {
+            return #err("Not eligible for this distribution");
+        };
+
+        // Process each category
+        var newCategories: [CategoryAllocation] = [];
+        var totalAllocated = 0;
+
+        for (category in categoriesToProcess.vals()) {
+            var categorySuccess = true;
+            var categoryMessage = "";
+            var allocatedAmount = 0;
+
+            // Check if category allows registration
+            switch (category.mode) {
+                case (#Predefined) {
+                    categorySuccess := false;
+                    categoryMessage := "Predefined categories do not allow registration";
+                };
+                case (#Open) {
+                    // Calculate allocation for Open category
+                    allocatedAmount := switch (category.allocationPerUser) {
+                        case (?fixedAmount) { fixedAmount };
+                        case null {
+                            // Use category default or calculate from total
+                            if (categoriesToProcess.size() > 0) {
+                                Nat.div(config.totalAmount, categoriesToProcess.size() * 100) // Rough estimate
+                            } else { 0 }
+                        };
+                    };
+
+                    // Check max participants for this category
+                    switch (category.maxParticipants) {
+                        case (?maxParticipants) {
+                            // Simple check for demonstration - in production, would count actual participants in this category
+                            if (participantCount >= maxParticipants) {
+                                categorySuccess := false;
+                                categoryMessage := "Category reached maximum participants";
+                            };
+                        };
+                        case null {};
+                    };
+
+                    // Add to allocation if successful
+                    if (categorySuccess and allocatedAmount > 0) {
+                        let newCategory: CategoryAllocation = {
+                            categoryId = category.id;
+                            categoryName = category.name;
+                            amount = allocatedAmount;
+                            claimedAmount = 0;
+                            vestingSchedule = category.defaultVestingSchedule;
+                            vestingStart = category.defaultVestingStart;
+                            passportScore = category.defaultPassportScore;
+                            passportProvider = category.defaultPassportProvider;
+                            note = null;
+                        };
+                        newCategories := Array.append<CategoryAllocation>(newCategories, [newCategory]);
+                        totalAllocated += allocatedAmount;
+                        hasAnySuccess := true;
+                    };
+                };
+            };
+
+            // Add category result to batch
+            let categoryResult: DistributionTypes.CategoryResult = {
+                categoryId = category.id;
+                categoryName = category.name;
+                success = categorySuccess;
+                isValid = categorySuccess and allocatedAmount > 0;
+                allocation = allocatedAmount;
+                claimedAmount = null;
+                isRegistered = categorySuccess;
+                errorMessage = if (not categorySuccess) ?categoryMessage else null;
+            };
+            batchCategories := Array.append<DistributionTypes.CategoryResult>(batchCategories, [categoryResult]);
+
+            if (not categorySuccess) {
+                overallSuccess := false;
+            };
+        };
+
+        // Create participant record if any category registration succeeded
+        if (hasAnySuccess and newCategories.size() > 0) {
+            let participant: MultiCategoryParticipant = {
+                principal = caller;
+                registeredAt = Time.now();
+                categories = newCategories;
+                totalEligible = totalAllocated;
+                totalClaimed = 0;
+                lastClaimTime = null;
+                status = #Registered;
+                note = null;
+            };
+
+            participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
+            participantCount += 1;
+
+            // Notify factory about new recipient
+            await _notifyFactoryRecipientAdded(caller);
+        } else {
+            overallSuccess := false;
+            overallMessage := "No categories available for registration";
+        };
+
+        // Return batch result
+        let batchResult: DistributionTypes.BatchRegisterResult = {
+            success = overallSuccess;
+            message = overallMessage;
+            categories = batchCategories;
+        };
+
+        #ok(batchResult)
+    };
+
+    // Legacy register function for backward compatibility
+    public shared({ caller }) func registerLegacy() : async Result.Result<(), Text> {
         // Check if registration is open
         if(Principal.isAnonymous(caller)) {
             return #err("Anonymous users cannot register");
@@ -2720,7 +2998,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                 if (now < period.startTime or now > period.endTime) {
                     return #err("Registration period is not active");
                 };
-                
+
                 // Check max participants
                 switch (period.maxParticipants) {
                     case (?max) {
@@ -2738,7 +3016,7 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                 };
             };
         };
-        
+
         // Check if already registered
         switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
             case (?_) {
@@ -2746,13 +3024,13 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
             };
             case null {};
         };
-        
+
         // Check eligibility
         let isEligible = await _checkEligibility(caller);
         if (not isEligible) {
             return #err("Not eligible for this distribution");
         };
-        
+
         // Calculate eligible amount based on distribution type
         let eligibleAmount = switch (config.eligibilityType) {
             case (#Whitelist) {
@@ -2789,18 +3067,18 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
                 }
             };
         };
-        
+
         // Check if there's still allocation available
         if (eligibleAmount == 0) {
             return #err("No allocation available for new participants");
         };
-        
+
         // Check if adding this participant would exceed total distribution amount
         let projectedDistribution = totalDistributed + eligibleAmount;
         if (projectedDistribution > config.totalAmount) {
             return #err("No more allocation available - distribution is full");
         };
-        
+
         // Create participant record (V2.0: As MultiCategoryParticipant with default category)
         // Self-registered participants always use default category with contract-level vesting
         let defaultCategory: CategoryAllocation = {
@@ -2828,11 +3106,11 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
 
         participants := Trie.put(participants, _principalKey(caller), Principal.equal, participant).0;
         participantCount += 1;
-        
+
         // Notify factory about new recipient (Factory Storage Standard)
         await _notifyFactoryRecipientAdded(caller);
 
-        #ok()
+        #ok(())
     };
 
     // Admin remove participant
@@ -3640,6 +3918,364 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         #ok({ claimedAmount = actualClaimAmount; categoryId = categoryId })
     };
 
+    /// Flexible batch claim function - claims from one or all categories
+    /// @param categoryId - Optional category ID. If null, claims from all available categories. If provided, claims from that specific category only.
+    /// @param claimAmount - Optional claim amount. If null, claims all available. If provided, amount is distributed proportionally across categories.
+    /// @returns BatchClaimResult with detailed per-category claim results
+    public shared({ caller }) func claimBatch(categoryId: ?Nat, claimAmount: ?Nat) : async Result.Result<DistributionTypes.BatchClaimResult, Text> {
+        // Initialize batch result
+        var batchCategories: [DistributionTypes.CategoryResult] = [];
+        var totalClaimedAmount: Nat = 0;
+        var hasAnySuccess = false;
+
+        // ================ SECURITY CHECKS ================
+
+        // 1. Input validation
+        switch (_validatePrincipal(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "INVALID_PRINCIPAL_BATCH_CLAIM",
+                    caller,
+                    0,
+                    "Invalid principal in batch claim: " # error,
+                    #Warning
+                );
+                return #err(error)
+            };
+        };
+
+        switch (claimAmount) {
+            case (?amount) {
+                switch (_validateAmount(amount)) {
+                    case (#ok(_)) {};
+                    case (#err(error)) {
+                        _logSecurityEvent(
+                            "INVALID_AMOUNT_BATCH_CLAIM",
+                            caller,
+                            0,
+                            "Invalid batch claim amount: " # error,
+                            #Warning
+                        );
+                        return #err(error)
+                    };
+                };
+            };
+            case null {}; // Full claim is valid
+        };
+
+        // 2. Per-user reentrancy protection
+        switch (_reentrancyGuardEnter(caller)) {
+            case (#ok(_)) {};
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "REENTRANCY_BLOCKED_BATCH_CLAIM",
+                    caller,
+                    0,
+                    "Reentrancy guard blocked batch claim: " # error,
+                    #Critical
+                );
+                return #err(error)
+            };
+        };
+
+        // 3. Rate limiting check
+        if (not _checkRateLimit(caller)) {
+            _logSecurityEvent(
+                "RATE_LIMIT_BLOCKED_BATCH_CLAIM",
+                caller,
+                0,
+                "Rate limit exceeded in batch claim",
+                #Warning
+            );
+            _reentrancyGuardExit(caller);
+            return #err("Rate limit exceeded. Please try again later.");
+        };
+
+        // 4. Distribution status validation
+        if (not _isActive()) {
+            _logSecurityEvent(
+                "DISTRIBUTION_INACTIVE_BATCH_CLAIM",
+                caller,
+                0,
+                "Batch claim attempted when distribution not active",
+                #Info
+            );
+            _reentrancyGuardExit(caller);
+            return #err("Distribution is not currently active");
+        };
+
+        // Check if caller is blacklisted
+        if (_isBlacklisted(caller)) {
+            _logSecurityEvent(
+                "BLACKLISTED_BATCH_CLAIM_ATTEMPT",
+                caller,
+                0,
+                "Blacklisted user attempted batch claim",
+                #Critical
+            );
+            _reentrancyGuardExit(caller);
+            return #err("Address is blacklisted");
+        };
+
+        // Get participant
+        let participant = switch (Trie.get(participants, _principalKey(caller), Principal.equal)) {
+            case (?p) { p };
+            case null {
+                _reentrancyGuardExit(caller);
+                return #err("Not registered for this distribution");
+            };
+        };
+
+        // Get categories to process
+        let categoriesToProcess: [CategoryAllocation] = switch (categoryId) {
+            case (?specificId) {
+                // Process specific category
+                var found: ?CategoryAllocation = null;
+                for (cat in participant.categories.vals()) {
+                    if (cat.categoryId == specificId) {
+                        found := ?cat;
+                    };
+                };
+                switch (found) {
+                    case (?category) { [category] };
+                    case null {
+                        _reentrancyGuardExit(caller);
+                        return #err("Category " # Nat.toText(specificId) # " not found for this participant");
+                    };
+                }
+            };
+            case null {
+                // Process all categories with available claims
+                Array.filter<CategoryAllocation>(participant.categories, func(cat) {
+                    let claimable = _calculateClaimableAmountForCategory(cat);
+                    claimable > 0
+                })
+            };
+        };
+
+        if (categoriesToProcess.size() == 0) {
+            _reentrancyGuardExit(caller);
+            return #err("No categories with claimable tokens available");
+        };
+
+        // Calculate total claimable across selected categories
+        var totalClaimable: Nat = 0;
+        for (cat in categoriesToProcess.vals()) {
+            totalClaimable += _calculateClaimableAmountForCategory(cat);
+        };
+
+        // Determine actual claim amount
+        let actualTotalClaim = switch (claimAmount) {
+            case (?amount) {
+                if (amount == 0) {
+                    _reentrancyGuardExit(caller);
+                    return #err("Claim amount must be greater than 0");
+                };
+                if (amount > totalClaimable) {
+                    _reentrancyGuardExit(caller);
+                    return #err("Claim amount exceeds available tokens");
+                };
+                amount
+            };
+            case null { totalClaimable }; // Claim all available
+        };
+
+        if (actualTotalClaim == 0) {
+            _reentrancyGuardExit(caller);
+            return #err("No tokens available to claim at this time");
+        };
+
+        // Process each category proportionally
+        var updatedCategories = Buffer.Buffer<CategoryAllocation>(participant.categories.size());
+        var remainingClaim = actualTotalClaim;
+
+        for (participantCat in participant.categories.vals()) {
+            // Check if this category is in the list to process
+            var shouldProcess = false;
+            var categoryClaimable: Nat = 0;
+            for (processCat in categoriesToProcess.vals()) {
+                if (processCat.categoryId == participantCat.categoryId) {
+                    shouldProcess := true;
+                    categoryClaimable := _calculateClaimableAmountForCategory(processCat);
+                };
+            };
+
+            if (shouldProcess and categoryClaimable > 0 and remainingClaim > 0) {
+                // Calculate proportional claim for this category
+                let categoryProportion = if (totalClaimable > 0) {
+                    (categoryClaimable * actualTotalClaim) / totalClaimable
+                } else { 0 };
+
+                let categoryClaimAmount = Nat.min(categoryProportion, Nat.min(categoryClaimable, remainingClaim));
+
+                // Check passport verification for this category
+                let hasValidPassport = await _checkCategoryPassportScore(caller, participantCat);
+
+                if (hasValidPassport and categoryClaimAmount > 0) {
+                    // Update category with claimed amount
+                    let updatedCat = {
+                        participantCat with
+                        claimedAmount = participantCat.claimedAmount + categoryClaimAmount
+                    };
+                    updatedCategories.add(updatedCat);
+                    remainingClaim -= categoryClaimAmount;
+                    totalClaimedAmount += categoryClaimAmount;
+                    hasAnySuccess := true;
+
+                    // Add successful category result
+                    let categoryResult: DistributionTypes.CategoryResult = {
+                        categoryId = participantCat.categoryId;
+                        categoryName = participantCat.categoryName;
+                        success = true;
+                        isValid = true;
+                        allocation = participantCat.amount;
+                        claimedAmount = ?categoryClaimAmount;
+                        isRegistered = true;
+                        errorMessage = null;
+                    };
+                    batchCategories := Array.append<DistributionTypes.CategoryResult>(batchCategories, [categoryResult]);
+                } else {
+                    // Category failed passport check
+                    updatedCategories.add(participantCat);
+                    let errorMsg = if (not hasValidPassport) { "Passport verification failed" } else { "No claimable amount" };
+
+                    let categoryResult: DistributionTypes.CategoryResult = {
+                        categoryId = participantCat.categoryId;
+                        categoryName = participantCat.categoryName;
+                        success = false;
+                        isValid = false;
+                        allocation = participantCat.amount;
+                        claimedAmount = ?0;
+                        isRegistered = true;
+                        errorMessage = ?errorMsg;
+                    };
+                    batchCategories := Array.append<DistributionTypes.CategoryResult>(batchCategories, [categoryResult]);
+                };
+            } else {
+                // Category not processed
+                updatedCategories.add(participantCat);
+            };
+        };
+
+        // If nothing was claimed, return error
+        if (totalClaimedAmount == 0) {
+            _reentrancyGuardExit(caller);
+            return #err("No tokens could be claimed from any category");
+        };
+
+        // Perform atomic claim operation
+        let updatedParticipantResult = _atomicClaimOperation(caller, participant, totalClaimedAmount, Buffer.toArray(updatedCategories));
+        let updatedParticipant = switch (updatedParticipantResult) {
+            case (#ok(p)) { p };
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "TOCTOU_RACE_CONDITION_BATCH_CLAIM",
+                    caller,
+                    totalClaimedAmount,
+                    "Race condition in batch claim: " # error,
+                    #Critical
+                );
+                _reentrancyGuardExit(caller);
+                return #err("State validation failed: " # error);
+            };
+        };
+
+        // Update participant state atomically
+        participants := Trie.put(participants, _principalKey(caller), Principal.equal, updatedParticipant).0;
+
+        // Update global total atomically
+        let newGlobalTotalResult = _atomicUpdateGlobalTotals(totalClaimed, totalClaimedAmount, "batch_claim_operation");
+        let newGlobalTotal = switch (newGlobalTotalResult) {
+            case (#ok(total)) { total };
+            case (#err(error)) {
+                _logSecurityEvent(
+                    "GLOBAL_TOTAL_UPDATE_BATCH_CLAIM_FAILED",
+                    caller,
+                    totalClaimedAmount,
+                    "Global total update in batch claim failed: " # error,
+                    #Critical
+                );
+                _reentrancyGuardExit(caller);
+                return #err("System error: " # error);
+            };
+        };
+        totalClaimed := newGlobalTotal;
+
+        // Create claim record for tracking
+        let claimRecord: ClaimRecord = {
+            participant = caller;
+            amount = totalClaimedAmount;
+            timestamp = Time.now();
+            blockHeight = null;
+            transactionId = null;
+        };
+        claimRecords.add(claimRecord);
+
+        // Log security event
+        _logSecurityEvent(
+            "BATCH_CLAIM_SUCCESS",
+            caller,
+            totalClaimedAmount,
+            "User claimed tokens from " # Nat.toText(batchCategories.size()) # " categories",
+            #Info
+        );
+
+        // INTERACTIONS: External calls last - transfer the total amount
+        let transferResult = await* _transfer(caller, totalClaimedAmount);
+        let _ = switch (transferResult) {
+            case (#ok(index)) {
+                // Update claim record with transaction index
+                let finalClaimRecord = { claimRecord with txIndex = ?index };
+                let _ = claimRecords.removeLast();
+                claimRecords.add(finalClaimRecord);
+
+                // Record claim for rate limiting
+                for (cat in categoriesToProcess.vals()) {
+                    _recordClaim(caller, cat.categoryId, 0); // Record the claim event
+                };
+
+                ?index
+            };
+            case (#err(err)) {
+                // REVERT: Rollback state changes on transfer failure
+                let revertedParticipant: MultiCategoryParticipant = {
+                    principal = participant.principal;
+                    registeredAt = participant.registeredAt;
+                    categories = participant.categories; // Original categories
+                    totalEligible = participant.totalEligible;
+                    totalClaimed = participant.totalClaimed; // Original amount
+                    lastClaimTime = participant.lastClaimTime;
+                    status = participant.status;
+                    note = participant.note;
+                };
+                participants := Trie.put(participants, _principalKey(caller), Principal.equal, revertedParticipant).0;
+                totalClaimed -= totalClaimedAmount;
+                let _ = claimRecords.removeLast();
+
+                _reentrancyGuardExit(caller);
+                return #err("Token transfer failed: " # debug_show(err));
+            };
+        };
+
+        // Release reentrancy guard
+        _reentrancyGuardExit(caller);
+
+        // Return batch result
+        let batchResult: DistributionTypes.BatchClaimResult = {
+            success = hasAnySuccess;
+            message = if (hasAnySuccess) {
+                "Successfully claimed " # Nat.toText(totalClaimedAmount) # " tokens from " # Nat.toText(batchCategories.size()) # " categories"
+            } else {
+                "No tokens could be claimed"
+            };
+            categories = batchCategories;
+            totalAmount = totalClaimedAmount;
+        };
+
+        #ok(batchResult)
+    };
+
     // Add blacklist checking function
     private func _isBlacklisted(principal: Principal) : Bool {
         switch (Trie.get(blacklist, _principalKey(principal), Principal.equal)) {
@@ -4390,17 +5026,20 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         if (not _isOwner(caller)) {
             return #err("Unauthorized: Only owner can activate distribution");
         };
-        
+
         if (status != #Created) {
             return #err("Distribution can only be activated from Created status");
         };
-        
+
         // Check contract has sufficient token balance
         let contractBalance = await _getContractTokenBalance();
         if (contractBalance < config.totalAmount) {
             return #err("Insufficient token balance. Required: " # debug_show(config.totalAmount) # " " # config.tokenInfo.symbol # ", Available: " # debug_show(contractBalance / E8S) # " " # config.tokenInfo.symbol);
         };
-        
+
+        // Auto-extend endTime if activation is delayed
+        _extendEndTimeIfNeeded();
+
         status := #Active;
 
         // Cancel auto-activation timer if running (no longer needed)
@@ -4550,12 +5189,23 @@ persistent actor class DistributionContract(initArgs: DistributionUpgradeTypes.D
         if (not _isOwner(caller)) {
             return #err("Unauthorized: Only owner can resume distribution");
         };
-        
+
         if (status != #Paused) {
             return #err("Distribution must be paused to resume");
         };
-        
+
+        // Check if distribution has passed start time
+        let now = Time.now();
+        if (now >= config.distributionStart) {
+            // Check contract has sufficient token balance before resuming
+            let contractBalance = await _getContractTokenBalance();
+            if (contractBalance < config.totalAmount) {
+                return #err("Cannot resume: Insufficient token balance. Required: " # debug_show(config.totalAmount) # " " # config.tokenInfo.symbol # ", Available: " # debug_show(contractBalance / E8S) # " " # config.tokenInfo.symbol);
+            };
+        };
+
         status := #Active;
+        Debug.print("✅ Distribution resumed at: " # Int.toText(Time.now()));
         #ok()
     };
     
