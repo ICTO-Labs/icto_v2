@@ -13,8 +13,8 @@
             <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">
               Deploy ICRC-1 tokens with advanced features like vesting and governance.
             </p>
-            <button 
-              @click="navigateTo('/token')"
+            <button
+              @click="navigateTo('/tokens')"
               class="mt-4 inline-flex items-center text-sm font-medium text-blue-600 hover:text-blue-700"
             >
               Get Started

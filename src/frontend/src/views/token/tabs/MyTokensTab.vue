@@ -40,7 +40,7 @@
             <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">No tokens deployed</h3>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Get started by deploying your first token.</p>
             <div class="mt-6">
-                <router-link to="/token/deploy" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                <router-link to="/token/create" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                     <svg class="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
                     </svg>
@@ -63,8 +63,8 @@
                             />
                             <div class="ml-4">
                                 <div class="flex items-center">
-                                    <router-link 
-                                        :to="`/tokens/${deployment.canisterId}`"
+                                    <router-link
+                                        :to="{ name: 'TokenDetail', params: { id: deployment.canisterId } }"
                                         class="text-sm font-medium text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400"
                                     >
                                         {{ deployment.tokenInfo?.name || deployment.name }}
@@ -90,9 +90,9 @@
                                 <a href="'https://dashboard.internetcomputer.org/canister/' + deployment.canisterId" target="_blank" class="inline-flex items-center px-2.5 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
                                     View on IC Dashboard
                                 </a>
-                                <router-link 
-                                    v-if="deployment.tokenInfo" 
-                                    :to="`/tokens/${deployment.canisterId}`"
+                                <router-link
+                                    v-if="deployment.tokenInfo"
+                                    :to="{ name: 'TokenDetail', params: { id: deployment.canisterId } }"
                                     class="inline-flex items-center px-2.5 py-1.5 border border-transparent text-xs font-medium rounded shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                                 >
                                     Details

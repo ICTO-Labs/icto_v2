@@ -704,7 +704,7 @@ const recentActivities = ref([
 
 // Navigation methods
 const navigateToTokenFactory = () => router.push('/token/create')
-const navigateToTokenList = () => router.push('/token')
+const navigateToTokenList = () => router.push('/tokens')
 const navigateToMultisigFactory = () => router.push('/multisig/create')
 const navigateToMultisigList = () => router.push('/multisig')
 const navigateToDistributionFactory = () => router.push('/distribution/create')
