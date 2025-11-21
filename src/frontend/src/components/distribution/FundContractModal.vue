@@ -297,7 +297,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Dialog, DialogPanel, DialogTitle, TransitionChild, TransitionRoot } from '@headlessui/vue'
 import {
   CoinsIcon,
@@ -312,6 +312,10 @@ import {
 import { parseTokenAmount } from '@/utils/token'
 import { toast } from 'vue-sonner'
 import { DistributionService } from '@/api/services/distribution'
+import { IcrcService } from '@/api/services/icrc'
+import { useAuthStore } from '@/stores/auth'
+import type { Token } from '@/types/token'
+import { Principal } from '@dfinity/principal'
 
 interface Props {
   isOpen: boolean
@@ -320,7 +324,6 @@ interface Props {
   tokenSymbol: string
   tokenDecimals: number
   tokenCanisterId: string
-  userBalance: bigint
 }
 
 const props = defineProps<Props>()
@@ -330,9 +333,13 @@ const emit = defineEmits<{
   success: []
 }>()
 
+const authStore = useAuthStore()
+
 const currentStep = ref(0) // 0: confirm, 1: approving, 2: depositing, 3: success
 const isProcessing = ref(false)
 const error = ref<string | null>(null)
+const userBalance = ref<bigint>(BigInt(0))
+const isFetchingBalance = ref(false)
 
 const steps = [
   { label: 'Confirm' },
@@ -342,8 +349,64 @@ const steps = [
 ]
 
 const hasInsufficientBalance = computed(() => {
-  return props.userBalance < props.requiredAmount
+  return userBalance.value < props.requiredAmount
 })
+
+// Fetch user balance when modal opens
+const fetchUserBalance = async () => {
+  if (!authStore.principal || !props.tokenCanisterId) {
+    userBalance.value = BigInt(0)
+    return
+  }
+
+  try {
+    isFetchingBalance.value = true
+    console.log('🔍 DEBUG - Fetching user balance for token:', props.tokenCanisterId)
+
+    const token: Token = {
+      canisterId: props.tokenCanisterId,
+      name: props.tokenSymbol,
+      symbol: props.tokenSymbol,
+      decimals: props.tokenDecimals,
+      fee: 0, // Token type expects number, not bigint
+      standards: ['ICRC-1'], // Required field
+      metrics: {
+        price: 0,
+        volume: 0,
+        marketCap: 0,
+        totalSupply: 0
+      }
+    }
+
+    const balance = await IcrcService.getIcrc1Balance(
+      token,
+      Principal.fromText(authStore.principal),
+      undefined, // No subaccount as user requested
+      false // Don't need separate balances
+    )
+
+    userBalance.value = typeof balance === 'bigint' ? balance : balance.default
+    console.log('🔍 DEBUG - Fetched user balance:', userBalance.value.toString())
+  } catch (error) {
+    console.error('Error fetching user balance:', error)
+    userBalance.value = BigInt(0)
+    toast.error('Failed to fetch token balance')
+  } finally {
+    isFetchingBalance.value = false
+  }
+}
+
+// Watch for modal opening to fetch balance
+watch(
+  () => props.isOpen,
+  async (isOpen) => {
+    if (isOpen) {
+      console.log('🔍 DEBUG - Modal opened, fetching balance...')
+      await fetchUserBalance()
+    }
+  },
+  { immediate: true }
+)
 
 const formatAmount = (amount: bigint) => {
   return parseTokenAmount(amount, props.tokenDecimals).toLocaleString(undefined, {

@@ -1,14 +1,8 @@
 <template>
   <AdminLayout>
     <div class="distribution-detail min-h-screen">
-      <!-- Back Button -->
-      <div class="mb-6">
-        <button @click="router.back()"
-          class="flex items-center text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 transition-colors duration-200">
-          <ArrowLeftIcon class="w-5 h-5 mr-2" />
-          <span class="font-medium">Back to Distributions</span>
-        </button>
-      </div>
+      <!-- Breadcrumb Navigation -->
+      <Breadcrumb :items="breadcrumbItems" />
 
       <!-- Loading State -->
       <div v-if="loading" class="animate-pulse space-y-8">
@@ -59,26 +53,31 @@
         <!-- ============================================ -->
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-4">
-            <TokenLogo :canister-id="details.tokenInfo.canisterId.toString()" :symbol="details.tokenInfo.symbol" :size="64" />
+            <TokenLogo :canister-id="details?.tokenInfo?.canisterId?.toString() || ''"
+              :symbol="details?.tokenInfo?.symbol || 'TOKEN'" :size="64" />
             <div>
               <h4 class="text-xl font-bold text-gray-900 dark:text-white">
                 {{ details.title }}
               </h4>
               <div class="flex items-center space-x-4">
-                <p class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">{{ canisterId }} <CopyIcon class="w-3.5 h-3.5" :data="canisterId?.toString()" /></p>
+                <p class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">{{ canisterId }}
+                  <CopyIcon class="w-3.5 h-3.5" :data="canisterId?.toString()" />
+                </p>
                 <Label variant="gray" size="xs">{{ cyclesToT(canisterCycles) }}</Label>
-                <div :class="currentPhaseConfig.color.bg + ' ' + currentPhaseConfig.color.text + ' ' + currentPhaseConfig.color.border"
-                     class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border">
-                  <div class="w-2 h-2 rounded-full mr-2 animate-pulse" :class="currentPhaseConfig.color.dot"></div>
-                  {{ currentPhaseConfig.label }}
-                </div>
+                <!-- NEW: Unified Status Badge with Balance Validation -->
+                <DistributionStatusBadge :distribution="details" :contract-balance="contractBalance"
+                  :show-sub-status="true" />
+                <!-- Campaign Visibility Type (Public/Private) -->
                 <Label variant="blue" class="inline-flex items-center gap-1">
                   <ZapIcon class="w-3 h-3 mr-1" />
-                  {{ getVariantKey(details.eligibilityType) }}
+                  {{ getVariantKey(details.eligibilityType) === 'Public' ? 'Open' : 'Private' }}
                 </Label>
-                <!-- Campaign Type Label -->
-                <div :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').bgClass" class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border">
-                  <div class="w-2 h-2 rounded-full mr-2" :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').className.replace('text-', 'bg-')"></div>
+                <!-- Campaign Type Label (Airdrop/Vesting/Lock) -->
+                <div :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').bgClass"
+                  class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border">
+                  <div class="w-2 h-2 rounded-full mr-2"
+                    :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').className.replace('text-', 'bg-')">
+                  </div>
                   <span :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').className">
                     {{ getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').label }}
                   </span>
@@ -112,11 +111,9 @@
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">About This Campaign</h3>
             <!-- Countdown Component -->
-            <DistributionCountdown
-              :start-time="details.distributionStart"
+            <DistributionCountdown :start-time="details.distributionStart"
               :end-time="details.distributionEnd && details.distributionEnd.length > 0 ? details.distributionEnd[0] : null"
-              :status="countdownStatus"
-            />
+              :status="countdownStatus" @countdown-end="handleCountdownEnd" />
           </div>
           <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ details.description }}</p>
         </div>
@@ -124,20 +121,11 @@
         <!-- ============================================ -->
         <!-- CONTRACT BALANCE (OWNER ONLY - KEEP AS-IS but move up) -->
         <!-- ============================================ -->
-        <ContractBalanceStatus
-          v-if="details && isOwner"
-          :contract-id="canisterId"
-          :current-balance="contractBalance"
-          :required-amount="details.totalAmount"
-          :token-symbol="details.tokenInfo.symbol"
-          :token-decimals="details.tokenInfo.decimals"
-          :contract-status="distributionStatus"
-          :distribution-start="details.distributionStart"
-          :refreshing="checkingBalance"
-          @refresh="checkBalance"
-          @initial-check="checkBalance"
-          @fund="showFundModal = true"
-        />
+        <ContractBalanceStatus v-if="details && isOwner" :contract-id="canisterId" :current-balance="contractBalance"
+          :required-amount="details.totalAmount" :token-symbol="details?.tokenInfo?.symbol || 'TOKEN'"
+          :token-decimals="details?.tokenInfo?.decimals || 8" :contract-status="composableStatus"
+          :distribution-start="details.distributionStart" :refreshing="checkingBalance" :needs-funding="needsFunding"
+          @refresh="checkBalance" @initial-check="checkBalance" @fund="showFundModal = true" />
 
         <!-- ============================================ -->
         <!-- MAIN GRID (2/3 + 1/3) -->
@@ -149,14 +137,196 @@
           <!-- ============================================ -->
           <div class="lg:col-span-2 space-y-8">
 
-  
+            <!-- Categories Section (Always Visible if exists) -->
+            <div v-if="categoryData.length > 0" class="space-y-4">
+              <!-- Category hint -->
+              <div class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                <p class="text-sm text-blue-800 dark:text-blue-200 flex items-center">
+                  <FilterIcon class="w-4 h-4 mr-2" />
+                  <span>This distribution has <strong>{{ categoryData.length }}</strong> category{{ categoryData.length
+                    > 1 ? 's' : '' }}. Each category shows its own recipients and transactions below.</span>
+                </p>
+              </div>
+
+              <!-- Category Cards with Recipients & Transactions inside -->
+              <CategoryDetailsCard v-for="(category, index) in categoryData"
+                :key="category.categoryId?.toString() || category.name"
+                :id="`category-${category.categoryId?.toString()}`" :category="category"
+                :participants="category.participants" :token-symbol="details?.tokenInfo?.symbol || 'TOKEN'"
+                :token-decimals="details?.tokenInfo?.decimals || 8" :total-categories="categoryData.length"
+                :claim-history="claimHistory" :refreshing="refreshing" :user-status="categoriesWithStatus[index]"
+                :is-authenticated="authStore.isConnected" :processing="registering || claiming"
+                @refresh-participants="fetchAllParticipants" @register="handleCategoryRegister"
+                @claim="handleCategoryClaim" />
+            </div>
+
+            <!-- Fallback: Global Recipients & Transactions (if no categories) -->
+            <div v-else
+              class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+              <!-- Tab Headers -->
+              <div class="flex items-center justify-between mb-6">
+                <div class="flex space-x-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+                  <button @click="activeTab = 'recipients'" :class="[
+                    'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
+                    activeTab === 'recipients'
+                      ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  ]">
+                    <UsersIcon class="w-4 h-4 mr-2 inline" />
+                    Recipients
+                  </button>
+                  <button @click="activeTab = 'transactions'" :class="[
+                    'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
+                    activeTab === 'transactions'
+                      ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                  ]">
+                    <HistoryIcon class="w-4 h-4 mr-2 inline" />
+                    Transactions
+                  </button>
+                </div>
+                <div class="flex items-center space-x-2">
+                  <button
+                    class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
+                    <FilterIcon class="w-5 h-5" />
+                  </button>
+                  <button
+                    class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
+                    <DownloadIcon class="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- Recipients Tab -->
+              <div v-if="activeTab === 'recipients'">
+                <div v-if="participants && participants.length > 0" class="overflow-x-auto">
+                  <table class="w-full">
+                    <thead>
+                      <tr class="border-b border-gray-200 dark:border-gray-600">
+                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Address
+                        </th>
+                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Amount
+                        </th>
+                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Claimed
+                        </th>
+                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Note</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="recipient in participants" :key="recipient.address"
+                        class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
+                        <td class="py-4 px-4">
+                          <div class="flex items-center space-x-3">
+                            <div
+                              class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                              <span class="text-white text-xs font-medium">
+                                {{ getFirstLetter(recipient.principal) }}
+                              </span>
+                            </div>
+                            <div>
+                              <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1"
+                                :title="recipient.principal">
+                                {{ shortPrincipal(recipient.principal) }}
+                                <CopyIcon :data="recipient?.principal?.toString()" class="w-4 h-4 cursor-pointer" />
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+                        <td class="py-4 px-4 text-right">
+                          <span class="font-semibold text-gray-900 dark:text-white">
+                            {{ formatNumber(parseTokenAmount(recipient.eligibleAmount,
+                              details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
+                          </span>
+                        </td>
+                        <td class="py-4 px-4 text-right">
+                          <span class="text-gray-500 dark:text-gray-400">
+                            {{ formatNumber(parseTokenAmount(recipient.claimedAmount,
+                              details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
+                          </span>
+                        </td>
+                        <td class="py-4 px-4">
+                          <span v-if="recipient.note && recipient.note.length > 0"
+                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                            {{ recipient.note[0] }}
+                          </span>
+                          <span v-else class="text-gray-400 text-xs">—</span>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div v-else class="text-center py-12">
+                  <UsersIcon class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+                  <p class="text-gray-500 dark:text-gray-400">No recipients yet</p>
+                  <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Recipients will appear here once added</p>
+                </div>
+              </div>
+
+              <!-- Transactions Tab -->
+              <div v-if="activeTab === 'transactions'">
+                <table class="w-full">
+                  <thead>
+                    <tr class="border-b border-gray-200 dark:border-gray-600">
+                      <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Address</th>
+                      <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Amount</th>
+                      <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Claimed</th>
+                      <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">TxId</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="claim in claimHistory" :key="claim.id"
+                      class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200">
+                      <td class="py-4 px-4">
+                        <div class="flex items-center space-x-3">
+                          <div
+                            class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                            <span class="text-white text-xs font-medium">
+                              {{ getFirstLetter(claim.participant) }}
+                            </span>
+                          </div>
+                          <div>
+                            <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1"
+                              :title="claim.participant">
+                              {{ shortPrincipal(claim.participant) }}
+                              <CopyIcon :data="claim.participant?.toString()" class="w-4 h-4 cursor-pointer" />
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="py-4 px-4 text-right">
+                        <span class="font-semibold text-gray-900 dark:text-white">
+                          {{ formatNumber(parseTokenAmount(claim.amount, details.tokenInfo.decimals).toNumber()) }} {{
+                            details.tokenInfo.symbol }}
+                        </span>
+                      </td>
+                      <td class="py-4 px-4 text-right">
+                        <span class="text-gray-500 dark:text-gray-400">
+                          {{ formatNumber(parseTokenAmount(claim.amount, details.tokenInfo.decimals).toNumber()) }} {{
+                            details.tokenInfo.symbol }}
+                        </span>
+                      </td>
+                      <td class="py-2 px-2">
+                        <span v-if="claim.transactionId"
+                          class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
+                          #{{ claim.transactionId.length > 0 ? claim.transactionId[0] : 'N/A' }}
+                        </span>
+                        <span v-else class="text-gray-400 text-xs">—</span>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+            </div>
             <!-- Lock Detail (for Lock campaigns) -->
             <div v-if="getVariantKey(details.campaignType) === 'Lock'" class="">
-              <LockDetail :campaign="{ id: distributionId, creator: details?.owner?.toText() || '', config: details as any }" />
+              <LockDetail
+                :campaign="{ id: distributionId, creator: details?.owner?.toText() || '', config: details as any }" />
             </div>
 
             <!-- Vesting Schedule Chart -->
-            <div v-else-if="vestingScheduleData.length > 0" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+            <div v-else-if="vestingScheduleData.length > 0"
+              class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
               <div class="flex items-center justify-between mb-8">
                 <div>
                   <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -169,13 +339,9 @@
                 </div>
               </div>
 
-              <VestingChart
-                :vesting-data="vestingScheduleData"
-                :has-cliff-period="hasCliffPeriod"
-                :has-instant-unlock="hasInstantUnlock"
-                :current-time-position="currentTimePosition"
-                :cliff-end-position="cliffEndPosition"
-              />
+              <VestingChart :vesting-data="vestingScheduleData" :has-cliff-period="hasCliffPeriod"
+                :has-instant-unlock="hasInstantUnlock" :current-time-position="currentTimePosition"
+                :cliff-end-position="cliffEndPosition" />
 
               <!-- Legend -->
               <div class="flex items-center space-x-2 text-xs mt-4" v-if="vestingScheduleData.length > 0">
@@ -207,59 +373,41 @@
             <!-- ============================================ -->
             <div class="space-y-8">
               <!-- Campaign Details Component -->
-              <DistributionCampaignDetails
-                :details="details"
-                :stats="stats"
-                :token-symbol="details.tokenInfo.symbol"
-                :token-decimals="details.tokenInfo.decimals"
-              />
+              <DistributionCampaignDetails :details="details" :stats="stats" :token-symbol="details.tokenInfo.symbol"
+                :token-decimals="details.tokenInfo.decimals" />
 
               <!-- Campaign Stats Grid -->
               <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <!-- Show countdown in first card if needed -->
-                <div v-if="showPhaseCountdown" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
+                <div v-if="showPhaseCountdown"
+                  class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 border border-gray-200 dark:border-gray-700">
                   <div class="flex items-center space-x-2 mb-2">
                     <ClockIcon class="h-5 w-5 text-gray-400 dark:text-gray-500" />
                     <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">Next Phase</h3>
                   </div>
-                  <vue-countdown
-                    :time="phaseCountdownTime"
-                    v-slot="{ days, hours, minutes, seconds }"
-                    class="text-brand-600 dark:text-brand-400 font-semibold"
-                  >
+                  <vue-countdown :time="phaseCountdownTime" v-slot="{ days, hours, minutes, seconds }"
+                    class="text-brand-600 dark:text-brand-400 font-semibold">
                     <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">{{ phaseCountdownLabel }}</div>
                     <div class="text-sm font-bold">{{ days }}d {{ hours }}h {{ minutes }}m {{ seconds }}s</div>
                   </vue-countdown>
                 </div>
 
                 <!-- Other metric cards -->
-                <MetricCard
-                  v-if="campaignTimeline.hasRegistration && getVariantKey(details.campaignType) !== 'Lock'"
-                  title="Registration"
-                  :value="phaseInfo.currentPhase === 'registration_open' ? 'Open Now' :
-                           phaseInfo.currentPhase === 'registration_closed' ? 'Closed' :
-                           'Not Started'"
-                  icon="ShieldCheckIcon"
-                  size="sm"
-                />
+                <MetricCard v-if="campaignTimeline.hasRegistration && getVariantKey(details.campaignType) !== 'Lock'"
+                  title="Registration" :value="phaseInfo.currentPhase === 'registration_open' ? 'Open Now' :
+                    phaseInfo.currentPhase === 'registration_closed' ? 'Closed' :
+                      'Not Started'" icon="ShieldCheckIcon" size="sm" />
 
-                <MetricCard
-                  title="Max Recipients"
-                  :value="maxRecipients"
-                  icon="UserPlusIcon"
-                  size="sm"
-                />
+                <MetricCard title="Max Recipients" :value="maxRecipients" icon="UserPlusIcon" size="sm" />
 
-                <MetricCard
-                  title="Campaign Type"
-                  :value="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').label"
-                  icon="ZapIcon"
-                  size="sm"
-                />
+                <MetricCard title="Campaign Type"
+                  :value="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').label" icon="ZapIcon"
+                  size="sm" />
               </div>
 
               <!-- Claims Timeline -->
-              <div v-if="getVariantKey(details.campaignType) !== 'Lock'" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
+              <div v-if="getVariantKey(details.campaignType) !== 'Lock'"
+                class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
                 <div class="flex items-center justify-between mb-8">
                   <div>
                     <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">
@@ -273,218 +421,21 @@
                 </div>
 
                 <div class="h-80">
-                  <VueApexCharts v-if="claimTimelineData.length > 0"
-                    type="area"
-                    height="320"
-                    :options="claimTimelineOptions"
-                    :series="claimTimelineData" />
+                  <VueApexCharts v-if="claimTimelineData.length > 0" type="area" height="320"
+                    :options="claimTimelineOptions" :series="claimTimelineData" />
                   <div v-else class="flex flex-col items-center justify-center h-full">
                     <div class="w-16 h-16 text-gray-300 dark:text-gray-600 mb-4">
                       <BarChart3Icon class="w-full h-full" />
                     </div>
                     <p class="text-gray-500 dark:text-gray-400 font-medium">No claims data available</p>
-                    <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Claims will appear here once users start claiming tokens</p>
+                    <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Claims will appear here once users start
+                      claiming tokens</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- Recipients & Transactions -->
-            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm p-8 border border-gray-100 dark:border-gray-700">
-              <!-- Tab Headers -->
-              <div class="flex items-center justify-between mb-6">
-                <div class="flex space-x-1 bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
-                  <button
-                    @click="activeTab = 'recipients'"
-                    :class="[
-                      'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
-                      activeTab === 'recipients'
-                        ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                    ]"
-                  >
-                    <UsersIcon class="w-4 h-4 mr-2 inline" />
-                    Recipients
-                  </button>
-                  <button
-                    @click="activeTab = 'transactions'"
-                    :class="[
-                      'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
-                      activeTab === 'transactions'
-                        ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                    ]"
-                  >
-                    <HistoryIcon class="w-4 h-4 mr-2 inline" />
-                    Transactions
-                  </button>
-                  <button
-                    v-if="categoryData.length > 0"
-                    @click="activeTab = 'categories'"
-                    :class="[
-                      'px-4 py-2 text-sm font-medium rounded-md transition-colors duration-200',
-                      activeTab === 'categories'
-                        ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm'
-                        : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-                    ]"
-                  >
-                    <FilterIcon class="w-4 h-4 mr-2 inline" />
-                    Categories ({{ categoryData.length }})
-                  </button>
-                </div>
-                <div class="flex items-center space-x-2">
-                  <button
-                    class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
-                    <FilterIcon class="w-5 h-5" />
-                  </button>
-                  <button
-                    class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors duration-200">
-                    <DownloadIcon class="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
 
-              <!-- Recipients Tab -->
-              <div v-if="activeTab === 'recipients'">
-                <div v-if="participants && participants.length > 0" class="overflow-x-auto">
-                  <table class="w-full">
-                    <thead>
-                      <tr class="border-b border-gray-200 dark:border-gray-600">
-                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Address</th>
-                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Amount</th>
-                        <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Claimed</th>
-                        <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Note</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="recipient in participants"
-                        :key="recipient.address"
-                        class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200"
-                      >
-                        <td class="py-4 px-4">
-                          <div class="flex items-center space-x-3">
-                            <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                              <span class="text-white text-xs font-medium">
-                                {{ getFirstLetter(recipient.principal) }}
-                              </span>
-                            </div>
-                            <div>
-                              <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1" :title="recipient.principal">
-                                {{ shortPrincipal(recipient.principal) }}
-                                <CopyIcon :data="recipient?.principal?.toString()" class="w-4 h-4 cursor-pointer" />
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-                        <td class="py-4 px-4 text-right">
-                          <span class="font-semibold text-gray-900 dark:text-white">
-                            {{ formatNumber(parseTokenAmount(recipient.eligibleAmount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
-                          </span>
-                        </td>
-                        <td class="py-4 px-4 text-right">
-                          <span class="text-gray-500 dark:text-gray-400">
-                            {{ formatNumber(parseTokenAmount(recipient.claimedAmount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
-                          </span>
-                        </td>
-                        <td class="py-4 px-4">
-                          <span v-if="recipient.note && recipient.note.length > 0" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                            {{ recipient.note[0] }}
-                          </span>
-                          <span v-else class="text-gray-400 text-xs">—</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div v-else class="text-center py-12">
-                  <UsersIcon class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                  <p class="text-gray-500 dark:text-gray-400">No recipients yet</p>
-                  <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">Recipients will appear here once added</p>
-                </div>
-              </div>
-
-              <!-- Transactions Tab -->
-              <div v-if="activeTab === 'transactions'">
-                <table class="w-full">
-                  <thead>
-                    <tr class="border-b border-gray-200 dark:border-gray-600">
-                      <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Address</th>
-                      <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Amount</th>
-                      <th class="text-right py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">Claimed</th>
-                      <th class="text-left py-3 px-4 font-medium text-gray-500 dark:text-gray-400 text-sm">TxId</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="claim in claimHistory"
-                      :key="claim.id"
-                      class="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors duration-200"
-                    >
-                      <td class="py-4 px-4">
-                        <div class="flex items-center space-x-3">
-                          <div class="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
-                            <span class="text-white text-xs font-medium">
-                              {{ getFirstLetter(claim.participant) }}
-                            </span>
-                          </div>
-                          <div>
-                            <p class="font-medium text-gray-900 dark:text-white text-sm flex items-center gap-1" :title="claim.participant">
-                              {{ shortPrincipal(claim.participant) }}
-                              <CopyIcon :data="claim.participant?.toString()" class="w-4 h-4 cursor-pointer" />
-                            </p>
-                          </div>
-                        </div>
-                      </td>
-                      <td class="py-4 px-4 text-right">
-                        <span class="font-semibold text-gray-900 dark:text-white">
-                          {{ formatNumber(parseTokenAmount(claim.amount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
-                        </span>
-                      </td>
-                      <td class="py-4 px-4 text-right">
-                        <span class="text-gray-500 dark:text-gray-400">
-                          {{ formatNumber(parseTokenAmount(claim.amount, details.tokenInfo.decimals).toNumber()) }} {{ details.tokenInfo.symbol }}
-                        </span>
-                      </td>
-                      <td class="py-2 px-2">
-                        <span v-if="claim.transactionId" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                          #{{ claim.transactionId.length > 0 ? claim.transactionId[0] : 'N/A' }}
-                        </span>
-                        <span v-else class="text-gray-400 text-xs">—</span>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <!-- Categories Tab -->
-              <div v-if="activeTab === 'categories'">
-                <div v-if="categoryData.length > 0" class="space-y-4">
-                  <!-- Category hint -->
-                  <div class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                    <p class="text-sm text-blue-800 dark:text-blue-200">
-                      <FilterIcon class="w-4 h-4 inline mr-1" />
-                      This distribution has <strong>{{ categoryData.length }}</strong> category{{ categoryData.length > 1 ? 's' : '' }}. Click on a category to see details and participants.
-                    </p>
-                  </div>
-
-                  <!-- Category Cards -->
-                  <CategoryDetailsCard
-                    v-for="category in categoryData"
-                    :key="category.categoryId.toString()"
-                    :category="category"
-                    :participants="category.participants"
-                    :token-symbol="details.tokenInfo.symbol"
-                    :token-decimals="details.tokenInfo.decimals"
-                  />
-                </div>
-                <div v-else class="text-center py-12">
-                  <FilterIcon class="w-12 h-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                  <p class="text-gray-500 dark:text-gray-400">No categories configured</p>
-                  <p class="text-sm text-gray-400 dark:text-gray-500 mt-1">This distribution doesn't use the category system</p>
-                </div>
-              </div>
-            </div>
           </div>
 
           <!-- ============================================ -->
@@ -493,50 +444,38 @@
           <div class="space-y-6">
 
             <!-- ============================================ -->
-            <!-- USER ALLOCATION (NEW COMPONENT) -->
+            <!-- CATEGORY STATUS SIDEBAR (MULTI-CATEGORY ONLY) -->
             <!-- ============================================ -->
-            <DistributionUserAllocation
-              :user-context="userContext"
-              :user-allocation="userAllocation"
-              :available-to-claim="availableToClaim"
-              :already-claimed="alreadyClaimed"
-              :token-symbol="details.tokenInfo.symbol"
-              :token-decimals="details.tokenInfo.decimals"
-              :eligibility-loading="eligibilityLoading"
-              :eligibility-status="eligibilityStatus"
-              :registering="registering"
-              :claiming="claiming"
+            <DistributionCategoryStatus v-if="categoryData.length > 0" :categories="categoryData"
+              :user-context="userContext" :is-authenticated="authStore.isConnected"
+              :processing="registering || claiming" :active-category="activeCategoryId"
+              @register-all="handleBatchRegister" @claim-all="handleBatchClaim"
+              @scroll-to-category="scrollToCategory" />
+
+            <!-- ============================================ -->
+            <!-- USER ALLOCATION (LEGACY - For non-category or single category) -->
+            <!-- ============================================ -->
+            <DistributionUserAllocation v-else :user-context="userContext" :user-allocation="userAllocation"
+              :available-to-claim="availableToClaim" :already-claimed="alreadyClaimed"
+              :token-symbol="details.tokenInfo.symbol" :token-decimals="details.tokenInfo.decimals"
+              :eligibility-loading="eligibilityLoading" :eligibility-status="eligibilityStatus"
+              :registering="registering" :claiming="claiming"
               :campaign-type="getVariantKey(details.campaignType) || 'Airdrop'"
-              :is-authenticated="authStore.isConnected"
-              @check-eligibility="checkEligibility"
-              @register="registerForCampaign"
-              @claim="claimTokens"
-            />
+              :is-authenticated="authStore.isConnected" @check-eligibility="checkEligibility"
+              @register="registerForCampaign" @claim="claimTokens" />
 
             <!-- ============================================ -->
             <!-- ACTION CARD (NEW COMPONENT) -->
             <!-- ============================================ -->
-            <DistributionActionCard
-              :details="details"
-              :stats="stats"
-              :is-owner="isOwner"
-              :is-authenticated="authStore.isConnected"
-              :canister-id="canisterId"
-              :user-allocation="userAllocation"
-              :refreshing="refreshing"
-              :auto-refresh-enabled="autoRefreshEnabled"
-              :contract-version="contractVersion"
-              @refresh="refreshData"
-              @toggle-auto-refresh="toggleAutoRefresh"
-            />
+            <DistributionActionCard :details="details" :stats="stats" :is-owner="isOwner"
+              :is-authenticated="authStore.isConnected" :canister-id="canisterId" :user-allocation="userAllocation"
+              :refreshing="refreshing" :auto-refresh-enabled="autoRefreshEnabled" :contract-version="contractVersion"
+              @refresh="refreshData" @toggle-auto-refresh="toggleAutoRefresh" />
 
             <!-- ============================================ -->
             <!-- TIMELINE (NEW COMPONENT) -->
             <!-- ============================================ -->
-            <DistributionTimeline
-              :distribution="details"
-              @countdown-end="refreshData"
-            />
+            <DistributionTimeline :distribution="details" @countdown-end="refreshData" />
           </div>
         </div>
       </div>
@@ -545,45 +484,34 @@
     <!-- ============================================ -->
     <!-- CLAIM MODAL (KEEP AS-IS) -->
     <!-- ============================================ -->
-    <ClaimModal
-      v-if="showClaimModal && claimInfo"
-      :distribution-id="canisterId"
-      :claim-info="claimInfo"
-      :token-symbol="details?.tokenInfo.symbol || 'TOKEN'"
-      :token-decimals="details?.tokenInfo.decimals || 8"
-      @close="showClaimModal = false"
-      @claimed="handleClaim"
-      @refresh="refreshClaimInfo"
-    />
+    <ClaimModal v-if="showClaimModal && claimInfo" :distribution-id="canisterId" :claim-info="claimInfo"
+      :token-symbol="details?.tokenInfo.symbol || 'TOKEN'" :token-decimals="details?.tokenInfo.decimals || 8"
+      @close="showClaimModal = false" @claimed="handleClaim" @refresh="refreshClaimInfo" />
 
     <!-- ============================================ -->
     <!-- FUND CONTRACT MODAL (NEW) -->
     <!-- ============================================ -->
-    <FundContractModal
-      v-if="details"
-      :is-open="showFundModal"
-      :contract-id="canisterId"
-      :required-amount="details.totalAmount"
-      :token-symbol="details.tokenInfo.symbol"
-      :token-decimals="details.tokenInfo.decimals"
-      :token-canister-id="details.tokenInfo.canisterId.toString()"
-      :user-balance="BigInt(0)"
-      @close="showFundModal = false"
-      @success="handleFundSuccess"
-    />
+    <FundContractModal v-if="details" :is-open="showFundModal" :contract-id="canisterId"
+      :required-amount="details.totalAmount" :token-symbol="details?.tokenInfo?.symbol || 'TOKEN'"
+      :token-decimals="details?.tokenInfo?.decimals || 8"
+      :token-canister-id="details?.tokenInfo?.canisterId?.toString() || ''" @close="showFundModal = false"
+      @success="handleFundSuccess" />
 
     <!-- ============================================ -->
     <!-- BATCH RESULT MODAL (NEW) -->
     <!-- ============================================ -->
-    <BatchResultModal
-      v-if="batchResult"
-      :is-open="showBatchResultModal"
-      :result="batchResult"
-      :operation-type="batchOperationType"
-      :token-symbol="details?.tokenInfo.symbol || 'TOKEN'"
-      :token-decimals="details?.tokenInfo.decimals || 8"
-      @close="showBatchResultModal = false"
-    />
+    <BatchResultModal v-if="batchResult" :is-open="showBatchResultModal" :result="batchResult"
+      :operation-type="batchOperationType" :token-symbol="details?.tokenInfo.symbol || 'TOKEN'"
+      :token-decimals="details?.tokenInfo.decimals || 8" @close="showBatchResultModal = false" />
+
+    <!-- ============================================ -->
+    <!-- BATCH CONFIRM MODAL (NEW) -->
+    <!-- ============================================ -->
+    <BatchConfirmModal v-if="details" :is-open="showBatchConfirmModal" :operation-type="batchConfirmType"
+      :categories="batchConfirmType === 'register' ? eligibleCategories : claimableCategories"
+      :token-symbol="details?.tokenInfo.symbol || 'TOKEN'" :token-decimals="details?.tokenInfo.decimals || 8"
+      @close="showBatchConfirmModal = false"
+      @confirm="batchConfirmType === 'register' ? confirmBatchRegister() : confirmBatchClaim()" />
   </AdminLayout>
 </template>
 
@@ -599,11 +527,14 @@ import DistributionActionCard from '@/components/distribution/DistributionAction
 import DistributionUserAllocation from '@/components/distribution/DistributionUserAllocation.vue'
 import DistributionCampaignDetails from '@/components/distribution/DistributionCampaignDetails.vue'
 import DistributionTimeline from '@/components/distribution/DistributionTimeline.vue'
+import DistributionStatusBadge from '@/components/distribution/DistributionStatusBadge.vue'
+import DistributionCategoryStatus from '@/components/distribution/DistributionCategoryStatus.vue'
 
 // ============================================
 // NEW IMPORTS (Composable)
 // ============================================
 import { useDistributionStatus } from '@/composables/distribution/useDistributionStatus'
+import { useCategoryStatus } from '@/composables/distribution/useCategoryStatus'
 
 // ============================================
 // EXISTING IMPORTS (KEEP ALL)
@@ -611,6 +542,7 @@ import { useDistributionStatus } from '@/composables/distribution/useDistributio
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import TokenLogo from '@/components/token/TokenLogo.vue'
 import Label from '@/components/common/Label.vue'
+import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import LockDetail from '@/components/distribution/LockDetail.vue'
 import MetricCard from '@/components/token/MetricCard.vue'
 import VestingChart from '@/components/distribution/VestingChart.vue'
@@ -619,6 +551,7 @@ import FundContractModal from '@/components/distribution/FundContractModal.vue'
 import VueApexCharts from 'vue3-apexcharts'
 import ClaimModal from '@/components/distribution/ClaimModal.vue'
 import BatchResultModal from '@/components/distribution/BatchResultModal.vue'
+import BatchConfirmModal from '@/components/distribution/BatchConfirmModal.vue'
 import CategoryDetailsCard from '@/components/distribution/CategoryDetailsCard.vue'
 import VueCountdown from '@chenfengyuan/vue-countdown'
 import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
@@ -634,7 +567,6 @@ import { toast } from 'vue-sonner'
 import { useTheme } from '@/components/layout/ThemeProvider.vue'
 import { useAuthStore } from '@/stores/auth'
 import {
-  ArrowLeftIcon,
   AlertCircleIcon,
   RefreshCwIcon,
   SettingsIcon,
@@ -700,6 +632,9 @@ const userContext = ref<{
 // User participant data
 const participantData = ref<any>(null)
 
+// User category breakdown (vesting-aware claimable amounts)
+const userCategoryBreakdown = ref<Map<string, any>>(new Map())
+
 // User data
 const userAllocation = ref<bigint>(BigInt(0))
 const availableToClaim = ref<bigint>(BigInt(0))
@@ -710,17 +645,29 @@ const autoRefreshEnabled = ref(true)
 const contractVersion = '1.0.0'
 
 // ============================================
-// NEW COMPOSABLE USAGE
+// NEW: CATEGORY STATUS & OPERATIONS
+// ============================================
+const activeCategoryId = ref<string | undefined>(undefined)
+const showBatchConfirmModal = ref(false)
+const batchConfirmType = ref<'register' | 'claim'>('register')
+
+// ============================================
+// NEW COMPOSABLE USAGE WITH BALANCE VALIDATION
 // ============================================
 const distributionRef = computed(() => details.value)
 const {
   distributionStatus: composableStatus,
   statusInfo,
-  timeline,
+  timeline: statusTimeline,
   canRegister: canRegisterFromComposable,
   canClaim: canClaimFromComposable,
-  canManage
-} = useDistributionStatus(distributionRef)
+  canManage,
+  needsFunding,
+  isLive,
+  isCreated,
+  isRegistration,
+  isEnded
+} = useDistributionStatus(distributionRef, contractBalance)
 
 // ============================================
 // EXISTING COMPUTED (KEEP ALL)
@@ -736,6 +683,12 @@ const canClaimFromContext = computed(() => userContext.value?.canClaim ?? false)
 const canClaim = computed(() => {
   return canClaimFromContext.value && availableToClaim.value > 0
 })
+
+// Breadcrumb navigation
+const breadcrumbItems = computed(() => [
+  { label: 'Distributions', to: '/distribution' },
+  { label: details.value?.title || 'Distribution Detail' }
+])
 
 // Computed properties for milestone dates
 const distributionStartDate = computed(() => {
@@ -1253,7 +1206,19 @@ const claimTimelineOptions = computed(() => ({
 // ============================================
 const categories = computed(() => {
   // @ts-ignore - categories may not be in type definition yet
-  return details.value?.categories || []
+  const cats = details.value?.categories
+  // Check if categories is an array or nested array
+  if (!cats) {
+    return []
+  }
+
+  // If categories is nested array like [[category1, category2]]
+  if (Array.isArray(cats) && cats.length > 0 && Array.isArray(cats[0])) {
+    return cats[0]
+  }
+
+  // Otherwise use as is
+  return cats
 })
 
 // Organize participants by category
@@ -1274,22 +1239,45 @@ const participantsByCategory = computed(() => {
 
   // Distribute participants to their categories
   participants.value.forEach((participant: any) => {
-    // Check if participant has categoryAllocations
-    if (participant.categoryAllocations && Array.isArray(participant.categoryAllocations)) {
-      participant.categoryAllocations.forEach(([categoryId, allocation]: [bigint, bigint]) => {
-        const catId = categoryId.toString()
+    console.log('🔍 DEBUG - Processing participant:', participant.principal?.toString())
+    console.log('🔍 DEBUG - Participant categories:', participant.categories)
+
+    // ✅ FIX: Backend returns "categories" not "categoryAllocations"
+    if (participant.categories && Array.isArray(participant.categories)) {
+      participant.categories.forEach((category: any) => {
+        const catId = category.categoryId.toString()
+
+        // Robustly get amount and claimed amount (handle variations)
+        const amount = category.amount !== undefined
+          ? category.amount
+          : (category.allocatedAmount !== undefined ? category.allocatedAmount : BigInt(0))
+
+        const claimed = category.claimedAmount !== undefined
+          ? category.claimedAmount
+          : (category.claimed !== undefined ? category.claimed : BigInt(0))
+
+        console.log(`🔍 DEBUG - Category ${catId}:`, {
+          amount: amount,
+          claimedAmount: claimed,
+          rawCategory: category
+        })
+
         if (categoryMap.has(catId)) {
           categoryMap.get(catId)!.push({
             principal: participant.principal,
-            allocation: allocation,
-            claimed: participant.claimedAmount || BigInt(0),
-            note: participant.note
+            allocation: amount,
+            claimed: claimed,
+            note: category.note
           })
+          console.log(`🔍 DEBUG - Added participant to category ${catId} with allocation: ${amount}`)
+        } else {
+          console.log(`🔍 DEBUG - Category ${catId} not found in categoryMap`)
         }
       })
+    } else {
+      console.log('🔍 DEBUG - Participant has no categories array')
     }
   })
-
   return categoryMap
 })
 
@@ -1303,22 +1291,50 @@ const categoryData = computed(() => {
     const categoryId = (category.id || category.categoryId)?.toString()
     const categoryParticipants = participantsByCategory.value.get(categoryId) || []
 
-    // Calculate total allocation for this category
-    const totalAllocation = categoryParticipants.reduce((sum: number, p: any) => sum + Number(p.allocation), 0)
+    // Get total allocation for this category
+    let totalAllocation: bigint
+
+    // Check if this is an Open category with allocationPerUser and maxParticipants
+    const isPredefined = category.mode && (('Predefined' in category.mode) ? true : false)
+    const isOpen = category.mode && (('Open' in category.mode) ? true : false)
+
+    if (isOpen && category.allocationPerUser && category.maxParticipants) {
+      // Open category: calculate from maxParticipants * allocationPerUser
+      const allocationPerUser = typeof category.allocationPerUser === 'bigint'
+        ? category.allocationPerUser
+        : BigInt(category.allocationPerUser || 0)
+      const maxParticipants = BigInt(category.maxParticipants || 0)
+      totalAllocation = allocationPerUser * maxParticipants
+    }
+    // For Predefined category or if calculation fails: calculate from participants
+    else {
+      totalAllocation = categoryParticipants.reduce((sum: bigint, p: any) => {
+        const allocation = typeof p.allocation === 'bigint' ? p.allocation : BigInt(p.allocation || 0)
+        return sum + allocation
+      }, BigInt(0))
+    }
 
     return {
+      category,
       categoryId: category.id || category.categoryId,
+      categoryParticipants,
+      participantsCount: categoryParticipants.length,
+      // Properties for CategoryDetailsCard
       name: category.name || `Category ${categoryId}`,
       description: category.description && category.description.length > 0 ? category.description[0] : '',
       mode: category.mode ? (('Predefined' in category.mode) ? 'Predefined' : 'Open') : 'Open',
-      totalAllocation: BigInt(totalAllocation),
+      totalAllocation: totalAllocation,
       vestingSchedule: category.defaultVestingSchedule || details.value?.vestingSchedule,
       vestingStart: category.defaultVestingStart || details.value?.distributionStart,
       passportScore: category.defaultPassportScore || BigInt(0),
       passportProvider: category.defaultPassportProvider || 'ICTO',
       maxParticipants: category.maxParticipants && category.maxParticipants.length > 0 ? category.maxParticipants[0] : null,
       allocationPerUser: category.allocationPerUser && category.allocationPerUser.length > 0 ? category.allocationPerUser[0] : null,
-      participants: categoryParticipants
+      participants: categoryParticipants,
+      // Inject user-specific status data from backend (vesting-aware)
+      claimableAmount: userCategoryBreakdown.value.get(categoryId)?.claimableAmount,
+      eligibleAmount: userCategoryBreakdown.value.get(categoryId)?.allocatedAmount,
+      claimedAmount: userCategoryBreakdown.value.get(categoryId)?.claimedAmount
     }
   })
 })
@@ -1553,10 +1569,28 @@ const fetchUserContext = async () => {
 
     if (context.isRegistered && context.principal) {
       await fetchParticipantData(context.principal)
+      // Fetch vesting-aware category breakdown
+      await fetchCategoryBreakdown(context.principal)
     }
   } catch (err) {
     console.error('Error fetching user context:', err)
     userContext.value = null
+  }
+}
+
+const fetchCategoryBreakdown = async (principalId: string) => {
+  try {
+    const breakdown = await DistributionService.getUserCategoryBreakdown(canisterId.value, principalId)
+
+    // Convert array to Map for quick lookup by categoryId
+    const breakdownMap = new Map()
+    breakdown.forEach((cat: any) => {
+      breakdownMap.set(cat.categoryId.toString(), cat)
+    })
+    userCategoryBreakdown.value = breakdownMap
+  } catch (err) {
+    console.error('Error fetching category breakdown:', err)
+    userCategoryBreakdown.value = new Map()
   }
 }
 
@@ -1582,6 +1616,196 @@ const fetchParticipantData = async (principalId?: string) => {
 
 const toggleAutoRefresh = () => {
   autoRefreshEnabled.value = !autoRefreshEnabled.value
+}
+
+// ============================================
+// NEW: CATEGORY STATUS COMPOSABLE
+// ============================================
+const categoriesRef = computed(() => categoryData.value)
+const userContextRef = computed(() => userContext.value)
+const isAuthenticatedRef = computed(() => authStore.isConnected)
+const categoryBreakdownRef = computed(() => userCategoryBreakdown.value)
+
+const {
+  categoriesWithStatus,
+  eligibleCategories,
+  claimableCategories,
+  hasEligibleCategories,
+  hasClaimableCategories,
+  getCategoryUserStatus
+} = useCategoryStatus(categoriesRef, userContextRef, isAuthenticatedRef, categoryBreakdownRef)
+
+// ============================================
+// NEW: CATEGORY OPERATIONS
+// ============================================
+
+/**
+ * Handle batch register for all eligible categories
+ */
+const handleBatchRegister = async () => {
+  // Show confirmation modal
+  batchConfirmType.value = 'register'
+  showBatchConfirmModal.value = true
+}
+
+/**
+ * Confirm and execute batch register
+ */
+const confirmBatchRegister = async () => {
+  try {
+    registering.value = true
+    showBatchConfirmModal.value = false
+
+    // Use existing batch register function
+    await registerForCampaign()
+  } catch (err) {
+    console.error('Error in batch registration:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    registering.value = false
+  }
+}
+
+/**
+ * Handle batch claim for all claimable categories
+ */
+const handleBatchClaim = async () => {
+  // Check if there are any claimable categories
+  if (claimableCategories.value.length === 0) {
+    toast.warning('No categories available to claim at this time')
+    return
+  }
+
+  // Show confirmation modal
+  batchConfirmType.value = 'claim'
+  showBatchConfirmModal.value = true
+}
+
+/**
+ * Confirm and execute batch claim
+ */
+const confirmBatchClaim = async () => {
+  try {
+    claiming.value = true
+    showBatchConfirmModal.value = false
+
+    // Calculate total claimable amount
+    const totalAmount = claimableCategories.value.reduce(
+      (sum: bigint, cat: any) => sum + cat.claimableAmount,
+      BigInt(0)
+    )
+
+    // Use existing batch claim via claimTokens
+    availableToClaim.value = totalAmount
+    await claimTokens()
+  } catch (err) {
+    console.error('Error in batch claim:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    claiming.value = false
+  }
+}
+
+/**
+ * Handle individual category register
+ */
+const handleCategoryRegister = async (categoryId: number | bigint) => {
+  try {
+    registering.value = true
+    const result = await DistributionService.batchRegister(canisterId.value, [Number(categoryId)])
+
+    if ('ok' in result) {
+      const batchData = result.ok
+      batchResult.value = batchData
+      batchOperationType.value = 'register'
+      showBatchResultModal.value = true
+
+      if (batchData.success) {
+        toast.success(batchData.message || 'Successfully registered for category')
+      } else {
+        toast.warning(batchData.message || 'Registration completed with some issues')
+      }
+
+      await refreshData()
+    } else {
+      toast.error('Registration failed: ' + result.err)
+    }
+  } catch (err) {
+    console.error('Error registering for category:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    registering.value = false
+  }
+}
+
+/**
+ * Handle individual category claim
+ */
+const handleCategoryClaim = async (categoryId: number | bigint, amount: bigint) => {
+  try {
+    claiming.value = true
+    const result = await DistributionService.batchClaim(
+      canisterId.value,
+      Number(categoryId),
+      amount.toString()
+    )
+
+    if ('ok' in result) {
+      const batchData = result.ok
+      batchResult.value = batchData
+      batchOperationType.value = 'claim'
+      showBatchResultModal.value = true
+
+      if (batchData.success) {
+        toast.success(batchData.message || 'Successfully claimed tokens')
+      } else {
+        toast.warning(batchData.message || 'Claim completed with some issues')
+      }
+
+      await refreshData()
+    } else {
+      toast.error('Claim failed: ' + result.err)
+    }
+  } catch (err) {
+    console.error('Error claiming from category:', err)
+    toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
+  } finally {
+    claiming.value = false
+  }
+}
+
+/**
+ * Scroll to category section
+ */
+const scrollToCategory = (categoryId: string) => {
+  activeCategoryId.value = categoryId
+  const element = document.getElementById(`category-${categoryId}`)
+  if (element) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    // Add highlight animation
+    element.classList.add('highlight-pulse')
+    setTimeout(() => {
+      element.classList.remove('highlight-pulse')
+    }, 2000)
+  }
+}
+
+/**
+ * Handle countdown end - refresh data from server to get latest status
+ * This is critical for status transitions (Created -> Live, Registration -> Live, etc.)
+ */
+const handleCountdownEnd = async () => {
+  console.log('🔄 Countdown ended, refreshing data from server...')
+
+  // Check balance first (important for Created -> Live transition)
+  await checkBalance()
+
+  // Then refresh all data
+  await refreshData()
+
+  toast.info('Distribution status updated', {
+    description: 'Fetched latest status from server'
+  })
 }
 
 const parallelFetch = async () => {
@@ -1915,5 +2139,24 @@ onMounted(() => {
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+/* Highlight pulse animation for scrolled category */
+:global(.highlight-pulse) {
+  animation: highlight-pulse 2s ease-out;
+}
+
+@keyframes highlight-pulse {
+
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    transform: scale(1);
+  }
+
+  50% {
+    box-shadow: 0 0 0 10px rgba(59, 130, 246, 0.3);
+    transform: scale(1.01);
+  }
 }
 </style>

@@ -1,4 +1,4 @@
-import { computed, type ComputedRef } from 'vue'
+import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { getVariantKey } from '@/utils/common'
 
 /**
@@ -6,12 +6,13 @@ import { getVariantKey } from '@/utils/common'
  * Simplified status based on campaign timeline and type
  */
 export type DistributionStatus =
-  | 'Created'        // Just created, not started
+  | 'Created'        // Just created, not started yet (may need funding)
   | 'Registration'   // Registration period (SelfService mode)
-  | 'Active'         // Distribution is active (can claim)
+  | 'Live'           // Distribution is live (can claim)
   | 'Locked'         // Lock campaign - tokens locked
   | 'Vesting'        // Vesting campaign - gradual unlock
-  | 'Completed'      // All tokens claimed or ended
+  | 'Ended'          // Distribution ended, may still be claimable
+  | 'Completed'      // All tokens claimed or fully completed
   | 'Cancelled'      // Cancelled by owner
 
 /**
@@ -46,15 +47,23 @@ export interface DistributionStatusInfo {
   canClaim: boolean
   canManage: boolean
   showBalance: boolean
+  requiresBalanceCheck: boolean  // NEW: Indicates if balance validation is needed
+  needsFunding: boolean          // NEW: True if contract balance is insufficient
 }
 
 /**
  * Composable for managing distribution status display
  * Provides simplified, user-friendly status from distribution data
+ *
+ * @param distribution - Reactive reference to distribution details
+ * @param contractBalance - Optional reactive reference to contract balance (for validation)
  */
-export function useDistributionStatus(distribution: ComputedRef<any>) {
+export function useDistributionStatus(
+  distribution: ComputedRef<any>,
+  contractBalance?: Ref<bigint>
+) {
   /**
-   * Determine current distribution status
+   * Determine current distribution status with balance validation
    */
   const distributionStatus = computed<DistributionStatus>(() => {
     if (!distribution.value) return 'Created'
@@ -88,6 +97,19 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
       return 'Created'
     }
 
+    // Check balance before allowing "Live" status
+    // If distribution should be live but balance is insufficient, keep it in "Created"
+    const hasStarted = now >= startTime
+    if (hasStarted && contractBalance !== undefined) {
+      const totalAmount = details.totalAmount ? BigInt(details.totalAmount) : BigInt(0)
+      const currentBalance = contractBalance.value || BigInt(0)
+
+      // If contract doesn't have enough balance, it cannot go live
+      if (currentBalance < totalAmount) {
+        return 'Created'  // Stays in Created until funded
+      }
+    }
+
     // Determine status based on campaign type
     if (campaignType === 'Lock') {
       // Check if lock period ended
@@ -103,7 +125,7 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
         }
 
         if (now >= endTime) {
-          return 'Completed'
+          return 'Ended'  // Lock period ended
         }
 
         return 'Locked'
@@ -116,17 +138,29 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
       ? Number(details.distributionEnd[0]) / 1_000_000
       : null
 
-    // Check if completed
+    // Check if ended (but may still be claimable)
     if (distributionEnd && now >= distributionEnd) {
-      return 'Completed'
+      return 'Ended'
     }
 
-    // Active distribution
+    // Live distribution (passed all checks including balance)
     if (campaignType === 'Vesting') {
       return 'Vesting'
     }
 
-    return 'Active'
+    return 'Live'
+  })
+
+  /**
+   * Check if contract needs funding
+   */
+  const needsFunding = computed(() => {
+    if (!distribution.value || !contractBalance) return false
+
+    const totalAmount = distribution.value.totalAmount ? BigInt(distribution.value.totalAmount) : BigInt(0)
+    const currentBalance = contractBalance.value || BigInt(0)
+
+    return currentBalance < totalAmount
   })
 
   /**
@@ -137,21 +171,38 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
     const details = distribution.value
     const campaignType = details ? getVariantKey(details.campaignType) : null
     const isOwner = details?.isOwner ?? false
+    const now = Date.now()
+    const startTime = details ? Number(details.distributionStart) / 1_000_000 : 0
+
+    // Check if we're approaching start time (within 1 hour)
+    const approachingStart = startTime > 0 && now >= (startTime - 3600000) && now < startTime
 
     const statusMap: Record<DistributionStatus, Omit<DistributionStatusInfo, 'status'>> = {
       Created: {
-        label: 'Created',
-        description: 'Distribution not started yet',
-        color: 'gray',
-        icon: '📝',
-        bgClass: 'bg-gray-100 dark:bg-gray-700',
-        textClass: 'text-gray-700 dark:text-gray-300',
-        borderClass: 'border-gray-300 dark:border-gray-600',
-        dotClass: 'bg-gray-500',
+        label: needsFunding.value ? 'Needs Funding' : approachingStart ? 'Starting Soon' : 'Created',
+        description: needsFunding.value
+          ? 'Contract needs funding before distribution can start'
+          : approachingStart
+            ? 'Distribution starting soon'
+            : 'Distribution not started yet',
+        color: needsFunding.value ? 'yellow' : 'gray',
+        icon: needsFunding.value ? '⚠️' : approachingStart ? '⏰' : '📝',
+        bgClass: needsFunding.value
+          ? 'bg-yellow-100 dark:bg-yellow-900/20'
+          : 'bg-gray-100 dark:bg-gray-700',
+        textClass: needsFunding.value
+          ? 'text-yellow-700 dark:text-yellow-300'
+          : 'text-gray-700 dark:text-gray-300',
+        borderClass: needsFunding.value
+          ? 'border-yellow-300 dark:border-yellow-700'
+          : 'border-gray-300 dark:border-gray-600',
+        dotClass: needsFunding.value ? 'bg-yellow-500' : 'bg-gray-500',
         canRegister: false,
         canClaim: false,
         canManage: isOwner,
-        showBalance: isOwner
+        showBalance: isOwner,
+        requiresBalanceCheck: true,
+        needsFunding: needsFunding.value
       },
       Registration: {
         label: 'Registration Open',
@@ -165,13 +216,15 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
         canRegister: true,
         canClaim: false,
         canManage: isOwner,
-        showBalance: isOwner
+        showBalance: isOwner,
+        requiresBalanceCheck: true,
+        needsFunding: needsFunding.value
       },
-      Active: {
-        label: 'Active',
+      Live: {
+        label: 'Live',
         description: campaignType === 'Airdrop'
           ? 'Claim your tokens now'
-          : 'Distribution is active',
+          : 'Distribution is live',
         color: 'blue',
         icon: '🚀',
         bgClass: 'bg-blue-100 dark:bg-blue-900/20',
@@ -181,7 +234,9 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
         canRegister: false,
         canClaim: true,
         canManage: isOwner,
-        showBalance: isOwner
+        showBalance: isOwner,
+        requiresBalanceCheck: false,
+        needsFunding: false
       },
       Locked: {
         label: 'Locked',
@@ -195,7 +250,9 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
         canRegister: false,
         canClaim: false,
         canManage: isOwner,
-        showBalance: isOwner
+        showBalance: isOwner,
+        requiresBalanceCheck: false,
+        needsFunding: false
       },
       Vesting: {
         label: 'Vesting',
@@ -209,11 +266,29 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
         canRegister: false,
         canClaim: true,
         canManage: isOwner,
-        showBalance: isOwner
+        showBalance: isOwner,
+        requiresBalanceCheck: false,
+        needsFunding: false
+      },
+      Ended: {
+        label: 'Ended',
+        description: 'Distribution period ended',
+        color: 'gray',
+        icon: '⏸️',
+        bgClass: 'bg-gray-100 dark:bg-gray-700',
+        textClass: 'text-gray-700 dark:text-gray-300',
+        borderClass: 'border-gray-300 dark:border-gray-600',
+        dotClass: 'bg-gray-500',
+        canRegister: false,
+        canClaim: campaignType === 'Vesting',  // Can still claim in vesting
+        canManage: isOwner,
+        showBalance: isOwner,
+        requiresBalanceCheck: false,
+        needsFunding: false
       },
       Completed: {
         label: 'Completed',
-        description: 'Distribution has ended',
+        description: 'All tokens distributed',
         color: 'green',
         icon: '✅',
         bgClass: 'bg-green-100 dark:bg-green-900/20',
@@ -223,7 +298,9 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
         canRegister: false,
         canClaim: false,
         canManage: isOwner,
-        showBalance: isOwner
+        showBalance: isOwner,
+        requiresBalanceCheck: false,
+        needsFunding: false
       },
       Cancelled: {
         label: 'Cancelled',
@@ -237,7 +314,9 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
         canRegister: false,
         canClaim: false,
         canManage: isOwner,
-        showBalance: isOwner
+        showBalance: isOwner,
+        requiresBalanceCheck: false,
+        needsFunding: false
       }
     }
 
@@ -413,9 +492,11 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
     // Convenience flags
     isCreated: computed(() => distributionStatus.value === 'Created'),
     isRegistration: computed(() => distributionStatus.value === 'Registration'),
-    isActive: computed(() => distributionStatus.value === 'Active'),
+    isLive: computed(() => distributionStatus.value === 'Live'),
+    isActive: computed(() => distributionStatus.value === 'Live'),  // Alias for backwards compatibility
     isLocked: computed(() => distributionStatus.value === 'Locked'),
     isVesting: computed(() => distributionStatus.value === 'Vesting'),
+    isEnded: computed(() => distributionStatus.value === 'Ended'),
     isCompleted: computed(() => distributionStatus.value === 'Completed'),
     isCancelled: computed(() => distributionStatus.value === 'Cancelled'),
 
@@ -423,6 +504,10 @@ export function useDistributionStatus(distribution: ComputedRef<any>) {
     canRegister: computed(() => statusInfo.value.canRegister),
     canClaim: computed(() => statusInfo.value.canClaim),
     canManage: computed(() => statusInfo.value.canManage),
-    showBalance: computed(() => statusInfo.value.showBalance)
+    showBalance: computed(() => statusInfo.value.showBalance),
+
+    // Balance validation
+    needsFunding,
+    requiresBalanceCheck: computed(() => statusInfo.value.requiresBalanceCheck)
   }
 }

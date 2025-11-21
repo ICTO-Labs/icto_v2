@@ -1,8 +1,8 @@
 # Launchpad Factory - Module Overview
 
-**Status:** 🚧 In Progress
-**Version:** 1.0.0
-**Last Updated:** 2025-01-11
+**Status:** ✅ Completed
+**Version:** 2.0.0
+**Last Updated:** 2025-11-21
 
 ---
 
@@ -26,11 +26,16 @@ The Launchpad Factory module provides a comprehensive token launchpad solution f
 - ✅ Multi-step Token Launch Process
 - ✅ Automated Token Contract Deployment
 - ✅ Multi-DEX Liquidity Provision (ICPSwap, KongSwap, Sonic DEX, ICDex)
+- ✅ **V2 Multi-Category Distribution System**
+  - Unified distribution contracts with multiple categories
+  - Independent vesting per category (Sale, Team, Advisors, etc.)
+  - Automatic tokenomics mapping to distribution categories
+  - Backward compatible with V1 single-category distributions
 - ✅ Vesting Schedule Management
 - ✅ Raised Funds Allocation (Team, Marketing, Liquidity)
 - ✅ Post-Launch Asset Management Options
-  - 🚧 DAO Treasury Transfer
-  - 🚧 Multisig Wallet Transfer
+  - ✅ DAO Treasury Transfer
+  - ✅ Multisig Wallet Transfer
 - ✅ Real-time Allocation Validation
 - ✅ Industry Standard PinkSale-style Allocations
 
@@ -319,6 +324,118 @@ Contracts notify factory on these events:
 
 ---
 
+## V2 Multi-Category Distribution Integration
+
+### Overview
+
+Launchpad Factory now automatically creates **unified multi-category distribution contracts** from tokenomics configuration. Instead of creating separate distributions for each category (Team, Advisors, Marketing), it creates ONE distribution contract per token with multiple categories.
+
+### Tokenomics to Distribution Mapping
+
+**Automatic Category Mapping:**
+
+```motoko
+// From LaunchpadConfig.tokenomics
+tokenomics: {
+    distribution: [
+        {name: "Sale", percentage: 40, vesting: #Linear(...)},
+        {name: "Team", percentage: 20, vesting: #Single(...)},
+        {name: "Advisors", percentage: 10, vesting: #Linear(...)},
+        {name: "Marketing", percentage: 10, vesting: #Instant},
+        {name: "Treasury", percentage: 15, vesting: #Instant},  // Excluded
+        {name: "Reserve", percentage: 5, vesting: #Instant}     // Excluded
+    ]
+}
+
+// ↓ Automatically converts to ↓
+
+MultiCategoryDistributionConfig {
+    multiCategoryRecipients: [
+        {
+            address: wallet1,
+            categories: [
+                {categoryId: 1, categoryName: "Sale", amount: 400M, vesting: #Linear(...)},
+                {categoryId: 2, categoryName: "Team", amount: 200M, vesting: #Single(...)}
+            ]
+        },
+        {
+            address: wallet2,
+            categories: [
+                {categoryId: 3, categoryName: "Advisors", amount: 100M, vesting: #Linear(...)}
+            ]
+        }
+    ]
+}
+```
+
+**Exclusions:**
+- `Treasury` and `Reserve` allocations are **excluded** from distribution contracts
+- These are managed separately by the project
+- Only participant-facing categories are included
+
+### Benefits
+
+1. **One Contract Per Token:** Simplified management, lower deployment costs
+2. **Independent Vesting:** Each category has its own vesting schedule
+3. **Flexible Claiming:** Users can claim from specific categories or all at once
+4. **Clear Tracking:** Easy to see allocation sources (Sale vs Team vs Advisors)
+5. **Backward Compatible:** Legacy V1 distributions still work
+
+### Implementation Details
+
+**File:** `launchpad_factory/modules/DistributionFactory.mo`
+
+**Key Function:** `buildUnifiedTokenDistribution()`
+
+```motoko
+// Maps tokenomics to V2 multi-category structure
+// Excludes Treasury/Reserve
+// Adds 5-minute buffer to distribution start time
+// Processes config.distribution array (not config.tokenDistribution)
+```
+
+**Indexing:**
+- Backend extracts recipients from `multiCategoryRecipients`
+- Distribution Factory indexes all recipients for O(1) lookups
+- Users see distributions on homepage via `getMyRecipientDistributions`
+
+### Migration Path
+
+**V1 (Legacy):**
+```typescript
+// Old: Separate distributions per category
+createLaunchpad({
+    distributions: [
+        {title: "Team Vesting", recipients: [...]},
+        {title: "Advisor Vesting", recipients: [...]}
+    ]
+})
+```
+
+**V2 (Current):**
+```typescript
+// New: Unified distribution with categories
+createLaunchpad({
+    tokenomics: {
+        distribution: [
+            {name: "Team", percentage: 20, ...},
+            {name: "Advisors", percentage: 10, ...}
+        ]
+    }
+})
+// → Automatically creates ONE distribution with 2 categories
+```
+
+---
+
+## Related Documentation
+
+- **Multi-Category Architecture:** See `../distribution_factory/MULTI_CATEGORY_ARCHITECTURE.md`
+- **Distribution Factory:** See `../distribution_factory/README.md`
+- **Tokenomics Configuration:** See `IMPLEMENTATION_GUIDE.md`
+
+---
+
 ## Quick Start
 
 ### For Developers
@@ -345,6 +462,6 @@ Contracts notify factory on these events:
 
 ---
 
-**Last Updated:** YYYY-MM-DD
-**Module Version:** X.X.X
-**Status:** [Status Icon] [Status Text]
+**Last Updated:** 2025-11-21
+**Module Version:** 2.0.0
+**Status:** ✅ Completed - V2 Multi-Category Integration

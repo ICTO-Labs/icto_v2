@@ -33,6 +33,7 @@ module DistributionFactoryTypes {
 
     // Launchpad batch types
     public type DistributionCategory = DistributionTypes.DistributionCategory;
+    public type MultiCategoryRecipient = DistributionTypes.MultiCategoryRecipient;
     public type ProjectMetadata = DistributionTypes.ProjectMetadata;
     public type BatchDistributionRequest = DistributionTypes.BatchDistributionRequest;
 
