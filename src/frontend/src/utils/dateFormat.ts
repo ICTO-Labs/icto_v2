@@ -1,11 +1,30 @@
-export const formatTimeAgo = (timestamp: number): string => {
+export const formatTimeAgo = (timestamp: number | bigint | string | null | undefined): string => {
     // Handle invalid timestamps
-    if (timestamp == null || !isFinite(timestamp) || timestamp <= 0) {
+    if (timestamp == null) {
         return 'N/A'
     }
-    
+
+    // Convert to number first
+    let numTs = 0
+    if (typeof timestamp === 'bigint') {
+        numTs = Number(timestamp)
+    } else if (typeof timestamp === 'string') {
+        numTs = parseInt(timestamp, 10)
+    } else {
+        numTs = timestamp
+    }
+
+    if (!isFinite(numTs) || numTs <= 0) {
+        return 'N/A'
+    }
+
+    // Convert from nanoseconds to milliseconds if needed
+    if (numTs > 1e16) {
+        numTs = Math.floor(numTs / 1000000)
+    }
+
     const now = Date.now()
-    const secondsAgo = Math.floor((now - Number(timestamp)) / 1000)
+    const secondsAgo = Math.floor((now - numTs) / 1000)
 
     if (secondsAgo < 60) {
         return 'just now'
@@ -93,21 +112,35 @@ export const formatDateRange = (start: Date | number | string, end: Date | numbe
 }
 
 // Safe timestamp formatter specifically for admin UI
-export const formatTimestampSafe = (timestamp: number | null | undefined): string => {
-    if (timestamp == null || !isFinite(timestamp) || timestamp <= 0) {
+export const formatTimestampSafe = (timestamp: number | bigint | string | null | undefined): string => {
+    if (timestamp == null) {
         return 'N/A'
     }
-    
-    // Convert from nanoseconds to milliseconds if needed (IC timestamps are often in nanoseconds)
-    let ts = timestamp
-    if (timestamp > 1e16) { // If timestamp looks like nanoseconds
-        ts = Math.floor(timestamp / 1000000) // Convert to milliseconds
+
+    // Convert to number first
+    let numTs = 0
+    if (typeof timestamp === 'bigint') {
+        numTs = Number(timestamp)
+    } else if (typeof timestamp === 'string') {
+        numTs = parseInt(timestamp, 10)
+    } else {
+        numTs = timestamp
     }
-    
-    return formatDate(ts, { 
-        month: 'short', 
-        day: 'numeric', 
-        hour: 'numeric', 
-        minute: '2-digit' 
+
+    if (!isFinite(numTs) || numTs <= 0) {
+        return 'N/A'
+    }
+
+    // Convert from nanoseconds to milliseconds if needed (IC timestamps are often in nanoseconds)
+    let ts = numTs
+    if (numTs > 1e16) { // If timestamp looks like nanoseconds
+        ts = Math.floor(numTs / 1000000) // Convert to milliseconds
+    }
+
+    return formatDate(ts, {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
     })
 }
