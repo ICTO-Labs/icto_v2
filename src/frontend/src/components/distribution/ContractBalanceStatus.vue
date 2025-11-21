@@ -111,11 +111,13 @@ interface Props {
   distributionStart?: bigint  // Start time in nanoseconds
   refreshing?: boolean
   autoCheckBalance?: boolean
+  needsFunding?: boolean  // ✅ NEW: Flag from composable
 }
 
 const props = withDefaults(defineProps<Props>(), {
   refreshing: false,
-  autoCheckBalance: true
+  autoCheckBalance: true,
+  needsFunding: false
 })
 
 const emit = defineEmits<{
@@ -132,8 +134,13 @@ onMounted(() => {
 })
 
 const shouldShow = computed(() => {
-  // Only show if contract status is "Created" and balance is insufficient
-  return props.contractStatus === 'Created' && Number(props.currentBalance) < Number(props.requiredAmount)
+  // Show if:
+  // 1. Contract status is "Created" and balance is insufficient, OR
+  // 2. needsFunding flag is explicitly true (from composable)
+  const isCreated = props.contractStatus === 'Created'
+  const isInsufficient = Number(props.currentBalance) < Number(props.requiredAmount)
+
+  return (isCreated && isInsufficient) || props.needsFunding
 })
 
 const isInsufficient = computed(() => {

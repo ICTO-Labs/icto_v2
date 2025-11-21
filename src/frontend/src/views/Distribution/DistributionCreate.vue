@@ -1,129 +1,141 @@
 <template>
 	<AdminLayout>
-	<div class="max-w-8xl mx-auto">
-		<!-- Header -->
-		<div class="mb-8">
-			<div class="flex items-center justify-between">
-				<div>
-					<h1 class="text-2xl font-bold text-gray-900 dark:text-white">Create Distribution Campaign</h1>
-					<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
-						Set up a new token distribution with advanced vesting and eligibility features
-					</p>
-				</div>
-				<button @click="$router.back()" class="btn-secondary flex items-center">
-					<ArrowLeftIcon class="h-4 w-4 mr-2" />
-					Back
-				</button>
-			</div>
-		</div>
-
-		<!-- Progress Steps -->
-		<div class="mb-8">
-			<nav aria-label="Progress">
-                <ol class="flex items-center justify-between w-full">
-                    <li v-for="(step, index) in steps" :key="step.id"
-                        class="step-item relative flex-1 flex flex-col items-center"
-                        :class="{ 'completed': index < currentStep }">
-                        <div class="relative flex flex-col items-center">
-                            <template v-if="index < currentStep">
-                                <div class="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 z-10">
-                                    <svg class="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" />
-                                    </svg>
-                                </div>
-                            </template>
-                            <template v-else-if="index === currentStep">
-                                <div class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-600 bg-white z-10">
-                                    <span class="text-blue-600 font-medium text-sm">{{ index + 1 }}</span>
-                                </div>
-                            </template>
-                            <template v-else>
-                                <div class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 bg-white z-10">
-                                    <span class="text-gray-500 font-medium text-sm">{{ index + 1 }}</span>
-                                </div>
-                            </template>
-                            
-                            <span class="mt-2 text-sm font-medium text-center whitespace-nowrap"
-                                :class="index <= currentStep ? 'text-blue-600' : 'text-gray-500'">
-                                {{ step.name }}
-                            </span>
-                        </div>
-                    </li>
-                </ol>
-            </nav>
-		</div>
-
-		<!-- Form Content -->
-		<div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-			<form @submit.prevent="handleSubmit" class="p-6">
-				<!-- Step 0: Basic Information -->
-				<div v-if="currentStep === 0" class="space-y-8">
+		<div class="max-w-8xl mx-auto">
+			<!-- Header -->
+			<div class="mb-8">
+				<div class="flex items-center justify-between">
 					<div>
-						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Basic Information</h3>
-						<div class="flex flex-col gap-6">
+						<h1 class="text-2xl font-bold text-gray-900 dark:text-white">Create Distribution Campaign</h1>
+						<p class="mt-1 text-sm text-gray-600 dark:text-gray-400">
+							Set up a new token distribution with advanced vesting and eligibility features
+						</p>
+					</div>
+					<button @click="$router.back()" class="btn-secondary flex items-center">
+						<ArrowLeftIcon class="h-4 w-4 mr-2" />
+						Back
+					</button>
+				</div>
+			</div>
 
-							<div>
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Campaign Title *
-								</label>
-								<input v-model="formData.title" type="text" required
-									placeholder="e.g., Community Airdrop Q4 2024"
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
-								<p class="mt-2 text-xs text-gray-500">A descriptive name for your distribution campaign
-								</p>
-							</div>
-							<div>
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-									Description *
-								</label>
-								<textarea v-model="formData.description" rows="4" required
-									placeholder="Describe the purpose and details of this distribution..."
-									class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"></textarea>
-								<p class="mt-2 text-xs text-gray-500">Explain the purpose and benefits of this
-									distribution</p>
-							</div>
-
-							<!-- Token & Amount Configuration -->
-							<div class="bg-gradient-to-r from-blue-50/30 to-indigo-50/30 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-xl p-5 border border-blue-200/50 dark:border-blue-700/50">
-								<h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-5 flex items-center gap-2">
-									<CoinsIcon class="w-5 h-5 text-blue-600 dark:text-blue-400" />
-									Token Selection
-								</h4>
-								
-								<!-- Compact Token Selection -->
-								<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-									<!-- Token Selection Method -->
-									<div>
-										<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-											Selection Method
-										</label>
-										<div class="flex gap-2">
-											<label class="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400 flex-1 text-center">
-												<input v-model="tokenSelectionMethod" value="assets" type="radio"
-													class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
-												<span class="text-sm text-gray-700 dark:text-gray-300">From Assets</span>
-											</label>
-											<label class="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400 flex-1 text-center">
-												<input v-model="tokenSelectionMethod" value="custom" type="radio"
-													class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
-												<span class="text-sm text-gray-700 dark:text-gray-300">Custom ID</span>
-											</label>
-										</div>
+			<!-- Progress Steps -->
+			<div class="mb-8">
+				<nav aria-label="Progress">
+					<ol class="flex items-center justify-between w-full">
+						<li v-for="(step, index) in steps" :key="step.id"
+							class="step-item relative flex-1 flex flex-col items-center"
+							:class="{ 'completed': index < currentStep }">
+							<div class="relative flex flex-col items-center">
+								<template v-if="index < currentStep">
+									<div
+										class="relative flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 z-10">
+										<svg class="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+											<path fill-rule="evenodd"
+												d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+												clip-rule="evenodd" />
+										</svg>
 									</div>
+								</template>
+								<template v-else-if="index === currentStep">
+									<div
+										class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-600 bg-white z-10">
+										<span class="text-blue-600 font-medium text-sm">{{ index + 1 }}</span>
+									</div>
+								</template>
+								<template v-else>
+									<div
+										class="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-gray-300 bg-white z-10">
+										<span class="text-gray-500 font-medium text-sm">{{ index + 1 }}</span>
+									</div>
+								</template>
 
-									<!-- Token Input -->
-									<div>
-										<!-- Assets Selection -->
-										<div v-if="tokenSelectionMethod === 'assets'">
-											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-												Select Token *
+								<span class="mt-2 text-sm font-medium text-center whitespace-nowrap"
+									:class="index <= currentStep ? 'text-blue-600' : 'text-gray-500'">
+									{{ step.name }}
+								</span>
+							</div>
+						</li>
+					</ol>
+				</nav>
+			</div>
+
+			<!-- Form Content -->
+			<div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+				<form @submit.prevent="handleSubmit" class="p-6">
+					<!-- Step 0: Basic Information -->
+					<div v-if="currentStep === 0" class="space-y-8">
+						<div>
+							<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Basic Information</h3>
+							<div class="flex flex-col gap-6">
+
+								<div>
+									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+										Campaign Title *
+									</label>
+									<input v-model="formData.title" type="text" required
+										placeholder="e.g., Community Airdrop Q4 2024"
+										class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
+									<p class="mt-2 text-xs text-gray-500">A descriptive name for your distribution
+										campaign
+									</p>
+								</div>
+								<div>
+									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+										Description *
+									</label>
+									<textarea v-model="formData.description" rows="4" required
+										placeholder="Describe the purpose and details of this distribution..."
+										class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-4 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm"></textarea>
+									<p class="mt-2 text-xs text-gray-500">Explain the purpose and benefits of this
+										distribution</p>
+								</div>
+
+								<!-- Token & Amount Configuration -->
+								<div
+									class="bg-gradient-to-r from-blue-50/30 to-indigo-50/30 dark:from-blue-900/10 dark:to-indigo-900/10 rounded-xl p-5 border border-blue-200/50 dark:border-blue-700/50">
+									<h4
+										class="text-lg font-semibold text-gray-900 dark:text-white mb-5 flex items-center gap-2">
+										<CoinsIcon class="w-5 h-5 text-blue-600 dark:text-blue-400" />
+										Token Selection
+									</h4>
+
+									<!-- Compact Token Selection -->
+									<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+										<!-- Token Selection Method -->
+										<div>
+											<label
+												class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+												Selection Method
 											</label>
-											<Select 
-												v-model="selectedAssetId" 
-												:options="availableAssets.map(asset => ({ label: `${asset.symbol} - ${asset.name}`, value: asset.canisterId }))"
-												placeholder="Choose token"
-											/>
-											<!-- <select v-model="selectedAssetId" required
+											<div class="flex gap-2">
+												<label
+													class="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400 flex-1 text-center">
+													<input v-model="tokenSelectionMethod" value="assets" type="radio"
+														class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
+													<span class="text-sm text-gray-700 dark:text-gray-300">From
+														Assets</span>
+												</label>
+												<label
+													class="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400 flex-1 text-center">
+													<input v-model="tokenSelectionMethod" value="custom" type="radio"
+														class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500" />
+													<span class="text-sm text-gray-700 dark:text-gray-300">Custom
+														ID</span>
+												</label>
+											</div>
+										</div>
+
+										<!-- Token Input -->
+										<div>
+											<!-- Assets Selection -->
+											<div v-if="tokenSelectionMethod === 'assets'">
+												<label
+													class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+													Select Token *
+												</label>
+												<Select v-model="selectedAssetId"
+													:options="availableAssets.map(asset => ({ label: `${asset.symbol} - ${asset.name}`, value: asset.canisterId }))"
+													placeholder="Choose token" />
+												<!-- <select v-model="selectedAssetId" required
 												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
 												@change="onAssetSelected">
 												<option value="">Choose token</option>
@@ -132,126 +144,125 @@
 													{{ asset.symbol }} - {{ asset.name }}
 												</option>
 											</select> -->
-										</div>
+											</div>
 
-										<!-- Custom Canister ID -->
-										<div v-if="tokenSelectionMethod === 'custom'">
-											<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-												Canister ID *
-											</label>
-											<input v-model="formData.tokenInfo.canisterId" type="text" required
-												placeholder="rdmx6-jaaaa-aaaah-qcaiq-cai"
-												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
-												@blur="fetchTokenInfo" />
-										</div>
-									</div>
-								</div>
-
-								<!-- Token Info Display - Compact Version -->
-								<div v-if="formData.tokenInfo.canisterId"
-									class="bg-gradient-to-r from-amber-50/30 to-orange-50/30 dark:from-amber-900/10 dark:to-orange-900/10 rounded-lg p-4 border border-amber-200/50 dark:border-amber-700/50">
-									<div class="flex items-center justify-between">
-										<!-- Left: Token Info -->
-										<div class="flex items-center gap-3 flex-1">
-											<TokenLogo 
-												:canister-id="formData.tokenInfo.canisterId" 
-												:symbol="formData.tokenInfo.symbol || 'T'"
-												:size="40"
-												class="flex-shrink-0"
-											/>
-											<div class="flex-1 min-w-0">
-												<h6 class="text-base font-semibold text-gray-900 dark:text-white truncate">
-													{{ formData.tokenInfo.name || 'Loading...' }}
-												</h6>
-												<div class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
-													<span>{{ formData.tokenInfo.symbol || 'Loading...' }}</span>
-													<span>•</span>
-													<span>{{ formData.tokenInfo.decimals || 8 }} decimals</span>
-												</div>
-											</div>
-										</div>
-										
-										<!-- Right: Balance -->
-										<div class="text-right ml-4">
-											<div class="text-xs text-amber-700 dark:text-amber-300 font-medium">
-												Your Balance
-											</div>
-											<div v-if="authStore.isConnected" class="flex items-center gap-2">
-												<div class="text-lg font-bold text-gray-900 dark:text-white">
-													{{ userTokenBalance !== null ? formatTokenBalance(userTokenBalance) : 'Loading...' }}
-												</div>
-												<button 
-													@click="refreshUserBalance"
-													:disabled="isLoadingBalance"
-													class="p-1 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors duration-200 disabled:opacity-50"
-													title="Refresh Balance"
-												>
-													<RefreshCwIcon 
-														class="w-4 h-4" 
-														:class="{ 'animate-spin': isLoadingBalance }"
-													/>
-												</button>
-											</div>
-											<div v-else class="text-sm text-gray-500 dark:text-gray-400">
-												Connect wallet
+											<!-- Custom Canister ID -->
+											<div v-if="tokenSelectionMethod === 'custom'">
+												<label
+													class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+													Canister ID *
+												</label>
+												<input v-model="formData.tokenInfo.canisterId" type="text" required
+													placeholder="rdmx6-jaaaa-aaaah-qcaiq-cai"
+													class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-3 py-2 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white text-sm"
+													@blur="fetchTokenInfo" />
 											</div>
 										</div>
 									</div>
-								</div>
 
+									<!-- Token Info Display - Compact Version -->
+									<div v-if="formData.tokenInfo.canisterId"
+										class="bg-gradient-to-r from-amber-50/30 to-orange-50/30 dark:from-amber-900/10 dark:to-orange-900/10 rounded-lg p-4 border border-amber-200/50 dark:border-amber-700/50">
+										<div class="flex items-center justify-between">
+											<!-- Left: Token Info -->
+											<div class="flex items-center gap-3 flex-1">
+												<TokenLogo :canister-id="formData.tokenInfo.canisterId"
+													:symbol="formData.tokenInfo.symbol || 'T'" :size="40"
+													class="flex-shrink-0" />
+												<div class="flex-1 min-w-0">
+													<h6
+														class="text-base font-semibold text-gray-900 dark:text-white truncate">
+														{{ formData.tokenInfo.name || 'Loading...' }}
+													</h6>
+													<div
+														class="flex items-center gap-3 text-sm text-gray-500 dark:text-gray-400">
+														<span>{{ formData.tokenInfo.symbol || 'Loading...' }}</span>
+														<span>•</span>
+														<span>{{ formData.tokenInfo.decimals || 8 }} decimals</span>
+													</div>
+												</div>
+											</div>
+
+											<!-- Right: Balance -->
+											<div class="text-right ml-4">
+												<div class="text-xs text-amber-700 dark:text-amber-300 font-medium">
+													Your Balance
+												</div>
+												<div v-if="authStore.isConnected" class="flex items-center gap-2">
+													<div class="text-lg font-bold text-gray-900 dark:text-white">
+														{{ userTokenBalance !== null ?
+															formatTokenBalance(userTokenBalance) :
+															'Loading...' }}
+													</div>
+													<button @click="refreshUserBalance" :disabled="isLoadingBalance"
+														class="p-1 text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors duration-200 disabled:opacity-50"
+														title="Refresh Balance">
+														<RefreshCwIcon class="w-4 h-4"
+															:class="{ 'animate-spin': isLoadingBalance }" />
+													</button>
+												</div>
+												<div v-else class="text-sm text-gray-500 dark:text-gray-400">
+													Connect wallet
+												</div>
+											</div>
+										</div>
+									</div>
+
+								</div>
 							</div>
 						</div>
 					</div>
-				</div>
-				<!-- Step 1: Categories & Distribution -->
-				<div v-if="currentStep === 1" class="space-y-6">
-					<CategoryManagement v-model="categories" />
-					<hr />
-					<!-- Global Config Panel -->
-					<GlobalConfigPanel v-model="globalConfig" />
+					<!-- Step 1: Categories & Distribution -->
+					<div v-if="currentStep === 1" class="space-y-6">
+						<CategoryManagement v-model="categories" />
+						<hr />
+						<!-- Global Config Panel -->
+						<GlobalConfigPanel v-model="globalConfig" />
 
-				</div>
-				<!-- Step 2: Settings & Payment -->
-				<div v-if="currentStep === 2" class="space-y-8">
-					<div>
-						<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Additional Settings</h3>
-						<div class="flex flex-col gap-8">
-							<!-- Fee Structure -->
-							<div>
-								<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
-									Fee Structure *
-								</label>
-								<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-									<label v-for="fee in feeStructures" :key="keyToText(fee.value)"
-										class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
-										:class="keyToText(formData.feeStructure) == keyToText(fee.value)
-											? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
-											: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
-										<input v-model="formData.feeStructure" :value="fee.value" type="radio"
-											class="sr-only" />
-										<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="keyToText(formData.feeStructure) == keyToText(fee.value)
-											? 'bg-blue-600'
-											: 'bg-blue-50 dark:bg-blue-900/20'">
-											<component :is="fee.icon || 'SettingsIcon'" class="h-6 w-6" :class="keyToText(formData.feeStructure) == keyToText(fee.value)
-												? 'text-white'
-												: 'text-blue-600'" />
-										</div>
-										<div class="flex-1 min-w-0">
-											<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{
-												fee.label }}
-											</div>
-											<div class="text-sm text-gray-500">{{ fee.description }}</div>
-										</div>
-										<div v-if="keyToText(formData.feeStructure) == keyToText(fee.value)" class="ml-2">
-											<CheckIcon class="h-5 w-5 text-blue-600" />
-										</div>
+					</div>
+					<!-- Step 2: Settings & Payment -->
+					<div v-if="currentStep === 2" class="space-y-8">
+						<div>
+							<h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Additional Settings
+							</h3>
+							<div class="flex flex-col gap-8">
+								<!-- Fee Structure -->
+								<div>
+									<label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-4">
+										Fee Structure *
 									</label>
+									<div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+										<label v-for="fee in feeStructures" :key="keyToText(fee.value)"
+											class="flex items-center gap-4 p-4 rounded-lg border transition cursor-pointer shadow-sm"
+											:class="keyToText(formData.feeStructure) == keyToText(fee.value)
+												? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20'
+												: 'border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 hover:border-blue-400'">
+											<input v-model="formData.feeStructure" :value="fee.value" type="radio"
+												class="sr-only" />
+											<div class="flex items-center justify-center h-10 w-10 rounded-full" :class="keyToText(formData.feeStructure) == keyToText(fee.value)
+												? 'bg-blue-600'
+												: 'bg-blue-50 dark:bg-blue-900/20'">
+												<component :is="fee.icon || 'SettingsIcon'" class="h-6 w-6" :class="keyToText(formData.feeStructure) == keyToText(fee.value)
+													? 'text-white'
+													: 'text-blue-600'" />
+											</div>
+											<div class="flex-1 min-w-0">
+												<div class="text-base font-medium text-gray-900 dark:text-blue-500">{{
+													fee.label }}
+												</div>
+												<div class="text-sm text-gray-500">{{ fee.description }}</div>
+											</div>
+											<div v-if="keyToText(formData.feeStructure) == keyToText(fee.value)"
+												class="ml-2">
+												<CheckIcon class="h-5 w-5 text-blue-600" />
+											</div>
+										</label>
+									</div>
 								</div>
-							</div>
 
 
-							<!-- Progressive Fee Configuration - COMMENTED FOR FUTURE USE -->
-							<!-- 
+								<!-- Progressive Fee Configuration - COMMENTED FOR FUTURE USE -->
+								<!-- 
 							<div v-if="keyToText(formData.feeStructure) == 'Progressive'" class="space-y-4">
 								<div class="flex items-center justify-between">
 									<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Fee Tiers</h4>
@@ -313,476 +324,504 @@
 							</div>
 							-->
 
-							<!-- Fee Payment Token Configuration -->
-							<div v-if="keyToText(formData.feeStructure) === 'Fixed'">
-								<FeePaymentToken 
-									v-model="feePaymentTokenConfig"
-									:distribution-token="formData.tokenInfo"
-									:available-assets="availableAssets.map(asset => ({ canisterId: asset.canisterId, symbol: asset.symbol, name: asset.name, decimals: (asset as any).decimals || 8 }))"
-								/>
-							</div>
-
-							<!-- Permissions -->
-							<div class="space-y-4">
-								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Permissions</h4>
-								<div class="flex flex-col gap-3">
-									<BaseSwitch
-										v-model="formData.allowCancel"
-										label="Allow the owner to cancel the contract, remaining tokens will be transfered to the owner"
-										label-position="right"
-									/>
-									<BaseSwitch
-										v-model="formData.allowModification"
-										label="Allow the owner to modify the contract information."
-										label-position="right"
-									/>
+								<!-- Fee Payment Token Configuration -->
+								<div v-if="keyToText(formData.feeStructure) === 'Fixed'">
+									<FeePaymentToken v-model="feePaymentTokenConfig"
+										:distribution-token="formData.tokenInfo"
+										:available-assets="availableAssets.map(asset => ({ canisterId: asset.canisterId, symbol: asset.symbol, name: asset.name, decimals: (asset as any).decimals || 8 }))" />
 								</div>
-							</div>
 
-							<!-- Governance -->
-							<div class="space-y-4">
-								<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Advanced Settings</h4>
+								<!-- Permissions -->
+								<div class="space-y-4">
+									<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Permissions</h4>
 									<div class="flex flex-col gap-3">
-										<BaseSwitch
-											v-model="formData.governanceEnabled"
+										<BaseSwitch v-model="formData.allowCancel"
+											label="Allow the owner to cancel the contract, remaining tokens will be transfered to the owner"
+											label-position="right" />
+										<BaseSwitch v-model="formData.allowModification"
+											label="Allow the owner to modify the contract information."
+											label-position="right" />
+									</div>
+								</div>
+
+								<!-- Governance -->
+								<div class="space-y-4">
+									<h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Advanced Settings
+									</h4>
+									<div class="flex flex-col gap-3">
+										<BaseSwitch v-model="formData.governanceEnabled"
 											label="Governance control enabled, only the governance principal can manage the distribution"
-											label-position="right"
-										/>
+											label-position="right" />
 										<!-- <div>
 											<input v-model="formData.governance" type="text"
 												placeholder="be2us-64aaa-aaaah-qaabq-cai"
 												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm" />
 											<p class="mt-2 text-xs text-gray-500">Principal that can manage this distribution (MiniDAO, SNS, etc.)</p>
 										</div> -->
-									
-									<!-- ICTO Passport Optional Configuration -->
-									
-										<BaseSwitch
-											v-model="formData.useBlockId"
+
+										<!-- ICTO Passport Optional Configuration -->
+
+										<BaseSwitch v-model="formData.useBlockId"
 											label="Require ICTO Passport score check for eligibility"
-											label-position="right"
-										/>
-										
+											label-position="right" />
+
 										<!-- Block ID Score Input (conditional) -->
 										<div v-if="formData.useBlockId" class="mt-2">
-											<input v-model.number="formData.ictoPassportScore" type="number" required min="0"
-												placeholder="50"
+											<input v-model.number="formData.ictoPassportScore" type="number" required
+												min="0" placeholder="50"
 												class="block w-full rounded-lg border border-gray-300 dark:border-gray-600 px-2 py-3 shadow-sm focus:border-blue-500 focus:ring-blue-500 dark:bg-gray-700 dark:text-white sm:text-sm text-sm" />
-											<p class="mt-2 text-xs text-gray-500">Minimum Block ID score required for eligibility</p>
-										</div>
-								
-
-									<!-- Public Distribution Toggle -->
-									
-										<BaseSwitch
-											v-model="formData.isPublic"
-											label="Public Distribution"
-											label-position="right"
-										/>
-										<div v-if="formData.isPublic" class="mt-1 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-											<p class="text-sm text-green-700 dark:text-green-300 flex items-center gap-2">
-												<GlobeIcon class="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" /> This distribution will be discoverable by all users and appear in public listings.
+											<p class="mt-2 text-xs text-gray-500">Minimum Block ID score required for
+												eligibility
 											</p>
 										</div>
-										<div v-else class="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+
+
+										<!-- Public Distribution Toggle -->
+
+										<BaseSwitch v-model="formData.isPublic" label="Public Distribution"
+											label-position="right" />
+										<div v-if="formData.isPublic"
+											class="mt-1 p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+											<p
+												class="text-sm text-green-700 dark:text-green-300 flex items-center gap-2">
+												<GlobeIcon
+													class="w-5 h-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" />
+												This
+												distribution will be discoverable by all users and appear in public
+												listings.
+											</p>
+										</div>
+										<div v-else
+											class="mt-1 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
 											<p class="text-sm text-blue-700 dark:text-blue-300 flex items-center gap-2">
-												<LockIcon class="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" /> This distribution will be private and only accessible via direct link or by eligible participants.
+												<LockIcon
+													class="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
+												This distribution will be private and only accessible via direct link or
+												by eligible
+												participants.
 											</p>
-										</div>
-									</div>
-									</div>
-
-							<!-- Comprehensive Distribution Summary -->
-							<div class="space-y-6">
-
-								<!-- Basic Information -->
-								<div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
-									<h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-										<InfoIcon class="h-5 w-5 text-gray-600 dark:text-gray-400" />
-										Distribution Summary
-									</h4>
-
-									<!-- Basic Info Grid -->
-									<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-6">
-										<div>
-											<span class="text-gray-500 dark:text-gray-400">Campaign:</span>
-											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.title || 'Not set' }}</span>
-										</div>
-										<div>
-											<span class="text-gray-500 dark:text-gray-400">Type:</span>
-											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.campaignType || 'Not set' }}</span>
-										</div>
-										<div>
-											<span class="text-gray-500 dark:text-gray-400">Token:</span>
-											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.tokenInfo.symbol || 'Not set' }}</span>
-										</div>
-										<div>
-											<span class="text-gray-500 dark:text-gray-400">Eligibility:</span>
-											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.eligibilityType) || 'Not set' }}</span>
-										</div>
-										<div>
-											<span class="text-gray-500 dark:text-gray-400">Fee Type:</span>
-											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.feeStructure) || 'Not set' }}</span>
-										</div>
-										<div>
-											<span class="text-gray-500 dark:text-gray-400">Public:</span>
-											<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.isPublic ? 'Yes' : 'No' }}</span>
-										</div>
-									</div>
-
-									<!-- Distribution Timing -->
-									<div class="border-t border-gray-200 dark:border-gray-700 pt-4">
-										<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Distribution Timing</h5>
-										<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-											<div>
-												<span class="text-gray-500 dark:text-gray-400">Start Date:</span>
-												<span class="ml-2 font-medium text-gray-900 dark:text-white">
-													{{ formData.distributionStart ? new Date(formData.distributionStart).toLocaleString() : 'Not set' }}
-												</span>
-											</div>
-											<div v-if="formData.distributionEnd">
-												<span class="text-gray-500 dark:text-gray-400">End Date:</span>
-												<span class="ml-2 font-medium text-gray-900 dark:text-white">
-													{{ new Date(formData.distributionEnd).toLocaleString() }}
-												</span>
-											</div>
-										</div>
-									</div>
-
-									<!-- Registration Period (if enabled) -->
-									<div v-if="formData.hasRegistrationPeriod && formData.registrationPeriod" class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
-										<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Registration Period</h5>
-										<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-											<div>
-												<span class="text-gray-500 dark:text-gray-400">Start:</span>
-												<span class="ml-2 font-medium text-gray-900 dark:text-white">
-													{{ new Date(formData.registrationPeriod.startTime).toLocaleString() }}
-												</span>
-											</div>
-											<div>
-												<span class="text-gray-500 dark:text-gray-400">End:</span>
-												<span class="ml-2 font-medium text-gray-900 dark:text-white">
-													{{ new Date(formData.registrationPeriod.endTime).toLocaleString() }}
-												</span>
-											</div>
-											<div v-if="formData.registrationPeriod.maxParticipants">
-												<span class="text-gray-500 dark:text-gray-400">Max Participants:</span>
-												<span class="ml-2 font-medium text-gray-900 dark:text-white">
-													{{ formData.registrationPeriod.maxParticipants }}
-												</span>
-											</div>
 										</div>
 									</div>
 								</div>
 
-								<!-- Categories Breakdown -->
-								<div v-if="categories.length > 0" class="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-800">
-									<h4 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">
-										Categories & Vesting Schedule
-									</h4>
+								<!-- Comprehensive Distribution Summary -->
+								<div class="space-y-6">
 
-									<div class="space-y-4">
-										<div v-for="(category, idx) in categories" :key="idx"
-											class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
+									<!-- Basic Information -->
+									<div
+										class="bg-gray-50 dark:bg-gray-800 rounded-lg p-6 border border-gray-200 dark:border-gray-700">
+										<h4
+											class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+											<InfoIcon class="h-5 w-5 text-gray-600 dark:text-gray-400" />
+											Distribution Summary
+										</h4>
 
-											<!-- Category Header -->
-											<div class="flex items-start justify-between mb-3">
+										<!-- Basic Info Grid -->
+										<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-6">
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Campaign:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.title || 'Not set' }}</span>
+											</div>
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Type:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.campaignType || 'Not set' }}</span>
+											</div>
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Token:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.tokenInfo.symbol || 'Not set' }}</span>
+											</div>
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Eligibility:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.eligibilityType) || 'Not set' }}</span>
+											</div>
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Fee Type:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ keyToText(formData.feeStructure) || 'Not set' }}</span>
+											</div>
+											<div>
+												<span class="text-gray-500 dark:text-gray-400">Public:</span>
+												<span class="ml-2 font-medium text-gray-900 dark:text-white">{{ formData.isPublic ? 'Yes' : 'No' }}</span>
+											</div>
+										</div>
+
+										<!-- Distribution Timing -->
+										<div class="border-t border-gray-200 dark:border-gray-700 pt-4">
+											<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+												Distribution
+												Timing</h5>
+											<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
 												<div>
-													<h5 class="font-semibold text-gray-900 dark:text-white">{{ category.name }}</h5>
-													<p v-if="category.description" class="text-xs text-gray-600 dark:text-gray-400 mt-1">
-														{{ category.description }}
-													</p>
+													<span class="text-gray-500 dark:text-gray-400">Start Date:</span>
+													<span class="ml-2 font-medium text-gray-900 dark:text-white">
+														{{ formData.distributionStart ? new Date(formData.distributionStart).toLocaleString() : 'Not set' }}
+													</span>
 												</div>
-												<span class="text-xs px-2 py-1 rounded-full font-medium"
-													:class="category.mode === 'predefined'
+												<div v-if="formData.distributionEnd">
+													<span class="text-gray-500 dark:text-gray-400">End Date:</span>
+													<span class="ml-2 font-medium text-gray-900 dark:text-white">
+														{{ new Date(formData.distributionEnd).toLocaleString() }}
+													</span>
+												</div>
+											</div>
+										</div>
+
+										<!-- Registration Period (if enabled) -->
+										<div v-if="formData.hasRegistrationPeriod && formData.registrationPeriod"
+											class="border-t border-gray-200 dark:border-gray-700 pt-4 mt-4">
+											<h5 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+												Registration
+												Period</h5>
+											<div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+												<div>
+													<span class="text-gray-500 dark:text-gray-400">Start:</span>
+													<span class="ml-2 font-medium text-gray-900 dark:text-white">
+														{{ new Date(formData.registrationPeriod.startTime).toLocaleString() }}
+													</span>
+												</div>
+												<div>
+													<span class="text-gray-500 dark:text-gray-400">End:</span>
+													<span class="ml-2 font-medium text-gray-900 dark:text-white">
+														{{ new Date(formData.registrationPeriod.endTime).toLocaleString() }}
+													</span>
+												</div>
+												<div v-if="formData.registrationPeriod.maxParticipants">
+													<span class="text-gray-500 dark:text-gray-400">Max
+														Participants:</span>
+													<span class="ml-2 font-medium text-gray-900 dark:text-white">
+														{{ formData.registrationPeriod.maxParticipants }}
+													</span>
+												</div>
+											</div>
+										</div>
+									</div>
+
+									<!-- Categories Breakdown -->
+									<div v-if="categories.length > 0"
+										class="bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 rounded-lg p-6 border border-blue-200 dark:border-blue-800">
+										<h4 class="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-4">
+											Categories & Vesting Schedule
+										</h4>
+
+										<div class="space-y-4">
+											<div v-for="(category, idx) in categories" :key="idx"
+												class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-blue-200 dark:border-blue-700">
+
+												<!-- Category Header -->
+												<div class="flex items-start justify-between mb-3">
+													<div>
+														<h5 class="font-semibold text-gray-900 dark:text-white">{{
+															category.name }}
+														</h5>
+														<p v-if="category.description"
+															class="text-xs text-gray-600 dark:text-gray-400 mt-1">
+															{{ category.description }}
+														</p>
+													</div>
+													<span class="text-xs px-2 py-1 rounded-full font-medium" :class="category.mode === 'predefined'
 														? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-200'
 														: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200'">
-													{{ category.mode === 'predefined' ? 'Predefined' : 'Open Distribution' }}
-												</span>
-											</div>
+														{{ category.mode === 'predefined' ? 'Predefined' :
+															'Open Distribution' }}
+													</span>
+												</div>
 
-											<!-- Category Details -->
-											<div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
-												<div>
-													<span class="text-gray-500 dark:text-gray-400">Recipients:</span>
-													<span class="ml-1 font-medium text-gray-900 dark:text-white">
-														{{ category.mode === 'predefined'
-															? parseCategoryRecipients(category.recipientsText).length
-															: (category.maxRecipients || 'Unlimited') }}
-													</span>
-												</div>
-												<div>
-													<span class="text-gray-500 dark:text-gray-400">Amount:</span>
-													<span class="ml-1 font-medium text-gray-900 dark:text-white">
-														{{ category.mode === 'predefined'
-															? parseCategoryRecipients(category.recipientsText).reduce((sum, r) => sum + r.amount, 0).toLocaleString()
-															: ((category.maxRecipients || 0) * (category.amountPerRecipient || 0)).toLocaleString() }}
-													</span>
-												</div>
-												<div>
-													<span class="text-gray-500 dark:text-gray-400">Initial Unlock:</span>
-													<span class="ml-1 font-medium text-gray-900 dark:text-white">
-														{{ category.initialUnlockPercentage || 0 }}%
-													</span>
-												</div>
-												<div>
-													<span class="text-gray-500 dark:text-gray-400">Vesting:</span>
-													<span class="ml-1 font-medium text-gray-900 dark:text-white">
-														{{ category.lockConfig?.lockType || 'Instant' }}
-													</span>
-												</div>
-											</div>
-
-											<!-- Vesting Details -->
-											<div v-if="category.lockConfig && category.lockConfig.lockType !== 'instant'"
-												class="bg-gray-50 dark:bg-gray-900/50 rounded p-3 text-xs space-y-2">
-
-												<!-- Linear Vesting -->
-												<div v-if="category.lockConfig.lockType === 'linear'">
-													<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-														<TimerIcon class="h-3 w-3" />
-														<span class="font-medium">Linear Vesting:</span>
-														<span>{{ category.lockConfig.linearConfig?.duration }} {{ category.lockConfig.linearConfig?.frequency || 'days' }}</span>
+												<!-- Category Details -->
+												<div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-3">
+													<div>
+														<span
+															class="text-gray-500 dark:text-gray-400">Recipients:</span>
+														<span class="ml-1 font-medium text-gray-900 dark:text-white">
+															{{ category.mode === 'predefined'
+																? parseCategoryRecipients(category.recipientsText).length
+																: (category.maxRecipients || 'Unlimited') }}
+														</span>
+													</div>
+													<div>
+														<span class="text-gray-500 dark:text-gray-400">Amount:</span>
+														<span class="ml-1 font-medium text-gray-900 dark:text-white">
+															{{category.mode === 'predefined'
+																?
+																parseCategoryRecipients(category.recipientsText).reduce((sum, r) => sum + r.amount, 0).toLocaleString()
+																: ((category.maxRecipients || 0) * (category.amountPerRecipient || 0)).toLocaleString()}}
+														</span>
+													</div>
+													<div>
+														<span class="text-gray-500 dark:text-gray-400">Initial
+															Unlock:</span>
+														<span class="ml-1 font-medium text-gray-900 dark:text-white">
+															{{ category.initialUnlockPercentage || 0 }}%
+														</span>
+													</div>
+													<div>
+														<span class="text-gray-500 dark:text-gray-400">Vesting:</span>
+														<span class="ml-1 font-medium text-gray-900 dark:text-white">
+															{{ category.lockConfig?.lockType || 'Instant' }}
+														</span>
 													</div>
 												</div>
 
-												<!-- Cliff Vesting -->
-												<div v-if="category.lockConfig.lockType === 'cliff'">
-													<div class="space-y-1">
-														<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
-															<UnlockIcon class="h-3 w-3" />
-															<span class="font-medium">Cliff:</span>
-															<span>{{ category.lockConfig.cliffConfig?.cliffDuration }} days → {{ category.lockConfig.cliffConfig?.cliffPercentage }}% unlock</span>
-														</div>
-														<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300 ml-5">
-															<span class="font-medium">Then:</span>
-															<span>{{ category.lockConfig.cliffConfig?.vestingDuration }} {{ category.lockConfig.cliffConfig?.frequency || 'days' }} linear vesting</span>
+												<!-- Vesting Details -->
+												<div v-if="category.lockConfig && category.lockConfig.lockType !== 'instant'"
+													class="bg-gray-50 dark:bg-gray-900/50 rounded p-3 text-xs space-y-2">
+
+													<!-- Linear Vesting -->
+													<div v-if="category.lockConfig.lockType === 'linear'">
+														<div
+															class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+															<TimerIcon class="h-3 w-3" />
+															<span class="font-medium">Linear Vesting:</span>
+															<span>{{ category.lockConfig.linearConfig?.duration }} {{
+																category.lockConfig.linearConfig?.frequency || 'days'
+															}}</span>
 														</div>
 													</div>
-												</div>
 
-												<!-- Stepped Cliff -->
-												<div v-if="category.lockConfig.lockType === 'stepped'">
-													<div class="flex items-center gap-2 text-gray-700 dark:text-gray-300 mb-1">
-														<span class="font-medium">Stepped Unlocks:</span>
-													</div>
-													<div class="ml-5 space-y-1">
-														<div v-for="(step, stepIdx) in category.lockConfig.steppedCliffConfig?.steps" :key="stepIdx"
-															class="text-gray-600 dark:text-gray-400">
-															• Day {{ step.timeOffset }}: {{ step.percentage }}% unlock
+													<!-- Cliff Vesting -->
+													<div v-if="category.lockConfig.lockType === 'cliff'">
+														<div class="space-y-1">
+															<div
+																class="flex items-center gap-2 text-gray-700 dark:text-gray-300">
+																<UnlockIcon class="h-3 w-3" />
+																<span class="font-medium">Cliff:</span>
+																<span>{{ category.lockConfig.cliffConfig?.cliffDuration }} days → {{ category.lockConfig.cliffConfig?.cliffPercentage }}% unlock</span>
+															</div>
+															<div
+																class="flex items-center gap-2 text-gray-700 dark:text-gray-300 ml-5">
+																<span class="font-medium">Then:</span>
+																<span>{{ category.lockConfig.cliffConfig?.vestingDuration }} {{ category.lockConfig.cliffConfig?.frequency || 'days' }} linear vesting</span>
+															</div>
 														</div>
 													</div>
-												</div>
 
-												<!-- Passport Requirement -->
-												<div v-if="category.passportScore && category.passportScore > 0"
-													class="flex items-center gap-2 text-amber-700 dark:text-amber-300 pt-2 border-t border-gray-200 dark:border-gray-700">
-													<span class="font-medium">Passport Required:</span>
-													<span>Min Score {{ category.passportScore }} ({{ category.passportProvider || 'ICTO' }})</span>
+													<!-- Stepped Cliff -->
+													<div v-if="category.lockConfig.lockType === 'stepped'">
+														<div
+															class="flex items-center gap-2 text-gray-700 dark:text-gray-300 mb-1">
+															<span class="font-medium">Stepped Unlocks:</span>
+														</div>
+														<div class="ml-5 space-y-1">
+															<div v-for="(step, stepIdx) in category.lockConfig.steppedCliffConfig?.steps"
+																:key="stepIdx" class="text-gray-600 dark:text-gray-400">
+																• Day {{ step.timeOffset }}: {{ step.percentage }}%
+																unlock
+															</div>
+														</div>
+													</div>
+
+													<!-- Passport Requirement -->
+													<div v-if="category.passportScore && category.passportScore > 0"
+														class="flex items-center gap-2 text-amber-700 dark:text-amber-300 pt-2 border-t border-gray-200 dark:border-gray-700">
+														<span class="font-medium">Passport Required:</span>
+														<span>Min Score {{ category.passportScore }} ({{
+															category.passportProvider
+															|| 'ICTO' }})</span>
+													</div>
 												</div>
 											</div>
-										</div>
 
-										<!-- Total Summary -->
-										<div class="bg-blue-100 dark:bg-blue-900/30 rounded-lg p-4 mt-4">
-											<div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
-												<div>
-													<span class="text-blue-700 dark:text-blue-300">Total Categories:</span>
-													<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">{{ categories.length }}</span>
-												</div>
-												<div>
-													<span class="text-blue-700 dark:text-blue-300">Total Recipients:</span>
-													<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">
-														{{ categories.reduce((sum, cat) => {
-															return sum + (cat.mode === 'predefined'
-																? parseCategoryRecipients(cat.recipientsText).length
-																: (cat.maxRecipients || 0))
-														}, 0) }}
-													</span>
-												</div>
-												<div>
-													<span class="text-blue-700 dark:text-blue-300">Total Amount:</span>
-													<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">
-														{{ categories.reduce((sum, cat) => {
-															return sum + (cat.mode === 'predefined'
-																? parseCategoryRecipients(cat.recipientsText).reduce((s, r) => s + r.amount, 0)
-																: ((cat.maxRecipients || 0) * (cat.amountPerRecipient || 0)))
-														}, 0).toLocaleString() }}
-													</span>
+											<!-- Total Summary -->
+											<div class="bg-blue-100 dark:bg-blue-900/30 rounded-lg p-4 mt-4">
+												<div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+													<div>
+														<span class="text-blue-700 dark:text-blue-300">Total
+															Categories:</span>
+														<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">{{
+															categories.length }}</span>
+													</div>
+													<div>
+														<span class="text-blue-700 dark:text-blue-300">Total
+															Recipients:</span>
+														<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">
+															{{categories.reduce((sum, cat) => {
+																return sum + (cat.mode === 'predefined'
+																	? parseCategoryRecipients(cat.recipientsText).length
+																	: (cat.maxRecipients || 0))
+															}, 0)}}
+														</span>
+													</div>
+													<div>
+														<span class="text-blue-700 dark:text-blue-300">Total
+															Amount:</span>
+														<span class="ml-2 font-bold text-blue-900 dark:text-blue-100">
+															{{categories.reduce((sum, cat) => {
+																return sum + (cat.mode === 'predefined'
+																	? parseCategoryRecipients(cat.recipientsText).reduce((s, r) => s + r.amount, 0)
+																	: ((cat.maxRecipients || 0) * (cat.amountPerRecipient ||
+																		0)))
+															}, 0).toLocaleString()}}
+														</span>
+													</div>
 												</div>
 											</div>
 										</div>
 									</div>
+
+									<!-- Global Configuration Summary -->
+									<GlobalConfigSummary :config="globalConfig" :on-edit="() => currentStep = 1" />
+
 								</div>
 
-								<!-- Global Configuration Summary -->
-								<GlobalConfigSummary
-									:config="globalConfig"
-									:on-edit="() => currentStep = 1"
-								/>
-
-							</div>
-
-							<!-- Payment Card -->
-							<div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
-								<div class="flex items-center justify-between">
-									<div>
-										<h4 class="font-medium text-blue-900 dark:text-blue-100">
-											Creation Cost (One-time creation fee)
-										</h4>
-										<p class="text-sm text-blue-700 dark:text-blue-300">
-											One-time creation fee
-										</p>
-										<div class="mt-1 text-sm text-yellow-700 dark:text-yellow-300">
-											<p>
-												Once smart contract is successfully deployed, creation fees are
-												<strong>non-refundable</strong>.
-												Please review your distribution details carefully before proceeding.
+								<!-- Payment Card -->
+								<div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4">
+									<div class="flex items-center justify-between">
+										<div>
+											<h4 class="font-medium text-blue-900 dark:text-blue-100">
+												Creation Cost (One-time creation fee)
+											</h4>
+											<p class="text-sm text-blue-700 dark:text-blue-300">
+												One-time creation fee
 											</p>
+											<div class="mt-1 text-sm text-yellow-700 dark:text-yellow-300">
+												<p>
+													Once smart contract is successfully deployed, creation fees are
+													<strong>non-refundable</strong>.
+													Please review your distribution details carefully before proceeding.
+												</p>
+											</div>
 										</div>
-									</div>
-									<div class="text-right">
-										<div class="text-2xl font-bold text-blue-900 dark:text-blue-100">
-											{{ creationCost }} ICP
+										<div class="text-right">
+											<div class="text-2xl font-bold text-blue-900 dark:text-blue-100">
+												{{ creationCost }} ICP
+											</div>
+											<button @click="handlePayment" :disabled="!canProceed || isPaying"
+												class="mt-2 w-full md:w-auto px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
+												{{ isPaying ? (paymentStep || 'Processing...') : 'Pay & Deploy' }}
+											</button>
 										</div>
-										<button @click="handlePayment" :disabled="!canProceed || isPaying"
-											class="mt-2 w-full md:w-auto px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 font-medium">
-											{{ isPaying ? (paymentStep || 'Processing...') : 'Pay & Deploy' }}
-										</button>
 									</div>
 								</div>
-							</div>
 
-							<!-- Deployment Result -->
-							<div v-if="deployResult" class="rounded-lg p-4" :class="[
-								deployResult.success
-									? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
-									: 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-							]">
-								<div class="flex items-start">
-									<div class="flex-shrink-0">
-										<svg v-if="deployResult.success" class="w-5 h-5 text-green-400"
-											fill="currentColor" viewBox="0 0 20 20">
-											<path fill-rule="evenodd"
-												d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-												clip-rule="evenodd" />
-										</svg>
-										<svg v-else class="w-5 h-5 text-red-400" fill="currentColor"
-											viewBox="0 0 20 20">
-											<path fill-rule="evenodd"
-												d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-												clip-rule="evenodd" />
-										</svg>
-									</div>
-									<div class="ml-3">
-										<h3 class="text-sm font-medium" :class="[
-											deployResult.success
-												? 'text-green-800 dark:text-green-200'
-												: 'text-red-800 dark:text-red-200'
-										]">
-											{{ deployResult.success ? 'Deployment Successful!' : 'Deployment Failed' }}
-										</h3>
-										<div class="mt-1 text-sm" :class="[
-											deployResult.success
-												? 'text-green-700 dark:text-green-300'
-												: 'text-red-700 dark:text-red-300'
-										]">
-											<div v-if="deployResult.success && deployResult.distributionCanisterId">
-												<p class="font-medium">Your distribution is now live on the Internet
-													Computer!
-												</p>
-												<p class="mt-2">
-													<span class="font-medium">Distribution Canister ID:</span>
-													<code
-														class="ml-2 px-2 py-1 bg-white dark:bg-gray-800 rounded text-xs font-mono">
+								<!-- Deployment Result -->
+								<div v-if="deployResult" class="rounded-lg p-4" :class="[
+									deployResult.success
+										? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800'
+										: 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+								]">
+									<div class="flex items-start">
+										<div class="flex-shrink-0">
+											<svg v-if="deployResult.success" class="w-5 h-5 text-green-400"
+												fill="currentColor" viewBox="0 0 20 20">
+												<path fill-rule="evenodd"
+													d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+													clip-rule="evenodd" />
+											</svg>
+											<svg v-else class="w-5 h-5 text-red-400" fill="currentColor"
+												viewBox="0 0 20 20">
+												<path fill-rule="evenodd"
+													d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+													clip-rule="evenodd" />
+											</svg>
+										</div>
+										<div class="ml-3">
+											<h3 class="text-sm font-medium" :class="[
+												deployResult.success
+													? 'text-green-800 dark:text-green-200'
+													: 'text-red-800 dark:text-red-200'
+											]">
+												{{ deployResult.success ? 'Deployment Successful!' : 'Deployment Failed'
+												}}
+											</h3>
+											<div class="mt-1 text-sm" :class="[
+												deployResult.success
+													? 'text-green-700 dark:text-green-300'
+													: 'text-red-700 dark:text-red-300'
+											]">
+												<div v-if="deployResult.success && deployResult.distributionCanisterId">
+													<p class="font-medium">Your distribution is now live on the Internet
+														Computer!
+													</p>
+													<p class="mt-2">
+														<span class="font-medium">Distribution Canister ID:</span>
+														<code
+															class="ml-2 px-2 py-1 bg-white dark:bg-gray-800 rounded text-xs font-mono">
 												{{ deployResult.distributionCanisterId }}
 											</code>
-													<button
-														@click="copyToClipboard(deployResult.distributionCanisterId)"
-														class="ml-2 px-2 py-1 bg-gray-200 dark:bg-gray-800 rounded text-xs font-mono">
-														Copy
-													</button>
-												</p>
-												<p class="mt-2 text-xs">
-													You can now use this canister ID to manage your distribution
-													campaign.
-												</p>
-											</div>
-											<div v-else-if="!deployResult.success">
-												<p>{{ deployResult.error || 'An unknown error occurred during deployment.' }}
-												</p>
-												<p class="mt-2 text-xs">Please try again or contact support if the issue
-													persists.</p>
+														<button
+															@click="copyToClipboard(deployResult.distributionCanisterId)"
+															class="ml-2 px-2 py-1 bg-gray-200 dark:bg-gray-800 rounded text-xs font-mono">
+															Copy
+														</button>
+													</p>
+													<p class="mt-2 text-xs">
+														You can now use this canister ID to manage your distribution
+														campaign.
+													</p>
+												</div>
+												<div v-else-if="!deployResult.success">
+													<p>{{ deployResult.error || 'An unknown error occurred during deployment.' }}
+													</p>
+													<p class="mt-2 text-xs">Please try again or contact support if the issue persists.</p>
+												</div>
 											</div>
 										</div>
 									</div>
 								</div>
-							</div>
 
-							
+
+							</div>
 						</div>
 					</div>
-				</div>
 
 
-				<!-- Navigation Buttons -->
-				<div class="flex justify-between pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
-					<button type="button" v-if="currentStep > 0" @click="previousStep" :class="`bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded flex items-center justify-center text-sm`">
-						<ArrowLeftIcon class="h-4 w-4 mr-2" />
-						Previous
-					</button>
-					<div v-else></div>
-
-					<div class="flex space-x-3">
-						<button v-if="currentStep < steps.length - 1"
-							@click="nextStep"
-							:class="`bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded w-full flex items-center justify-center text-sm ${!canProceed ? 'opacity-30' : ''}`"  :disabled="!canProceed"
-							>
-							Next
-							<ArrowRightIcon class="h-4 w-4 ml-2" />
+					<!-- Navigation Buttons -->
+					<div class="flex justify-between pt-6 mt-6 border-t border-gray-200 dark:border-gray-700">
+						<button type="button" v-if="currentStep > 0" @click="previousStep"
+							:class="`bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded flex items-center justify-center text-sm`">
+							<ArrowLeftIcon class="h-4 w-4 mr-2" />
+							Previous
 						</button>
-						<button v-else type="button" @click="handlePayment" :disabled="isPaying || !canProceed"
-							class="btn-primary">
-							<div v-if="isPaying" class="flex items-center">
-								<div class="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2">
+						<div v-else></div>
+
+						<div class="flex space-x-3">
+							<button v-if="currentStep < steps.length - 1" @click="nextStep"
+								:class="`bg-blue-500 hover:bg-blue-600 text-white font-normal py-2 px-4 rounded w-full flex items-center justify-center text-sm ${!canProceed ? 'opacity-30' : ''}`"
+								:disabled="!canProceed">
+								Next
+								<ArrowRightIcon class="h-4 w-4 ml-2" />
+							</button>
+							<button v-else type="button" @click="handlePayment" :disabled="isPaying || !canProceed"
+								class="btn-primary">
+								<div v-if="isPaying" class="flex items-center">
+									<div
+										class="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2">
+									</div>
+									{{ paymentStep || 'Processing...' }}
 								</div>
-								{{ paymentStep || 'Processing...' }}
-							</div>
-							<div v-else class="flex items-center">
-								<!-- <RocketIcon class="h-4 w-4 mr-2" />
+								<div v-else class="flex items-center">
+									<!-- <RocketIcon class="h-4 w-4 mr-2" />
 								Pay & Deploy Distribution -->
-							</div>
-						</button>
+								</div>
+							</button>
+						</div>
 					</div>
-				</div>
-			</form>
-		</div>
+				</form>
+			</div>
 
-		<!-- Success Modal -->
-		<div v-if="showSuccessModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-			<div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
-				<div class="text-center">
-					<CheckCircleIcon class="h-12 w-12 text-green-600 mx-auto mb-4" />
-					<h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">
-						Distribution Created Successfully!
-					</h3>
-					<p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
-						Your distribution campaign has been deployed to canister: {{
-							deploymentResult?.distributionCanisterId }}
-					</p>
-					<div class="flex space-x-3">
-						<button @click="closeSuccessModal" class="flex-1 btn-secondary">
-							Create Another
-						</button>
-						<button @click="viewDistribution" class="flex-1 btn-primary">
-							View Distribution
-						</button>
+			<!-- Success Modal -->
+			<div v-if="showSuccessModal"
+				class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+				<div class="bg-white dark:bg-gray-800 rounded-lg p-6 max-w-md w-full mx-4">
+					<div class="text-center">
+						<CheckCircleIcon class="h-12 w-12 text-green-600 mx-auto mb-4" />
+						<h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">
+							Distribution Created Successfully!
+						</h3>
+						<p class="text-sm text-gray-600 dark:text-gray-400 mb-6">
+							Your distribution campaign has been deployed to canister: {{ deploymentResult?.distributionCanisterId }}
+						</p>
+						<div class="flex space-x-3">
+							<button @click="closeSuccessModal" class="flex-1 btn-secondary">
+								Create Another
+							</button>
+							<button @click="viewDistribution" class="flex-1 btn-primary">
+								View Distribution
+							</button>
+						</div>
 					</div>
 				</div>
 			</div>
 		</div>
-	</div>
-</AdminLayout>
+	</AdminLayout>
 </template>
 
 <script setup lang="ts">
@@ -794,7 +833,7 @@ import { useUserTokensStore } from '@/stores/userTokens'
 import { useProgressDialog } from '@/composables/useProgressDialog'
 import { IcrcService } from '@/api/services/icrc'
 import { DistributionService } from '@/api/services/distribution'
-import { parseTokenAmount } from '@/utils/token'
+import { parseTokenAmount, formatTokenAmount } from '@/utils/token'
 import { backendService } from '@/api/services/backend'
 import { DistributionUtils } from '@/utils/distribution'
 import { keyToText } from '@/utils/common'
@@ -863,24 +902,24 @@ const deploymentResult = ref<{ distributionCanisterId?: string } | null>(null)
 
 // Global config
 const globalConfig = ref<GlobalDistributionConfig>({
-  timeline: {
-    distributionStartTime: new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16), // Default: 5 minutes from now
-    enableRegistration: false,
-    registrationStartTime: new Date(Date.now()).toISOString().slice(0, 16),
-    registrationEndTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16), // Default: 1 day later
-    distributionEndTime: undefined
-  },
-  penaltyUnlock: {
-    enabled: false,
-    penaltyPercentage: 10,  // Default: 10% penalty
-    penaltyRecipient: undefined,  // undefined = burn, string = recipient address
-    minLockTime: 0  // Days before early unlock allowed
-  },
-  rateLimitConfig: {
-    enabled: false,
-    maxClaimsPerWindow: 1,  // Max claims per window
-    windowDuration: 1  // Window duration in days
-  }
+	timeline: {
+		distributionStartTime: new Date(Date.now() + 5 * 60 * 1000).toISOString().slice(0, 16), // Default: 5 minutes from now
+		enableRegistration: false,
+		registrationStartTime: new Date(Date.now()).toISOString().slice(0, 16),
+		registrationEndTime: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16), // Default: 1 day later
+		distributionEndTime: undefined
+	},
+	penaltyUnlock: {
+		enabled: false,
+		penaltyPercentage: 10,  // Default: 10% penalty
+		penaltyRecipient: undefined,  // undefined = burn, string = recipient address
+		minLockTime: 0  // Days before early unlock allowed
+	},
+	rateLimitConfig: {
+		enabled: false,
+		maxClaimsPerWindow: 1,  // Max claims per window
+		windowDuration: 1  // Window duration in days
+	}
 })
 
 // Payment state
@@ -975,7 +1014,7 @@ const formatTokenBalance = (balance: bigint) => {
 // Refresh user balance function using existing service
 const refreshUserBalance = async () => {
 	if (!authStore.isConnected || !formData.tokenInfo.canisterId) return
-	
+
 	try {
 		isLoadingBalance.value = true
 		const token = {
@@ -1110,7 +1149,7 @@ const distributionTimingConfig = ref({
 })
 
 const registrationTimingConfig = ref({
-	mode: 'immediate' as 'immediate' | 'scheduled', 
+	mode: 'immediate' as 'immediate' | 'scheduled',
 	startTime: '',
 	endTime: '',
 	maxParticipants: undefined as number | undefined
@@ -1238,7 +1277,7 @@ const canProceed = computed(() => {
 				} else {
 					// Open mode: must have valid config
 					return category.maxRecipients && category.maxRecipients > 0 &&
-						   category.amountPerRecipient && category.amountPerRecipient > 0
+						category.amountPerRecipient && category.amountPerRecipient > 0
 				}
 			})
 			return feeValid && categoriesConfigured
@@ -1287,7 +1326,7 @@ const processAllSteps = () => {
 			durationValue = 30 // Default 30 days
 			durationUnit = 'days'
 		}
-		
+
 		// Convert duration to nanoseconds based on unit
 		let durationInNanoseconds = durationValue * 24 * 60 * 60 * 1_000_000_000 // default days
 		if (durationUnit === 'months') {
@@ -1297,7 +1336,7 @@ const processAllSteps = () => {
 		}
 		formData.singleConfig!.duration = durationInNanoseconds
 	}
-	
+
 	// Process step 4 (Timing)
 	// For Lock campaigns with immediate timing, set distributionStart to current time + buffer
 	if (formData.campaignType === 'Lock' && true) { // Simplified condition
@@ -1308,7 +1347,7 @@ const processAllSteps = () => {
 		// For scheduled campaigns, validate and adjust if needed
 		const scheduledTime = new Date(distributionStartDate.value)
 		const now = new Date()
-		
+
 		if (scheduledTime <= now) {
 			// If scheduled time is in the past or too close, set to current time + buffer
 			const immediateStart = new Date(now.getTime() + 5 * 60 * 1000) // Add 5 minutes buffer
@@ -1463,21 +1502,29 @@ const buildMultiCategoryRecipients = () => {
 			if (!recipientMap.has(principal)) {
 				recipientMap.set(principal, {
 					address: Principal.fromText(principal), // Convert string to Principal
+					amount: 0, // Will be sum of all category amounts (in e8s)
 					categories: [],
 					note: [] // MultiCategoryRecipient note as opt text
 				})
 			}
 
+			// Convert amount to e8s
+			// Use BigInt for all amount calculations to match Candid nat type
+			const amountE8s = BigInt(formatTokenAmount(recipient.amount, formData.tokenInfo.decimals).toFixed(0))
+
+			// Add to total amount (in e8s)
+			recipientMap.get(principal).amount += amountE8s
+
 			// Convert vesting start date to nanoseconds
 			const vestingStartMs = new Date(category.vestingStartDate).getTime()
-			const vestingStartNs = vestingStartMs * 1_000_000 // Convert ms to ns
+			const vestingStartNs = BigInt(vestingStartMs) * 1_000_000n // Convert ms to ns using BigInt
 
 			// Add this category allocation
 			recipientMap.get(principal).categories.push({
-				categoryId: category.id,
+				categoryId: BigInt(category.id),
 				categoryName: category.name,
-				amount: recipient.amount,
-				claimedAmount: 0,
+				amount: amountE8s, // Store in e8s as BigInt
+				claimedAmount: 0n,
 				vestingSchedule: buildCategoryVestingSchedule(category),
 				vestingStart: vestingStartNs,
 
@@ -1636,8 +1683,12 @@ const buildDistributionConfig = () => {
 		// NEW: Unified Category System - Pass raw categories (will be converted by convertToBackendRequest)
 		categories: categories.value,
 
-		// Legacy multi-category recipients - Use proper Candid format
-		multiCategoryRecipients: multiCategoryRecipients.length > 0 ? [multiCategoryRecipients] : [],
+		// Legacy multi-category recipients - Use proper conversion
+		// We need to pass the decimals to ensure correct conversion
+		multiCategoryRecipients: multiCategoryRecipients,
+
+		// Pass decimals for category allocation conversion
+		decimals: formData.tokenInfo.decimals || 8,
 		recipients: [], // Empty for multi-category mode
 
 		// Vesting Configuration
@@ -1727,10 +1778,10 @@ const viewDistribution = () => {
 // Initialize dates
 const initializeDates = () => {
 	const now = new Date()
-	
+
 	// Add 5 minutes buffer for immediate distributions
 	const immediateStart = new Date(now.getTime() + 5 * 60 * 1000)
-	
+
 	const tomorrow = new Date()
 	tomorrow.setDate(tomorrow.getDate() + 1)
 	tomorrow.setHours(12, 0, 0, 0)
@@ -1742,7 +1793,7 @@ const initializeDates = () => {
 	distributionStartDate.value = tomorrow.toISOString().slice(0, 16)
 	registrationStartDate.value = now.toISOString().slice(0, 16)
 	registrationEndDate.value = tomorrow.toISOString().slice(0, 16)
-	
+
 	// Set immediate start time for immediate distributions
 	formData.distributionStart = immediateStart
 }
@@ -1778,7 +1829,7 @@ const fetchAvailableAssets = async () => {
 	try {
 		const assets = await userTokensStore.enabledTokensList
 		availableAssets.value = assets
-		
+
 		// Auto-select ICP as default if available
 		const icpAsset = assets.find(asset => asset.symbol === 'ICP')
 		if (icpAsset && !selectedAssetId.value) {
@@ -2005,22 +2056,22 @@ const handlePayment = async () => {
 						break
 
 					case 4: // Initialize contract
-					if (deployResult.value?.distributionCanisterId) {
-						try {
-							const initResult = await DistributionService.initializeContract(deployResult.value.distributionCanisterId)
-							if ('ok' in initResult) {
-								console.log('Contract initialized successfully')
-							} else {
-								console.warn('Contract initialization failed:', initResult.err)
-								toast.warning('Contract deployed but initialization failed. You may need to initialize manually.')
+						if (deployResult.value?.distributionCanisterId) {
+							try {
+								const initResult = await DistributionService.initializeContract(deployResult.value.distributionCanisterId)
+								if ('ok' in initResult) {
+									console.log('Contract initialized successfully')
+								} else {
+									console.warn('Contract initialization failed:', initResult.err)
+									toast.warning('Contract deployed but initialization failed. You may need to initialize manually.')
+								}
+							} catch (error) {
+								console.error('Error during auto-initialization:', error)
+								toast.warning('Contract deployed but auto-initialization failed. You may need to initialize manually.')
 							}
-						} catch (error) {
-							console.error('Error during auto-initialization:', error)
-							toast.warning('Contract deployed but auto-initialization failed. You may need to initialize manually.')
 						}
-					}
-					break
-				case 5: // Finalize
+						break
+					case 5: // Finalize
 						progress.setLoading(false)
 						progress.close()
 
@@ -2164,25 +2215,25 @@ const validateTimeLogic = computed(() => {
 			console.info('ℹ️ Distribution start time is in the past, will be auto-adjusted to current time + 5 minutes')
 		}
 	}
-	
+
 	// Registration period validation
 	if (formData.hasRegistrationPeriod && registrationStartDate.value && registrationEndDate.value) {
 		const regStart = new Date(registrationStartDate.value)
 		const regEnd = new Date(registrationEndDate.value)
-		
+
 		if (regStart >= regEnd) {
 			return { valid: false, message: 'Registration end must be after registration start' }
 		}
-		
+
 		if (regEnd >= distributionStart) {
 			return { valid: false, message: 'Registration must end before distribution starts' }
 		}
-		
+
 		if (regStart < now) {
 			return { valid: false, message: 'Registration start should be in the future' }
 		}
 	}
-	
+
 	// Distribution end validation
 	if (distributionEndDate.value) {
 		const distributionEnd = new Date(distributionEndDate.value)
@@ -2190,7 +2241,7 @@ const validateTimeLogic = computed(() => {
 			return { valid: false, message: 'Distribution end must be after distribution start' }
 		}
 	}
-	
+
 	return { valid: true, message: '' }
 })
 
@@ -2198,21 +2249,21 @@ const validateProgressiveFees = computed(() => {
 	if (formData.feeStructure && keyToText(formData.feeStructure) !== 'Progressive' || !formData.progressiveTiers || formData.progressiveTiers.length === 0) {
 		return { valid: true, message: '' }
 	}
-	
+
 	// Check if tiers are sorted by threshold
 	for (let i = 1; i < formData.progressiveTiers.length; i++) {
 		if (formData.progressiveTiers[i].threshold <= formData.progressiveTiers[i - 1].threshold) {
 			return { valid: false, message: 'Progressive fee tiers must be sorted by threshold (ascending)' }
 		}
 	}
-	
+
 	// Check for reasonable fee rates
 	for (const tier of formData.progressiveTiers) {
 		if (tier.feeRate > 50) {
 			return { valid: false, message: 'Fee rate should not exceed 50%' }
 		}
 	}
-	
+
 	return { valid: true, message: '' }
 })
 
@@ -2261,29 +2312,31 @@ loadDeploymentCost()
 </script>
 
 <style scoped>
-	/* Custom CSS for connector lines */
-	.step-item:not(:last-child)::after {
-		content: '';
-		position: absolute;
-		top: 1rem;
-		left: calc(50% + 1.25rem); /* Distance from current step */
-		width: calc(100% - 2.5rem); /* Length of line */
-		height: 2px;
-		background-color: #e5e7eb;
-		z-index: 0;
-	}
+/* Custom CSS for connector lines */
+.step-item:not(:last-child)::after {
+	content: '';
+	position: absolute;
+	top: 1rem;
+	left: calc(50% + 1.25rem);
+	/* Distance from current step */
+	width: calc(100% - 2.5rem);
+	/* Length of line */
+	height: 2px;
+	background-color: #e5e7eb;
+	z-index: 0;
+}
 
-	.step-item.completed:not(:last-child)::after {
-		background-color: #b27c10;
-	}
-	
-	/* Alternative approach with better positioning */
-	.connector-line {
-		position: absolute;
-		top: 1rem;
-		left: calc(50% + 1rem);
-		right: calc(-50% + 1rem);
-		height: 2px;
-		z-index: 0;
-	}
+.step-item.completed:not(:last-child)::after {
+	background-color: #b27c10;
+}
+
+/* Alternative approach with better positioning */
+.connector-line {
+	position: absolute;
+	top: 1rem;
+	left: calc(50% + 1rem);
+	right: calc(-50% + 1rem);
+	height: 2px;
+	z-index: 0;
+}
 </style>

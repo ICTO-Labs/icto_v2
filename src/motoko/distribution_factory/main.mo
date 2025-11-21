@@ -382,7 +382,10 @@ persistent actor class DistributionFactory() = this {
                 creator = args.owner; // Use args.owner (actual creator, not caller which is backend)
                 title = args.config.title;
                 description = args.config.description;
-                recipientCount = args.config.recipients.size();
+                recipientCount = switch (args.config.multiCategoryRecipients) {
+                    case (?multi) multi.size();
+                    case null args.config.recipients.size();
+                };
                 totalAmount = args.config.totalAmount;
                 tokenSymbol = args.config.tokenInfo.symbol;
                 isPublic = args.config.isPublic;
@@ -404,9 +407,21 @@ persistent actor class DistributionFactory() = this {
             // Add recipients to recipient index (for Whitelist mode)
             switch (args.config.eligibilityType) {
                 case (#Whitelist) {
-                    // Index all recipients
-                    for (recipient in args.config.recipients.vals()) {
-                        recipientIndex := _addToUserIndex(recipientIndex, recipient.address, canisterId);
+                    // V2: Index from multiCategoryRecipients first (unified distributions)
+                    switch (args.config.multiCategoryRecipients) {
+                        case (?multiRecipients) {
+                            Debug.print("📇 Indexing " # debug_show(multiRecipients.size()) # " recipients from multiCategoryRecipients (V2)");
+                            for (recipient in multiRecipients.vals()) {
+                                recipientIndex := _addToUserIndex(recipientIndex, recipient.address, canisterId);
+                            };
+                        };
+                        case null {
+                            // V1: Fallback to recipients field
+                            Debug.print("📇 Indexing " # debug_show(args.config.recipients.size()) # " recipients from recipients (V1)");
+                            for (recipient in args.config.recipients.vals()) {
+                                recipientIndex := _addToUserIndex(recipientIndex, recipient.address, canisterId);
+                            };
+                        };
                     };
                 };
                 case _ {
@@ -574,12 +589,16 @@ persistent actor class DistributionFactory() = this {
             return #err("Total amount must be greater than 0");
         };
 
-        // Validate categories - at least one category is required
+        // Validate categories - support both V1 (recipients) and V2 (categories)
         switch (config.categories) {
             case null {
-                return #err("At least one category is required");
+                // V1 Fallback: If categories is null, recipients MUST be present
+                if (config.recipients.size() == 0) {
+                     return #err("At least one category OR recipient list is required");
+                };
             };
             case (?categories) {
+                // V2: If categories is present, it must not be empty
                 if (categories.size() == 0) {
                     return #err("At least one category is required");
                 };

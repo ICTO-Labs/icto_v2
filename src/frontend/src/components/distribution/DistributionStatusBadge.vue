@@ -26,25 +26,28 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useDistributionStatus } from '@/composables/distribution/useDistributionStatus'
 
 interface Props {
   distribution: any
+  contractBalance?: bigint
   showSubStatus?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  showSubStatus: false
+  showSubStatus: false,
+  contractBalance: undefined
 })
 
 // Get status info from composable
 const distributionRef = computed(() => props.distribution)
-const { statusInfo, distributionStatus } = useDistributionStatus(distributionRef)
+const contractBalanceRef = computed(() => props.contractBalance !== undefined ? ref(props.contractBalance) : undefined)
+const { statusInfo, distributionStatus, needsFunding } = useDistributionStatus(distributionRef, contractBalanceRef.value)
 
 // Show pulse animation for active states
 const showPulse = computed(() => {
-  return ['Registration', 'Active', 'Vesting', 'Locked'].includes(distributionStatus.value)
+  return ['Registration', 'Live', 'Vesting', 'Locked'].includes(distributionStatus.value)
 })
 
 // Sub-status text based on campaign type and current phase
@@ -53,6 +56,11 @@ const subStatusText = computed(() => {
 
   const details = props.distribution
   const status = distributionStatus.value
+
+  // Show funding warning if needed
+  if (needsFunding.value) {
+    return 'Needs Funding'
+  }
 
   // For Lock campaigns, show duration
   if (status === 'Locked' && details.vestingSchedule && 'Single' in details.vestingSchedule) {

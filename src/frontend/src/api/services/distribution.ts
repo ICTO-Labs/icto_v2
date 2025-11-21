@@ -175,6 +175,19 @@ export class DistributionService {
     }
   }
 
+  // Get detailed category information for a user (vesting-aware with all details)
+  static async getUserCategoryBreakdown(canisterId: string, principal: string): Promise<any[]> {
+    try {
+      const distributionContract = distributionContractActor({ canisterId, anon: true, requiresSigning: false });
+      const userPrincipal = Principal.fromText(principal);
+      const categoryInfo = await distributionContract.getUserCategoryInfo(userPrincipal);
+      return categoryInfo;
+    } catch (error) {
+      console.error(`Error fetching category info for ${canisterId}:`, error);
+      throw error;
+    }
+  }
+
   // Claim tokens from distribution
   static async claimTokens(canisterId: string, claimAmount?: string): Promise<Result> {
     try {

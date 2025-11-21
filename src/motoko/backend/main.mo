@@ -697,13 +697,23 @@ persistent actor Backend {
                 // Register user relationships into Factory Registry (if applicable)
                 switch (actionType, payload) {
                     case (#CreateDistribution, #Distribution(config)) {
-                        // Extract recipients from unified recipients field
+                        // Extract recipients from both V1 and V2 structures
                         let recipients : ?[Principal] = switch (config.eligibilityType) {
                             case (#Whitelist) { 
-                                // Extract principals from unified recipients field
-                                if (config.recipients.size() > 0) {
-                                    ?DistributionFactoryService.extractPrincipals(config.recipients)
-                                } else { null }
+                                // V2: Check multiCategoryRecipients first (unified distributions)
+                                switch (config.multiCategoryRecipients) {
+                                    case (?multiRecipients) {
+                                        if (multiRecipients.size() > 0) {
+                                            ?DistributionFactoryService.extractPrincipalsFromMultiCategory(multiRecipients)
+                                        } else { null }
+                                    };
+                                    case null {
+                                        // V1: Fallback to recipients field
+                                        if (config.recipients.size() > 0) {
+                                            ?DistributionFactoryService.extractPrincipals(config.recipients)
+                                        } else { null }
+                                    };
+                                };
                             };
                             case _ { null }; // Other eligibility types handled by external contract callback
                         };

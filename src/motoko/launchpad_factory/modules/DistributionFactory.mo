@@ -23,6 +23,7 @@ import Array "mo:base/Array";
 import Time "mo:base/Time";
 import Buffer "mo:base/Buffer";
 import Float "mo:base/Float";
+import HashMap "mo:base/HashMap";
 
 import LaunchpadTypes "../../shared/types/LaunchpadTypes";
 import DistributionTypes "../../shared/types/DistributionTypes";
@@ -131,55 +132,6 @@ module {
             };
         };
 
-        // ================ PASSPORT & VERIFICATION ================
-
-        /// Determine passport requirements for a category based on its ID
-        /// Different categories may have different passport requirements
-        private func determinePassportForCategory(
-            categoryId: Text,
-            categoryName: Text,
-            launchpadConfig: LaunchpadTypes.LaunchpadConfig
-        ) : (Nat, Text) {
-            // Map category to passport requirements
-            switch (categoryId) {
-                case ("participants" or "sale") {
-                    // High requirement for sale participants
-                    // Use minICTOPassportScore from saleParams if available
-                    let minScore = launchpadConfig.saleParams.minICTOPassportScore;
-                    (minScore, "ICTO")  // ICTO as default provider
-                };
-                case ("team") {
-                    (0, "")  // No passport required for team
-                };
-                case ("advisors") {
-                    (0, "")  // No passport required for advisors
-                };
-                case ("marketing") {
-                    (30, "Gitcoin")  // Medium requirement, Gitcoin provider
-                };
-                case ("airdrop") {
-                    (20, "Worldcoin")  // Low requirement, Worldcoin verification
-                };
-                case ("development") {
-                    (0, "")  // No passport for development fund
-                };
-                case (_) {
-                    // Check if category name contains certain keywords
-                    if (Text.contains(categoryName, #text "Sale") or Text.contains(categoryName, #text "Participant")) {
-                        (50, "ICTO")  // Sale-related categories
-                    } else if (Text.contains(categoryName, #text "Team") or Text.contains(categoryName, #text "Advisor")) {
-                        (0, "")  // Team/Advisor categories
-                    } else if (Text.contains(categoryName, #text "Marketing")) {
-                        (30, "Gitcoin")  // Marketing categories
-                    } else if (Text.contains(categoryName, #text "Airdrop")) {
-                        (20, "Worldcoin")  // Airdrop categories
-                    } else {
-                        (0, "")  // Default: no passport
-                    }
-                };
-            }
-        };
-
         // ================ MERKLE TREE SUPPORT ================
 
         /// Calculate total number of unique recipients across all categories
@@ -193,28 +145,17 @@ module {
             totalRecipients
         };
 
-        /// Simple merkle root calculation (placeholder - implement proper merkle tree)
-        /// TODO: Implement proper merkle tree hashing
-        private func calculateMerkleRoot(
-            recipients: [DistributionTypes.Recipient],
-            categoryId: Nat
-        ) : Blob {
-            // Simple hash placeholder - should implement proper merkle tree
-            let data = Text.encodeUtf8(
-                "category_" # Nat.toText(categoryId) #
-                "_recipients_" # Nat.toText(recipients.size())
-            );
-            data  // Return as simple blob for now
-        };
-
-
-        // REMOVED: buildCategoryConfig - Use buildUnifiedTokenDistribution or buildUnifiedRaisedFundsDistribution instead
+        // REMOVED: Legacy functions no longer needed with unified distribution approach
+        // - determinePassportForCategory: Passport verification happens during sale phase
+        // - calculateMerkleRoot: Not currently used
+        // - buildDistributionConfig: Replaced by buildUnifiedTokenDistribution
 
         // ================ CONFIGURATION BUILDER ================
 
-        /// Build distribution configuration for launchpad participants
-        /// This creates a distribution contract that holds and vests tokens to participants
-        private func buildDistributionConfig(
+        /// DEPRECATED: Build distribution configuration for launchpad participants
+        /// This function is kept for reference but should not be used.
+        /// Use buildUnifiedTokenDistribution instead for V2 multi-category distributions.
+        private func _buildDistributionConfig(
             config: LaunchpadTypes.LaunchpadConfig,
             launchpadId: Text,
             launchpadPrincipal: Principal,
@@ -371,12 +312,8 @@ module {
 
             // Merge categories by wallet address
             for (category in categories.vals()) {
-                // ✨ DETERMINE PASSPORT FOR THIS CATEGORY
-                let (passportScore, passportProvider) = determinePassportForCategory(
-                    Nat.toText(category.categoryInfo.id),
-                    category.categoryInfo.name,
-                    launchpadConfig
-                );
+                // Passport verification happens during sale phase, not distribution phase
+                let (passportScore, passportProvider) = (0, "");
 
                 Debug.print("      Passport for category " # Nat.toText(category.categoryId) #
                            " (" # category.categoryInfo.name # "): " #
@@ -451,6 +388,7 @@ module {
 
         /// Helper: Convert CategoryDistribution array to DistributionCategory definitions
         /// Extracts category metadata and creates proper DistributionCategory objects
+        /// ✅ NOW PRESERVES PASSPORT REQUIREMENTS from categoryInfo
         private func buildCategoryDefinitions(
             categories: [DistributionTypes.CategoryDistribution],
             distributionStartTime: Time.Time
@@ -463,18 +401,18 @@ module {
                         name = cat.categoryInfo.name;
                         description = cat.categoryInfo.description;
                         order = cat.categoryInfo.order;
-                        
+
                         // Launchpad distributions are always Predefined (recipients are known)
                         mode = #Predefined;
-                        
+
                         // Use category's vesting schedule as default
                         defaultVestingSchedule = cat.vestingSchedule;
                         defaultVestingStart = distributionStartTime;
-                        
-                        // Launchpad uses default passport settings (no verification)
-                        defaultPassportScore = 0;  // 0 = disabled
-                        defaultPassportProvider = "ICTO";
-                        
+
+                        // ✅ USE PASSPORT FROM CATEGORY INFO (already determined per category)
+                        defaultPassportScore = cat.categoryInfo.defaultPassportScore;
+                        defaultPassportProvider = cat.categoryInfo.defaultPassportProvider;
+
                         // No limits for predefined categories
                         maxParticipants = null;
                         allocationPerUser = null;
@@ -492,12 +430,15 @@ module {
             deployedTokenId: Principal
         ) : Result.Result<DistributionTypes.MultiCategoryDistributionConfig, Text> {
 
-            Debug.print("📦 Building UNIFIED Token Distribution (dynamic categories)...");
+            Debug.print("📦 Building Multi-Category Token Distribution from config.tokenDistribution (V2)...");
 
-            // Build categories dynamically based on actual data
-            let categoriesBuffer = Buffer.Buffer<DistributionTypes.CategoryDistribution>(10);
+            // 1. Prepare Data Structures
+            // Map: Principal Text -> Buffer of Allocations
+            let recipientMap = HashMap.HashMap<Text, Buffer.Buffer<DistributionTypes.CategoryAllocation>>(100, Text.equal, Text.hash);
+            let categoryDefinitions = Buffer.Buffer<DistributionTypes.DistributionCategory>(10);
+            
+            var nextCategoryId: Nat = 1;
             var totalAllTokens: Nat = 0;
-            var nextCategoryId: Nat = 1; // Sequential ID assignment
 
             let tokenInfo: DistributionTypes.TokenInfo = {
                 canisterId = deployedTokenId;
@@ -507,232 +448,192 @@ module {
             };
 
             let batchId = "launchpad_" # launchpadId # "_token";
+            let claimStart = config.timeline.claimStart;
 
-            // ================ PARTICIPANTS CATEGORY ================
-            Debug.print("   Category " # Nat.toText(nextCategoryId) # ": Participants");
+            // Helper to add allocation to map
+            func addAllocation(
+                principalTxt: Text, 
+                amount: Nat, 
+                categoryId: Nat, 
+                categoryName: Text,
+                vesting: DistributionTypes.VestingSchedule,
+                note: ?Text
+            ) {
+                let allocation: DistributionTypes.CategoryAllocation = {
+                    categoryId = categoryId;
+                    categoryName = categoryName;
+                    amount = amount;
+                    claimedAmount = 0;
+                    vestingSchedule = vesting;
+                    vestingStart = claimStart;
+                    passportScore = 0; // FIXED: Always 0
+                    passportProvider = "";
+                    note = note;
+                };
 
-            let participantRecipients: [DistributionTypes.Recipient] = Array.map<
-                (Text, LaunchpadTypes.Participant),
-                DistributionTypes.Recipient
-            >(
-                participants,
-                func((_key, participant)) : DistributionTypes.Recipient {
-                    {
-                        address = participant.principal;
-                        amount = participant.allocationAmount;
-                        note = ?"Launchpad sale allocation";
-                    }
-                }
-            );
-
-            var participantsTotalAmount: Nat = 0;
-            for ((_, participant) in participants.vals()) {
-                participantsTotalAmount += participant.allocationAmount;
-            };
-            totalAllTokens += participantsTotalAmount;
-
-            let participantsVesting: DistributionTypes.VestingSchedule = switch (config.tokenDistribution) {
-                case (?distribution) {
-                    switch (distribution.sale.vestingSchedule) {
-                        case (?schedule) convertVestingSchedule(schedule);
-                        case null #Instant;
+                let buffer = switch (recipientMap.get(principalTxt)) {
+                    case (?buf) buf;
+                    case null {
+                        let newBuf = Buffer.Buffer<DistributionTypes.CategoryAllocation>(4);
+                        recipientMap.put(principalTxt, newBuf);
+                        newBuf;
                     };
+                };
+                buffer.add(allocation);
+            };
+
+            // ================ 1. SALE PARTICIPANTS (Category 1) ================
+            Debug.print("   Category " # Nat.toText(nextCategoryId) # ": Participants");
+            
+            let participantsVesting = switch (config.tokenDistribution) {
+                case (?d) switch (d.sale.vestingSchedule) {
+                    case (?s) convertVestingSchedule(s);
+                    case null #Instant;
                 };
                 case null #Instant;
             };
 
-            let participantsCategory: DistributionTypes.CategoryDistribution = {
-                categoryId = nextCategoryId;
-                categoryInfo = {
-                    id = nextCategoryId;
-                    name = "Sale Participants";
-                    description = ?"Tokens purchased in launchpad sale";
-                    order = ?nextCategoryId;
-                    mode = #Predefined;
-                    defaultVestingSchedule = participantsVesting;
-                    defaultVestingStart = config.timeline.claimStart;
-                    defaultPassportScore = 0;
-                    defaultPassportProvider = "ICTO";
-                    maxParticipants = null;
-                    allocationPerUser = null;
-                };
-                recipients = participantRecipients;
-                totalAmount = participantsTotalAmount;
-                vestingSchedule = participantsVesting;
+            // Define Category
+            categoryDefinitions.add({
+                id = nextCategoryId;
+                name = "Sale Participants";
+                description = ?"Tokens purchased in launchpad sale";
+                order = ?nextCategoryId;
+                mode = #Predefined;
+                defaultVestingSchedule = participantsVesting;
+                defaultVestingStart = claimStart;
+                defaultPassportScore = 0;
+                defaultPassportProvider = "";
+                maxParticipants = null;
+                allocationPerUser = null;
+            });
+
+            // Process Recipients
+            var participantsTotal: Nat = 0;
+            for ((_, participant) in participants.vals()) {
+                participantsTotal += participant.allocationAmount;
+                addAllocation(
+                    Principal.toText(participant.principal),
+                    participant.allocationAmount,
+                    nextCategoryId,
+                    "Sale Participants",
+                    participantsVesting,
+                    ?"Launchpad sale allocation"
+                );
             };
-            categoriesBuffer.add(participantsCategory);
-            Debug.print("      ✅ Category " # Nat.toText(nextCategoryId) # ": " # Nat.toText(participantRecipients.size()) # " recipients, " # Nat.toText(participantsTotalAmount) # " tokens");
+            totalAllTokens += participantsTotal;
+            Debug.print("      ✅ Added " # Nat.toText(participantsTotal) # " tokens for participants");
             nextCategoryId += 1;
 
-            // ================ DYNAMIC TOKEN DISTRIBUTION CATEGORIES ================
-            switch (config.tokenDistribution) {
-                case (?tokenDist) {
-                    // ================ TEAM CATEGORY ================
-                    if (tokenDist.team.recipients.size() > 0) {
-                        Debug.print("   Category " # Nat.toText(nextCategoryId) # ": Team");
-
-                        let teamRecipients: [DistributionTypes.Recipient] = Array.map<
-                            LaunchpadTypes.TeamRecipient,
-                            DistributionTypes.Recipient
-                        >(
-                            tokenDist.team.recipients,
-                            func(r: LaunchpadTypes.TeamRecipient) : DistributionTypes.Recipient {
-                                let amount: Nat = switch (r.amount) {
-                                    case (?amountText) parseNat(amountText);
-                                    case null calculateAmountFromPercentage(r.percentage, tokenDist.team.totalAmount);
-                                };
-
-                                {
-                                    address = Principal.fromText(r.principal);
-                                    amount = amount;
-                                    note = r.name;
-                                }
-                            }
-                        );
-
-                        let teamTotalAmount = parseNat(tokenDist.team.totalAmount);
-                        totalAllTokens += teamTotalAmount;
-
-                        let teamVesting = switch (tokenDist.team.vestingSchedule) {
-                            case (?schedule) convertVestingSchedule(schedule);
-                            case null #Instant;
-                        };
-
-                        let teamCategory: DistributionTypes.CategoryDistribution = {
-                            categoryId = nextCategoryId;
-                            categoryInfo = {
-                                id = nextCategoryId;
-                                name = tokenDist.team.name;
-                                description = tokenDist.team.description;
-                                order = ?nextCategoryId;
-                                mode = #Predefined;
-                                defaultVestingSchedule = teamVesting;
-                                defaultVestingStart = config.timeline.claimStart;
-                                defaultPassportScore = 0;
-                                defaultPassportProvider = "ICTO";
-                                maxParticipants = null;
-                                allocationPerUser = null;
-                            };
-                            recipients = teamRecipients;
-                            totalAmount = teamTotalAmount;
-                            vestingSchedule = teamVesting;
-                        };
-                        categoriesBuffer.add(teamCategory);
-                        Debug.print("      ✅ Category " # Nat.toText(nextCategoryId) # ": " # Nat.toText(teamRecipients.size()) # " recipients, " # Nat.toText(teamTotalAmount) # " tokens");
-                        nextCategoryId += 1;
-                    } else {
-                        Debug.print("   ⚠️ Skipping Team category - no recipients");
+            // ================ 2. PROCESS config.distribution (V1 Array Structure) ================
+            // This contains Team, Advisors, Marketing, etc. from the Launchpad config
+            Debug.print("   Processing config.distribution categories...");
+            
+            for (distCategory in config.distribution.vals()) {
+                // Determine if this category should be included in distribution contract
+                let shouldInclude = switch (distCategory.recipients) {
+                    case (#FixedList(recipients)) {
+                        // Include categories with fixed recipients (Team, Advisors, Marketing, etc.)
+                        recipients.size() > 0
                     };
-
-                    // ================ OTHER DYNAMIC CATEGORIES (Advisors, Marketing, Development, etc.) ================
-                    for (otherAllocation in tokenDist.others.vals()) {
-                        Debug.print("   Category " # Nat.toText(nextCategoryId) # ": " # otherAllocation.name);
-
-                        let otherRecipients: [DistributionTypes.Recipient] = Array.map<
-                            LaunchpadTypes.OtherRecipient,
-                            DistributionTypes.Recipient
-                        >(
-                            otherAllocation.recipients,
-                            func(r: LaunchpadTypes.OtherRecipient) : DistributionTypes.Recipient {
-                                let amount: Nat = switch (r.amount) {
-                                    case (?amountText) parseNat(amountText);
-                                    case null calculateAmountFromPercentage(r.percentage, otherAllocation.totalAmount);
-                                };
-
-                                {
-                                    address = Principal.fromText(r.principal);
-                                    amount = amount;
-                                    note = r.name;
-                                }
-                            }
-                        );
-
-                        let otherTotalAmount = parseNat(otherAllocation.totalAmount);
-                        totalAllTokens += otherTotalAmount;
-
-                        let otherVesting = switch (otherAllocation.vestingSchedule) {
-                            case (?schedule) convertVestingSchedule(schedule);
-                            case null #Instant;
-                        };
-
-                        let otherCategory: DistributionTypes.CategoryDistribution = {
-                            categoryId = nextCategoryId;
-                            categoryInfo = {
-                                id = nextCategoryId;
-                                name = otherAllocation.name;
-                                description = otherAllocation.description;
-                                order = ?nextCategoryId;
-                                mode = #Predefined;
-                                defaultVestingSchedule = otherVesting;
-                                defaultVestingStart = config.timeline.claimStart;
-                                defaultPassportScore = 0;
-                                defaultPassportProvider = "ICTO";
-                                maxParticipants = null;
-                                allocationPerUser = null;
-                            };
-                            recipients = otherRecipients;
-                            totalAmount = otherTotalAmount;
-                            vestingSchedule = otherVesting;
-                        };
-                        categoriesBuffer.add(otherCategory);
-                        Debug.print("      ✅ Category " # Nat.toText(nextCategoryId) # " (" # otherAllocation.name # "): " # Nat.toText(otherRecipients.size()) # " recipients, " # Nat.toText(otherTotalAmount) # " tokens");
-                        nextCategoryId += 1;
+                    case (#SaleParticipants) {
+                        // Skip - already handled above
+                        false
                     };
-
-                    // ================ SKIP LIQUIDITY POOL ================
-                    Debug.print("   ℹ️ Skipping Liquidity Pool category - handled directly in pipeline");
-                    // Note: LP allocation (tokenDist.liquidityPool) is skipped as requested
-                    // LP tokens will be transferred directly to DEX during pipeline execution
+                    case (#LiquidityPool) {
+                        // Skip - handled separately in DEX deployment
+                        false
+                    };
+                    case (#TreasuryReserve) {
+                        // Skip - managed separately
+                        false
+                    };
+                    case _ {
+                        // Skip other special types
+                        false
+                    };
                 };
-                case null {
-                    Debug.print("   ⚠️ No tokenDistribution config - only participants category");
+
+                if (shouldInclude) {
+                    Debug.print("   Category " # Nat.toText(nextCategoryId) # ": " # distCategory.name);
+                    
+                    let categoryVesting = switch (distCategory.vestingSchedule) {
+                        case (?s) convertVestingSchedule(s);
+                        case null #Instant;
+                    };
+
+                    categoryDefinitions.add({
+                        id = nextCategoryId;
+                        name = distCategory.name;
+                        description = distCategory.description;
+                        order = ?nextCategoryId;
+                        mode = #Predefined;
+                        defaultVestingSchedule = categoryVesting;
+                        defaultVestingStart = claimStart;
+                        defaultPassportScore = 0;
+                        defaultPassportProvider = "";
+                        maxParticipants = null;
+                        allocationPerUser = null;
+                    });
+
+                    var calculatedCategoryTotal: Nat = 0;
+
+                    // Extract recipients from FixedList
+                    switch (distCategory.recipients) {
+                        case (#FixedList(recipients)) {
+                            for (r in recipients.vals()) {
+                                let amount = r.amount;
+                                calculatedCategoryTotal += amount;
+                                
+                                // Use vestingOverride if provided, otherwise use category default
+                                let recipientVesting = switch (r.vestingOverride) {
+                                    case (?override) convertVestingSchedule(override);
+                                    case null categoryVesting;
+                                };
+                                
+                                addAllocation(
+                                    Principal.toText(r.address),
+                                    amount,
+                                    nextCategoryId,
+                                    distCategory.name,
+                                    recipientVesting,
+                                    r.description
+                                );
+                            };
+                        };
+                        case _ {
+                            // Should not reach here due to shouldInclude check
+                        };
+                    };
+                    
+                    totalAllTokens += calculatedCategoryTotal;
+                    Debug.print("      ✅ Added " # Nat.toText(calculatedCategoryTotal) # " tokens for " # distCategory.name);
+                    nextCategoryId += 1;
                 };
             };
 
-            Debug.print("   ✅ All token categories configured successfully");
+            // ================ 3. BUILD RESULT ================
+            
+            // Convert HashMap to [MultiCategoryRecipient]
+            let finalRecipients = Buffer.Buffer<DistributionTypes.MultiCategoryRecipient>(recipientMap.size());
+            
+            for ((principalTxt, allocationsBuf) in recipientMap.entries()) {
+                finalRecipients.add({
+                    address = Principal.fromText(principalTxt);
+                    categories = Buffer.toArray(allocationsBuf);
+                    note = ?("Multi-category allocation from " # launchpadId);
+                });
+            };
 
-            let categories = Buffer.toArray(categoriesBuffer);
-
-            Debug.print("✅ Unified Token Distribution built:");
-            Debug.print("   Total Categories: " # Nat.toText(categories.size()));
-            Debug.print("   Total Tokens: " # Nat.toText(totalAllTokens));
-
-            // ================ MERKLE TREE DECISION ================
-            // 🔒 DISABLED: Always use legacy mode for now (Merkle to be implemented later)
-            let totalRecipients = calculateTotalRecipients(categories);
-            let useMerkle = false;  // Always false - Merkle not implemented yet
-
-            Debug.print("   Total Recipients: " # Nat.toText(totalRecipients));
-            Debug.print("   📋 Using Legacy mode (Merkle disabled)");
-
-            // Merkle config always null for now
-            let merkleConfig: ?DistributionTypes.MerkleConfig = null;
-
-            // ✅ Merge categories into multi-category recipients with passport
-            // Build category definitions from CategoryDistribution objects
-            let categoryDefinitions = buildCategoryDefinitions(categories, config.timeline.claimStart);
-            Debug.print("   Category Definitions: " # Nat.toText(categoryDefinitions.size()));
-
-            let multiCategoryRecipients = mergeCategoriesToMultiCategoryRecipients(
-                categories,
-                launchpadId,
-                config,  // ✅ Pass config for passport
-                config.timeline.claimStart  // ✅ Pass distribution start time
-            );
-
-            Debug.print("   Unique Wallets: " # Nat.toText(multiCategoryRecipients.size()));
-
-            // Create multi-category distribution configuration
-            #ok({
+            let resultConfig: DistributionTypes.MultiCategoryDistributionConfig = {
                 title = config.projectInfo.name # " Token Distribution";
-                description = "Multi-category token distribution with per-category passport verification";
+                description = "Multi-category token distribution";
                 isPublic = false;
                 campaignType = #LaunchpadDistribution;
 
                 launchpadContext = ?{
                     launchpadId = Principal.fromText(launchpadId);
-                    categoryId = ?1;  // Reference to first category
-
+                    categoryId = ?1;
                     projectMetadata = {
                         name = config.projectInfo.name;
                         symbol = config.saleToken.symbol;
@@ -746,18 +647,14 @@ module {
                 tokenInfo = tokenInfo;
                 totalAmount = totalAllTokens;
 
-                // ✅ CATEGORY DEFINITIONS (Source of Truth)
-                categories = ?categoryDefinitions;
-
-
-                // ✅ MULTI-CATEGORY RECIPIENTS (with per-category passport)
-                multiCategoryRecipients = multiCategoryRecipients;
+                categories = ?Buffer.toArray(categoryDefinitions);
+                multiCategoryRecipients = Buffer.toArray(finalRecipients);
 
                 eligibilityType = #Whitelist;
                 recipientMode = #Fixed;
-                maxRecipients = ?multiCategoryRecipients.size();
+                maxRecipients = ?finalRecipients.size();
 
-                distributionStart = config.timeline.claimStart;
+                distributionStart = claimStart;
                 distributionEnd = null;
 
                 feeStructure = #Free;
@@ -768,7 +665,11 @@ module {
                 governance = null;
                 multiSigGovernance = null;
                 externalCheckers = null;
-            })
+            };
+
+            Debug.print("✅ Unified Token Distribution built with " # Nat.toText(finalRecipients.size()) # " unique recipients");
+
+            #ok(resultConfig)
         };
 
         /// Build unified raised funds distribution with Dynamic categories in Single Contract
@@ -802,9 +703,12 @@ module {
 
             // Process raised funds allocations with dynamic organization
             for (allocation in config.raisedFundsAllocation.allocations.vals()) {
-                // ================ SKIP LIQUIDITY ALLOCATIONS ================
-                if (not (Text.contains(allocation.id, #text "liquidity") or Text.contains(allocation.name, #text "liquidity"))) {
-                    // Process non-liquidity allocations
+                // ================ SKIP LIQUIDITY ALLOCATIONS & EMPTY CATEGORIES ================
+                let isLiquidity = Text.contains(allocation.id, #text "liquidity") or Text.contains(allocation.name, #text "liquidity");
+                let hasRecipients = allocation.recipients.size() > 0;
+
+                if (not isLiquidity and hasRecipients) {
+                    // Process non-liquidity allocations with recipients
                     Debug.print("   Category " # Nat.toText(nextCategoryId) # ": " # allocation.name);
 
                     // Build recipients from percentage allocation
@@ -845,11 +749,11 @@ module {
                         name = allocation.name;
                         description = ?("Raised " # config.purchaseToken.symbol # " allocation for " # allocation.name);
                         order = ?nextCategoryId;
-                        mode = #Predefined;
+                        mode = #Predefined;  // Predefined with fixed recipient list
                         defaultVestingSchedule = vesting;
                         defaultVestingStart = config.timeline.claimStart;
-                        defaultPassportScore = 0;
-                        defaultPassportProvider = "ICTO";
+                        defaultPassportScore = 0;  // No passport for Predefined categories
+                        defaultPassportProvider = "";
                         maxParticipants = null;
                         allocationPerUser = null;
                     };
@@ -865,7 +769,11 @@ module {
                     Debug.print("      ✅ Category " # Nat.toText(nextCategoryId) # " (" # allocation.name # "): " # Nat.toText(recipients.size()) # " recipients, " # Nat.toText(allocation.amount) # " " # config.purchaseToken.symbol);
                     nextCategoryId += 1;
                 } else {
-                    Debug.print("   ⏭️ Skipping Liquidity allocation: " # allocation.name # " - handled directly in pipeline");
+                    if (isLiquidity) {
+                        Debug.print("   ⏭️ Skipping Liquidity allocation: " # allocation.name # " - handled directly in pipeline");
+                    } else {
+                        Debug.print("   ⏭️ Skipping allocation '" # allocation.name # "' - no recipients");
+                    };
                 };
             };
 
@@ -979,24 +887,65 @@ module {
             };
 
             try {
-                // Build configuration
-                let distributionConfig = buildDistributionConfig(
+                // ================ UPGRADE TO UNIFIED DISTRIBUTION ================
+                // Use buildUnifiedTokenDistribution to include ALL categories (Team, Advisors, etc.)
+                // instead of just the single category passed to this function.
+                
+                let unifiedResult = buildUnifiedTokenDistribution(
                     config,
                     launchpadId,
                     launchpadPrincipal,
                     participants,
-                    deployedTokenId,
-                    category
+                    deployedTokenId
                 );
 
-                // Calculate total allocation
-                var totalAmount: Nat = 0;
-                for ((_, participant) in participants.vals()) {
-                    totalAmount += participant.allocationAmount;
+                var unifiedConfig = switch (unifiedResult) {
+                    case (#ok(cfg)) cfg;
+                    case (#err(msg)) {
+                        Debug.print("❌ Failed to build unified distribution: " # msg);
+                        return #err(#ConfigurationError(msg));
+                    };
                 };
 
-                Debug.print("   Token: " # config.saleToken.symbol);
-                Debug.print("   Total Allocation: " # Nat.toText(totalAmount));
+                // Fix: Add buffer for deployment time if start time is too close
+                // Apply this to the unified config before conversion
+                if (unifiedConfig.distributionStart < Time.now() + (10 * 60 * 1_000_000_000)) {
+                    let newStart = Time.now() + (5 * 60 * 1_000_000_000); // 5 minutes buffer
+                    
+                    // Update start time in config
+                    unifiedConfig := {
+                        unifiedConfig with
+                        distributionStart = newStart;
+                    };
+                    
+                    // Update vesting start for all categories to match new start time
+                    // This ensures vesting doesn't start before distribution
+                    let updatedCategories = Buffer.Buffer<DistributionTypes.DistributionCategory>(
+                        switch(unifiedConfig.categories) { case(?c) c.size(); case null 0 }
+                    );
+                    
+                    switch(unifiedConfig.categories) {
+                        case(?cats) {
+                            for (cat in cats.vals()) {
+                                updatedCategories.add({
+                                    cat with
+                                    defaultVestingStart = newStart;
+                                });
+                            };
+                            unifiedConfig := {
+                                unifiedConfig with
+                                categories = ?Buffer.toArray(updatedCategories);
+                            };
+                        };
+                        case null {};
+                    };
+                };
+
+                // Convert to Backend Config using standard converter
+                let distributionConfig = _convertUnifiedToBackendConfig(unifiedConfig);
+                
+                // Calculate total amount for logging/result
+                let totalAmount = unifiedConfig.totalAmount;
 
                 // Step 1: Get deployment fee from backend
                 Debug.print("📊 Fetching deployment fee from backend...");
@@ -1051,7 +1000,7 @@ module {
                 };
 
                 // Step 3: Call Backend (handles payment, validation, audit, then deploys)
-                Debug.print("🚀 Calling Backend to deploy distribution...");
+                Debug.print("🚀 Calling Backend to deploy distribution (V2 Structure)...");
 
                 let result = await backend.deployDistribution(
                     distributionConfig,
@@ -1152,24 +1101,9 @@ module {
         ) : DistributionFactoryTypes.DistributionConfig {
 
             // Backend now supports multiCategoryRecipients directly
-            // Convert to single recipients for backward compatibility (sum all categories)
-            let backendRecipients = Array.map<DistributionTypes.MultiCategoryRecipient, DistributionTypes.Recipient>(
-                unifiedConfig.multiCategoryRecipients,
-                func(multiRecipient) {
-                    // Sum all category allocations for this recipient
-                    let totalAmount = Array.foldLeft<DistributionTypes.CategoryAllocation, Nat>(
-                        multiRecipient.categories,
-                        0,
-                        func(acc, allocation) { acc + allocation.amount }
-                    );
-
-                    {
-                        address = multiRecipient.address;
-                        amount = totalAmount;
-                        note = ?("Unified: " # Nat.toText(multiRecipient.categories.size()) # " categories");
-                    }
-                }
-            );
+            // We can safely pass empty recipients list for V2 distributions
+            // This saves significant bandwidth and storage
+            let backendRecipients : [DistributionTypes.Recipient] = [];
 
             // Get representative vesting schedule (use #Instant as default)
             // In reality, each category has its own vesting in multiCategoryRecipients

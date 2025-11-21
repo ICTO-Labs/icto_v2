@@ -169,6 +169,11 @@ module DistributionFactoryService {
         Array.map<DistributionFactoryTypes.Recipient, Principal>(recipients, func(r) = r.address)
     };
 
+    // Extract all unique principals from multiCategoryRecipients
+    public func extractPrincipalsFromMultiCategory(multiRecipients: [DistributionFactoryTypes.MultiCategoryRecipient]) : [Principal] {
+        Array.map<DistributionFactoryTypes.MultiCategoryRecipient, Principal>(multiRecipients, func(r) = r.address)
+    };
+
     // --- LAUNCHPAD BATCH CREATION ---
 
     public func prepareBatchDeployment(

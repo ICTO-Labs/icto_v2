@@ -1,8 +1,8 @@
 # Distribution Factory - Module Overview
 
 **Status:** ✅ Completed
-**Version:** 1.0.0
-**Last Updated:** 2025-10-06
+**Version:** 2.0.0
+**Last Updated:** 2025-11-21
 
 ---
 
@@ -23,6 +23,11 @@ The Distribution Factory system manages token distribution campaigns on the Inte
 
 ### Key Features
 
+- ✅ **V2 Multi-Category Distribution System**
+  - Unified contracts with multiple independent categories
+  - Per-category vesting schedules and claiming
+  - Automatic V1 to V2 conversion (backward compatible)
+  - One contract per token, multiple categories per wallet
 - ✅ **Multiple distribution types** (Airdrop, Vesting, Lock)
 - ✅ **Whitelist management** for recipient eligibility
 - ✅ **Vesting schedules** with cliff and linear unlock
@@ -31,6 +36,7 @@ The Distribution Factory system manages token distribution campaigns on the Inte
 - ✅ **Real-time state sync** through callbacks
 - ✅ **Version management** with safe upgrades
 - ✅ **Public/private visibility** control
+- ✅ **V1/V2 Recipient Indexing** for both legacy and multi-category distributions
 
 ---
 
@@ -402,6 +408,54 @@ if (not isWhitelisted(caller)) {
 
 ---
 
+## V2 Multi-Category System
+
+### Overview
+
+Distribution Factory V2 introduces **multi-category distributions** where one wallet can have multiple independent allocations with different vesting schedules. This is fully backward compatible with V1 single-category distributions.
+
+**Key Improvements:**
+1. **Unified Storage:** All distributions use `MultiCategoryParticipant` internally
+2. **Automatic Conversion:** V1 configs auto-convert to default category
+3. **Independent Tracking:** Each category tracks vesting/claiming separately
+4. **Flexible Claiming:** Claim from specific categories or all at once
+
+### Indexing Fixes (2025-11-21)
+
+**Problem:** Distribution Factory was only indexing V1 recipients, causing `recipientIndex` to be empty for V2 distributions.
+
+**Solution:** Updated `createDistribution` to index both V1 and V2 recipients:
+
+```motoko
+// V2: Index from multiCategoryRecipients first
+switch (args.config.multiCategoryRecipients) {
+    case (?multiRecipients) {
+        for (recipient in multiRecipients.vals()) {
+            recipientIndex := _addToUserIndex(recipientIndex, recipient.address, canisterId);
+        };
+    };
+    case null {
+        // V1: Fallback to recipients field
+        for (recipient in args.config.recipients.vals()) {
+            recipientIndex := _addToUserIndex(recipientIndex, recipient.address, canisterId);
+        };
+    };
+};
+```
+
+**Impact:**
+- `getMyRecipientDistributions` now returns correct data for both V1 and V2
+- Users can see their distributions on homepage
+- Both legacy and multi-category distributions properly indexed
+
+### Documentation
+
+For detailed V2 architecture, see:
+- [MULTI_CATEGORY_ARCHITECTURE.md](./MULTI_CATEGORY_ARCHITECTURE.md) - Complete V2 architecture
+- [Launchpad Integration](../launchpad_factory/README.md#v2-multi-category-distribution-integration) - Tokenomics mapping
+
+---
+
 ## Quick Start
 
 ### For Developers
@@ -437,6 +491,6 @@ if (not isWhitelisted(caller)) {
 
 ---
 
-**Last Updated:** 2025-10-06
-**Module Version:** 1.0.0
-**Status:** ✅ Completed
+**Last Updated:** 2025-11-21
+**Module Version:** 2.0.0
+**Status:** ✅ Completed - V2 Multi-Category System

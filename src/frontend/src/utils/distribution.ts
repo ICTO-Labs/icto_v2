@@ -174,7 +174,9 @@ export class DistributionUtils {
         // Handle categories as Candid optional (NEW: unified category system)
         if (config.categories && Array.isArray(config.categories)) {
             // Convert frontend CategoryData[] to backend DistributionCategory[]
-            result.categories = [this.convertCategoriesToBackend(config.categories)];
+            // Pass decimals from tokenInfo to ensure correct conversion
+            const decimals = Number(config.tokenInfo.decimals) || 8;
+            result.categories = [this.convertCategoriesToBackend(config.categories, decimals)];
         } else {
             result.categories = [];
         }
@@ -198,7 +200,7 @@ export class DistributionUtils {
     /**
      * Convert frontend CategoryData array to backend DistributionCategory array
      */
-    public static convertCategoriesToBackend(categories: CategoryData[]): DistributionCategoryMotoko[] {
+    public static convertCategoriesToBackend(categories: CategoryData[], decimals: number = 8): DistributionCategoryMotoko[] {
         return categories.map((category, index) => {
             // Convert vesting schedule
             const vestingSchedule = this.convertVestingSchedule(category.vestingSchedule);
@@ -239,7 +241,23 @@ export class DistributionUtils {
             const categoryId = Number(category.id);
             const passportScore = Number(category.passportScore || 0);
             const maxRecipients = category.maxRecipients ? Number(category.maxRecipients) : null;
-            const amountPerRecipient = category.amountPerRecipient ? Number(category.amountPerRecipient) : null;
+
+            // Convert amount per recipient to smallest unit (based on decimals) if it exists
+            let amountPerRecipientBigInt: bigint | null = null;
+            if (category.amountPerRecipient !== undefined && category.amountPerRecipient !== null) {
+                const amount = Number(category.amountPerRecipient);
+                if (!isNaN(amount)) {
+                    // Use the provided decimals for conversion
+                    // We can't use formatTokenAmount here easily without importing it, 
+                    // so we do the math manually or we could import it.
+                    // Let's do manual calculation to avoid circular deps if any, 
+                    // but ideally we should use a helper. 
+                    // Since we are in utils, let's try to be safe.
+                    // 10^decimals
+                    const multiplier = Math.pow(10, decimals);
+                    amountPerRecipientBigInt = BigInt(Math.floor(amount * multiplier));
+                }
+            }
 
             return {
                 id: BigInt(isNaN(categoryId) ? index + 1 : categoryId), // Use index + 1 as fallback
@@ -252,7 +270,7 @@ export class DistributionUtils {
                 defaultPassportScore: BigInt(isNaN(passportScore) ? 0 : passportScore),
                 defaultPassportProvider: category.passportProvider || 'ICTO',
                 maxParticipants: maxRecipients !== null && !isNaN(maxRecipients) ? [BigInt(maxRecipients)] : [],
-                allocationPerUser: amountPerRecipient !== null && !isNaN(amountPerRecipient) ? [BigInt(amountPerRecipient)] : []
+                allocationPerUser: amountPerRecipientBigInt !== null ? [amountPerRecipientBigInt] : []
             };
         });
     }
@@ -264,16 +282,16 @@ export class DistributionUtils {
         switch (eligibilityType) {
             case 'Open':
                 return { Open: null };
-            
+
             case 'Whitelist':
                 // For whitelist, we get the addresses from recipients array
                 const recipients = this.buildRecipientsArray(config);
                 const whitelistAddresses = recipients.map(r => r.address);
                 return { Whitelist: whitelistAddresses };
-            
+
             case 'TokenHolder':
                 const tokenConfig = (config as any).tokenHolderConfig;
-                return { 
+                return {
                     TokenHolder: {
                         canisterId: Principal.fromText(tokenConfig?.canisterId || ''),
                         minAmount: BigInt(tokenConfig?.minAmount || 0),
@@ -282,30 +300,30 @@ export class DistributionUtils {
                             : undefined
                     }
                 };
-            
+
             case 'NFTHolder':
                 const nftConfig = (config as any).nftHolderConfig;
-                return { 
+                return {
                     NFTHolder: {
                         canisterId: Principal.fromText(nftConfig?.canisterId || ''),
                         minCount: BigInt(nftConfig?.minCount || 1),
                         collections: nftConfig?.collections?.length ? [nftConfig.collections] : []
                     }
                 };
-            
+
             case 'ICTOPassportScore':
                 const ictoPassportScore = (config as any).ictoPassportScore;
                 return { ICTOPassportScore: BigInt(ictoPassportScore || 0) };
-            
+
             case 'Hybrid':
                 // For now, return simple structure - can be enhanced later
-                return { 
+                return {
                     Hybrid: {
                         conditions: [{ Open: null }], // Default to open condition
                         logic: { AND: null }
                     }
                 };
-            
+
             default:
                 return { Open: null };
         }
@@ -466,7 +484,7 @@ export class DistributionUtils {
                         frequency: this.convertUnlockFrequency(schedule.config.frequency)
                     }
                 };
-            
+
             case 'Single':
                 if (!schedule.config || schedule.config.duration === undefined) {
                     return { Instant: null };
@@ -476,7 +494,7 @@ export class DistributionUtils {
                         duration: BigInt(schedule.config.duration)
                     }
                 };
-            
+
             case 'SteppedCliff':
                 if (!schedule.config || !Array.isArray(schedule.config)) {
                     return { Instant: null };
@@ -500,7 +518,7 @@ export class DistributionUtils {
                         amount: BigInt(event.amount)
                     }))
                 };
-            
+
             default:
                 return { Instant: null };
         }
@@ -550,13 +568,13 @@ export class DistributionUtils {
         switch (feeStructure.type) {
             case 'Free':
                 return { Free: null };
-            
+
             case 'Fixed':
                 return { Fixed: BigInt(feeStructure.amount) };
-            
+
             case 'Percentage':
                 return { Percentage: BigInt(feeStructure.rate) };
-            
+
             case 'Progressive':
                 return {
                     Progressive: feeStructure.tiers.map((tier: any) => ({
@@ -564,13 +582,13 @@ export class DistributionUtils {
                         feeRate: BigInt(tier.feeRate)
                     }))
                 };
-            
+
             case 'RecipientPays':
                 return { RecipientPays: null };
-            
+
             case 'CreatorPays':
                 return { CreatorPays: null };
-            
+
             default:
                 return { Free: null };
         }
@@ -595,132 +613,132 @@ export type DistributionStatus = 'Created' | 'Deployed' | 'Active' | 'Paused' | 
  * Get status color classes for distribution status badge
  */
 export function getDistributionStatusColor(status: string): string {
-  switch (status) {
-    case 'Active':
-      return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-    case 'Paused':
-      return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
-    case 'Completed':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
-    case 'Cancelled':
-      return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
-    case 'Created':
-    case 'Deployed':
-      return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
-    default:
-      return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-  }
+    switch (status) {
+        case 'Active':
+            return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+        case 'Paused':
+            return 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-400'
+        case 'Completed':
+            return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400'
+        case 'Cancelled':
+            return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
+        case 'Created':
+        case 'Deployed':
+            return 'bg-gray-100 text-gray-800 dark:bg-gray-900/30 dark:text-gray-400'
+        default:
+            return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+    }
 }
 
 /**
  * Get status dot color for distribution status indicator
  */
 export function getDistributionStatusDotColor(status: string): string {
-  switch (status) {
-    case 'Active':
-      return 'bg-green-400'
-    case 'Paused':
-      return 'bg-orange-400'
-    case 'Completed':
-      return 'bg-blue-400'
-    case 'Cancelled':
-      return 'bg-red-400'
-    case 'Created':
-    case 'Deployed':
-      return 'bg-gray-400'
-    default:
-      return 'bg-yellow-400'
-  }
+    switch (status) {
+        case 'Active':
+            return 'bg-green-400'
+        case 'Paused':
+            return 'bg-orange-400'
+        case 'Completed':
+            return 'bg-blue-400'
+        case 'Cancelled':
+            return 'bg-red-400'
+        case 'Created':
+        case 'Deployed':
+            return 'bg-gray-400'
+        default:
+            return 'bg-yellow-400'
+    }
 }
 
 /**
  * Get human-readable status text for distribution status
  */
 export function getDistributionStatusText(status: string): string {
-  switch (status) {
-    case 'Created': return 'Created'
-    case 'Deployed': return 'Deployed'
-    case 'Active': return 'Active'
-    case 'Paused': return 'Paused'
-    case 'Completed': return 'Completed'
-    case 'Cancelled': return 'Cancelled'
-    default: return status
-  }
+    switch (status) {
+        case 'Created': return 'Created'
+        case 'Deployed': return 'Deployed'
+        case 'Active': return 'Active'
+        case 'Paused': return 'Paused'
+        case 'Completed': return 'Completed'
+        case 'Cancelled': return 'Cancelled'
+        default: return status
+    }
 }
 
 /**
  * Check if distribution can be activated
  */
 export function canActivateDistribution(status: string, hasEnoughBalance: boolean): boolean {
-  return (status === 'Created' || status === 'Deployed') && hasEnoughBalance
+    return (status === 'Created' || status === 'Deployed') && hasEnoughBalance
 }
 
 /**
  * Check if distribution can be paused
  */
 export function canPauseDistribution(status: string): boolean {
-  return status === 'Active'
+    return status === 'Active'
 }
 
 /**
  * Check if distribution can be resumed
  */
 export function canResumeDistribution(status: string): boolean {
-  return status === 'Paused'
+    return status === 'Paused'
 }
 
 /**
  * Check if distribution can be cancelled
  */
 export function canCancelDistribution(status: string, allowCancel: boolean): boolean {
-  return allowCancel && status !== 'Completed' && status !== 'Cancelled'
+    return allowCancel && status !== 'Completed' && status !== 'Cancelled'
 }
 
 /**
  * Check if distribution can be initialized
  */
 export function canInitializeDistribution(status: string): boolean {
-  return status === 'Created'
+    return status === 'Created'
 }
 
 /**
  * Check if distribution should show insufficient balance alert
  */
 export function shouldShowInsufficientBalanceAlert(status: string, hasInsufficientBalance: boolean): boolean {
-  if (!hasInsufficientBalance) return false
-  return status !== 'Active' && status !== 'Completed' && status !== 'Cancelled'
+    if (!hasInsufficientBalance) return false
+    return status !== 'Active' && status !== 'Completed' && status !== 'Cancelled'
 }
 
 /**
  * Check if distribution is in a final state (completed or cancelled)
  */
 export function isDistributionFinalState(status: string): boolean {
-  return status === 'Completed' || status === 'Cancelled'
+    return status === 'Completed' || status === 'Cancelled'
 }
 
 /**
  * Check if distribution is active or running
  */
 export function isDistributionActive(status: string): boolean {
-  return status === 'Active'
+    return status === 'Active'
 }
 
 /**
  * Get distribution state category for grouping
  */
 export function getDistributionStateCategory(status: string): 'inactive' | 'active' | 'paused' | 'final' {
-  switch (status) {
-    case 'Created':
-    case 'Deployed':
-      return 'inactive'
-    case 'Active':
-      return 'active'
-    case 'Paused':
-      return 'paused'
-    case 'Completed':
-    case 'Cancelled':
-      return 'final'
-    default:
-      return 'inactive'
-  }
+    switch (status) {
+        case 'Created':
+        case 'Deployed':
+            return 'inactive'
+        case 'Active':
+            return 'active'
+        case 'Paused':
+            return 'paused'
+        case 'Completed':
+        case 'Cancelled':
+            return 'final'
+        default:
+            return 'inactive'
+    }
 }
