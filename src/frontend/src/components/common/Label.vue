@@ -28,7 +28,7 @@ const variantClasses: Record<string, string> = {
 </script>
 
 <template>
-    <div class="inline-flex px-2 py-0.5 rounded-full text-theme-xs font-medium " :class="[variantClasses[variant], props.class, props.size]">
+    <div class="inline-flex px-2 py-1 rounded-full text-theme-xs font-medium " :class="[variantClasses[variant], props.class, props.size]">
         <slot v-if="!props.value" />
         <span v-else>{{ props.value }}</span>
     </div>

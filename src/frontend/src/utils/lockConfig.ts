@@ -106,6 +106,7 @@ function convertFromNanoseconds(nanoseconds: number): { duration: number; unit: 
  * Get campaign type label with styling
  */
 export function getCampaignTypeLabel(campaignType: string): { label: string; className: string; bgClass: string } {
+  console.log('campaignType', campaignType)
   switch (campaignType.toLowerCase()) {
     case 'airdrop':
       return {
@@ -124,6 +125,12 @@ export function getCampaignTypeLabel(campaignType: string): { label: string; cla
         label: 'Token Lock',
         className: 'text-purple-700 dark:text-purple-300',
         bgClass: 'bg-purple-100 dark:bg-purple-900/30 border-purple-200 dark:border-purple-700'
+      }
+    case 'launchpaddistribution':
+      return {
+        label: 'Launchpad',
+        className: 'text-yellow-700 dark:text-yellow-300',
+        bgClass: 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-700'
       }
     default:
       return {

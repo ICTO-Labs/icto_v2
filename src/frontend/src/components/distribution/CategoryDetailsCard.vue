@@ -1,9 +1,7 @@
 <template>
   <div class="category-details-card">
-    <!-- Category Header - Clickable to expand/collapse -->
-    <div @click="toggleExpand"
-      class="category-header px-5 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-lg cursor-pointer hover:shadow-md transition-all duration-200"
-      :class="{ 'rounded-b-none': isExpanded }">
+    <!-- Category Header (Simplified - No Accordion) -->
+    <div class="category-header px-5 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-800 rounded-t-lg">
       <div class="flex items-center justify-between">
         <!-- Left: Category Info -->
         <div class="flex items-center gap-4 flex-1">
@@ -14,7 +12,7 @@
             </div>
             <div>
               <div class="flex items-center gap-2">
-                <h3 class="text-lg font-bold text-gray-900 dark:text-white">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
                   {{ category.name }}
                 </h3>
                 <!-- Passport Badge (inline with category name) -->
@@ -25,138 +23,107 @@
                     {{ category.passportProvider || 'ICTO' }} ≥ {{ category.passportScore }}
                   </span>
                 </div>
+				
               </div>
-              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                Category ID: {{ category.categoryId }} •
-                {{ category.mode === 'Open' ? 'Open Registration' : 'Predefined Recipients' }}
+			  <!-- Category Description -->
+			  <p class="text-xs text-gray-500 dark:text-gray-400 mt-1" v-if="category.description">
+				{{ category.description }}
+			  </p>
+             
+            </div>
+			
+          </div>
+        </div>
+		<div class="text-xs mt-1 bg-blue-50 dark:bg-blue-900/10 rounded-lg p-2 justify-end ml-auto">
+			{{ category.mode === 'Open' ? 'Open Registration' : 'Predefined Recipients' }}
+		</div>
+      </div>
+    </div>
+
+    <!-- Category Content (Always Visible) -->
+    <div class="category-content px-5 py-4 bg-white dark:bg-gray-800 border-x border-b border-blue-200 dark:border-blue-800 rounded-b-lg">
+      <!-- Compact Metric Cards (NEW COMPONENT) -->
+      <div class="mb-6">
+        <CategoryMetricCards
+          :vesting-schedule="category.vestingSchedule"
+          :vesting-start="category.vestingStart"
+          :max-participants="category.maxParticipants"
+          :allocation-per-user="category.allocationPerUser"
+          :total-allocation="category.totalAllocation"
+          :claimed-amount="totalClaimed"
+          :token-symbol="tokenSymbol"
+          :token-decimals="tokenDecimals"
+        />
+      </div>
+
+      <!-- User Actions Section (if authenticated) -->
+      <div v-if="userStatus && isAuthenticated" class="mb-6 p-4 rounded-lg border"
+        :class="getUserStatusBgClass(userStatus.status)">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <component :is="getStatusIcon(userStatus.status)" class="h-5 w-5"
+              :class="getStatusIconColor(userStatus.status)" />
+            <div>
+              <p class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ getStatusLabel(userStatus.status) }}
+              </p>
+              <p class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+                {{ getStatusDescription(userStatus.status) }}
               </p>
             </div>
           </div>
 
-          <!-- Quick Stats -->
-          <div class="hidden md:flex items-center gap-6 ml-auto mr-4">
-            <!-- Total Allocation -->
-            <div class="text-center">
-              <p class="text-xs text-gray-500 dark:text-gray-400">Total Allocation</p>
-              <p class="text-sm font-bold text-gray-900 dark:text-white">
-                {{ formatTokenAmount(category.totalAllocation) }} {{ tokenSymbol }}
-              </p>
+          <!-- Action Buttons -->
+          <div class="flex items-center gap-2">
+            <!-- Register Button -->
+            <button v-if="userStatus.status === 'ELIGIBLE'" @click="emit('register', category.categoryId)"
+              :disabled="processing"
+              class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
+              <UserPlusIcon class="w-4 h-4 mr-2" />
+              Register
+            </button>
+
+            <!-- Claim Button -->
+            <button v-if="userStatus.status === 'CLAIMABLE' && userStatus.claimableAmount > 0"
+              @click="emit('claim', category.categoryId, userStatus.claimableAmount)" :disabled="processing"
+              class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
+              <CoinsIcon class="w-4 h-4 mr-2" />
+              Claim {{ formatTokenAmount(userStatus.claimableAmount) }} {{ tokenSymbol }}
+            </button>
+
+            <!-- Status Info (for non-actionable states) -->
+            <div v-if="userStatus.status === 'LOCKED'"
+              class="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
+              <ClockIcon class="w-4 h-4" />
+              <span>Next unlock: {{ getNextUnlockTime(category.vestingSchedule, category.vestingStart) }}</span>
             </div>
 
-            <!-- Participants Count -->
-            <div class="text-center">
-              <p class="text-xs text-gray-500 dark:text-gray-400">Participants</p>
-              <p class="text-sm font-bold text-gray-900 dark:text-white">
-                {{ participants.length }}
-                <span v-if="category.maxParticipants" class="text-gray-500">
-                  / {{ category.maxParticipants }}
-                </span>
-              </p>
+            <div v-if="userStatus.status === 'CLAIMED'"
+              class="text-sm text-green-600 dark:text-green-400 flex items-center gap-2">
+              <CheckCircle2Icon class="w-4 h-4" />
+              <span>Fully claimed</span>
             </div>
 
-            <!-- Claimed Percentage -->
-            <div class="text-center">
-              <p class="text-xs text-gray-500 dark:text-gray-400">Claimed</p>
-              <p class="text-sm font-bold text-green-600 dark:text-green-400">
-                {{ claimedPercentage.toFixed(1) }}%
-              </p>
+            <div v-if="userStatus.status === 'NOT_ELIGIBLE'" class="text-sm text-gray-500 dark:text-gray-400">
+              Required Passport Score: {{ category.passportScore }}
             </div>
           </div>
         </div>
 
-        <!-- Right: Expand/Collapse Icon -->
-        <ChevronDownIcon class="h-5 w-5 text-gray-600 dark:text-gray-400 transition-transform duration-200"
-          :class="{ 'rotate-180': isExpanded }" />
+        <!-- Progress Bar (if registered) -->
+        <div v-if="userStatus.isRegistered && userStatus.eligibleAmount > 0" class="mt-3">
+          <div class="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+            <span>Your Progress</span>
+            <span>{{ formatTokenAmount(userStatus.claimedAmount) }} / {{
+              formatTokenAmount(userStatus.eligibleAmount) }} {{ tokenSymbol }}</span>
+          </div>
+          <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div class="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-500"
+              :style="{ width: getClaimProgressPercentage(userStatus.claimedAmount, userStatus.eligibleAmount) + '%' }">
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-
-    <!-- Expandable Content -->
-    <Transition enter-active-class="transition-all duration-300 ease-out" enter-from-class="max-h-0 opacity-0"
-      enter-to-class="max-h-[2000px] opacity-100" leave-active-class="transition-all duration-300 ease-in"
-      leave-from-class="max-h-[2000px] opacity-100" leave-to-class="max-h-0 opacity-0">
-      <div v-show="isExpanded" class="category-content overflow-hidden">
-        <div
-          class="px-5 py-4 bg-white dark:bg-gray-800 border-x border-b border-blue-200 dark:border-blue-800 rounded-b-lg">
-          <!-- Category Description -->
-          <div v-if="category.description" class="mb-4 p-3 bg-blue-50 dark:bg-blue-900/10 rounded-lg">
-            <p class="text-sm text-gray-700 dark:text-gray-300">
-              {{ category.description }}
-            </p>
-          </div>
-
-          <!-- Compact Configuration -->
-          <div class="mb-6 space-y-3">
-            <!-- Row 1: Vesting + Max Participants (2 columns) -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <!-- Vesting Schedule -->
-              <div
-                class="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-purple-50 to-purple-100/50 dark:from-purple-900/20 dark:to-purple-900/10 rounded-lg border border-purple-200 dark:border-purple-800">
-                <ClockIcon class="h-4 w-4 text-purple-600 dark:text-purple-400 flex-shrink-0" />
-                <div class="flex flex-col gap-0.5 text-sm min-w-0">
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-gray-600 dark:text-gray-400 text-xs">Vesting:</span>
-                    <span class="font-semibold text-gray-900 dark:text-white truncate">{{
-                      getVestingType(category.vestingSchedule) }}</span>
-                  </div>
-                  <div class="flex items-center gap-1.5 text-xs">
-                    <span class="text-gray-500 dark:text-gray-500">Start:</span>
-                    <span class="font-medium text-gray-700 dark:text-gray-300">{{ formatDate(category.vestingStart)
-                      }}</span>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Max Participants -->
-              <div
-                class="flex items-center gap-3 px-4 py-2.5 bg-gradient-to-r from-green-50 to-green-100/50 dark:from-green-900/20 dark:to-green-900/10 rounded-lg border border-green-200 dark:border-green-800">
-                <UsersIcon class="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-                <div class="flex flex-col gap-0.5 text-sm min-w-0">
-                  <div class="flex items-center gap-1.5">
-                    <span class="text-gray-600 dark:text-gray-400 text-xs">Max Participants:</span>
-                    <span class="font-semibold text-gray-900 dark:text-white">{{ category.maxParticipants || 'Unlimited'
-                      }}</span>
-                  </div>
-                  <div class="flex items-center gap-1.5 text-xs">
-                    <span class="text-gray-500 dark:text-gray-500">Per User:</span>
-                    <span class="font-medium text-gray-700 dark:text-gray-300 truncate">
-                      {{ category.allocationPerUser ? formatTokenAmount(category.allocationPerUser) + ' ' + tokenSymbol
-                      : 'Variable' }}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-
-            <!-- Row 2: Progress (full width) -->
-            <div
-              class="px-4 py-3 bg-gradient-to-r from-blue-50 to-blue-100/50 dark:from-blue-900/20 dark:to-blue-900/10 rounded-lg border border-blue-200 dark:border-blue-800">
-              <div class="flex items-center justify-between mb-2">
-                <div class="flex items-center gap-2">
-                  <TrendingUpIcon class="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  <span class="text-sm font-semibold text-gray-900 dark:text-white">Distribution Progress</span>
-                </div>
-                <div class="flex items-center gap-3 text-sm">
-                  <div>
-                    <span class="text-gray-600 dark:text-gray-400">Claimed: </span>
-                    <span class="font-bold text-green-600 dark:text-green-400">{{ formatTokenAmount(totalClaimed) }} {{
-                      tokenSymbol }}</span>
-                  </div>
-                  <div class="h-4 w-px bg-blue-300 dark:bg-blue-700"></div>
-                  <div>
-                    <span class="text-gray-600 dark:text-gray-400">Remaining: </span>
-                    <span class="font-medium text-gray-900 dark:text-white">{{
-                      formatTokenAmount(Number(category.totalAllocation) - totalClaimed) }} {{ tokenSymbol }}</span>
-                  </div>
-                </div>
-              </div>
-              <!-- Progress Bar -->
-              <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div class="bg-gradient-to-r from-green-500 to-green-600 h-2 rounded-full transition-all duration-500"
-                  :style="{ width: claimedPercentage + '%' }"></div>
-              </div>
-            </div>
-          </div>
 
           <!-- Tab Navigation -->
           <div class="mb-6">
@@ -239,11 +206,11 @@
                       <td class="px-4 py-3">
                         <div class="flex items-center gap-2">
                           <div
-                            class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-xs font-bold">
+                            class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-orange-500 flex items-center justify-center text-white text-xs font-semibold">
                             {{ getInitials(participant.principal) }}
                           </div>
                           <div>
-                            <p class="text-sm font-medium text-gray-900 dark:text-white font-mono">
+                            <p class="text-xs font-semibold text-gray-900 dark:text-white">
                               {{ shortPrincipal(participant.principal) }}
                             </p>
                           </div>
@@ -292,74 +259,7 @@
             </div>
           </div>
 
-          <!-- User Actions Section (if authenticated) -->
-          <div v-if="userStatus && isAuthenticated" class="mb-6 p-4 rounded-lg border"
-            :class="getUserStatusBgClass(userStatus.status)">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-3">
-                <component :is="getStatusIcon(userStatus.status)" class="h-5 w-5"
-                  :class="getStatusIconColor(userStatus.status)" />
-                <div>
-                  <p class="text-sm font-semibold text-gray-900 dark:text-white">
-                    {{ getStatusLabel(userStatus.status) }}
-                  </p>
-                  <p class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-                    {{ getStatusDescription(userStatus.status) }}
-                  </p>
-                </div>
-              </div>
 
-              <!-- Action Buttons -->
-              <div class="flex items-center gap-2">
-                <!-- Register Button -->
-                <button v-if="userStatus.status === 'ELIGIBLE'" @click="emit('register', category.categoryId)"
-                  :disabled="processing"
-                  class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
-                  <UserPlusIcon class="w-4 h-4 mr-2" />
-                  Register
-                </button>
-
-                <!-- Claim Button -->
-                <button v-if="userStatus.status === 'CLAIMABLE' && userStatus.claimableAmount > 0"
-                  @click="emit('claim', category.categoryId, userStatus.claimableAmount)" :disabled="processing"
-                  class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium">
-                  <CoinsIcon class="w-4 h-4 mr-2" />
-                  Claim {{ formatTokenAmount(userStatus.claimableAmount) }} {{ tokenSymbol }}
-                </button>
-
-                <!-- Status Info (for non-actionable states) -->
-                <div v-if="userStatus.status === 'LOCKED'"
-                  class="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-2">
-                  <ClockIcon class="w-4 h-4" />
-                  <span>Next unlock: {{ getNextUnlockTime(category.vestingSchedule, category.vestingStart) }}</span>
-                </div>
-
-                <div v-if="userStatus.status === 'CLAIMED'"
-                  class="text-sm text-green-600 dark:text-green-400 flex items-center gap-2">
-                  <CheckCircle2Icon class="w-4 h-4" />
-                  <span>Fully claimed</span>
-                </div>
-
-                <div v-if="userStatus.status === 'NOT_ELIGIBLE'" class="text-sm text-gray-500 dark:text-gray-400">
-                  Required Passport Score: {{ category.passportScore }}
-                </div>
-              </div>
-            </div>
-
-            <!-- Progress Bar (if registered) -->
-            <div v-if="userStatus.isRegistered && userStatus.eligibleAmount > 0" class="mt-3">
-              <div class="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
-                <span>Your Progress</span>
-                <span>{{ formatTokenAmount(userStatus.claimedAmount) }} / {{
-                  formatTokenAmount(userStatus.eligibleAmount) }} {{ tokenSymbol }}</span>
-              </div>
-              <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                <div class="bg-gradient-to-r from-blue-500 to-green-500 h-2 rounded-full transition-all duration-500"
-                  :style="{ width: getClaimProgressPercentage(userStatus.claimedAmount, userStatus.eligibleAmount) + '%' }">
-                </div>
-              </div>
-            </div>
-          </div>
 
           <!-- Transactions Tab -->
           <div v-if="activeTab === 'transactions'">
@@ -448,8 +348,6 @@
           </div>
         </div>
       </div>
-    </Transition>
-  </div>
 </template>
 
 <script setup lang="ts">
@@ -472,6 +370,7 @@ import {
   CircleIcon
 } from 'lucide-vue-next'
 import { shortPrincipal } from '@/utils/common'
+import CategoryMetricCards from '@/components/distribution/CategoryMetricCards.vue'
 
 // Types for user status
 type CategoryUserStatus = 'NOT_ELIGIBLE' | 'ELIGIBLE' | 'REGISTERED' | 'CLAIMABLE' | 'CLAIMED' | 'LOCKED'
@@ -589,6 +488,92 @@ const displayedParticipants = computed(() => {
   }
   return props.participants.slice(0, 5)
 })
+
+// Computed: Calculate user status for this category
+const computedUserStatus = computed<UserCategoryStatus | null>(() => {
+  if (!props.isAuthenticated) {
+    return null
+  }
+
+  // Get current user principal from userStatus prop if available
+  const userPrincipal = props.userStatus?.eligibleAmount !== undefined 
+    ? null // We'll use the prop if it has data
+    : null
+
+  // If userStatus prop is provided and has valid data, use it
+  if (props.userStatus && props.userStatus.status) {
+    return props.userStatus
+  }
+
+  // Otherwise, calculate from category participants data
+  // This is a fallback calculation
+  const currentUserPrincipal = window.ic?.plug?.principalId || window.ic?.infinityWallet?.principalId
+  if (!currentUserPrincipal) {
+    return null
+  }
+
+  const userParticipant = props.participants.find(
+    p => p.principal?.toString() === currentUserPrincipal?.toString()
+  )
+
+  if (!userParticipant) {
+    // User not registered - check if eligible
+    const mode = props.category.mode
+    const isOpen = mode === 'Open' || (mode && typeof mode === 'object' && 'Open' in mode)
+
+    if (isOpen) {
+      // For Open categories, assume eligible (passport check would need userContext)
+      return {
+        status: 'ELIGIBLE',
+        canRegister: true,
+        canClaim: false,
+        claimableAmount: BigInt(0),
+        eligibleAmount: BigInt(0),
+        claimedAmount: BigInt(0),
+        isRegistered: false
+      }
+    } else {
+      return {
+        status: 'NOT_ELIGIBLE',
+        canRegister: false,
+        canClaim: false,
+        claimableAmount: BigInt(0),
+        eligibleAmount: BigInt(0),
+        claimedAmount: BigInt(0),
+        isRegistered: false
+      }
+    }
+  }
+
+  // User is registered
+  const eligibleAmount = BigInt(userParticipant.allocation || 0)
+  const claimedAmount = BigInt(userParticipant.claimed || 0)
+  const claimableAmount = eligibleAmount > claimedAmount ? eligibleAmount - claimedAmount : BigInt(0)
+
+  // Determine status
+  let status: CategoryUserStatus = 'REGISTERED'
+  
+  if (eligibleAmount > 0 && claimedAmount >= eligibleAmount) {
+    status = 'CLAIMED'
+  } else if (claimableAmount > 0) {
+    status = 'CLAIMABLE'
+  } else if (eligibleAmount > claimedAmount) {
+    status = 'LOCKED'
+  }
+
+  return {
+    status,
+    canRegister: false,
+    canClaim: status === 'CLAIMABLE',
+    claimableAmount,
+    eligibleAmount,
+    claimedAmount,
+    isRegistered: true
+  }
+})
+
+// Use computed status or fallback to prop
+const userStatus = computed(() => computedUserStatus.value || props.userStatus)
 
 // Format token amount
 const formatTokenAmount = (amount: number | bigint): string => {

@@ -10,60 +10,43 @@
       <div>
         <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Project Information</h4>
         <div class="space-y-2">
-          <div class="flex justify-between">
+          <div v-if="projectMetadata?.name" class="flex justify-between">
             <span class="text-sm text-gray-500 dark:text-gray-400">Project Name:</span>
             <span class="text-sm font-medium text-gray-900 dark:text-white">{{ projectMetadata.name }}</span>
           </div>
-          <div class="flex justify-between">
+          <div v-if="projectMetadata?.symbol" class="flex justify-between">
             <span class="text-sm text-gray-500 dark:text-gray-400">Project Symbol:</span>
             <span class="text-sm font-medium text-gray-900 dark:text-white">{{ projectMetadata.symbol }}</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-sm text-gray-500 dark:text-gray-400">Total Supply:</span>
-            <span class="text-sm font-medium text-gray-900 dark:text-white">
-              {{ formatNumber(projectMetadata.totalSupply) }}
+            <span class="text-sm text-gray-500 dark:text-gray-400">Token Canister Id:</span>
+            <span class="text-sm font-medium text-gray-900 dark:text-white flex">
+              <span>{{ tokenInfo?.canisterId }}</span> <CopyIcon class="h-3.5 w-3.5 ml-1" :data="tokenInfo?.canisterId?tokenInfo?.canisterId.toString():''" />
             </span>
           </div>
         </div>
       </div>
 
-      <div>
-        <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Distribution Category</h4>
-        <div class="space-y-2">
-          <div class="flex justify-between">
-            <span class="text-sm text-gray-500 dark:text-gray-400">Category:</span>
-            <span class="text-sm font-medium text-blue-600 dark:text-blue-400">{{ category.name }}</span>
+      
+    <!-- Launchpad Connection Details -->
+    <div class="">
+      <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">Launchpad Connection</h4>
+      <div class="mt-1">
+        <div class="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg">
+          <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Launchpad ID</div>
+          <div class="text-sm font-mono text-gray-900 dark:text-white break-all flex">
+            <span>{{ launchpadId }}</span> <CopyIcon class="h-3.5 w-3.5 ml-1" :data="launchpadId?launchpadId.toString():''" />
           </div>
-          <div v-if="category.description" class="flex justify-between">
-            <span class="text-sm text-gray-500 dark:text-gray-400">Description:</span>
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ category.description }}</span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-sm text-gray-500 dark:text-gray-400">Category ID:</span>
-            <span class="text-sm font-mono text-gray-600 dark:text-gray-400">{{ category.id }}</span>
+          <div class="text-xs text-gray-500 dark:text-gray-400 mb-1 mt-2">Batch ID</div>
+          <div class="text-sm font-mono text-gray-900 dark:text-white break-all flex">
+            <span>{{ batchId.length > 0 ? batchId[0] : 'N/A' }}</span> <CopyIcon class="h-3.5 w-3.5 ml-1" :data="batchId.length > 0 ? batchId[0] : 'N/A'" />
           </div>
         </div>
+        
       </div>
+    </div>
     </div>
 
-    <!-- Launchpad Connection Details -->
-    <div class="border-t border-gray-200 dark:border-gray-600 pt-4">
-      <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Launchpad Connection</h4>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-          <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Launchpad ID</div>
-          <div class="text-sm font-mono text-gray-900 dark:text-white break-all">
-            {{ formatPrincipal(launchpadId) }}
-          </div>
-        </div>
-        <div v-if="batchId" class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg">
-          <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">Batch ID</div>
-          <div class="text-sm font-mono text-gray-900 dark:text-white break-all">
-            {{ batchId }}
-          </div>
-        </div>
-      </div>
-    </div>
 
     <!-- Related Distributions (if part of a batch) -->
     <div v-if="relatedDistributions.length > 0" class="border-t border-gray-200 dark:border-gray-600 pt-4 mt-4">
@@ -102,10 +85,15 @@
           <RocketIcon class="h-4 w-4 mr-1" />
           View Launchpad
         </button>
-        <button v-if="batchId" @click="$emit('viewBatch')"
+        <!-- <button v-if="batchId" @click="$emit('viewBatch')"
           class="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-600 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
           <LayersIcon class="h-4 w-4 mr-1" />
           View Batch
+        </button> -->
+        <button v-if="tokenInfo" @click="$emit('viewToken', tokenInfo.canisterId)"
+          class="inline-flex items-center px-3 py-2 text-sm font-medium text-success-600 bg-success-50 dark:bg-success-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+          <CoinsIcon class="h-4 w-4 mr-1" />
+          View Token
         </button>
       </div>
     </div>
@@ -114,8 +102,8 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { RocketIcon, LayersIcon } from 'lucide-vue-next'
-import type { DistributionCampaign } from '@/types/distribution'
+import { RocketIcon, LayersIcon, CoinsIcon } from 'lucide-vue-next'
+import CopyIcon from '@/icons/CopyIcon.vue'
 
 interface LaunchpadContext {
   launchpadId: string
@@ -133,6 +121,10 @@ interface LaunchpadContext {
   batchId?: string
 }
 
+interface TokenInfo {
+  canisterId: string
+}
+
 interface RelatedDistribution {
   id: string
   category: string
@@ -142,12 +134,14 @@ interface RelatedDistribution {
 interface Props {
   launchpadContext: LaunchpadContext
   relatedDistributions?: RelatedDistribution[]
+  tokenInfo?: TokenInfo
 }
 
 interface Emits {
   (e: 'viewLaunchpad'): void
   (e: 'viewBatch'): void
   (e: 'viewDistribution', id: string): void
+  (e: 'viewToken', canisterId: string): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -157,13 +151,12 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>()
 
 const launchpadId = computed(() => props.launchpadContext.launchpadId)
-const category = computed(() => props.launchpadContext.category)
 const projectMetadata = computed(() => props.launchpadContext.projectMetadata)
 const batchId = computed(() => props.launchpadContext.batchId)
+const tokenInfo = computed(() => props.tokenInfo)
 
-const formatPrincipal = (principal: string): string => {
-  if (principal.length <= 20) return principal
-  return `${principal.slice(0, 8)}...${principal.slice(-8)}`
+const viewToken = () => {
+  router.push({ name: 'token', params: { canisterId: tokenInfo.value?.canisterId } })
 }
 
 const formatNumber = (n: number): string => {

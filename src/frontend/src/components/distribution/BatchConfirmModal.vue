@@ -1,6 +1,6 @@
 <template>
   <TransitionRoot :show="isOpen" as="template">
-    <Dialog as="div" class="relative z-50" @close="$emit('close')">
+    <Dialog as="div" class="relative z-50" @close="handleClose">
       <TransitionChild
         as="template"
         enter="ease-out duration-300"
@@ -10,7 +10,7 @@
         leave-from="opacity-100"
         leave-to="opacity-0"
       >
-        <div class="fixed inset-0 bg-black bg-opacity-30 backdrop-blur-sm" />
+        <div class="fixed inset-0 bg-black/60 bg-opacity-10 " />
       </TransitionChild>
 
       <div class="fixed inset-0 overflow-y-auto">
@@ -52,8 +52,9 @@
                   </div>
                 </div>
                 <button
-                  @click="$emit('close')"
-                  class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                  @click="handleClose"
+                  :disabled="loading"
+                  class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors disabled:opacity-50"
                 >
                   <XIcon class="w-5 h-5" />
                 </button>
@@ -62,11 +63,27 @@
               <!-- Categories List -->
               <div class="mb-6">
                 <div class="flex items-center justify-between mb-3">
-                  <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                    {{ operationType === 'register' ? 'Eligible Categories' : 'Claimable Categories' }}
-                  </h3>
+                  <div class="flex items-center gap-2 cursor-pointer" @click="!loading && toggleSelectAll()">
+                    <button
+                      @click.stop="toggleSelectAll"
+                      :disabled="loading"
+                      class="transition-colors duration-200 disabled:opacity-50 hover:scale-110 transform"
+                    >
+                      <CheckSquare2 
+                        v-if="areAllSelected" 
+                        class="w-5 h-5 text-green-600 dark:text-green-400" 
+                      />
+                      <Square 
+                        v-else 
+                        class="w-5 h-5 text-gray-400 dark:text-gray-500" 
+                      />
+                    </button>
+                    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      {{ operationType === 'register' ? 'Eligible Categories' : 'Claimable Categories' }}
+                    </h3>
+                  </div>
                   <span class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ categories.length }} {{ categories.length === 1 ? 'category' : 'categories' }}
+                    {{ selectedIds.length }} selected / {{ categories.length }} total
                   </span>
                 </div>
 
@@ -74,9 +91,27 @@
                   <div
                     v-for="category in categories"
                     :key="category.categoryId"
-                    class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-gray-200 dark:border-gray-700"
+                    class="flex items-center justify-between p-3 rounded-lg border transition-colors cursor-pointer"
+                    :class="selectedIds.includes(category.categoryId) 
+                      ? 'bg-success-50 dark:bg-success-900/20 border-success-200 dark:border-success-800' 
+                      : 'bg-gray-50 dark:bg-gray-900/50 border-gray-200 dark:border-gray-700'"
+                    @click="!loading && toggleSelection(category.categoryId)"
                   >
                     <div class="flex items-center gap-3 flex-1 min-w-0">
+                      <button
+                        @click.stop="toggleSelection(category.categoryId)"
+                        :disabled="loading"
+                        class="transition-all duration-200 disabled:opacity-50 hover:scale-110 transform flex-shrink-0"
+                      >
+                        <CheckSquare2 
+                          v-if="selectedIds.includes(category.categoryId)" 
+                          class="w-5 h-5 text-green-600 dark:text-green-400" 
+                        />
+                        <Square 
+                          v-else 
+                          class="w-5 h-5 text-gray-400 dark:text-gray-500" 
+                        />
+                      </button>
                       <div class="p-2 rounded-lg bg-blue-100 dark:bg-blue-900/30">
                         <FolderIcon class="w-4 h-4 text-blue-600 dark:text-blue-400" />
                       </div>
@@ -86,7 +121,7 @@
                         </p>
                         <p class="text-xs text-gray-500 dark:text-gray-400">
                           <template v-if="operationType === 'claim'">
-                            Claimable: {{ formatAmount(category.claimableAmount) }} {{ tokenSymbol }}
+                            Claimable: {{ formatAmount(category.claimableAmount || BigInt(0)) }} {{ tokenSymbol }}
                           </template>
                           <template v-else>
                             Category #{{ category.categoryId }}
@@ -94,46 +129,64 @@
                         </p>
                       </div>
                     </div>
-
-                    <CheckCircle2Icon class="w-5 h-5 text-green-500 flex-shrink-0" />
                   </div>
                 </div>
               </div>
 
               <!-- Summary -->
-              <div v-if="operationType === 'claim'" class="mb-6 p-4 bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/10 rounded-lg border border-green-200 dark:border-green-800">
+              <div v-if="operationType === 'claim'" class="mb-6 p-4 bg-gradient-to-r from-gray-50 to-gray-50 dark:from-gray-900/20 dark:to-gray-900/10 rounded-lg border border-gray-200 dark:border-gray-800">
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-2">
                     <CoinsIcon class="w-5 h-5 text-green-600 dark:text-green-400" />
-                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Total Claimable</span>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Total Selected Claimable</span>
                   </div>
                   <div class="text-right">
                     <p class="text-lg font-bold text-green-600 dark:text-green-400">
-                      {{ formatAmount(totalClaimable) }} {{ tokenSymbol }}
+                      {{ formatAmount(totalSelectedClaimable) }} {{ tokenSymbol }}
                     </p>
                     <p class="text-xs text-gray-500 dark:text-gray-400">
-                      From {{ categories.length }} {{ categories.length === 1 ? 'category' : 'categories' }}
+                      From {{ selectedIds.length }} {{ selectedIds.length === 1 ? 'category' : 'categories' }}
                     </p>
                   </div>
                 </div>
               </div>
 
               <!-- Warning/Info Box -->
-              <div class="mb-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+              <div class="mb-6 p-4 rounded-lg border"
+                :class="(!canClaim && operationType === 'claim') 
+                  ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' 
+                  : 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800'">
                 <div class="flex items-start gap-3">
-                  <InfoIcon class="w-5 h-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-                  <div class="text-sm text-blue-800 dark:text-blue-200">
-                    <p class="font-medium mb-1">What happens next?</p>
-                    <ul class="list-disc list-inside space-y-1 text-xs">
-                      <li v-if="operationType === 'register'">
-                        You will be registered for all eligible categories
-                      </li>
-                      <li v-else>
-                        Tokens will be transferred to your wallet from all categories
-                      </li>
-                      <li>A detailed result will be shown after the operation completes</li>
-                      <li>Failed operations will be listed separately for review</li>
-                    </ul>
+                  <component 
+                    :is="(!canClaim && operationType === 'claim') ? AlertCircleIcon : InfoIcon" 
+                    class="w-5 h-5 mt-0.5 flex-shrink-0"
+                    :class="(!canClaim && operationType === 'claim') 
+                      ? 'text-amber-600 dark:text-amber-400' 
+                      : 'text-blue-600 dark:text-blue-400'" 
+                  />
+                  <div class="text-sm"
+                    :class="(!canClaim && operationType === 'claim') 
+                      ? 'text-amber-800 dark:text-amber-200' 
+                      : 'text-blue-800 dark:text-blue-200'">
+                    
+                    <template v-if="!canClaim && operationType === 'claim'">
+                      <p class="font-medium mb-1">Claiming Not Started</p>
+                      <p>Distribution has not started yet. Please wait until the start time.</p>
+                      <p v-if="timeUntilStart" class="mt-1 font-mono text-xs">
+                        Starts in: {{ timeUntilStart }}
+                      </p>
+                    </template>
+                    
+                    <template v-else>
+                      <p class="font-normal text-sm">
+                        <template v-if="operationType === 'register'">
+                          You will be registered for {{ selectedIds.length }} selected {{ selectedIds.length === 1 ? 'category' : 'categories' }}.
+                        </template>
+                        <template v-else>
+                          Tokens will be transferred to your wallet from {{ selectedIds.length }} selected {{ selectedIds.length === 1 ? 'category' : 'categories' }}.
+                        </template>
+                      </p>
+                    </template>
                   </div>
                 </div>
               </div>
@@ -141,27 +194,30 @@
               <!-- Actions -->
               <div class="flex items-center gap-3">
                 <button
-                  @click="$emit('close')"
-                  class="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200 font-medium"
+                  @click="handleClose"
+                  :disabled="loading"
+                  class="flex-1 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors duration-200 font-medium disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
-                  @click="$emit('confirm')"
-                  class="flex-1 px-4 py-2.5 rounded-lg transition-colors duration-200 font-medium text-white shadow-sm"
+                  @click="handleConfirm"
+                  :disabled="isConfirmDisabled || loading"
+                  class="flex-1 px-4 py-2.5 rounded-lg transition-colors duration-200 font-medium text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2"
                   :class="operationType === 'register'
                     ? 'bg-blue-600 hover:bg-blue-700'
                     : 'bg-green-600 hover:bg-green-700'"
                 >
-                  <span class="flex items-center justify-center gap-2">
+                  <Loader2Icon v-if="loading" class="w-5 h-5 animate-spin" />
+                  <template v-else>
                     <component
                       :is="operationType === 'register' ? UserPlusIcon : CoinsIcon"
                       class="w-5 h-5"
                     />
                     {{ operationType === 'register'
-                      ? `Register for ${categories.length} ${categories.length === 1 ? 'Category' : 'Categories'}`
-                      : `Claim ${formatAmount(totalClaimable)} ${tokenSymbol}` }}
-                  </span>
+                      ? `Register (${selectedIds.length})`
+                      : `Claim ${formatAmount(totalSelectedClaimable)} ${tokenSymbol}` }}
+                  </template>
                 </button>
               </div>
             </DialogPanel>
@@ -173,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import {
   Dialog,
   DialogPanel,
@@ -187,7 +243,11 @@ import {
   XIcon,
   InfoIcon,
   FolderIcon,
-  CheckCircle2Icon
+  CheckCircle2Icon,
+  AlertCircleIcon,
+  Loader2Icon,
+  CheckSquare2,
+  Square
 } from 'lucide-vue-next'
 
 interface Category {
@@ -202,28 +262,110 @@ interface Props {
   categories: Category[]
   tokenSymbol?: string
   tokenDecimals?: number
+  canClaim?: boolean
+  distributionStart?: Date | string | number | bigint
+  initialSelectedIds?: (string | number)[]
+  loading?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   tokenSymbol: 'TOKEN',
-  tokenDecimals: 8
+  tokenDecimals: 8,
+  canClaim: true,
+  distributionStart: undefined,
+  initialSelectedIds: () => [],
+  loading: false
 })
 
 const emit = defineEmits<{
   'close': []
-  'confirm': []
+  'confirm': [selectedIds: string[]]
 }>()
 
-// Computed
-const totalClaimable = computed(() => {
-  if (props.operationType !== 'claim') return BigInt(0)
-  return props.categories.reduce((sum, cat) => {
-    const amount = cat.claimableAmount || BigInt(0)
-    return sum + amount
-  }, BigInt(0))
-})
+// State
+const selectedIds = ref<string[]>([])
+
+// Watch for modal open/close and initial selection
+watch(() => props.isOpen, (isOpen) => {
+  if (isOpen) {
+    if (props.initialSelectedIds && props.initialSelectedIds.length > 0) {
+      selectedIds.value = props.initialSelectedIds.map(String)
+    } else {
+      // Default select all
+      selectedIds.value = props.categories.map(c => c.categoryId)
+    }
+  }
+}, { immediate: true })
 
 // Methods
+const toggleSelection = (categoryId: string) => {
+  const index = selectedIds.value.indexOf(categoryId)
+  if (index === -1) {
+    selectedIds.value.push(categoryId)
+  } else {
+    selectedIds.value.splice(index, 1)
+  }
+}
+
+const toggleSelectAll = () => {
+  if (areAllSelected.value) {
+    selectedIds.value = []
+  } else {
+    selectedIds.value = props.categories.map(c => c.categoryId)
+  }
+}
+
+const handleClose = () => {
+  if (!props.loading) {
+    emit('close')
+  }
+}
+
+const handleConfirm = () => {
+  emit('confirm', selectedIds.value)
+}
+
+// Computed
+const areAllSelected = computed(() => {
+  return props.categories.length > 0 && selectedIds.value.length === props.categories.length
+})
+
+const totalSelectedClaimable = computed(() => {
+  if (props.operationType !== 'claim') return BigInt(0)
+  return props.categories
+    .filter(cat => selectedIds.value.includes(cat.categoryId))
+    .reduce((sum, cat) => {
+      const amount = cat.claimableAmount || BigInt(0)
+      return sum + amount
+    }, BigInt(0))
+})
+
+const isConfirmDisabled = computed(() => {
+  if (selectedIds.value.length === 0) return true
+  if (props.operationType === 'claim' && !props.canClaim) return true
+  return false
+})
+
+const timeUntilStart = computed(() => {
+  if (!props.distributionStart) return ''
+  const now = Date.now() * 1_000_000 // Convert to nanoseconds
+  const start = Number(props.distributionStart)
+  
+  if (now >= start) return ''
+  
+  // Calculate remaining time
+  const diff = start - now
+  const diffMs = diff / 1_000_000
+  
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+  
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  return `${minutes}m`
+})
+
 const formatAmount = (amount: bigint): string => {
   const divisor = Math.pow(10, props.tokenDecimals)
   return (Number(amount) / divisor).toLocaleString('en-US', {
