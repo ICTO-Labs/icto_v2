@@ -57,9 +57,10 @@ const subStatusText = computed(() => {
   const details = props.distribution
   const status = distributionStatus.value
 
-  // Show funding warning if needed
+  // Don't show sub-status when main status is "Needs Funding" to avoid duplicate
+  // Main badge already shows "Needs Funding", sub-status would be redundant
   if (needsFunding.value) {
-    return 'Needs Funding'
+    return ''  // Hide sub-status to prevent duplicate
   }
 
   // For Lock campaigns, show duration

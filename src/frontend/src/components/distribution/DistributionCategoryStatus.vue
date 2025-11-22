@@ -114,6 +114,7 @@ interface Props {
   isAuthenticated: boolean
   processing?: boolean
   activeCategory?: string
+  distributionStart?: bigint // NEW: Distribution start time
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -229,6 +230,14 @@ function getCategoryUserStatus(category: any): CategoryUserStatus {
   // Check if fully claimed
   if (eligibleAmount > 0 && claimedAmount >= eligibleAmount) {
     return 'CLAIMED'
+  }
+
+  // Check if distribution has started
+  if (props.distributionStart) {
+    const now = Date.now() * 1_000_000 // Convert to nanoseconds
+    if (now < Number(props.distributionStart)) {
+      return 'REGISTERED' // Or LOCKED? REGISTERED implies waiting.
+    }
   }
 
   // Check if can claim now
@@ -355,19 +364,19 @@ function getStatusBadgeClass(status: CategoryUserStatus): string {
 function getStatusEmoji(status: CategoryUserStatus): string {
   switch (status) {
     case 'NOT_ELIGIBLE':
-      return '🔒'
+      return ''
     case 'ELIGIBLE':
-      return '✨'
+      return ''
     case 'REGISTERED':
-      return '✅'
+      return ''
     case 'CLAIMABLE':
-      return '🎁'
+      return ''
     case 'CLAIMED':
-      return '✅'
+      return ''
     case 'LOCKED':
-      return '⏳'
+      return ''
     default:
-      return '❓'
+      return ''
   }
 }
 </script>

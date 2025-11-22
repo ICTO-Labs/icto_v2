@@ -172,11 +172,11 @@
 
                     <!-- Error Message -->
                     <div
-                      v-if="category.errorMessage"
+                      v-if="category.errorMessage && category.errorMessage.length > 0"
                       class="mt-2 p-2 rounded bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
                     >
                       <p class="text-xs text-red-700 dark:text-red-300">
-                        {{ category.errorMessage }}
+                        {{ category.errorMessage[0] }}
                       </p>
                     </div>
                   </div>

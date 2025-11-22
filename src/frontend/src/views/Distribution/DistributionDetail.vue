@@ -69,7 +69,8 @@
                   :show-sub-status="true" />
                 <!-- Campaign Visibility Type (Public/Private) -->
                 <Label variant="blue" class="inline-flex items-center gap-1">
-                  <ZapIcon class="w-3 h-3 mr-1" />
+                  <GlobeIcon v-if="getVariantKey(details.eligibilityType) === 'Public'" class="w-3.5 h-3.5 mr-1" />
+                  <LockIcon v-else class="w-3.5 h-3.5 mr-1" />
                   {{ getVariantKey(details.eligibilityType) === 'Public' ? 'Open' : 'Private' }}
                 </Label>
                 <!-- Campaign Type Label (Airdrop/Vesting/Lock) -->
@@ -105,9 +106,25 @@
         </div>
 
         <!-- ============================================ -->
+        <!-- LAUNCHPAD CONTEXT (IF FROM LAUNCHPAD) -->
+        <!-- ============================================ -->
+        <LaunchpadInfo v-if="details.launchpadContext && details.launchpadContext.length > 0"
+          :launchpad-context="{
+            launchpadId: details.launchpadContext[0].launchpadId,
+            category: details.launchpadContext[0].category,
+            projectMetadata: details.launchpadContext[0].projectMetadata,
+            batchId: details.launchpadContext[0].batchId
+          }"
+          :token-info="details.tokenInfo"
+          @view-launchpad="navigateToLaunchpad(details.launchpadContext[0].launchpadId)"
+          @view-token="navigateToToken(details.tokenInfo.canisterId)"
+          class="mb-6"
+        />
+
+        <!-- ============================================ -->
         <!-- DESCRIPTION SECTION (ORIGINAL WITH COUNTDOWN) -->
         <!-- ============================================ -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700">
+        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-200 dark:border-gray-700" v-else>
           <div class="flex items-center justify-between mb-3">
             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">About This Campaign</h3>
             <!-- Countdown Component -->
@@ -137,27 +154,39 @@
           <!-- ============================================ -->
           <div class="lg:col-span-2 space-y-8">
 
-            <!-- Categories Section (Always Visible if exists) -->
+            <!-- Categories Section (Tab Navigation) -->
             <div v-if="categoryData.length > 0" class="space-y-4">
-              <!-- Category hint -->
-              <div class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <p class="text-sm text-blue-800 dark:text-blue-200 flex items-center">
-                  <FilterIcon class="w-4 h-4 mr-2" />
-                  <span>This distribution has <strong>{{ categoryData.length }}</strong> category{{ categoryData.length
-                    > 1 ? 's' : '' }}. Each category shows its own recipients and transactions below.</span>
-                </p>
+              <!-- Tab Navigation -->
+              <CategoryTabNavigation :categories="categoryData" v-model:active-tab="activeCategoryTab"
+                :show-all-tab="true" />
+
+              <!-- All Categories Overview -->
+              <div v-if="activeCategoryTab === 'all'">
+                <AllCategoriesOverview :categories="categoryData" :token-symbol="details?.tokenInfo?.symbol || 'TOKEN'"
+                  :token-decimals="details?.tokenInfo?.decimals || 8"
+                  @navigate-to-category="handleNavigateToCategory" />
               </div>
 
-              <!-- Category Cards with Recipients & Transactions inside -->
-              <CategoryDetailsCard v-for="(category, index) in categoryData"
-                :key="category.categoryId?.toString() || category.name"
-                :id="`category-${category.categoryId?.toString()}`" :category="category"
-                :participants="category.participants" :token-symbol="details?.tokenInfo?.symbol || 'TOKEN'"
-                :token-decimals="details?.tokenInfo?.decimals || 8" :total-categories="categoryData.length"
-                :claim-history="claimHistory" :refreshing="refreshing" :user-status="categoriesWithStatus[index]"
-                :is-authenticated="authStore.isConnected" :processing="registering || claiming"
-                @refresh-participants="fetchAllParticipants" @register="handleCategoryRegister"
-                @claim="handleCategoryClaim" />
+              <!-- Individual Category Detail -->
+              <div v-else-if="selectedCategory">
+                <CategoryDetailsCard :key="selectedCategory.categoryId?.toString() || selectedCategory.name"
+                  :id="`category-${selectedCategory.categoryId?.toString()}`" :category="selectedCategory"
+                  :participants="selectedCategory.participants" :token-symbol="details?.tokenInfo?.symbol || 'TOKEN'"
+                  :token-decimals="details?.tokenInfo?.decimals || 8" :total-categories="categoryData.length"
+                  :claim-history="claimHistory" :refreshing="refreshing"
+                  :user-status="categoriesWithStatus[selectedCategoryIndex] ? {
+                    status: categoriesWithStatus[selectedCategoryIndex].userStatus,
+                    canRegister: categoriesWithStatus[selectedCategoryIndex].canRegister,
+                    canClaim: categoriesWithStatus[selectedCategoryIndex].canClaim,
+                    claimableAmount: categoriesWithStatus[selectedCategoryIndex].claimableAmount,
+                    eligibleAmount: categoriesWithStatus[selectedCategoryIndex].eligibleAmount,
+                    claimedAmount: categoriesWithStatus[selectedCategoryIndex].claimedAmount,
+                    isRegistered: categoriesWithStatus[selectedCategoryIndex].isRegistered
+                  } : undefined" 
+                  :is-authenticated="authStore.isConnected"
+                  :processing="registering || claiming" @refresh-participants="fetchAllParticipants"
+                  @register="handleCategoryRegister" @claim="handleCategoryClaim" />
+              </div>
             </div>
 
             <!-- Fallback: Global Recipients & Transactions (if no categories) -->
@@ -447,10 +476,11 @@
             <!-- CATEGORY STATUS SIDEBAR (MULTI-CATEGORY ONLY) -->
             <!-- ============================================ -->
             <DistributionCategoryStatus v-if="categoryData.length > 0" :categories="categoryData"
-              :user-context="userContext" :is-authenticated="authStore.isConnected"
-              :processing="registering || claiming" :active-category="activeCategoryId"
+              :user-context="userContext" :is-authenticated="authStore.isConnected" :processing="registering || claiming"
+              :active-category="activeCategoryTab === 'all' ? undefined : activeCategoryTab"
+              :distribution-start="details?.distributionStart"
               @register-all="handleBatchRegister" @claim-all="handleBatchClaim"
-              @scroll-to-category="scrollToCategory" />
+              @scroll-to-category="handleNavigateToCategory" />
 
             <!-- ============================================ -->
             <!-- USER ALLOCATION (LEGACY - For non-category or single category) -->
@@ -508,15 +538,17 @@
     <!-- BATCH CONFIRM MODAL (NEW) -->
     <!-- ============================================ -->
     <BatchConfirmModal v-if="details" :is-open="showBatchConfirmModal" :operation-type="batchConfirmType"
-      :categories="batchConfirmType === 'register' ? eligibleCategories : claimableCategories"
-      :token-symbol="details?.tokenInfo.symbol || 'TOKEN'" :token-decimals="details?.tokenInfo.decimals || 8"
-      @close="showBatchConfirmModal = false"
-      @confirm="batchConfirmType === 'register' ? confirmBatchRegister() : confirmBatchClaim()" />
+              :categories="batchConfirmType === 'register' ? eligibleCategories : claimableCategories"
+              :token-symbol="details.tokenInfo.symbol" :token-decimals="details.tokenInfo.decimals"
+              :can-claim="userContext?.canClaim" :distribution-start="details.distributionStart"
+              :initial-selected-ids="singleClaimCategory ? [singleClaimCategory.categoryId || singleClaimCategory.category?.id] : []"
+              :loading="claiming || registering"
+              @close="showBatchConfirmModal = false" @confirm="confirmBatchOperation" />
   </AdminLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { DistributionService } from '@/api/services/distribution'
 
@@ -529,6 +561,8 @@ import DistributionCampaignDetails from '@/components/distribution/DistributionC
 import DistributionTimeline from '@/components/distribution/DistributionTimeline.vue'
 import DistributionStatusBadge from '@/components/distribution/DistributionStatusBadge.vue'
 import DistributionCategoryStatus from '@/components/distribution/DistributionCategoryStatus.vue'
+import CategoryTabNavigation from '@/components/distribution/CategoryTabNavigation.vue'
+import AllCategoriesOverview from '@/components/distribution/AllCategoriesOverview.vue'
 
 // ============================================
 // NEW IMPORTS (Composable)
@@ -553,6 +587,7 @@ import ClaimModal from '@/components/distribution/ClaimModal.vue'
 import BatchResultModal from '@/components/distribution/BatchResultModal.vue'
 import BatchConfirmModal from '@/components/distribution/BatchConfirmModal.vue'
 import CategoryDetailsCard from '@/components/distribution/CategoryDetailsCard.vue'
+import LaunchpadInfo from '@/components/distribution/LaunchpadInfo.vue'
 import VueCountdown from '@chenfengyuan/vue-countdown'
 import DistributionCountdown from '@/components/distribution/DistributionCountdown.vue'
 import type { DistributionDetails, DistributionStats, ClaimInfo } from '@/types/distribution'
@@ -576,13 +611,18 @@ import {
   FilterIcon,
   DownloadIcon,
   HistoryIcon,
-  ZapIcon
+  GlobeIcon,
+  LockIcon,
 } from 'lucide-vue-next'
 import { CopyIcon } from '@/icons'
 
 // ============================================
 // SETUP
 // ============================================
+const props = defineProps<{
+  canisterId: string
+}>()
+
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
@@ -598,6 +638,47 @@ const stats = ref<DistributionStats | null>(null)
 const claiming = ref(false)
 const showClaimModal = ref(false)
 const showFundModal = ref(false)  // ✅ NEW: Fund contract modal
+
+// ============================================
+// NEW STATE: Batch & Single Claim Confirmation
+// ============================================
+const singleClaimCategory = ref<any>(null)
+const confirmModalMode = ref<'batch' | 'single'>('batch')
+
+const confirmModalCategories = computed(() => {
+  if (confirmModalMode.value === 'single' && singleClaimCategory.value) {
+    return [singleClaimCategory.value]
+  }
+  return batchConfirmType.value === 'register' ? eligibleCategories.value : claimableCategories.value
+})
+
+// ============================================
+// NEW STATE: Tab Navigation
+// ============================================
+const activeCategoryTab = ref('all')
+
+const handleCategoryTabChange = (tabId: string) => {
+  activeCategoryTab.value = tabId
+}
+
+const handleNavigateToCategory = (categoryId: string) => {
+  activeCategoryTab.value = categoryId
+  // Scroll to top of content area
+  const contentArea = document.querySelector('.distribution-detail')
+  if (contentArea) {
+    contentArea.scrollIntoView({ behavior: 'smooth' })
+  }
+}
+
+const selectedCategory = computed(() => {
+  if (activeCategoryTab.value === 'all') return null
+  return categoryData.value.find(c => (c.categoryId?.toString() || '') === activeCategoryTab.value)
+})
+
+const selectedCategoryIndex = computed(() => {
+  if (activeCategoryTab.value === 'all') return -1
+  return categoryData.value.findIndex(c => (c.categoryId?.toString() || '') === activeCategoryTab.value)
+})
 const claimInfo = ref<ClaimInfo | null>(null)
 // Batch result modal state
 const showBatchResultModal = ref(false)
@@ -1495,6 +1576,36 @@ const checkBalance = async () => {
   }
 }
 
+// Watch for details to auto-select category if only one exists
+watch(() => details.value, (newDetails) => {
+  // Logic moved to categoryData watch to handle nested arrays correctly
+}, { immediate: true })
+
+// Watch for category data as well in case it loads separately
+watch(() => categoryData.value, (newCategories) => {
+  if (!newCategories || newCategories.length === 0) return
+
+  if (newCategories.length === 1) {
+    // Auto-select single category
+    const categoryId = newCategories[0].categoryId || newCategories[0].category?.id
+    if (categoryId && (activeCategoryTab.value === 'all' || !activeCategoryTab.value)) {
+      activeCategoryTab.value = String(categoryId)
+    }
+  } else {
+    // Default to 'all' if multiple categories and not set
+    if (!activeCategoryTab.value) {
+      activeCategoryTab.value = 'all'
+    }
+  }
+}, { immediate: true })
+
+onMounted(async () => {
+  if (props.canisterId) {
+    canisterId.value = props.canisterId
+    await fetchDetails()
+  }
+})
+
 const refreshData = async () => {
   refreshing.value = true
   await fetchDetails()
@@ -1649,15 +1760,58 @@ const handleBatchRegister = async () => {
 }
 
 /**
+ * Confirm and execute batch operation (register or claim)
+ */
+const confirmBatchOperation = (selectedIds?: string[]) => {
+  if (batchConfirmType.value === 'register') {
+    confirmBatchRegister(selectedIds)
+  } else {
+    confirmBatchClaim(selectedIds)
+  }
+}
+
+/**
  * Confirm and execute batch register
  */
-const confirmBatchRegister = async () => {
+const confirmBatchRegister = async (selectedIds?: string[]) => {
   try {
     registering.value = true
     showBatchConfirmModal.value = false
 
-    // Use existing batch register function
-    await registerForCampaign()
+    // Check if this is a single category register
+    if (selectedIds && selectedIds.length === 1) {
+      // Single category register
+      const categoryId = selectedIds[0]
+      const result = await DistributionService.batchRegister(canisterId.value, [Number(categoryId)])
+
+      if ('ok' in result) {
+        const batchData = result.ok
+        batchResult.value = {
+          success: batchData.success ?? true,
+          message: batchData.message || 'Successfully registered for category',
+          categories: batchData.categories || []
+        }
+        batchOperationType.value = 'register'
+        showBatchResultModal.value = true
+
+        if (batchData.success) {
+          toast.success(batchData.message || 'Successfully registered for category')
+        } else {
+          toast.warning(batchData.message || 'Registration completed with some issues')
+        }
+
+        await refreshData()
+        
+        // Reset single category state
+        singleClaimCategory.value = null
+        confirmModalMode.value = 'batch'
+      } else {
+        toast.error('Registration failed: ' + result.err)
+      }
+    } else {
+      // Batch register for all or multiple categories
+      await registerForCampaign()
+    }
   } catch (err) {
     console.error('Error in batch registration:', err)
     toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
@@ -1684,25 +1838,154 @@ const handleBatchClaim = async () => {
 /**
  * Confirm and execute batch claim
  */
-const confirmBatchClaim = async () => {
+/**
+ * Confirm and execute batch claim
+ */
+/**
+ * Confirm and execute batch claim
+ */
+/**
+ * Confirm and execute batch claim
+ */
+const confirmBatchClaim = async (selectedIds?: string[]) => {
   try {
     claiming.value = true
+    // Keep modal open but show loading state
+    // showBatchConfirmModal.value = false // Don't close yet
+
+    let result;
+    let totalAmount = BigInt(0);
+    const idsToClaim = selectedIds || claimableCategories.value.map((c: any) => c.categoryId)
+
+    if (idsToClaim.length === 0) {
+      toast.warning('No categories selected')
+      claiming.value = false
+      return
+    }
+
+    // Check if we can use batch claim for all (if all selected)
+    const allClaimableIds = claimableCategories.value.map((c: any) => c.categoryId)
+    const isAllSelected = idsToClaim.length === allClaimableIds.length && 
+                          idsToClaim.every((id: string) => allClaimableIds.includes(id))
+
+    if (isAllSelected) {
+      // Batch claim all
+      totalAmount = claimableCategories.value.reduce(
+        (sum: bigint, cat: any) => sum + cat.claimableAmount,
+        BigInt(0)
+      )
+      result = await DistributionService.batchClaim(canisterId.value)
+    } else if (idsToClaim.length === 1) {
+      // Single category claim
+      const categoryId = idsToClaim[0]
+      const category = claimableCategories.value.find((c: any) => c.categoryId === categoryId)
+      const amount = category?.claimableAmount
+      totalAmount = amount ? BigInt(amount) : BigInt(0)
+      
+      result = await DistributionService.batchClaim(
+        canisterId.value,
+        Number(categoryId),
+        amount?.toString()
+      )
+    } else {
+      // Subset claim - loop through selected IDs
+      // Note: Ideally backend should support array of IDs for claim, but for now we loop
+      // or we can use batchClaim with specific ID multiple times.
+      // However, to show a unified result, we might need to aggregate.
+      // For now, let's try to use the batchClaim with array if supported, or loop.
+      // Looking at service, batchClaim takes optional categoryId.
+      // If we want to claim multiple but not all, we have to loop.
+      
+      const results = []
+      let successCount = 0
+      let failCount = 0
+      
+      for (const id of idsToClaim) {
+        const category = claimableCategories.value.find((c: any) => c.categoryId === id)
+        if (category) {
+          const res = await DistributionService.batchClaim(
+            canisterId.value,
+            Number(id),
+            category.claimableAmount?.toString()
+          )
+          
+          if ('ok' in res && res.ok.success) {
+            successCount++
+            totalAmount += BigInt(category.claimableAmount || 0)
+            results.push({
+              categoryId: id,
+              success: true,
+              message: res.ok.message
+            })
+          } else {
+            failCount++
+            results.push({
+              categoryId: id,
+              success: false,
+              message: 'ok' in res ? res.ok.message : res.err
+            })
+          }
+        }
+      }
+      
+      // Construct a synthetic result
+      result = {
+        ok: {
+          success: failCount === 0,
+          message: failCount === 0 
+            ? `Successfully claimed ${formatTokenAmount(totalAmount, details.value?.tokenInfo.decimals || 8)} ${details.value?.tokenInfo.symbol} from ${idsToClaim.length} ${idsToClaim.length === 1 ? 'category' : 'categories'}`
+            : `Claimed ${successCount}/${idsToClaim.length} categories`,
+          categories: results.map(r => ({
+            categoryId: r.categoryId,
+            categoryName: claimableCategories.value.find((c: any) => c.categoryId === r.categoryId)?.name || '',
+            success: r.success,
+            isValid: true,
+            allocation: BigInt(0), // Not needed for claim result display usually
+            claimedAmount: BigInt(0), // We could track this if needed
+            isRegistered: true,
+            errorMessage: r.success ? null : r.message
+          }))
+        }
+      }
+    }
+    
+    // Show result modal
+    if (result && 'ok' in result) {
+      const batchData = result.ok
+      
+      batchResult.value = {
+        success: batchData.success ?? true,
+        message: batchData.message || `Successfully claimed ${formatTokenAmount(totalAmount)} ${details.value?.tokenInfo.symbol}`,
+        categories: batchData.categories || [],
+        totalAmount: totalAmount
+      }
+    } else {
+      batchResult.value = {
+        success: false,
+        message: result?.err || 'Claim failed',
+        categories: [],
+        totalAmount: BigInt(0)
+      }
+    }
+    
+    // Close confirm modal and show result modal
     showBatchConfirmModal.value = false
-
-    // Calculate total claimable amount
-    const totalAmount = claimableCategories.value.reduce(
-      (sum: bigint, cat: any) => sum + cat.claimableAmount,
-      BigInt(0)
-    )
-
-    // Use existing batch claim via claimTokens
-    availableToClaim.value = totalAmount
-    await claimTokens()
+    batchOperationType.value = 'claim'
+    showBatchResultModal.value = true
+    
+    // Refresh all data (user status, claimed amounts, etc.)
+    await refreshData()
   } catch (err) {
     console.error('Error in batch claim:', err)
     toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
+    showBatchConfirmModal.value = false // Close on error
   } finally {
     claiming.value = false
+    // Reset mode after operation
+    setTimeout(() => {
+      confirmModalMode.value = 'batch'
+      singleClaimCategory.value = null
+    }, 500)
   }
 }
 
@@ -1710,84 +1993,72 @@ const confirmBatchClaim = async () => {
  * Handle individual category register
  */
 const handleCategoryRegister = async (categoryId: number | bigint) => {
-  try {
-    registering.value = true
-    const result = await DistributionService.batchRegister(canisterId.value, [Number(categoryId)])
-
-    if ('ok' in result) {
-      const batchData = result.ok
-      batchResult.value = batchData
-      batchOperationType.value = 'register'
-      showBatchResultModal.value = true
-
-      if (batchData.success) {
-        toast.success(batchData.message || 'Successfully registered for category')
-      } else {
-        toast.warning(batchData.message || 'Registration completed with some issues')
-      }
-
-      await refreshData()
-    } else {
-      toast.error('Registration failed: ' + result.err)
-    }
-  } catch (err) {
-    console.error('Error registering for category:', err)
-    toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
-  } finally {
-    registering.value = false
+  // Find the category object
+  const category = categoryData.value.find((c: any) => 
+    (c.categoryId?.toString() === categoryId.toString()) || 
+    (c.category?.id?.toString() === categoryId.toString())
+  )
+  
+  if (!category) {
+    toast.error('Category not found')
+    return
   }
+
+  // Set up single register confirmation
+  singleClaimCategory.value = category
+  confirmModalMode.value = 'single'
+  batchConfirmType.value = 'register'
+  showBatchConfirmModal.value = true
 }
 
 /**
  * Handle individual category claim
  */
 const handleCategoryClaim = async (categoryId: number | bigint, amount: bigint) => {
-  try {
-    claiming.value = true
-    const result = await DistributionService.batchClaim(
-      canisterId.value,
-      Number(categoryId),
-      amount.toString()
-    )
-
-    if ('ok' in result) {
-      const batchData = result.ok
-      batchResult.value = batchData
-      batchOperationType.value = 'claim'
-      showBatchResultModal.value = true
-
-      if (batchData.success) {
-        toast.success(batchData.message || 'Successfully claimed tokens')
-      } else {
-        toast.warning(batchData.message || 'Claim completed with some issues')
-      }
-
-      await refreshData()
-    } else {
-      toast.error('Claim failed: ' + result.err)
-    }
-  } catch (err) {
-    console.error('Error claiming from category:', err)
-    toast.error('Error: ' + (err instanceof Error ? err.message : String(err)))
-  } finally {
-    claiming.value = false
+  // Find the category object
+  const category = categoryData.value.find((c: any) => 
+    (c.categoryId?.toString() === categoryId.toString()) || 
+    (c.category?.id?.toString() === categoryId.toString())
+  )
+  
+  if (!category) {
+    toast.error('Category not found')
+    return
   }
+
+  // Set up single claim confirmation
+  singleClaimCategory.value = {
+    ...category,
+    claimableAmount: amount // Ensure claimable amount is set for the modal
+  }
+  confirmModalMode.value = 'single'
+  batchConfirmType.value = 'claim'
+  showBatchConfirmModal.value = true
 }
 
 /**
- * Scroll to category section
+ * Navigate to category (from sidebar click)
  */
 const scrollToCategory = (categoryId: string) => {
-  activeCategoryId.value = categoryId
-  const element = document.getElementById(`category-${categoryId}`)
-  if (element) {
-    element.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    // Add highlight animation
-    element.classList.add('highlight-pulse')
-    setTimeout(() => {
-      element.classList.remove('highlight-pulse')
-    }, 2000)
-  }
+  // Update active category tab - this will trigger the breadcrumb navigation and show the category details
+  activeCategoryTab.value = categoryId
+  
+  // Scroll to top of page to show the category content
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+/**
+ * Navigate to Launchpad detail page
+ */
+const navigateToLaunchpad = (launchpadId: string) => {
+  router.push(`/launchpad/${launchpadId}`)
+}
+
+/**
+ * Navigate to Token detail page
+ */
+const navigateToToken = (tokenCanisterId: string) => {
+  router.push(`/token/${tokenCanisterId}`)
 }
 
 /**

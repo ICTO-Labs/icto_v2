@@ -129,6 +129,7 @@ const router = createRouter({
     {
       path: '/tokens/:id',
       component: () => import('../views/Token/TokenDetail.vue'),
+      name: 'TokenDetail',
       meta: { 
         title: 'Token Detail',
       }
