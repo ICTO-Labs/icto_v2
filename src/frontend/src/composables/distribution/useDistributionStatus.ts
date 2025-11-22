@@ -97,6 +97,17 @@ export function useDistributionStatus(
       return 'Created'
     }
 
+    // CRITICAL FIX: Check distributionEnd BEFORE balance check
+    // This prevents ended distributions from showing as "Created" due to insufficient balance
+    const distributionEnd = details.distributionEnd && details.distributionEnd.length > 0
+      ? Number(details.distributionEnd[0]) / 1_000_000
+      : null
+
+    // Check if ended (but may still be claimable)
+    if (distributionEnd && now >= distributionEnd) {
+      return 'Ended'
+    }
+
     // Check balance before allowing "Live" status
     // If distribution should be live but balance is insufficient, keep it in "Created"
     const hasStarted = now >= startTime
@@ -133,16 +144,6 @@ export function useDistributionStatus(
       return 'Locked'
     }
 
-    // For Airdrop and Vesting campaigns
-    const distributionEnd = details.distributionEnd && details.distributionEnd.length > 0
-      ? Number(details.distributionEnd[0]) / 1_000_000
-      : null
-
-    // Check if ended (but may still be claimable)
-    if (distributionEnd && now >= distributionEnd) {
-      return 'Ended'
-    }
-
     // Live distribution (passed all checks including balance)
     if (campaignType === 'Vesting') {
       return 'Vesting'
@@ -153,9 +154,16 @@ export function useDistributionStatus(
 
   /**
    * Check if contract needs funding
+   * Only show funding alert for Created status
+   * Once distribution is Active/Live, balance has already been verified during activation
    */
   const needsFunding = computed(() => {
     if (!distribution.value || !contractBalance) return false
+
+    const status = distributionStatus.value
+    // Only show funding alert for Created status
+    // Once Live/Active, balance has been verified. For Ended/Cancelled/Completed, funding is no longer relevant
+    if (status !== 'Created') return false
 
     const totalAmount = distribution.value.totalAmount ? BigInt(distribution.value.totalAmount) : BigInt(0)
     const currentBalance = contractBalance.value || BigInt(0)

@@ -133,14 +133,25 @@ onMounted(() => {
   }
 })
 
+
 const shouldShow = computed(() => {
-  // Show if:
-  // 1. Contract status is "Created" and balance is insufficient, OR
-  // 2. needsFunding flag is explicitly true (from composable)
-  const isCreated = props.contractStatus === 'Created'
+  // CRITICAL: Only show balance warning for Created status
+  // Once distribution is Active/Live/Ended/Completed/Cancelled, balance warning is no longer relevant
+  const status = props.contractStatus
+  
+  // Explicitly block warning for final states
+  if (status === 'Ended' || status === 'Completed' || status === 'Cancelled' || 
+      status === 'Live' || status === 'Active' || status === 'Vesting' || 
+      status === 'Locked' || status === 'Registration') {
+    return false
+  }
+  
+  // Only show for Created status with insufficient balance
+  const isCreated = status === 'Created'
   const isInsufficient = Number(props.currentBalance) < Number(props.requiredAmount)
 
-  return (isCreated && isInsufficient) || props.needsFunding
+  // Show if Created AND insufficient, OR needsFunding flag is true (but only if Created)
+  return isCreated && (isInsufficient || props.needsFunding)
 })
 
 const isInsufficient = computed(() => {

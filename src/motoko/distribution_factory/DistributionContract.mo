@@ -2008,9 +2008,17 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
   /// Calculate unlocked amount for a single category
   /// Each category has its own vesting schedule and start time
   private func _calculateUnlockedAmountForCategory(category : CategoryAllocation, initialUnlockPercentage : Nat) : Nat {
-    let vestingStart = category.vestingStart; // Already Time.Time, not optional
+    // Use GLOBAL distributionStart for all categories (not category-specific vestingStart)
+    let vestingStart = config.distributionStart;
+    let currentTime = _getValidatedTime();
 
-    let elapsed = Int.abs(_getValidatedTime() - vestingStart);
+    // CRITICAL FIX: Check if vesting has started
+    // If current time is before vesting start, no tokens are unlocked yet
+    if (currentTime < vestingStart) {
+      return 0;
+    };
+
+    let elapsed = Int.abs(currentTime - vestingStart);
     let totalAmount = category.amount;
     let initialUnlock = (totalAmount * initialUnlockPercentage) / 100;
 
@@ -2934,10 +2942,24 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
       };
     };
 
+    // TIMELINE VALIDATION: Check if distribution has ended (GLOBAL check)
+    // This prevents registration after the distribution period has concluded
+    let now = Time.now();
+    switch (config.distributionEnd) {
+      case (?endTime) {
+        if (now > endTime) {
+          _releaseRegistrationLock(caller);
+          return #err("Distribution has ended, registration is no longer available");
+        };
+      };
+      case null {
+        // No end time configured - allow registration
+      };
+    };
+
     // Validate registration period if configured
     switch (config.registrationPeriod) {
       case (?period) {
-        let now = Time.now();
         if (now < period.startTime or now > period.endTime) {
           _releaseRegistrationLock(caller);
           return #err("Registration period is not active");
@@ -3546,6 +3568,28 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
       return #err("Distribution is not currently active");
     };
 
+    // TIMELINE VALIDATION: Check if distribution has ended
+    // This prevents claims after the distribution period has concluded
+    let now = Time.now();
+    switch (config.distributionEnd) {
+      case (?endTime) {
+        if (now > endTime) {
+          _logSecurityEvent(
+            "DISTRIBUTION_ENDED",
+            caller,
+            0,
+            "Claim attempted after distribution ended",
+            #Info,
+          );
+          _reentrancyGuardExit(caller);
+          return #err("Distribution has ended, claims are no longer available");
+        };
+      };
+      case null {
+        // No end time configured - allow claims
+      };
+    };
+
     // Check if caller is blacklisted
     if (_isBlacklisted(caller)) {
       _logSecurityEvent(
@@ -3920,6 +3964,28 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
       );
       _reentrancyGuardExit(caller);
       return #err("Distribution is not currently active");
+    };
+
+    // TIMELINE VALIDATION: Check if distribution has ended
+    // This prevents claims after the distribution period has concluded
+    let now = Time.now();
+    switch (config.distributionEnd) {
+      case (?endTime) {
+        if (now > endTime) {
+          _logSecurityEvent(
+            "DISTRIBUTION_ENDED_CATEGORY_CLAIM",
+            caller,
+            0,
+            "Category claim attempted after distribution ended",
+            #Info,
+          );
+          _reentrancyGuardExit(caller);
+          return #err("Distribution has ended, claims are no longer available");
+        };
+      };
+      case null {
+        // No end time configured - allow claims
+      };
     };
 
     // Check if caller is blacklisted
@@ -4506,6 +4572,20 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
     // Check if distribution is active
     if (not _isActive()) {
       return #err("Distribution is not currently active");
+    };
+
+    // TIMELINE VALIDATION: Check if distribution has ended
+    // This prevents early unlock after the distribution period has concluded
+    let now = Time.now();
+    switch (config.distributionEnd) {
+      case (?endTime) {
+        if (now > endTime) {
+          return #err("Distribution has ended, early unlock is no longer available");
+        };
+      };
+      case null {
+        // No end time configured - allow early unlock
+      };
     };
 
     // Get participant
@@ -5166,13 +5246,20 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
     };
 
     // Check if can register
+    let now = Time.now();
+    let hasDistributionEnded = switch (config.distributionEnd) {
+      case (?endTime) { now > endTime };
+      case null { false };
+    };
+
     let canRegister = if (isRegistered) {
       false // Already registered
+    } else if (hasDistributionEnded) {
+      false // Distribution has ended
     } else {
       // Check registration period and eligibility
       let registrationOpen = switch (config.registrationPeriod) {
         case (?period) {
-          let now = Time.now();
           now >= period.startTime and now <= period.endTime;
         };
         case null {
@@ -5182,18 +5269,19 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
       registrationOpen and isEligible;
     };
 
-    // Check if can claim
-    let canClaim = isRegistered and _isActive() and claimableAmount > 0;
+    // Check if can claim (also check distribution end time)
+    let canClaim = isRegistered and _isActive() and claimableAmount > 0 and not hasDistributionEnded;
 
     // Determine registration error if any
     let registrationError = if (isRegistered) {
       ?"Already registered";
+    } else if (hasDistributionEnded) {
+      ?"Distribution has ended, registration is no longer available";
     } else if (not isEligible) {
       ?"Not eligible for this distribution";
     } else {
       switch (config.registrationPeriod) {
         case (?period) {
-          let now = Time.now();
           if (now < period.startTime) {
             ?"Registration period has not started yet";
           } else if (now > period.endTime) {

@@ -168,7 +168,6 @@
                     :class="(!canClaim && operationType === 'claim') 
                       ? 'text-amber-800 dark:text-amber-200' 
                       : 'text-blue-800 dark:text-blue-200'">
-                    
                     <template v-if="!canClaim && operationType === 'claim'">
                       <p class="font-medium mb-1">Claiming Not Started</p>
                       <p>Distribution has not started yet. Please wait until the start time.</p>

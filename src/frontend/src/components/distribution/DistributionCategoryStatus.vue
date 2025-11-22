@@ -259,7 +259,17 @@ function getCategoryUserStatus(category: any): CategoryUserStatus {
 
   // Vesting has started but no tokens unlocked yet
   if (eligibleAmount > claimedAmount && claimableAmount === BigInt(0)) {
-    return 'LOCKED'
+    // Check vesting schedule type
+    // For Instant Release, tokens unlock immediately when distribution starts
+    // So if claimableAmount = 0, it means distribution hasn't started yet (not "vesting locked")
+    const vestingSchedule = category.vestingSchedule || category.category?.defaultVestingSchedule
+    const isInstantRelease = vestingSchedule && typeof vestingSchedule === 'object' && 'Instant' in vestingSchedule
+    
+    // Only set LOCKED for non-instant vesting schedules
+    // For Instant, keep as REGISTERED (waiting for distribution start)
+    if (!isInstantRelease) {
+      return 'LOCKED'
+    }
   }
 
   // Default: registered but nothing to claim yet

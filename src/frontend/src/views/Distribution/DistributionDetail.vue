@@ -181,7 +181,8 @@
                     claimableAmount: categoriesWithStatus[selectedCategoryIndex].claimableAmount,
                     eligibleAmount: categoriesWithStatus[selectedCategoryIndex].eligibleAmount,
                     claimedAmount: categoriesWithStatus[selectedCategoryIndex].claimedAmount,
-                    isRegistered: categoriesWithStatus[selectedCategoryIndex].isRegistered
+                    isRegistered: categoriesWithStatus[selectedCategoryIndex].isRegistered,
+                    notEligibleReason: categoriesWithStatus[selectedCategoryIndex].notEligibleReason
                   } : undefined" 
                   :is-authenticated="authStore.isConnected"
                   :processing="registering || claiming" @refresh-participants="fetchAllParticipants"
@@ -540,7 +541,8 @@
     <BatchConfirmModal v-if="details" :is-open="showBatchConfirmModal" :operation-type="batchConfirmType"
               :categories="batchConfirmType === 'register' ? eligibleCategories : claimableCategories"
               :token-symbol="details.tokenInfo.symbol" :token-decimals="details.tokenInfo.decimals"
-              :can-claim="userContext?.canClaim" :distribution-start="details.distributionStart"
+              :can-claim="batchConfirmType === 'claim' ? claimableCategories.length > 0 : userContext?.canClaim"
+              :distribution-start="details.distributionStart"
               :initial-selected-ids="singleClaimCategory ? [singleClaimCategory.categoryId || singleClaimCategory.category?.id] : []"
               :loading="claiming || registering"
               @close="showBatchConfirmModal = false" @confirm="confirmBatchOperation" />
