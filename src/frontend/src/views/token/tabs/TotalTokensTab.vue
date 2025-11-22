@@ -289,7 +289,7 @@ const refreshTokens = async () => {
 }
 
 const viewToken = (token: any) => {
-    router.push(`/tokens/${token.canisterId}`)
+    router.push({ name: 'TokenDetail', params: { id: token.canisterId } })
 }
 
 // Watch for pagination changes

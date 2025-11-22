@@ -5,6 +5,7 @@ import { Principal } from "@dfinity/principal";
 import { hexStringToUint8Array } from "@dfinity/utils";
 import { hex2Bytes } from "@/utils/common";
 import type { AllowanceArgs, ApproveArgs, TransferArgs } from "@dfinity/ledger-icp/dist/candid/ledger";
+import type { TransactionRecord, TransactionListParams, TransactionListResponse } from "@/types/transaction";
 
 import type { IcrcTokenMetadataResponse } from "@dfinity/ledger-icrc";
 
@@ -473,10 +474,10 @@ export class IcrcService {
             if (!canisterId) {
                 throw new Error('Invalid token: canisterId is required');
             }
-            
+
             if (!principal) {
                 throw new Error('Invalid principal: principal is required');
-            }    
+            }
             const actor = icrcActor({
                 canisterId: canisterId.toString(),
                 anon: true,
@@ -496,6 +497,123 @@ export class IcrcService {
         } catch (error) {
             console.error('Error checking if principal is a mint account:', error);
             return false;
+        }
+    }
+
+    // Get transaction history for a token
+    public static async getTransactions(
+        canisterId: string,
+        start: bigint = BigInt(0),
+        length: bigint = BigInt(20)
+    ): Promise<TransactionListResponse | null> {
+        try {
+            const actor = icrcActor({
+                canisterId: canisterId.toString(),
+                anon: true,
+            }) as any;
+
+            // Check if the canister supports get_transactions
+            // Try different method names (some implementations use different naming)
+            const getTransactionsMethod =
+                actor.icrc1_get_transactions ||
+                actor.get_transactions ||
+                actor.icrc_get_transactions;
+
+            if (!getTransactionsMethod) {
+                console.warn(`Canister ${canisterId} does not support get_transactions`);
+                return null;
+            }
+
+            const params: TransactionListParams = { start, length };
+            const result = await getTransactionsMethod(params);
+
+            if (!result) {
+                console.warn(`No result from get_transactions for ${canisterId}`);
+                return null;
+            }
+
+            console.log('Transaction result:', result);
+
+            // Handle different response formats
+            let transactions: TransactionRecord[] = [];
+            let total: bigint = BigInt(0);
+
+            // Try different response formats
+            if (Array.isArray(result)) {
+                // Result is array directly
+                transactions = result;
+                total = BigInt(result.length);
+            } else if (result.transactions && Array.isArray(result.transactions)) {
+                // Result has transactions property
+                transactions = result.transactions;
+                total = result.log_length || BigInt(result.transactions.length);
+            } else if (result.logs && Array.isArray(result.logs)) {
+                // Result has logs property
+                transactions = result.logs;
+                total = result.log_length || BigInt(result.logs.length);
+            } else if (result.Ok && Array.isArray(result.Ok)) {
+                // Result is wrapped in Ok variant
+                transactions = result.Ok;
+                total = BigInt(result.Ok.length);
+            }
+
+            const response: TransactionListResponse = {
+                transactions: transactions || [],
+                total: total
+            };
+
+            console.log('Processed transactions:', response);
+            return response;
+        } catch (error) {
+            console.error(`Error getting transactions for ${canisterId}:`, error);
+            return null;
+        }
+    }
+
+    // Parse transaction record into user-friendly format
+    public static parseTransactionRecord(record: TransactionRecord): {
+        type: string;
+        from: string;
+        to: string;
+        amount: bigint;
+    } | null {
+        try {
+            const kind = record.kind || 'Unknown';
+
+            if (kind === 'Transfer') {
+                return {
+                    type: 'Transfer',
+                    from: record.from?.owner.toString() || 'Unknown',
+                    to: record.to?.owner.toString() || 'Unknown',
+                    amount: record.amount || BigInt(0),
+                };
+            } else if (kind === 'Approve') {
+                return {
+                    type: 'Approve',
+                    from: record.from?.owner.toString() || 'Unknown',
+                    to: record.spender?.owner.toString() || 'Unknown',
+                    amount: record.approved_amount || BigInt(0),
+                };
+            } else if (kind === 'Mint') {
+                return {
+                    type: 'Mint',
+                    from: 'Minting Account',
+                    to: record.to?.owner.toString() || 'Unknown',
+                    amount: record.amount || BigInt(0),
+                };
+            } else if (kind === 'Burn') {
+                return {
+                    type: 'Burn',
+                    from: record.from?.owner.toString() || 'Unknown',
+                    to: 'Burn Account',
+                    amount: record.amount || BigInt(0),
+                };
+            }
+
+            return null;
+        } catch (error) {
+            console.error('Error parsing transaction record:', error);
+            return null;
         }
     }
 }

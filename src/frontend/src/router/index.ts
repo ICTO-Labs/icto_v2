@@ -107,9 +107,9 @@ const router = createRouter({
       },
     },
     {
-      path: '/token',
+      path: '/tokens',
       name: 'TokenIndex',
-      component: () => import('../views/Token/TokenIndex.vue'),
+      component: () => import('../views/token/TokenIndex.vue'),
       meta: {
         title: 'Tokens Center',
       },
@@ -117,20 +117,40 @@ const router = createRouter({
     {
       path: '/token/create',
       name: 'TokenCreate',
-      component: () => import('../views/Token/TokenIndex.vue'),
+      component: () => import('../views/token/TokenIndex.vue'),
       meta: {
         title: 'Create Token',
       },
     },
     {
-      path: '/tokens',
-      redirect: '/token'
+      path: '/token/:id/transactions/:index',
+      name: 'TokenTransactionDetail',
+      component: () => import('../views/token/TokenTransactionDetail.vue'),
+      meta: {
+        title: 'Transaction Detail',
+      }
     },
     {
-      path: '/tokens/:id',
-      component: () => import('../views/Token/TokenDetail.vue'),
+      path: '/token/:id/transactions',
+      name: 'TokenTransactions',
+      component: () => import('../views/token/TokenTransactions.vue'),
+      meta: {
+        title: 'Token Transactions',
+      }
+    },
+    {
+      path: '/token/:id/account/:principal',
+      name: 'PrincipalAccount',
+      component: () => import('../views/token/PrincipalAccount.vue'),
+      meta: {
+        title: 'Principal Account',
+      }
+    },
+    {
+      path: '/token/:id',
       name: 'TokenDetail',
-      meta: { 
+      component: () => import('../views/token/TokenDetail.vue'),
+      meta: {
         title: 'Token Detail',
       }
     },
