@@ -703,10 +703,13 @@ export function canInitializeDistribution(status: string): boolean {
 
 /**
  * Check if distribution should show insufficient balance alert
+ * Only show for Created/Deployed status - once Active, balance has been verified
  */
 export function shouldShowInsufficientBalanceAlert(status: string, hasInsufficientBalance: boolean): boolean {
     if (!hasInsufficientBalance) return false
-    return status !== 'Active' && status !== 'Completed' && status !== 'Cancelled'
+    // Only show balance warning for Created/Deployed status
+    // Once distribution is Active, balance has already been verified during activation
+    return status === 'Created' || status === 'Deployed'
 }
 
 /**

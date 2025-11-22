@@ -68,7 +68,20 @@
                 {{ getStatusLabel(userStatus.status) }}
               </p>
               <p class="text-xs text-gray-600 dark:text-gray-400 mt-0.5">
-                {{ getStatusDescription(userStatus.status) }}
+                <template v-if="userStatus.status === 'NOT_ELIGIBLE'">
+                  <template v-if="userStatus.notEligibleReason === 'NOT_IN_RECIPIENTS_LIST'">
+                    You are not in the recipients list for this category
+                  </template>
+                  <template v-else-if="userStatus.notEligibleReason === 'PASSPORT_SCORE_TOO_LOW'">
+                    Your passport score does not meet requirements
+                  </template>
+                  <template v-else>
+                    Not eligible for this category
+                  </template>
+                </template>
+                <template v-else>
+                  {{ getStatusDescription(userStatus.status) }}
+                </template>
               </p>
             </div>
           </div>
@@ -104,8 +117,17 @@
               <span>Fully claimed</span>
             </div>
 
+
             <div v-if="userStatus.status === 'NOT_ELIGIBLE'" class="text-sm text-gray-500 dark:text-gray-400">
-              Required Passport Score: {{ category.passportScore }}
+              <template v-if="userStatus.notEligibleReason === 'NOT_IN_RECIPIENTS_LIST'">
+                You are not in the recipients list for this category
+              </template>
+              <template v-else-if="userStatus.notEligibleReason === 'PASSPORT_SCORE_TOO_LOW'">
+                Required Passport Score: {{ category.passportScore }}
+              </template>
+              <template v-else>
+                Not eligible for this category
+              </template>
             </div>
           </div>
         </div>
@@ -383,6 +405,7 @@ interface UserCategoryStatus {
   eligibleAmount: bigint
   claimedAmount: bigint
   isRegistered: boolean
+  notEligibleReason?: 'NOT_IN_RECIPIENTS_LIST' | 'PASSPORT_SCORE_TOO_LOW' | 'BOTH'
 }
 
 interface CategoryParticipant {
@@ -533,6 +556,7 @@ const computedUserStatus = computed<UserCategoryStatus | null>(() => {
         isRegistered: false
       }
     } else {
+      // Predefined category - user not in recipients list
       return {
         status: 'NOT_ELIGIBLE',
         canRegister: false,
@@ -540,7 +564,8 @@ const computedUserStatus = computed<UserCategoryStatus | null>(() => {
         claimableAmount: BigInt(0),
         eligibleAmount: BigInt(0),
         claimedAmount: BigInt(0),
-        isRegistered: false
+        isRegistered: false,
+        notEligibleReason: 'NOT_IN_RECIPIENTS_LIST'
       }
     }
   }
@@ -558,7 +583,27 @@ const computedUserStatus = computed<UserCategoryStatus | null>(() => {
   } else if (claimableAmount > 0) {
     status = 'CLAIMABLE'
   } else if (eligibleAmount > claimedAmount) {
-    status = 'LOCKED'
+    // Check vesting schedule type
+    // For Instant Release, tokens unlock immediately when distribution starts
+    // So if claimableAmount = 0, it means distribution hasn't started yet (not "vesting locked")
+    
+    // Use robust access with fallback (matching Sidebar logic)
+    // @ts-ignore - Handle potential type mismatch or missing property
+    const vestingSchedule = props.category.vestingSchedule || props.category.category?.defaultVestingSchedule || props.category.defaultVestingSchedule
+    
+    console.log('🔍 CategoryDetailsCard Debug:', {
+      vestingSchedule,
+      hasInstant: vestingSchedule && typeof vestingSchedule === 'object' && 'Instant' in vestingSchedule,
+      category: props.category
+    })
+
+    const isInstantRelease = vestingSchedule && typeof vestingSchedule === 'object' && 'Instant' in vestingSchedule
+    
+    // Only set LOCKED for non-instant vesting schedules
+    // For Instant, keep as REGISTERED (waiting for distribution start)
+    if (!isInstantRelease) {
+      status = 'LOCKED'
+    }
   }
 
   return {
@@ -703,7 +748,7 @@ const getStatusLabel = (status: CategoryUserStatus): string => {
   switch (status) {
     case 'NOT_ELIGIBLE': return 'Not Eligible'
     case 'ELIGIBLE': return 'Eligible to Register'
-    case 'REGISTERED': return 'Registered'
+    case 'REGISTERED': return 'Waiting for Distribution'
     case 'CLAIMABLE': return 'Ready to Claim'
     case 'CLAIMED': return 'Fully Claimed'
     case 'LOCKED': return 'Vesting Locked'
@@ -716,7 +761,7 @@ const getStatusDescription = (status: CategoryUserStatus): string => {
   switch (status) {
     case 'NOT_ELIGIBLE': return 'Your passport score does not meet requirements'
     case 'ELIGIBLE': return 'You can register for this category'
-    case 'REGISTERED': return 'You are registered and waiting for unlock'
+    case 'REGISTERED': return 'Registered and waiting for distribution to start'
     case 'CLAIMABLE': return 'You have tokens ready to claim'
     case 'CLAIMED': return 'You have claimed all allocated tokens'
     case 'LOCKED': return 'Your tokens are vesting, please wait for next unlock'

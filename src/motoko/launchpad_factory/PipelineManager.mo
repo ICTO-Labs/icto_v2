@@ -951,6 +951,9 @@ module {
         // Track deployed distribution ID for token deposit
         private var deployedDistributionId: ?Principal = null;
 
+        // Track total amount for distribution deposit (CRITICAL FIX)
+        private var deployedTotalAmount: ?Nat = null;
+
         // ================ REFUND EXECUTOR ================
         
         /// Execute batch refunds using FundManager
@@ -1251,6 +1254,9 @@ module {
                                     case (#ok(unifiedResult)) {
                                         // Store unified distribution ID for next step (token deposit)
                                         deployedDistributionId := ?unifiedResult.unifiedCanisterId;
+                                        
+                                        // Store total amount for deposit step (CRITICAL FIX)
+                                        deployedTotalAmount := ?unifiedResult.totalAmount;
 
                                         Debug.print("✅ Unified Distribution deployed successfully!");
                                         Debug.print("   Unified Canister ID: " # Principal.toText(unifiedResult.unifiedCanisterId));
@@ -1319,6 +1325,11 @@ module {
                                 switch (result) {
                                     case (#ok(deployment)) {
                                         deployedDistributionId := ?deployment.canisterId;
+                                        
+                                        // CRITICAL FIX: Also capture total amount in legacy path
+                                        // The factory's deployDistribution now uses unified logic internally,
+                                        // so deployment.totalAmount includes all categories.
+                                        deployedTotalAmount := ?deployment.totalAmount;
 
                                         Debug.print("✅ Legacy Distribution deployed successfully!");
                                         Debug.print("   Canister ID: " # Principal.toText(deployment.canisterId));
@@ -1388,9 +1399,19 @@ module {
                 };
 
                 // Calculate total allocation amount from participants
-                var totalAmount: Nat = 0;
-                for ((_, participant) in participants.vals()) {
-                    totalAmount += participant.allocationAmount;
+                // CRITICAL FIX: Use the total amount from the deployed distribution config
+                // This ensures we include ALL categories (Team, Advisors, etc.) not just participants
+                let totalAmount = switch (deployedTotalAmount) {
+                    case (?amount) amount;
+                    case (null) {
+                        // Fallback for legacy or error case (should not happen in V2)
+                        Debug.print("⚠️ Warning: deployedTotalAmount not set, falling back to participant sum");
+                        var sum: Nat = 0;
+                        for ((_, participant) in participants.vals()) {
+                            sum += participant.allocationAmount;
+                        };
+                        sum
+                    };
                 };
 
                 Debug.print("   Distribution: " # Principal.toText(distributionCanisterId));

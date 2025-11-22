@@ -106,7 +106,6 @@ function convertFromNanoseconds(nanoseconds: number): { duration: number; unit: 
  * Get campaign type label with styling
  */
 export function getCampaignTypeLabel(campaignType: string): { label: string; className: string; bgClass: string } {
-  console.log('campaignType', campaignType)
   switch (campaignType.toLowerCase()) {
     case 'airdrop':
       return {

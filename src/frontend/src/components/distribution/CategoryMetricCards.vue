@@ -108,13 +108,16 @@ const formatDate = (timestamp: number | bigint): string => {
   return date.toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',
-    day: 'numeric'
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
   })
 }
 
 // Max participants display
 const maxParticipantsDisplay = computed(() => {
-  if (!props.maxParticipants) return 'Unlimited'
+  if (!props.maxParticipants) return 'Predefined'
   return formatNumber(Number(props.maxParticipants))
 })
 

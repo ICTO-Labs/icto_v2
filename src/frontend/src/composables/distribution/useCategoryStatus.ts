@@ -16,6 +16,7 @@ export interface CategoryWithStatus {
   eligibleAmount: bigint
   claimedAmount: bigint
   isRegistered: boolean
+  notEligibleReason?: 'NOT_IN_RECIPIENTS_LIST' | 'PASSPORT_SCORE_TOO_LOW' | 'BOTH'
 }
 
 export function useCategoryStatus(
@@ -26,10 +27,11 @@ export function useCategoryStatus(
 ) {
   /**
    * Get user status for a specific category
+   * Returns status and optional reason
    */
-  const getCategoryUserStatus = (category: any): CategoryUserStatus => {
+  const getCategoryUserStatus = (category: any): { status: CategoryUserStatus, reason?: 'NOT_IN_RECIPIENTS_LIST' | 'PASSPORT_SCORE_TOO_LOW' | 'BOTH' } => {
     if (!isAuthenticated.value || !userContext.value) {
-      return 'NOT_ELIGIBLE'
+      return { status: 'NOT_ELIGIBLE' }
     }
 
     const categoryId = category.categoryId?.toString() || category.category?.id?.toString()
@@ -52,13 +54,13 @@ export function useCategoryStatus(
         const userScore = Number(userContext.value.passportScore || 0)
 
         if (userScore >= requiredScore) {
-          return 'ELIGIBLE'
+          return { status: 'ELIGIBLE' }
         } else {
-          return 'NOT_ELIGIBLE'
+          return { status: 'NOT_ELIGIBLE', reason: 'PASSPORT_SCORE_TOO_LOW' }
         }
       } else {
         // Predefined mode - not eligible if not in list
-        return 'NOT_ELIGIBLE'
+        return { status: 'NOT_ELIGIBLE', reason: 'NOT_IN_RECIPIENTS_LIST' }
       }
     }
 
@@ -71,34 +73,38 @@ export function useCategoryStatus(
 
     // Check if fully claimed
     if (eligibleAmount > 0 && claimedAmount >= eligibleAmount) {
-      return 'CLAIMED'
+      return { status: 'CLAIMED' }
     }
 
     // Check if can claim now (has unlocked tokens)
     if (claimableAmount > 0) {
-      return 'CLAIMABLE'
+      return { status: 'CLAIMABLE' }
     }
 
     // Check if vesting has started by checking distribution start time
-    // If vesting hasn't started yet, show REGISTERED instead of LOCKED
     const vestingStart = category.vestingStart || category.category?.defaultVestingStart
     if (vestingStart) {
       const vestingStartMs = Number(vestingStart) / 1_000_000
       const now = Date.now()
 
       if (now < vestingStartMs) {
-        // Vesting hasn't started yet
-        return 'REGISTERED'
+        return { status: 'REGISTERED' }
       }
     }
 
     // Vesting has started but no tokens unlocked yet
     if (eligibleAmount > claimedAmount && claimableAmount === BigInt(0)) {
-      return 'LOCKED'
+      // Check vesting schedule type for Instant Release
+      const vestingSchedule = category.vestingSchedule || category.category?.defaultVestingSchedule
+      const isInstantRelease = vestingSchedule && typeof vestingSchedule === 'object' && 'Instant' in vestingSchedule
+      
+      if (!isInstantRelease) {
+        return { status: 'LOCKED' }
+      }
     }
 
     // Default: registered but nothing to claim yet
-    return 'REGISTERED'
+    return { status: 'REGISTERED' }
   }
 
   /**
@@ -121,7 +127,11 @@ export function useCategoryStatus(
       let eligibleAmount = BigInt(0)
       let claimedAmount = BigInt(0)
       let isRegistered = false
-      let userStatus = getCategoryUserStatus(category) // Default status from local calculation
+      
+      // Get initial status and reason
+      const statusResult = getCategoryUserStatus(category)
+      let userStatus = statusResult.status
+      let notEligibleReason = statusResult.reason
 
       if (breakdownData) {
         // Use accurate backend data
@@ -138,7 +148,15 @@ export function useCategoryStatus(
           userStatus = 'CLAIMABLE'
         } else if (eligibleAmount > 0) {
           // Has allocation but nothing claimable yet -> Locked
-          userStatus = 'LOCKED'
+          // Check vesting schedule type for Instant Release
+          const vestingSchedule = category.vestingSchedule || category.category?.defaultVestingSchedule
+          const isInstantRelease = vestingSchedule && typeof vestingSchedule === 'object' && 'Instant' in vestingSchedule
+          
+          if (!isInstantRelease) {
+            userStatus = 'LOCKED'
+          } else {
+            userStatus = 'REGISTERED'
+          }
         } else {
           // Fallback
           userStatus = 'REGISTERED'
@@ -172,7 +190,8 @@ export function useCategoryStatus(
         claimableAmount,
         eligibleAmount,
         claimedAmount,
-        isRegistered
+        isRegistered,
+        notEligibleReason
       }
     })
   })
