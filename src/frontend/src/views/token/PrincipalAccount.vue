@@ -113,11 +113,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { IcrcService } from '@/api/services/icrc'
+import { IcrcIndexService } from '@/api/services/icrcIndex'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import TransactionTable from '@/components/token/TransactionTable.vue'
 import { formatBalance } from '@/utils/numberFormat'
 import type { TransactionRecord } from '@/types/transaction'
+import type { TransactionWithId, Transaction as IndexTransaction } from '@/declarations/icrc_index/icrc_index.did'
 
 const route = useRoute()
 
@@ -167,6 +169,50 @@ const loadTokenMetadata = async () => {
   }
 }
 
+/**
+ * Convert Index canister transaction to TransactionRecord format
+ */
+const convertIndexTransactionToRecord = (txWithId: TransactionWithId): TransactionRecord => {
+  const tx = txWithId.transaction
+  const record: TransactionRecord = {
+    index: txWithId.id,
+    kind: tx.kind,
+    timestamp: Number(tx.timestamp / BigInt(1000000)), // Convert nanoseconds to milliseconds
+  }
+
+  // Handle different transaction types
+  if (tx.transfer && tx.transfer.length > 0) {
+    const transfer = tx.transfer[0]
+    record.amount = transfer.amount
+    record.fee = transfer.fee?.[0]
+    record.from = transfer.from
+    record.to = transfer.to
+    record.memo = transfer.memo?.[0]
+  } else if (tx.mint && tx.mint.length > 0) {
+    const mint = tx.mint[0]
+    record.amount = mint.amount
+    record.fee = mint.fee?.[0]
+    record.to = mint.to
+    record.memo = mint.memo?.[0]
+  } else if (tx.burn && tx.burn.length > 0) {
+    const burn = tx.burn[0]
+    record.amount = burn.amount
+    record.fee = burn.fee?.[0]
+    record.from = burn.from
+    record.memo = burn.memo?.[0]
+  } else if (tx.approve && tx.approve.length > 0) {
+    const approve = tx.approve[0]
+    record.amount = approve.amount
+    record.fee = approve.fee?.[0]
+    record.from = approve.from
+    record.spender = approve.spender
+    record.memo = approve.memo?.[0]
+    record.expiresAt = approve.expires_at?.[0] ? Number(approve.expires_at[0] / BigInt(1000000)) : undefined
+  }
+
+  return record
+}
+
 const loadAccountData = async () => {
   loading.value = true
   error.value = null
@@ -175,13 +221,33 @@ const loadAccountData = async () => {
     // Load token metadata first
     await loadTokenMetadata()
 
-    // Placeholder data for now
-    // In a real scenario, we'd fetch the account balance from the canister
-    // This is a limitation since ICRC doesn't provide a direct "get all transactions for account" method
+    // Get the index canister ID from environment
+    const indexCanisterId = import.meta.env.VITE_ICRC_INDEX_CANISTER_ID
+    if (!indexCanisterId) {
+      throw new Error('Index canister ID not configured')
+    }
+
+    // Fetch all transactions for the account using the index
+    const transactions = await IcrcIndexService.getAllAccountTransactions(
+      indexCanisterId,
+      principal.value,
+      undefined,
+      BigInt(100)
+    )
+
+    // Get the balance
+    const balance = await IcrcIndexService.getAccountBalance(
+      indexCanisterId,
+      principal.value
+    )
+
+    // Convert index transactions to our TransactionRecord format
+    const convertedTransactions = transactions.map(tx => convertIndexTransactionToRecord(tx))
+
     account.value = {
-      balance: BigInt(0),
-      transactions: [],
-      transactionCount: 0
+      balance: balance || BigInt(0),
+      transactions: convertedTransactions,
+      transactionCount: convertedTransactions.length
     }
   } catch (err) {
     console.error('Error loading account data:', err)

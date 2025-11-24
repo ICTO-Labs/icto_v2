@@ -35,7 +35,7 @@
             v-for="(tx, idx) in transactions"
             :key="`${idx}`"
             class="hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-            @click="viewDetails(tx)"
+            @click="viewDetails(tx, idx)"
           >
             <template v-if="!tx || !tx.kind">
               <td colspan="6" class="px-6 py-4 text-center text-sm text-gray-500 dark:text-gray-400">
@@ -67,38 +67,41 @@
 
             <!-- From -->
             <td class="px-6 py-4 whitespace-nowrap">
-              <div class="flex items-center">
-                <span v-if="getTransactionTypeLabel(tx.kind) == 'Mint'" class="text-sm text-gray-600 dark:text-gray-400 font-medium truncate">Minting Account</span>
-                <span v-else class="flex items-center space-x-1">
+              <div class="flex items-center space-x-1">
                 <router-link
+                  v-if="!isSpecialAccount(getFromAddress(tx))"
                   :to="{ name: 'PrincipalAccount', params: { id: props.canisterId, principal: getFromAddress(tx) } }"
-                  class="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 font-sm hover:underline truncate"
+                  :class="getAddressClass(getFromAddress(tx))"
+                  class="text-sm font-medium hover:underline truncate"
                   :title="getFromAddress(tx)"
                   @click.stop
                 >
-                {{ truncateAddress(getFromAddress(tx)) }}
+                  {{ truncateAddress(getFromAddress(tx)) }}
                 </router-link>
-                <CopyIcon :data="getFromAddress(tx)" @click.stop class="w-3.5 h-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0" />
-                
+                <span v-else :class="getAddressClass(getFromAddress(tx))" class="text-sm font-medium truncate">
+                  {{ getFromAddress(tx) }}
                 </span>
+                <CopyIcon :data="getFromAddress(tx)" @click.stop class="w-3.5 h-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0" />
               </div>
             </td>
 
             <!-- To -->
             <td class="px-6 py-4 whitespace-nowrap">
-              <div class="flex items-center">
-                <span v-if="getTransactionTypeLabel(tx.kind) == 'Burn'" class="text-sm text-gray-600 dark:text-gray-400 font-medium truncate">Burn Account</span>
-                <span v-else class="flex items-center space-x-1">
-                  <router-link
-                    :to="{ name: 'PrincipalAccount', params: { id: props.canisterId, principal: getToAddress(tx) } }"
-                    class="text-sm text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 font-sm hover:underline truncate"
-                    :title="getToAddress(tx)"
-                    @click.stop
-                  >
-                    {{ truncateAddress(getToAddress(tx)) }}
-                  </router-link>
-                  <CopyIcon :data="getToAddress(tx)" @click.stop class="w-3.5 h-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0" />
+              <div class="flex items-center space-x-1">
+                <router-link
+                  v-if="!isSpecialAccount(getToAddress(tx))"
+                  :to="{ name: 'PrincipalAccount', params: { id: props.canisterId, principal: getToAddress(tx) } }"
+                  :class="getAddressClass(getToAddress(tx))"
+                  class="text-sm font-medium hover:underline truncate"
+                  :title="getToAddress(tx)"
+                  @click.stop
+                >
+                  {{ truncateAddress(getToAddress(tx)) }}
+                </router-link>
+                <span v-else :class="getAddressClass(getToAddress(tx))" class="text-sm font-medium truncate">
+                  {{ getToAddress(tx) }}
                 </span>
+                <CopyIcon :data="getToAddress(tx)" @click.stop class="w-3.5 h-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 flex-shrink-0" />
               </div>
             </td>
 
@@ -115,10 +118,10 @@
             <!-- Index -->
             <td class="px-6 py-4 whitespace-nowrap">
               <button
-                @click="viewDetails(tx)"
+                @click="viewDetails(tx, idx)"
                 class="text-sm font-mono text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium cursor-pointer transition-colors"
               >
-                {{ (tx.index || BigInt(0)).toString() }}
+                {{ getTransactionIndex(idx) }}
               </button>
             </td>
             </template>
@@ -132,7 +135,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowUp, ArrowDown, Sparkles, Flame, Check } from 'lucide-vue-next'
+import { ArrowUp, ArrowDown, Sparkles, Flame, Check, ArrowRightLeft } from 'lucide-vue-next'
 import type { TransactionRecord } from '@/types/transaction'
 import { formatBalance } from '@/utils/numberFormat'
 import { formatDate, formatTimeAgo, formatTimestampSafe } from '@/utils/dateFormat'
@@ -143,23 +146,27 @@ interface Props {
   canisterId: string
   decimals?: number
   symbol?: string
+  currentPage?: number
+  pageSize?: number
 }
 
 const props = withDefaults(defineProps<Props>(), {
   decimals: 8,
-  symbol: 'TOKEN'
+  symbol: 'TOKEN',
+  currentPage: 1,
+  pageSize: 20
 })
 
 const router = useRouter()
 
-const viewDetails = (tx: TransactionRecord) => {
-  // Use timestamp as identifier since index may not be available
-  const identifier = (tx.index || BigInt(0)).toString()
+const viewDetails = (tx: TransactionRecord, arrayIndex: number) => {
+  // Calculate the global transaction index based on pagination
+  const globalIndex = (props.currentPage - 1) * props.pageSize + arrayIndex
   router.push({
     name: 'TokenTransactionDetail',
     params: {
       id: props.canisterId,
-      index: identifier,
+      index: globalIndex.toString(),
       // Pass transaction data via state for direct access
       transaction: tx
     }
@@ -174,12 +181,17 @@ const formatAmount = (amount?: bigint | string): string => {
 
 const getTransactionTypeLabel = (kind: string): string => {
   const kindMap: Record<string, string> = {
+    'xfer': 'Transfer',
     'transfer': 'Transfer',
-    'approve': 'Approve',
+    'Transfer': 'Transfer',
     'mint': 'Mint',
-    'burn': 'Burn'
+    'Mint': 'Mint',
+    'burn': 'Burn',
+    'Burn': 'Burn',
+    'approve': 'Approve',
+    'Approve': 'Approve'
   }
-  return kindMap[kind.toLowerCase()] || kind || 'Unknown'
+  return kindMap[kind] || kind || 'Unknown'
 }
 
 const getTransactionTypeBadgeClass = (kind: string): string => {
@@ -193,32 +205,39 @@ const getTransactionTypeBadgeClass = (kind: string): string => {
   return classMap[normalizedKind] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
 }
 
-const getTransactionIcon = (kind: string): typeof ArrowUp | typeof ArrowDown | typeof Sparkles | typeof Flame | typeof Check => {
+const getTransactionIcon = (kind: string): typeof ArrowRightLeft | typeof ArrowDown | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft => {
   const normalizedKind = kind.toLowerCase()
-  const iconMap: Record<string, typeof ArrowUp | typeof ArrowDown | typeof Sparkles | typeof Flame | typeof Check> = {
-    'transfer': ArrowUp, // Default to out, will be styled differently based on context
+  const iconMap: Record<string, typeof ArrowRightLeft | typeof ArrowDown | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft> = {
+    'transfer': ArrowRightLeft, // Default to out, will be styled differently based on context
     'mint': Sparkles,
     'burn': Flame,
     'approve': Check
   }
-  return iconMap[normalizedKind] || ArrowUp
+  return iconMap[normalizedKind] || ArrowRightLeft
 }
 
 const getFromAddress = (tx: TransactionRecord): string => {
   const kind = tx.kind.toLowerCase()
   if (kind === 'mint') return 'Minting Account'
   if (kind === 'burn') return tx.burn?.[0]?.from?.owner.toString() || 'Unknown'
-  if (kind === 'transfer') return tx.transfer?.[0]?.from?.owner.toString() || tx.from?.owner.toString() || 'Unknown'
-  if (kind === 'approve') return tx.approve?.[0]?.from?.owner.toString() || tx.from?.owner.toString() || 'Unknown'
+  if (kind === 'transfer' || kind === 'xfer') return tx.transfer?.[0]?.from?.owner.toString() || tx.from?.owner.toString() || 'Unknown'
+  if (kind === 'approve') {
+    const fromAddr = tx.approve?.[0]?.from?.owner?.toString?.() || tx.from?.owner?.toString?.()
+    return fromAddr || 'Unknown'
+  }
   return tx.from?.owner.toString() || 'Unknown'
 }
 
 const getToAddress = (tx: TransactionRecord): string => {
   const kind = tx.kind.toLowerCase()
   if (kind === 'burn') return 'Burn Account'
-  if (kind === 'mint') return tx.mint?.[0]?.to?.owner.toString() || 'Unknown'
-  if (kind === 'transfer') return tx.transfer?.[0]?.to?.owner.toString() || tx.to?.owner.toString() || 'Unknown'
-  if (kind === 'approve') return tx.approve?.[0]?.spender?.owner.toString() || tx.spender?.owner.toString() || 'Unknown'
+  if (kind === 'mint') return tx.mint?.[0]?.to?.owner.toString() || tx.to?.owner.toString() || 'Unknown'
+  if (kind === 'transfer' || kind === 'xfer') return tx.transfer?.[0]?.to?.owner.toString() || tx.to?.owner.toString() || 'Unknown'
+  if (kind === 'approve') {
+    // For approve, get the spender
+    const spenderAddr = tx.spender?.owner?.toString?.()
+    return spenderAddr || 'Spender Account'
+  }
   return tx.to?.owner.toString() || 'Unknown'
 }
 
@@ -235,6 +254,12 @@ const getTransactionFee = (tx: TransactionRecord): bigint | string | undefined =
   const kind = tx.kind.toLowerCase()
   if (kind === 'transfer') return tx.transfer?.[0]?.fee || tx.fee
   return tx.fee
+}
+
+const getTransactionIndex = (arrayIndex: number): string => {
+  // Calculate the global transaction index: (currentPage - 1) * pageSize + arrayIndex
+  const globalIndex = (props.currentPage - 1) * props.pageSize + arrayIndex
+  return globalIndex.toString()
 }
 
 const getTransactionTimestamp = (tx: TransactionRecord): number => {
@@ -272,6 +297,28 @@ const isCanisteId = (address: string): boolean => {
   // Check if it matches the canister ID pattern (5 groups of 5 alphanumeric chars separated by dashes)
   const canisteIdPattern = /^[a-z0-9]{5}-[a-z0-9]{5}-[a-z0-9]{5}-[a-z0-9]{5}-cai$/
   return canisteIdPattern.test(address)
+}
+
+const isSpecialAccount = (address: string): boolean => {
+  return address === 'Minting Account' || address === 'Burn Account' || address === 'Spender Account'
+}
+
+const isPrincipal = (address: string): boolean => {
+  // Check if it's a valid principal (not a special account)
+  if (isSpecialAccount(address)) return false
+  // Principal can be:
+  // 1. Canister ID: xxxxx-xxxxx-xxxxx-xxxxx-cai (exactly 4 hyphens before -cai)
+  // 2. Principal ID: multiple segments like 77rnk-lqepd-u5qrk-pb55e-fx2dn-qvkcg-bbv2t-6f3zw-5naaw-jc4yc-cae
+  // 3. User principal: single segment of alphanumerics
+  // Just check if it contains valid characters (a-z, 0-9, hyphens)
+  return /^[a-z0-9-]+$/.test(address) && !address.startsWith('-') && !address.endsWith('-')
+}
+
+const getAddressClass = (address: string): string => {
+  if (isSpecialAccount(address)) {
+    return 'text-gray-600 dark:text-gray-400'
+  }
+  return 'text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300'
 }
 
 const truncateAddress = (address: string): string => {

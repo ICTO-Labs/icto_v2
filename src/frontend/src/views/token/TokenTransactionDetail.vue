@@ -27,174 +27,150 @@
       <div v-else-if="transaction">
         <!-- Header -->
         <div class="mb-8">
-          <div class="flex items-center space-x-4">
-            <div>
-              <h1 class="text-3xl font-bold text-gray-900 dark:text-white">
-                Transaction Detail
-              </h1>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                Index: {{ (transaction?.index || 0).toString() }}
-              </p>
-            </div>
-          </div>
+          <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+            {{ tokenSymbol }} Transaction Detail #{{ transaction.index.toString() }}
+          </h1>
         </div>
 
-        <!-- Transaction Info Grid -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <!-- Main Info -->
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-6">
-              Transaction Information
-            </h3>
-            <div class="space-y-6">
+        <!-- Transaction Details Card - Full Width Layout -->
+        <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm p-8">
+          <div class="space-y-4">
               <!-- Type -->
-              <div>
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <div class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+                <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
                   Type
                 </label>
-                <div class="mt-1">
-                  <span
-                    :class="getTransactionTypeBadgeClass(transaction.kind)"
-                    class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium"
-                  >
-                    {{ getTransactionTypeLabel(transaction.kind) }}
-                  </span>
-                </div>
+                <span
+                  :class="getTransactionTypeBadgeClass(transaction.kind)"
+                  class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium"
+                >
+                  <component :is="getTransactionIcon(transaction.kind)" :size="14" class="flex-shrink-0" />
+                  {{ getTransactionTypeLabel(transaction.kind) }}
+                </span>
               </div>
 
-              <!-- Amount -->
-              <div>
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Amount
+              <!-- Status -->
+              <div class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+                <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
+                  Status
                 </label>
-                <p class="mt-2 text-2xl font-semibold text-gray-900 dark:text-white">
-                  {{ formatAmount(transaction.amount || transaction.approved_amount) }}
-                </p>
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300">
+                  Completed
+                </span>
               </div>
 
-              <!-- Fee -->
-              <div v-if="transaction.fee">
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Fee
+              <!-- Index -->
+              <div class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+                <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
+                  Index
                 </label>
-                <p class="mt-2 text-lg font-semibold text-gray-600 dark:text-gray-300">
-                  {{ formatAmount(transaction.fee) }}
+                <p class="text-sm text-gray-900 dark:text-white font-semibold">
+                  #{{ transaction.index.toString() }}
                 </p>
               </div>
 
               <!-- Timestamp -->
-              <div>
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Timestamp
-                </label>
-                <p class="mt-2 text-sm text-gray-900 dark:text-white font-mono">
-                  {{ formatDate(transaction.timestamp) }}
-                </p>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ formatTimeAgo(transaction.timestamp) }}
-                </p>
+              <div class="py-3 border-b border-gray-200 dark:border-gray-700">
+                <div class="flex items-start">
+                  <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0 pt-0.5">
+                    Timestamp
+                  </label>
+                  <div>
+                    <p class="text-sm text-gray-900 dark:text-white font-semibold">
+                      {{ formatDateTime(transaction.timestamp) }}
+                    </p>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                      {{ formatTimeAgo(transaction.timestamp) }}
+                    </p>
+                  </div>
+                </div>
               </div>
 
-              <!-- Block Index -->
-              <div>
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Transaction Index
-                </label>
-                <p class="mt-2 text-sm text-gray-900 dark:text-white font-mono break-all">
-                  {{ transaction.index.toString() }}
+            <!-- From Address -->
+            <div class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+              <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
+                From
+              </label>
+              <div class="flex items-center space-x-2 flex-1 min-w-0">
+                <router-link
+                  v-if="getAddressLink(getFromAddress(transaction))"
+                  :to="getAddressLink(getFromAddress(transaction))"
+                  :class="getAddressClass(getFromAddress(transaction))"
+                  class="text-sm font-semibold break-all"
+                  @click.stop
+                >
+                  {{ getFromAddress(transaction) }}
+                </router-link>
+                <p v-else :class="getAddressClass(getFromAddress(transaction))" class="text-sm font-semibold break-all">
+                  {{ getFromAddress(transaction) }}
                 </p>
+                <CopyIcon :data="getFromAddress(transaction)" class="h-4 w-4" @click.stop></CopyIcon>
               </div>
             </div>
-          </div>
+            <!-- Amount -->
+            <div class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+              <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
+                Amount
+              </label>
+              <p class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ formatAmount(transaction.amount || transaction.approved_amount) }}
+                <span class="text-sm font-normal text-gray-500 dark:text-gray-400 ml-2">{{ tokenSymbol }}</span>
+              </p>
+            </div>
 
-          <!-- Addresses Info -->
-          <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-            <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-6">
-              Addresses
-            </h3>
-            <div class="space-y-6">
-              <!-- From Address -->
-              <div>
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  From
-                </label>
-                <div class="mt-2 flex items-start space-x-2">
-                  <div class="flex-1">
-                    <p class="text-sm text-gray-900 dark:text-white font-mono break-all">
-                      {{ getFromAddress(transaction) }}
-                    </p>
-                    <p v-if="getFromSubaccount()" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Subaccount: {{ getFromSubaccount() }}
-                    </p>
-                  </div>
-                  <button
-                    @click="copyToClipboard(getFromAddress(transaction))"
-                    class="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <!-- To Address -->
-              <div>
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  To
-                </label>
-                <div class="mt-2 flex items-start space-x-2">
-                  <div class="flex-1">
-                    <p class="text-sm text-gray-900 dark:text-white font-mono break-all">
-                      {{ getToAddress(transaction) }}
-                    </p>
-                    <p v-if="getToSubaccount()" class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                      Subaccount: {{ getToSubaccount() }}
-                    </p>
-                  </div>
-                  <button
-                    @click="copyToClipboard(getToAddress(transaction))"
-                    class="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Memo -->
-              <div v-if="transaction.memo">
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Memo
-                </label>
-                <p class="mt-2 text-sm text-gray-900 dark:text-white font-mono break-all bg-gray-50 dark:bg-gray-900 p-2 rounded">
-                  {{ formatMemo(transaction.memo) }}
+            <!-- Fee -->
+            <div v-if="transaction.fee" class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+              <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
+                Fee
+              </label>
+              <p class="text-sm font-semibold text-gray-900 dark:text-white">
+                {{ formatAmount(transaction.fee) }}
+                <span class="text-xs font-normal text-gray-500 dark:text-gray-400 ml-2">{{ tokenSymbol }}</span>
+              </p>
+            </div>
+            <!-- To/Spender Address -->
+            <div class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+              <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
+                {{ transaction.kind.toLowerCase() === 'approve' ? 'Spender' : 'To' }}
+              </label>
+              <div class="flex items-center space-x-2 flex-1 min-w-0">
+                <router-link
+                  v-if="getAddressLink(getToAddress(transaction))"
+                  :to="getAddressLink(getToAddress(transaction))"
+                  :class="getAddressClass(getToAddress(transaction))"
+                  class="text-sm font-semibold break-all"
+                  @click.stop
+                >
+                  {{ getToAddress(transaction) }}
+                </router-link>
+                <p v-else :class="getAddressClass(getToAddress(transaction))" class="text-sm font-semibold break-all">
+                  {{ getToAddress(transaction) }}
                 </p>
-              </div>
-
-              <!-- Spender (for Approve transactions) -->
-              <div v-if="transaction.spender">
-                <label class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                  Spender
-                </label>
-                <div class="mt-2 flex items-start space-x-2">
-                  <div class="flex-1">
-                    <p class="text-sm text-gray-900 dark:text-white font-mono break-all">
-                      {{ transaction.spender.owner.toString() }}
-                    </p>
-                  </div>
-                  <button
-                    @click="copyToClipboard(transaction.spender.owner.toString())"
-                    class="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  </button>
-                </div>
+                <CopyIcon :data="getToAddress(transaction)" class="h-4 w-4" @click.stop></CopyIcon>
               </div>
             </div>
+
+            <!-- Expires At (for Approve transactions) -->
+            <div v-if="transaction.kind.toLowerCase() === 'approve'" class="flex items-center py-3 border-b border-gray-200 dark:border-gray-700">
+              <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0">
+                Expires At
+              </label>
+              <p class="text-sm text-gray-900 dark:text-white">
+                {{ transaction.expiresAt ? formatDateTime(transaction.expiresAt) : '-' }}
+              </p>
+            </div>
+
+            <!-- Memo -->
+            <div class="flex items-start py-3 border-b border-gray-200 dark:border-gray-700">
+              <label class="text-sm font-medium text-gray-500 dark:text-gray-400 w-30 flex-shrink-0 pt-1">
+                Memo
+              </label>
+              <p class="text-sm text-gray-900 dark:text-white">
+                {{ transaction.memo ? formatMemo(transaction.memo) : '-' }}
+              </p>
+            </div>
+
+
           </div>
         </div>
       </div>
@@ -210,13 +186,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
+import { ArrowUp, Sparkles, Flame, Check, ArrowRightLeft } from 'lucide-vue-next'
 import { IcrcService } from '@/api/services/icrc'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import type { TransactionRecord } from '@/types/transaction'
 import { formatBalance } from '@/utils/numberFormat'
-import { formatDate, formatTimeAgo } from '@/utils/dateFormat'
-
+import { formatDateTime, formatTimeAgo } from '@/utils/dateFormat'
+import CopyIcon from '@/icons/CopyIcon.vue'
 const route = useRoute()
 
 const canisterId = computed(() => route.params.id as string)
@@ -227,12 +204,13 @@ const error = ref<string | null>(null)
 const transaction = ref<TransactionRecord | null>(null)
 const tokenDecimals = ref(8)
 const tokenName = ref('Token')
+const tokenSymbol = ref('TOKEN')
 
 const breadcrumbItems = computed(() => [
   { label: 'Tokens', to: '/tokens' },
   { label: tokenName.value, to: `/token/${canisterId.value}` },
   { label: 'Transactions', to: `/token/${canisterId.value}/transactions` },
-  { label: `Index: ${(transaction.value?.index || 0).toString()}` }
+  { label: `#${(transaction.value?.index || 0).toString()}` }
 ])
 
 const formatAmount = (amount?: bigint): string => {
@@ -242,27 +220,70 @@ const formatAmount = (amount?: bigint): string => {
 
 const getTransactionTypeLabel = (kind: string): string => {
   const kindMap: Record<string, string> = {
+    'xfer': 'Transfer',
+    'transfer': 'Transfer',
     'Transfer': 'Transfer',
-    'Approve': 'Approve',
+    'mint': 'Mint',
     'Mint': 'Mint',
-    'Burn': 'Burn'
+    'burn': 'Burn',
+    'Burn': 'Burn',
+    'approve': 'Approve',
+    'Approve': 'Approve'
   }
   return kindMap[kind] || kind || 'Unknown'
 }
 
 const getTransactionTypeBadgeClass = (kind: string): string => {
+  const normalizedKind = kind.toLowerCase()
   const classMap: Record<string, string> = {
-    'Transfer': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
-    'Approve': 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
-    'Mint': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
-    'Burn': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+    'transfer': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
+    'xfer': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
+    'approve': 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
+    'mint': 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300',
+    'burn': 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
   }
-  return classMap[kind] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+  return classMap[normalizedKind] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
+}
+
+const getTransactionIcon = (kind: string): typeof ArrowUp | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft => {
+  const normalizedKind = kind.toLowerCase()
+  const iconMap: Record<string, typeof ArrowUp | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft> = {
+    'transfer': ArrowRightLeft,
+    'xfer': ArrowRightLeft,
+    'mint': Sparkles,
+    'burn': Flame,
+    'approve': Check
+  }
+  return iconMap[normalizedKind] || ArrowRightLeft
 }
 
 const getFromAddress = (tx: TransactionRecord): string => {
-  if (tx.kind === 'Mint') return 'Minting Account'
-  return tx.from?.owner.toString() || 'Unknown'
+  const kind = tx.kind.toLowerCase()
+
+  // Mint transactions always have Minting Account as source
+  if (kind === 'mint') return 'Minting Account'
+
+  // For burn transactions, try to get from address, fallback to Burn Account if not available
+  if (kind === 'burn') {
+    const fromAddr = tx.burn?.[0]?.from?.owner.toString()
+    return fromAddr || 'Burn Account'
+  }
+
+  // For transfer/xfer transactions
+  if (kind === 'transfer' || kind === 'xfer') {
+    const fromAddr = tx.transfer?.[0]?.from?.owner.toString() || tx.from?.owner.toString()
+    return fromAddr || 'Unknown'
+  }
+
+  // For approve transactions
+  if (kind === 'approve') {
+    const fromAddr = tx.approve?.[0]?.from?.owner?.toString?.() || tx.from?.owner?.toString?.()
+    return fromAddr || 'Unknown'
+  }
+
+  // Default fallback
+  const fromAddr = tx.from?.owner.toString()
+  return fromAddr || 'Unknown'
 }
 
 const getFromSubaccount = (): string => {
@@ -275,9 +296,32 @@ const getFromSubaccount = (): string => {
 }
 
 const getToAddress = (tx: TransactionRecord): string => {
-  if (tx.kind === 'Burn') return 'Burn Account'
-  if (tx.kind === 'Approve') return tx.spender?.owner.toString() || 'Unknown'
-  return tx.to?.owner.toString() || 'Unknown'
+  const kind = tx.kind.toLowerCase()
+
+  // Burn transactions always have Burn Account as destination
+  if (kind === 'burn') return 'Burn Account'
+
+  // For mint transactions, get the receiver address
+  if (kind === 'mint') {
+    const toAddr = tx.mint?.[0]?.to?.owner.toString() || tx.to?.owner.toString()
+    return toAddr || 'Unknown'
+  }
+
+  // For transfer/xfer transactions
+  if (kind === 'transfer' || kind === 'xfer') {
+    const toAddr = tx.transfer?.[0]?.to?.owner.toString() || tx.to?.owner.toString()
+    return toAddr || 'Unknown'
+  }
+
+  // For approve transactions, the recipient is the spender
+  if (kind === 'approve') {
+    const spenderAddr = tx.spender?.owner?.toString?.()
+    return spenderAddr || 'Spender Account'
+  }
+
+  // Default fallback
+  const toAddr = tx.to?.owner.toString()
+  return toAddr || 'Unknown'
 }
 
 const getToSubaccount = (): string => {
@@ -289,14 +333,61 @@ const getToSubaccount = (): string => {
   return (sa as number[]).join(',')
 }
 
-const formatMemo = (memo?: Uint8Array): string => {
-  if (!memo) return 'N/A'
-  const decoder = new TextDecoder()
-  try {
-    return decoder.decode(memo)
-  } catch {
-    return Array.from(memo).join(',')
+const isSpecialAccount = (address: string): boolean => {
+  return address === 'Minting Account' || address === 'Burn Account' || address === 'Spender Account'
+}
+
+const isPrincipal = (address: string): boolean => {
+  // Check if it's a valid principal (not a special account)
+  if (isSpecialAccount(address)) return false
+  // Principal can be:
+  // 1. Canister ID: xxxxx-xxxxx-xxxxx-xxxxx-cai (exactly 4 hyphens before -cai)
+  // 2. Principal ID: multiple segments like 77rnk-lqepd-u5qrk-pb55e-fx2dn-qvkcg-bbv2t-6f3zw-5naaw-jc4yc-cae
+  // 3. User principal: single segment of alphanumerics
+  // Just check if it contains valid characters (a-z, 0-9, hyphens)
+  return /^[a-z0-9-]+$/.test(address) && !address.startsWith('-') && !address.endsWith('-')
+}
+
+const getAddressLink = (address: string): string | null => {
+  if (isSpecialAccount(address) || !isPrincipal(address)) {
+    return null
   }
+  return `/token/${canisterId.value}/account/${address}`
+}
+
+const getAddressClass = (address: string): string => {
+  if (isSpecialAccount(address)) {
+    return 'text-gray-600 dark:text-gray-400'
+  }
+  return 'text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline'
+}
+
+const formatMemo = (memo?: Uint8Array | string): string => {
+  if (!memo) return 'N/A'
+
+  // If memo is already a string, return it
+  if (typeof memo === 'string') {
+    return memo
+  }
+
+  // If memo is Uint8Array, try to decode as text first
+  if (memo instanceof Uint8Array) {
+    const decoder = new TextDecoder()
+    try {
+      const decoded = decoder.decode(memo)
+      // Check if it's valid text (no control characters except common ones)
+      if (decoded.match(/^[\x20-\x7E\n\r\t]*$/)) {
+        return decoded
+      }
+      // Otherwise show as hex
+      return '0x' + Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('')
+    } catch {
+      // Show as hex if decode fails
+      return '0x' + Array.from(memo).map(b => b.toString(16).padStart(2, '0')).join('')
+    }
+  }
+
+  return 'N/A'
 }
 
 const copyToClipboard = (text: string) => {
@@ -310,6 +401,7 @@ const loadTokenMetadata = async () => {
     const tokenData = await IcrcService.getIcrc1Metadata(canisterId.value)
     if (tokenData) {
       tokenName.value = tokenData.name || 'Token'
+      tokenSymbol.value = tokenData.symbol || 'TOKEN'
       tokenDecimals.value = tokenData.decimals || 8
     }
   } catch (err) {
@@ -334,34 +426,17 @@ const loadTransaction = async () => {
       return
     }
 
-    // Fallback: fetch all transactions and find by index
-    // Note: This is not ideal but works as fallback
-    const result = await IcrcService.getTransactions(
-      canisterId.value,
-      BigInt(0),
-      BigInt(100) // Fetch first 100 transactions
-    )
+    // Get the specific block by index from the ledger
+    const blockIndex = BigInt(transactionIndex.value)
+    const foundTx = await IcrcService.getBlockByIndex(canisterId.value, blockIndex)
 
-    if (result && result.transactions.length > 0) {
-      // Find transaction by index or position
-      const index = BigInt(transactionIndex.value)
-      const foundTx = result.transactions.find((tx: any) =>
-        (tx.index && tx.index === index) ||
-        (tx.timestamp === transactionIndex.value)
-      )
-
-      if (foundTx) {
-        transaction.value = foundTx
-      } else {
-        // Just show first transaction if we can't match
-        transaction.value = result.transactions[0]
-        error.value = 'Could not find exact transaction, showing first'
-      }
+    if (foundTx) {
+      transaction.value = foundTx
     } else {
       error.value = 'Transaction not found'
     }
   } catch (err) {
-    console.error('Error loading transaction:', err)
+    console.error('[loadTransaction] Error loading transaction:', err)
     error.value = 'Failed to load transaction: ' + (err instanceof Error ? err.message : String(err))
   } finally {
     loading.value = false

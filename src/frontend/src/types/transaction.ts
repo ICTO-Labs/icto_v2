@@ -21,6 +21,7 @@ export interface TransactionRecord {
   approved_amount?: bigint;
   spender?: IcrcAccount;
   allowance_expected?: bigint;
+  expiresAt?: number;
 
   // New format fields
   mint?: Array<{

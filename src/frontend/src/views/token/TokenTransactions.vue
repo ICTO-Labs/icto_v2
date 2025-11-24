@@ -67,6 +67,8 @@
           :canisterId="canisterId"
           :decimals="tokenDecimals"
           :symbol="getTokenSymbol()"
+          :currentPage="currentPage"
+          :pageSize="pageSize"
         />
 
         <!-- Pagination -->

@@ -570,6 +570,199 @@ export class IcrcService {
         }
     }
 
+    // Parse ICRC3 Value type to TransactionRecord
+    private static parseICRC3Value(value: any, blockIndex: bigint): TransactionRecord | null {
+        try {
+            // value is a Map structure with keys like "tx", "ts", "fee", "phash"
+            if (!value || !value.Map || !Array.isArray(value.Map)) {
+                return null;
+            }
+
+            // Convert Map array to object
+            const blockMap: Record<string, any> = {};
+            for (const [key, val] of value.Map) {
+                blockMap[key] = val;
+            }
+
+            // Extract transaction data
+            const txValue = blockMap['tx'];
+            if (!txValue || !txValue.Map) {
+                return null;
+            }
+
+            // Convert tx Map to object
+            const txMap: Record<string, any> = {};
+            for (const [key, val] of txValue.Map) {
+                txMap[key] = val;
+            }
+
+            // Helper to extract value from Value variant
+            const extractValue = (val: any): any => {
+                if (!val) return null;
+                if (val.Nat !== undefined) return BigInt(val.Nat);
+                if (val.Int !== undefined) return BigInt(val.Int);
+                if (val.Blob !== undefined) return new Uint8Array(val.Blob);
+                if (val.Text !== undefined) return val.Text;
+                if (val.Array !== undefined) return val.Array;
+                if (val.Map !== undefined) return val.Map;
+                return val;
+            };
+
+            // Helper to convert blob to principal string
+            const blobToPrincipal = (blob: Uint8Array): string => {
+                if (!blob || blob.length === 0) return '';
+                try {
+                    // Use Principal.fromUint8Array if available from @dfinity/principal
+                    return Principal.fromUint8Array(blob).toString();
+                } catch (e) {
+                    // Fallback to hex representation
+                    return Array.from(blob).map(b => b.toString(16).padStart(2, '0')).join('');
+                }
+            };
+
+            // Extract blob from Value array
+            const extractBlob = (arr: any[]): Uint8Array | null => {
+                if (!Array.isArray(arr) || arr.length === 0) {
+                    return null;
+                }
+                const firstItem = arr[0];
+
+                if (firstItem && firstItem.Blob) {
+                    return new Uint8Array(firstItem.Blob);
+                }
+
+                // Maybe the array contains Blob directly?
+                if (firstItem && firstItem instanceof Uint8Array) {
+                    return firstItem;
+                }
+
+                return null;
+            };
+
+            // Build TransactionRecord
+            // Note: timestamp is in nanoseconds, convert to milliseconds for Date
+            const timestampValue = blockMap['ts'] ? extractValue(blockMap['ts']) : BigInt(0);
+            const timestampNs = timestampValue instanceof BigInt ? timestampValue : BigInt(timestampValue);
+            const timestampMs = Number(timestampNs / BigInt(1000000)); // Convert nanoseconds to milliseconds
+
+            // txMap['from'] is a Value type, need to extract Array first
+            const fromValue = txMap['from'] ? extractValue(txMap['from']) : null;
+            const toValue = txMap['to'] ? extractValue(txMap['to']) : null;
+
+            const fromBlob = extractBlob(fromValue);
+            const toBlob = extractBlob(toValue);
+
+            // Extract spender for approve transactions
+            const spenderValue = txMap['spender'] ? extractValue(txMap['spender']) : null;
+            const spenderBlob = extractBlob(spenderValue);
+
+            // Extract memo - could be in block or tx
+            let memoValue = blockMap['memo'] ? extractValue(blockMap['memo']) : undefined;
+            if (!memoValue && txMap['memo']) {
+                memoValue = extractValue(txMap['memo']);
+            }
+
+            // Extract fee - try multiple locations
+            let feeValue: bigint | undefined = undefined;
+            const blockFee = blockMap['fee'] ? extractValue(blockMap['fee']) : null;
+            const txFee = txMap['fee'] ? extractValue(txMap['fee']) : null;
+
+            if (blockFee) {
+                feeValue = blockFee instanceof BigInt ? blockFee : BigInt(blockFee.toString());
+            } else if (txFee) {
+                feeValue = txFee instanceof BigInt ? txFee : BigInt(txFee.toString());
+            }
+
+            // Extract expiresAt for approve transactions
+            let expiresAtValue: number | undefined = undefined;
+            const expiresAtRaw = txMap['expires_at'] ? extractValue(txMap['expires_at']) : null;
+            if (expiresAtRaw) {
+                // expiresAt could be in nanoseconds (like timestamp), convert to milliseconds
+                const expiresAtNs = expiresAtRaw instanceof BigInt ? expiresAtRaw : BigInt(expiresAtRaw.toString());
+                expiresAtValue = Number(expiresAtNs / BigInt(1000000));
+            }
+
+            const transaction: TransactionRecord = {
+                index: blockIndex, // Use blockIndex from parameter, not from block data
+                timestamp: timestampMs,
+                kind: txMap['op'] ? extractValue(txMap['op']) : 'unknown',
+                amount: txMap['amt'] ? BigInt(extractValue(txMap['amt']).toString()) : undefined,
+                fee: feeValue,
+                from: fromBlob ? {
+                    owner: { toString: () => blobToPrincipal(fromBlob) } as any,
+                    subaccount: undefined
+                } : undefined,
+                to: toBlob ? {
+                    owner: { toString: () => blobToPrincipal(toBlob) } as any,
+                    subaccount: undefined
+                } : undefined,
+                spender: spenderBlob ? {
+                    owner: { toString: () => blobToPrincipal(spenderBlob) } as any,
+                    subaccount: undefined
+                } : undefined,
+                memo: memoValue,
+                expiresAt: expiresAtValue
+            };
+
+            return transaction;
+        } catch (error) {
+            return null;
+        }
+    }
+
+    // Get a specific block/transaction by index
+    public static async getBlockByIndex(
+        canisterId: string,
+        blockIndex: bigint
+    ): Promise<TransactionRecord | null> {
+        try {
+
+            const actor = icrcActor({
+                canisterId: canisterId.toString(),
+                anon: true,
+            }) as any;
+
+            // Check if the canister supports icrc3_get_blocks
+            const getBlocksMethod =
+                actor.icrc3_get_blocks ||
+                actor.get_blocks;
+
+            if (!getBlocksMethod) {
+                return null;
+            }
+
+            // icrc3_get_blocks expects a vec of GetBlocksArgs records
+            // Each record has { start: nat; length: nat }
+            const params = [
+                {
+                    start: blockIndex,
+                    length: BigInt(1)
+                }
+            ];
+
+            const result = await getBlocksMethod(params);
+
+            if (!result || !result.blocks || result.blocks.length === 0) {
+                return null;
+            }
+
+            // Parse the block result - it comes as { id: nat; block: Value }
+            const blockData = result.blocks[0];
+
+            if (blockData && blockData.block) {
+                // The block data is a Value type (Map variant), need to parse it
+                const transaction = this.parseICRC3Value(blockData.block, blockIndex);
+                if (transaction) {
+                    return transaction;
+                }
+            }
+
+            return null;
+        } catch (error) {
+            return null;
+        }
+    }
+
     // Parse transaction record into user-friendly format
     public static parseTransactionRecord(record: TransactionRecord): {
         type: string;
