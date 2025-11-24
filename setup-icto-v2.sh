@@ -203,6 +203,7 @@ step_2_generate_dids() {
         "dao_contract"
         "launchpad_contract"
         "multisig_contract"
+        "icrc_index"
     )
 
     for contract in "${CONTRACT_TEMPLATES[@]}"; do
@@ -358,7 +359,14 @@ step_6_load_wasm() {
         echo -e "${YELLOW}Local network detected - manual WASM download and upload required${NC}"
         echo ""
 
+        # Enable manual WASM upload
+        echo -e "${YELLOW}Enabling manual WASM upload...${NC}"
+        dfx canister call token_factory updateConfiguration '(null, null, null, null, opt true)' --network "$NETWORK" >/dev/null
+        echo -e "${GREEN}✅ Manual WASM upload enabled${NC}"
+        echo ""
+
         WASM_FILE="sns_icrc_wasm_v2.wasm"
+        INDEX_WASM_FILE="sns_index_wasm_v2.wasm"
 
         # Export DFX_WARNING to suppress mainnet plaintext identity warning
         export DFX_WARNING=-mainnet_plaintext_identity
@@ -384,13 +392,22 @@ step_6_load_wasm() {
 
         # Extract Ledger hash from response
         LEDGER_HASH=$(echo "$SNS_VERSIONS" | grep -A1 '"Ledger"' | grep -v '"Ledger"' | sed 's/.*"\([a-f0-9]*\)".*/\1/')
+        
+        # Extract Index hash from response
+        INDEX_HASH=$(echo "$SNS_VERSIONS" | grep -A1 '"Ledger Index"' | grep -v '"Ledger Index"' | sed 's/.*"\([a-f0-9]*\)".*/\1/')
 
         if [[ -z "$LEDGER_HASH" ]]; then
             echo -e "${RED}❌ Could not extract Ledger hash from SNS response${NC}"
             return 1
         fi
+        
+        if [[ -z "$INDEX_HASH" ]]; then
+            echo -e "${RED}❌ Could not extract Index hash from SNS response${NC}"
+            return 1
+        fi
 
         echo -e "${GREEN}✅ Latest Ledger WASM hash: ${LEDGER_HASH}${NC}"
+        echo -e "${GREEN}✅ Latest Index WASM hash: ${INDEX_HASH}${NC}"
         echo ""
 
         # Step 2: Download WASM if not exists or hash changed
@@ -497,6 +514,118 @@ step_6_load_wasm() {
             echo "$finalize_result"
             return 1
         fi
+        
+        # =================================================================
+        # INDEX WASM UPLOAD
+        # =================================================================
+        
+        echo ""
+        echo -e "${BLUE}--- Processing Index WASM ---${NC}"
+        echo ""
+        
+        # Step 2b: Download Index WASM if not exists or hash changed
+        if [ ! -f "$INDEX_WASM_FILE" ]; then
+            echo -e "${YELLOW}Step 2b: Downloading Index WASM file from SNS canister...${NC}"
+
+            # Convert hex to vec nat8 format
+            vec_nat8_hex=$(echo $INDEX_HASH | sed 's/\(.\{2\}\)/\1 /g' | tr ' ' '\n' | while read -r byte; do
+                if [ ! -z "$byte" ]; then
+                    printf "%d;" $((16#$byte))
+                fi
+            done | sed 's/;$//')
+
+            # Fetch WASM from SNS canister (auto-confirm with echo "y")
+            echo -e "${CYAN}Calling SNS WASM canister to get Index WASM blob...${NC}"
+            WASM_RESULT=$(echo "y" | dfx canister call qaa6y-5yaaa-aaaaa-aaafa-cai get_wasm "(record { hash = vec { $vec_nat8_hex } })" --network ic --output idl 2>&1 || echo "FAILED")
+
+            if [[ "$WASM_RESULT" == *"opt record"* ]]; then
+                # Extract and save WASM blob
+                echo -e "${CYAN}Extracting Index WASM blob...${NC}"
+                wasm_blob=$(echo "$WASM_RESULT" | sed -n 's/.*blob "\([^"]*\)".*/\1/p')
+
+                if [[ -n "$wasm_blob" ]]; then
+                    echo "$wasm_blob" | xxd -r -p > "$INDEX_WASM_FILE"
+                    FILE_SIZE=$(stat -f%z "$INDEX_WASM_FILE" 2>/dev/null || stat -c%s "$INDEX_WASM_FILE" 2>/dev/null)
+                    echo -e "${GREEN}✅ Index WASM saved to $INDEX_WASM_FILE (${FILE_SIZE} bytes)${NC}"
+                else
+                    echo -e "${RED}❌ Failed to extract Index WASM blob${NC}"
+                    return 1
+                fi
+            else
+                echo -e "${RED}❌ Failed to fetch Index WASM from SNS canister${NC}"
+                echo "$WASM_RESULT"
+                return 1
+            fi
+        else
+            echo -e "${GREEN}✅ Index WASM file already exists: $INDEX_WASM_FILE${NC}"
+        fi
+        echo ""
+
+        # Step 3b: Upload Index WASM in chunks
+        echo -e "${YELLOW}Step 3b: Uploading Index WASM to Token Factory...${NC}"
+
+        FILE_SIZE=$(stat -f%z "$INDEX_WASM_FILE" 2>/dev/null || stat -c%s "$INDEX_WASM_FILE" 2>/dev/null)
+        CHUNK_COUNT=$(( (FILE_SIZE + MAX_CHUNK_SIZE - 1) / MAX_CHUNK_SIZE ))
+
+        echo -e "${CYAN}File size: ${FILE_SIZE} bytes${NC}"
+        echo -e "${CYAN}Uploading in ${CHUNK_COUNT} chunks...${NC}"
+        echo ""
+
+        # Clear existing chunks buffer
+        echo -e "${YELLOW}Clearing chunks buffer...${NC}"
+        dfx canister call token_factory clearChunks --network "$NETWORK" >/dev/null 2>&1 || true
+
+        # Upload chunks
+        for ((chunk=0; chunk<CHUNK_COUNT; chunk++))
+        do
+            echo -e "${YELLOW}  Uploading chunk $((chunk + 1))/${CHUNK_COUNT}...${NC}"
+
+            byteStart=$((chunk * MAX_CHUNK_SIZE))
+
+            # Extract chunk and convert to Candid vec format
+            chunk_data=$(dd if="$INDEX_WASM_FILE" bs=1 skip=$byteStart count=$MAX_CHUNK_SIZE 2>/dev/null | \
+            xxd -p -c 1 | \
+            awk '{printf "0x%s; ", $1}' | \
+            sed 's/; $//' | \
+            awk '{print "(vec {" $0 "})"}')
+
+            # Upload chunk
+            upload_result=$(dfx canister call token_factory uploadChunk "$chunk_data" --network "$NETWORK" 2>&1 || echo "FAILED")
+
+            if [[ "$upload_result" == *"ok"* ]]; then
+                echo -e "${GREEN}  ✅ Chunk $((chunk + 1)) uploaded${NC}"
+            else
+                echo -e "${RED}  ❌ Failed to upload chunk $((chunk + 1))${NC}"
+                return 1
+            fi
+        done
+
+        echo -e "${GREEN}✅ All Index chunks uploaded${NC}"
+        echo ""
+
+        # Step 4b: Finalize Index upload
+        echo -e "${YELLOW}Step 4b: Finalizing Index WASM upload...${NC}"
+
+        # Convert hash to vec nat8 format
+        vec_nat8_hex=$(echo $INDEX_HASH | sed 's/\(.\{2\}\)/\1 /g' | tr ' ' '\n' | while read -r byte; do
+            if [ ! -z "$byte" ]; then
+                printf "%d;" $((16#$byte))
+            fi
+        done | sed 's/;$//')
+
+        finalize_result=$(dfx canister call token_factory addIndexWasm "(vec { $vec_nat8_hex })" --network "$NETWORK" 2>&1 || echo "FAILED")
+
+        if [[ "$finalize_result" == *"ok"* ]]; then
+            echo -e "${GREEN}✅ Index WASM upload finalized successfully${NC}"
+            success_msg=$(echo "$finalize_result" | sed -n 's/.*ok.*"\([^"]*\)".*/\1/p')
+            if [[ -n "$success_msg" ]]; then
+                echo -e "${GREEN}Result: $success_msg${NC}"
+            fi
+        else
+            echo -e "${RED}❌ Failed to finalize Index WASM upload${NC}"
+            echo "$finalize_result"
+            return 1
+        fi
     fi
 
     # Verify WASM upload
@@ -511,11 +640,18 @@ step_6_load_wasm() {
         echo -e "${CYAN}WASM Info: $WASM_INFO${NC}"
 
         # Clean up local WASM file after successful upload and verification
-        if [[ "$NETWORK" == "local" ]] && [[ -f "$WASM_FILE" ]]; then
+        if [[ "$NETWORK" == "local" ]]; then
             echo ""
-            echo -e "${YELLOW}Cleaning up local WASM file...${NC}"
-            rm -f "$WASM_FILE"
-            echo -e "${GREEN}✅ Local WASM file removed (will re-download on next setup if needed)${NC}"
+            echo -e "${YELLOW}Cleaning up local WASM files...${NC}"
+            if [[ -f "$WASM_FILE" ]]; then
+                rm -f "$WASM_FILE"
+                echo -e "${GREEN}✅ Local Ledger WASM file removed${NC}"
+            fi
+            if [[ -f "$INDEX_WASM_FILE" ]]; then
+                rm -f "$INDEX_WASM_FILE"
+                echo -e "${GREEN}✅ Local Index WASM file removed${NC}"
+            fi
+            echo -e "${GREEN}✅ Cleanup complete (will re-download on next setup if needed)${NC}"
         fi
     fi
 

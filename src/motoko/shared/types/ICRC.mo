@@ -351,6 +351,18 @@ module {
         get_transactions : shared query (GetTransactionsRequest) -> async TransactionRange;
         remaining_capacity : shared query () -> async Nat;
     };
+
+    // ================ INDEX TYPES ================
+
+    public type IndexInitArgs = {
+        ledger_id : Principal;
+        retrieve_blocks_from_ledger_interval_seconds : ?Nat64;
+    };
+
+    public type IndexArg = {
+        #Init : IndexInitArgs;
+        #Upgrade : { ledger_id : ?Principal; retrieve_blocks_from_ledger_interval_seconds : ?Nat64 };
+    };
     
     // ================ SIMPLIFIED TYPES FOR V2 USAGE ================
     
