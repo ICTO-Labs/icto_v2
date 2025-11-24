@@ -11,7 +11,7 @@ import { Principal } from '@dfinity/principal';
 import { multisigFactoryActor } from '@/stores/auth';
 import type {
   WalletRegistry
-} from '../../../../declarations/multisig_factory/multisig_factory.did';
+} from '@declarations/multisig_factory/multisig_factory.did';
 
 // ============= TYPES =============
 

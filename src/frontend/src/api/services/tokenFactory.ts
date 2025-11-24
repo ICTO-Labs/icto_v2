@@ -11,7 +11,7 @@ import { Principal } from '@dfinity/principal';
 import { tokenFactoryActor } from '@/stores/auth';
 import type {
   TokenInfo as TokenInfoCandid
-} from '../../../../declarations/token_factory/token_factory.did';
+} from '@declarations/token_factory/token_factory.did';
 
 // ============= TYPES =============
 

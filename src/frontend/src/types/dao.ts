@@ -37,7 +37,7 @@ export type {
   Result_2,
   ProposalStateKey,
   DAO as DAOCanister
-} from '@/declarations/dao_contract/dao_contract.did'
+} from '@declarations/dao_contract/dao_contract.did'
 
 // Frontend-specific interfaces that extend or adapt the Candid types
 export interface DAO {

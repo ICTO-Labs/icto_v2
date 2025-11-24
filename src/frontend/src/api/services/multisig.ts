@@ -17,9 +17,9 @@ import type {
   AssetType,
   ProposalId,
   MultisigContract
-} from '@/declarations/multisig_contract/multisig_contract.did';
+} from '@declarations/multisig_contract/multisig_contract.did';
 import { useAuthStore, multisigContractActor, backendActor } from '@/stores/auth';
-import type { DeploymentResult__1 } from '@/declarations/backend/backend.did';
+import type { DeploymentResult__1 } from '@declarations/backend/backend.did';
 import { multisigFactoryService } from './multisigFactory';
 import { toast } from 'vue-sonner';
 

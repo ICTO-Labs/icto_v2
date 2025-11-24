@@ -286,6 +286,10 @@ export function icrcActor({ canisterId, anon = false, requiresSigning = true }: 
     return pnp.getActor<CanisterType["ICRC2_LEDGER"]>({ canisterId, idl: canisters.icrc2.idl, anon, requiresSigning });
 }
 
+export function icrcIndexActor({ canisterId, anon = false, requiresSigning = false }: { canisterId: string, anon?: boolean, requiresSigning?: boolean }) {
+    return pnp.getActor<CanisterType["ICRC_INDEX"]>({ canisterId, idl: canisters.icrc_index.idl, anon, requiresSigning });
+}
+
 export const icpActor = ({ anon = false, requiresSigning = true }: { anon?: boolean, requiresSigning?: boolean }) => {
     return pnp.getActor<CanisterType["ICP_LEDGER"]>({ canisterId: canisters.icp.canisterId!, idl: canisters.icp.idl, anon, requiresSigning });
 }

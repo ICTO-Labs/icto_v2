@@ -11,7 +11,7 @@ import { Principal } from '@dfinity/principal';
 import { daoFactoryActor } from '@/stores/auth';
 import type {
   DAOContract
-} from '../../../../declarations/dao_factory/dao_factory.did';
+} from '@declarations/dao_factory/dao_factory.did';
 
 // ============= TYPES =============
 

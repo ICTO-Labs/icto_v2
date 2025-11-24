@@ -468,23 +468,24 @@ export class IcrcService {
     }
 
     //Check if principal is a mint account
-    public static async isMintAccount(canisterId: Principal, principal: Principal): Promise<boolean> {
+    public static async isMintAccount(canisterId: Principal, principal?: string | null): Promise<boolean> {
         try {
-            // Validate input
+            // Validate canisterId
             if (!canisterId) {
-                throw new Error('Invalid token: canisterId is required');
+                return false;
             }
 
+            // Return false if principal is not available
             if (!principal) {
-                throw new Error('Invalid principal: principal is required');
+                return false;
             }
+
             const actor = icrcActor({
                 canisterId: canisterId.toString(),
                 anon: true,
             });
             const result = await actor.icrc1_minting_account();
             if (!result || !Array.isArray(result)) {
-                console.warn('No minting accounts found or invalid response:', result);
                 return false;
             }
             const isMintAccount = result.some((account) => {
@@ -495,7 +496,6 @@ export class IcrcService {
             });
             return isMintAccount;
         } catch (error) {
-            console.error('Error checking if principal is a mint account:', error);
             return false;
         }
     }

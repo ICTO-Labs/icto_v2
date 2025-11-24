@@ -13,7 +13,7 @@ import type {
   WalletEvent,
   AssetType,
   ProposalId
-} from '@/declarations/multisig_contract/multisig_contract.did';
+} from '@declarations/multisig_contract/multisig_contract.did';
 import { multisigService } from '@/api/services/multisig';
 import { useAuthStore } from '@/stores/auth';
 import {

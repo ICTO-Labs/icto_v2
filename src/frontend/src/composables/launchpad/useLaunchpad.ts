@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue'
 import { toast } from 'vue-sonner'
 import { LaunchpadService, type LaunchpadFilters } from '@/api/services/launchpad'
-import type { LaunchpadDetail, LaunchpadStats, Participant } from '@/declarations/launchpad_contract/launchpad_contract.did'
+import type { LaunchpadDetail, LaunchpadStats, Participant } from '@declarations/launchpad_contract/launchpad_contract.did'
 import { useAuthStore } from '@/stores/auth'
 
 export function useLaunchpad() {

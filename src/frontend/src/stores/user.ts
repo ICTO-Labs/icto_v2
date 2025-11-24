@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { backend as backendActor } from '../../../declarations/backend';
+import { backend as backendActor } from '@declarations/backend';
 import { useWalletStore } from './wallet';
 import type { UserProfile, UserDeployment, UserPayment } from '@/types/user'
 // TODO: FIX THIS TYPE IMPORT ISSUE. Using 'any' as a temporary workaround.

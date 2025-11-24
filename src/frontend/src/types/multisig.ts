@@ -55,7 +55,7 @@ import type {
   TokenStandard,
   NFTBalance,
   NFTStandard
-} from '@/declarations/multisig_contract/multisig_contract.did';
+} from '@declarations/multisig_contract/multisig_contract.did';
 
 // Re-export all types
 export type {

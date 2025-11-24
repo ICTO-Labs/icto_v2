@@ -27,7 +27,7 @@ import type {
   LaunchpadDeploymentCost,
   PaymentHistory
 } from '@/types/payment'
-import type { LaunchpadConfig } from '@/declarations/launchpad_contract/launchpad_contract.did'
+import type { LaunchpadConfig } from '@declarations/launchpad_contract/launchpad_contract.did'
 
 export function useLaunchpadPayment() {
   // ============= STATE =============

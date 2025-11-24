@@ -1,9 +1,9 @@
-import type { 
+import type {
     UserProfile,
     TransactionView,
     TokenConfig,
     Result as DeploymentResult,
-} from '../../declarations/backend/backend.did';
+} from '@declarations/backend/backend.did';
 import type { Principal } from '@dfinity/principal'
 
 export type { UserProfile, TransactionView, TokenConfig, DeploymentResult };

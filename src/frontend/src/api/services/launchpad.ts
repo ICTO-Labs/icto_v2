@@ -21,7 +21,7 @@ import type {
   Result_2,
   Result_3,
   Result_4
-} from '@/declarations/launchpad_contract/launchpad_contract.did'
+} from '@declarations/launchpad_contract/launchpad_contract.did'
 import { formatTokenAmount } from "@/utils/token";
 
 export interface LaunchpadFilters {
