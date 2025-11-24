@@ -44,20 +44,13 @@
           <!-- ID Card -->
           <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
             <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">
-              ID
+              Principal
             </h3>
             <div class="flex items-start space-x-2">
               <p class="text-sm font-mono text-gray-900 dark:text-white break-all">
                 {{ principal }}
               </p>
-              <button
-                @click="copyToClipboard(principal)"
-                class="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                </svg>
-              </button>
+              <CopyIcon :data="principal" class="w-4 h-4" />
             </div>
           </div>
 
@@ -68,7 +61,7 @@
             </h3>
             <div class="flex items-center space-x-2">
               <span class="text-2xl font-semibold text-gray-900 dark:text-white">
-                {{ formatBalance(account.balance) }}
+                {{ formatBalance(account.balance, tokenDecimals) }}
               </span>
               <span class="text-lg text-gray-500 dark:text-gray-400">
                 {{ tokenSymbol }}
@@ -97,7 +90,25 @@
             :canisterId="canisterId"
             :decimals="tokenDecimals"
             :symbol="tokenSymbol"
+            :accountPrincipal="principal"
           />
+        </div>
+        <div v-else-if="!isIndexed" class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4 rounded">
+            <div class="flex">
+                <div class="flex-shrink-0">
+                    <svg class="h-5 w-5 text-yellow-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                    </svg>
+                </div>
+                <div class="ml-3">
+                    <p class="text-sm text-yellow-700">
+                        This token does not have an Index canister deployed. Transaction history is not available.
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div v-else class="text-center py-8 text-gray-500">
+            No transactions found.
         </div>
       </div>
 
@@ -114,12 +125,15 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { IcrcService } from '@/api/services/icrc'
 import { IcrcIndexService } from '@/api/services/icrcIndex'
+import { tokenFactoryService } from '@/api/services/tokenFactory'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import TransactionTable from '@/components/token/TransactionTable.vue'
 import { formatBalance } from '@/utils/numberFormat'
 import type { TransactionRecord } from '@/types/transaction'
 import type { TransactionWithId, Transaction as IndexTransaction } from '@/declarations/icrc_index/icrc_index.did'
+import { Principal } from '@dfinity/principal'
+import { useRouter } from 'vue-router'
 
 const route = useRoute()
 
@@ -131,6 +145,7 @@ const error = ref<string | null>(null)
 const tokenName = ref('Token')
 const tokenSymbol = ref('TOKEN')
 const tokenDecimals = ref(8)
+const isIndexed = ref(false)
 
 const account = ref<{
   balance: bigint
@@ -141,7 +156,7 @@ const account = ref<{
 const breadcrumbItems = computed(() => [
   { label: 'Tokens', to: '/tokens' },
   { label: tokenName.value, to: `/token/${canisterId.value}` },
-  { label: 'Transactions', to: `/token/${canisterId.value}/transactions` },
+  { label: 'Account'},
   { label: principal.value }
 ])
 
@@ -221,28 +236,42 @@ const loadAccountData = async () => {
     // Load token metadata first
     await loadTokenMetadata()
 
-    // Get the index canister ID from environment
-    const indexCanisterId = import.meta.env.VITE_ICRC_INDEX_CANISTER_ID
-    if (!indexCanisterId) {
-      throw new Error('Index canister ID not configured')
+    // 1. Fetch Token Info to get Index Canister ID
+    const tokenInfo = await tokenFactoryService.getTokenInfo(Principal.fromText(canisterId.value))
+    let indexCanisterId: string | undefined
+    
+    if (tokenInfo && tokenInfo.indexCanisterId && tokenInfo.indexCanisterId.length > 0) {
+        indexCanisterId = tokenInfo.indexCanisterId[0].toString()
+        isIndexed.value = true
+    } else {
+        isIndexed.value = false
     }
 
-    // Fetch all transactions for the account using the index
-    const transactions = await IcrcIndexService.getAllAccountTransactions(
-      indexCanisterId,
-      principal.value,
-      undefined,
-      BigInt(100)
+    // 2. Fetch Balance (Always from Ledger for accuracy/fallback)
+    const balance = await IcrcService.balanceOf(
+        canisterId.value,
+        Principal.fromText(principal.value)
     )
 
-    // Get the balance
-    const balance = await IcrcIndexService.getAccountBalance(
-      indexCanisterId,
-      principal.value
-    )
+    let convertedTransactions: TransactionRecord[] = []
 
-    // Convert index transactions to our TransactionRecord format
-    const convertedTransactions = transactions.map(tx => convertIndexTransactionToRecord(tx))
+    // 3. Fetch Transactions (Only if Index is available)
+    if (isIndexed.value && indexCanisterId) {
+        try {
+            const transactions = await IcrcIndexService.getAllAccountTransactions(
+              indexCanisterId,
+              principal.value,
+              undefined,
+              BigInt(100)
+            )
+            convertedTransactions = transactions.map(tx => convertIndexTransactionToRecord(tx))
+            console.log('Transactions:', convertedTransactions)
+        } catch (idxErr) {
+            console.error("Failed to fetch transactions from Index:", idxErr)
+            // Fallback or just show empty with error? 
+            // We'll keep it empty but maybe log it.
+        }
+    }
 
     account.value = {
       balance: balance || BigInt(0),

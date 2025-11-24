@@ -140,10 +140,10 @@ const router = createRouter({
     },
     {
       path: '/token/:id/account/:principal',
-      name: 'PrincipalAccount',
-      component: () => import('../views/token/PrincipalAccount.vue'),
+      name: 'TokenAccount',
+      component: () => import('../views/token/TokenAccount.vue'),
       meta: {
-        title: 'Principal Account',
+        title: 'Token Account',
       }
     },
     {
