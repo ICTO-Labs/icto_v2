@@ -27,28 +27,29 @@ import IUpgradeable "../common/IUpgradeable";
 persistent actor class DistributionFactory() = this {
     
     // ================ STABLE VARIABLES ================
-    private stable var MIN_CYCLES_IN_DEPLOYER : Nat = 2_000_000_000_000;
-    private stable var CYCLES_FOR_INSTALL : Nat = 1_000_000_000_000; ///Init 1T cycles
+    private var MIN_CYCLES_IN_DEPLOYER : Nat = 2_000_000_000_000;
+    private var CYCLES_FOR_INSTALL : Nat = 1_000_000_000_000; ///Init 1T cycles
 
     // Backend-Managed Admin System
-    private stable var admins : [Principal] = [];
-    private stable let BACKEND_CANISTER : Principal = Principal.fromText("u6s2n-gx777-77774-qaaba-cai"); // Backend canister ID
+    private var admins : [Principal] = [];
+    private let BACKEND_CANISTER : Principal = Principal.fromText("u6s2n-gx777-77774-qaaba-cai"); // Backend canister ID
 
     // Whitelist management
-    private stable var whitelistedBackends : [(Principal, Bool)] = [];
+    private var whitelistedBackends : [(Principal, Bool)] = [];
 
     // OLD: Distribution contracts storage (Text-based ID) - DEPRECATED
-    private stable var distributionContractsStable : [(Text, Types.DistributionContract)] = [];
-    private stable var nextDistributionId : Nat = 1;
+    private var distributionContractsStable : [(Text, Types.DistributionContract)] = [];
+    private var nextDistributionId : Nat = 1;
 
     // NEW: Factory Storage Standard - Principal-based storage
-    private stable var deployedDistributionsStable : [(Principal, Types.DistributionInfo)] = [];
-    private stable var creatorIndexStable : [(Principal, [Principal])] = [];
-    private stable var recipientIndexStable : [(Principal, [Principal])] = [];
-    private stable var publicDistributions : [Principal] = [];
+    private var deployedDistributionsStable : [(Principal, Types.DistributionInfo)] = [];
+    private var creatorIndexStable : [(Principal, [Principal])] = [];
+    private var recipientIndexStable : [(Principal, [Principal])] = [];
+    private var tokenIndexStable : [(Principal, [Principal])] = []; // NEW: Token Index
+    private var publicDistributions : [Principal] = [];
 
     // VERSION MANAGEMENT: Stable storage for VersionManager
-    private stable var versionManagerStable : {
+    private var versionManagerStable : {
         wasmVersions: [(Text, VersionManager.WASMVersion)];
         contractVersions: [(Principal, VersionManager.ContractVersion)];
         compatibilityMatrix: [VersionManager.UpgradeCompatibility];
@@ -93,6 +94,7 @@ persistent actor class DistributionFactory() = this {
     private transient var deployedDistributions : Trie.Trie<Principal, Types.DistributionInfo> = Trie.empty();
     private transient var creatorIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
     private transient var recipientIndex : Trie.Trie<Principal, [Principal]> = Trie.empty();
+    private transient var tokenIndex : Trie.Trie<Principal, [Principal]> = Trie.empty(); // NEW: Token Index
 
     // Version Management Runtime State
     private transient var versionManager = VersionManager.VersionManagerState();
@@ -130,6 +132,7 @@ persistent actor class DistributionFactory() = this {
         deployedDistributionsStable := Trie.toArray<Principal, Types.DistributionInfo, (Principal, Types.DistributionInfo)>(deployedDistributions, func (k, v) = (k, v));
         creatorIndexStable := Trie.toArray<Principal, [Principal], (Principal, [Principal])>(creatorIndex, func (k, v) = (k, v));
         recipientIndexStable := Trie.toArray<Principal, [Principal], (Principal, [Principal])>(recipientIndex, func (k, v) = (k, v));
+        tokenIndexStable := Trie.toArray<Principal, [Principal], (Principal, [Principal])>(tokenIndex, func (k, v) = (k, v));
 
         // Save Version Manager state
         versionManagerStable := versionManager.toStable();
@@ -163,6 +166,10 @@ persistent actor class DistributionFactory() = this {
             recipientIndex := Trie.put(recipientIndex, _principalKey(userId), Principal.equal, canisters).0;
         };
 
+        for ((tokenId, canisters) in tokenIndexStable.vals()) {
+            tokenIndex := Trie.put(tokenIndex, _principalKey(tokenId), Principal.equal, canisters).0;
+        };
+
         // Restore Version Manager state
         versionManager.fromStable(versionManagerStable);
 
@@ -187,6 +194,7 @@ persistent actor class DistributionFactory() = this {
         deployedDistributionsStable := [];
         creatorIndexStable := [];
         recipientIndexStable := [];
+        tokenIndexStable := [];
 
         Debug.print("DistributionFactory: Postupgrade completed - restored " # debug_show(Trie.size(deployedDistributions)) # " distributions");
     };
@@ -219,40 +227,40 @@ persistent actor class DistributionFactory() = this {
         Trie.get(deployedDistributions, _principalKey(caller), Principal.equal) != null
     };
 
-    // Get user's canisters from an index
-    private func _getUserCanisters(
+    // Get entries from an index (Generic)
+    private func _getEntriesFromIndex(
         index: Trie.Trie<Principal, [Principal]>,
-        user: Principal
+        key: Principal
     ) : [Principal] {
-        switch (Trie.get(index, _principalKey(user), Principal.equal)) {
+        switch (Trie.get(index, _principalKey(key), Principal.equal)) {
             case (?canisters) { canisters };
             case null { [] };
         }
     };
 
-    // Add canister to user index
-    private func _addToUserIndex(
+    // Add canister to index (Generic)
+    private func _addToIndex(
         index: Trie.Trie<Principal, [Principal]>,
-        user: Principal,
+        key: Principal,
         canister: Principal
     ) : Trie.Trie<Principal, [Principal]> {
-        let existing = _getUserCanisters(index, user);
+        let existing = _getEntriesFromIndex(index, key);
         if (_arrayContains(existing, canister)) {
             return index; // Already exists
         };
         let updated = Array.append(existing, [canister]);
-        Trie.put(index, _principalKey(user), Principal.equal, updated).0
+        Trie.put(index, _principalKey(key), Principal.equal, updated).0
     };
 
-    // Remove canister from user index
-    private func _removeFromUserIndex(
+    // Remove canister from index (Generic)
+    private func _removeFromIndex(
         index: Trie.Trie<Principal, [Principal]>,
-        user: Principal,
+        key: Principal,
         canister: Principal
     ) : Trie.Trie<Principal, [Principal]> {
-        let existing = _getUserCanisters(index, user);
+        let existing = _getEntriesFromIndex(index, key);
         let filtered = Array.filter(existing, func(id: Principal) : Bool { id != canister });
-        Trie.put(index, _principalKey(user), Principal.equal, filtered).0
+        Trie.put(index, _principalKey(key), Principal.equal, filtered).0
     };
 
     // Check if array contains item
@@ -379,6 +387,7 @@ persistent actor class DistributionFactory() = this {
             // NEW: Build indexes (Factory Storage Standard)
             let distributionInfo : Types.DistributionInfo = {
                 contractId = canisterId;
+                tokenCanisterId = args.config.tokenInfo.canisterId; // NEW: Token ID
                 creator = args.owner; // Use args.owner (actual creator, not caller which is backend)
                 title = args.config.title;
                 description = args.config.description;
@@ -402,7 +411,10 @@ persistent actor class DistributionFactory() = this {
             ).0;
 
             // Add to creator index
-            creatorIndex := _addToUserIndex(creatorIndex, args.owner, canisterId);
+            creatorIndex := _addToIndex(creatorIndex, args.owner, canisterId);
+
+            // NEW: Add to token index
+            tokenIndex := _addToIndex(tokenIndex, args.config.tokenInfo.canisterId, canisterId);
 
             // Add recipients to recipient index (for Whitelist mode)
             switch (args.config.eligibilityType) {
@@ -412,14 +424,14 @@ persistent actor class DistributionFactory() = this {
                         case (?multiRecipients) {
                             Debug.print("📇 Indexing " # debug_show(multiRecipients.size()) # " recipients from multiCategoryRecipients (V2)");
                             for (recipient in multiRecipients.vals()) {
-                                recipientIndex := _addToUserIndex(recipientIndex, recipient.address, canisterId);
+                                recipientIndex := _addToIndex(recipientIndex, recipient.address, canisterId);
                             };
                         };
                         case null {
                             // V1: Fallback to recipients field
                             Debug.print("📇 Indexing " # debug_show(args.config.recipients.size()) # " recipients from recipients (V1)");
                             for (recipient in args.config.recipients.vals()) {
-                                recipientIndex := _addToUserIndex(recipientIndex, recipient.address, canisterId);
+                                recipientIndex := _addToIndex(recipientIndex, recipient.address, canisterId);
                             };
                         };
                     };
@@ -672,7 +684,7 @@ persistent actor class DistributionFactory() = this {
         limit: Nat,
         offset: Nat
     ) : async Types.PaginatedResponse {
-        let allIds = _getUserCanisters(creatorIndex, user);
+        let allIds = _getEntriesFromIndex(creatorIndex, user);
         let total = allIds.size();
         let paginatedIds = _paginate(allIds, limit, offset);
 
@@ -693,7 +705,7 @@ persistent actor class DistributionFactory() = this {
         limit: Nat,
         offset: Nat
     ) : async Types.PaginatedResponse {
-        let allIds = _getUserCanisters(recipientIndex, user);
+        let allIds = _getEntriesFromIndex(recipientIndex, user);
         let total = allIds.size();
         let paginatedIds = _paginate(allIds, limit, offset);
 
@@ -714,7 +726,7 @@ persistent actor class DistributionFactory() = this {
         offset: Nat
     ) : async Types.PaginatedResponse {
         // For distributions, "participating" means "recipient"
-        let allIds = _getUserCanisters(recipientIndex, user);
+        let allIds = _getEntriesFromIndex(recipientIndex, user);
         let total = allIds.size();
         let paginatedIds = _paginate(allIds, limit, offset);
 
@@ -734,8 +746,8 @@ persistent actor class DistributionFactory() = this {
         limit: Nat,
         offset: Nat
     ) : async Types.PaginatedResponse {
-        let createdIds = _getUserCanisters(creatorIndex, user);
-        let recipientIds = _getUserCanisters(recipientIndex, user);
+        let createdIds = _getEntriesFromIndex(creatorIndex, user);
+        let recipientIds = _getEntriesFromIndex(recipientIndex, user);
 
         // Merge and deduplicate
         let allIds = _mergeDeduplicate(createdIds, recipientIds);
@@ -775,6 +787,27 @@ persistent actor class DistributionFactory() = this {
         Trie.get(deployedDistributions, _principalKey(contractId), Principal.equal)
     };
 
+    // Query 7: Get distributions by Token ID: 
+    // Allow users to search for distributions by token ID
+    public query func getDistributionsByToken(
+        tokenId: Principal,
+        limit: Nat,
+        offset: Nat
+    ) : async Types.PaginatedResponse {
+        let allIds = _getEntriesFromIndex(tokenIndex, tokenId);
+        let total = allIds.size();
+        let paginatedIds = _paginate(allIds, limit, offset);
+
+        let distributions = Array.mapFilter<Principal, Types.DistributionInfo>(
+            paginatedIds,
+            func (id: Principal) : ?Types.DistributionInfo {
+                Trie.get(deployedDistributions, _principalKey(id), Principal.equal)
+            }
+        );
+
+        { distributions = distributions; total = total }
+    };
+
     // ================ CALLBACK FUNCTIONS (from deployed contracts) ================
 
     // Callback 1: Recipient added to distribution
@@ -786,7 +819,7 @@ persistent actor class DistributionFactory() = this {
         };
 
         // Add to recipient index
-        recipientIndex := _addToUserIndex(recipientIndex, recipient, caller);
+        recipientIndex := _addToIndex(recipientIndex, recipient, caller);
 
         Debug.print("Recipient added: " # Principal.toText(recipient) # " to " # Principal.toText(caller));
         #ok()
@@ -801,7 +834,7 @@ persistent actor class DistributionFactory() = this {
         };
 
         // Remove from recipient index
-        recipientIndex := _removeFromUserIndex(recipientIndex, recipient, caller);
+        recipientIndex := _removeFromIndex(recipientIndex, recipient, caller);
 
         Debug.print("Recipient removed: " # Principal.toText(recipient) # " from " # Principal.toText(caller));
         #ok()
@@ -820,6 +853,7 @@ persistent actor class DistributionFactory() = this {
             case (?info) {
                 let updatedInfo : Types.DistributionInfo = {
                     contractId = info.contractId;
+                    tokenCanisterId = info.tokenCanisterId; // Keep existing token ID
                     creator = info.creator;
                     title = info.title;
                     description = info.description;

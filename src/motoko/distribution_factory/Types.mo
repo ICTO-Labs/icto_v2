@@ -31,6 +31,7 @@ module Types {
     // Distribution Info for factory registry (lightweight)
     public type DistributionInfo = {
         contractId: Principal;
+        tokenCanisterId: Principal; // NEW: Token ID for indexing
         creator: Principal;
         title: Text;
         description: Text;
