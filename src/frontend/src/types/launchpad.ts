@@ -36,7 +36,7 @@ export type {
   Result_1,
   Result_2,
   VestingFrequency
-} from '../../../declarations/launchpad_factory/launchpad_factory.did'
+} from '@declarations/launchpad_factory/launchpad_factory.did'
 // Frontend-specific interfaces that extend or adapt the Candid types
 // ============= THIRD-PARTY INTEGRATIONS =============
 

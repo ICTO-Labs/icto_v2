@@ -1,10 +1,10 @@
 import { ref } from 'vue'
-import { backend as backendActor } from '../../../../declarations/backend'
-import type { 
+import { backend as backendActor } from '@declarations/backend'
+import type {
     TokenConfig,
     DeploymentRequest,
-    Result as DeploymentResult 
-} from '../../../../declarations/backend/backend.did'
+    Result as DeploymentResult
+} from '@declarations/backend/backend.did'
 import { Principal } from '@dfinity/principal'
 
 export function useTokenService() {

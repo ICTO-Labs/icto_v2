@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { backend as backendActor } from '../../../../declarations/backend';
+import { backend as backendActor } from '@declarations/backend';
 // TODO: FIX THIS TYPE IMPORT ISSUE. Using 'any' as a temporary workaround.
 // import type { AuditLog, RefundRequest } from '../../../../declarations/backend/backend.did';
 

@@ -33,7 +33,7 @@ import type {
   CreateCommentArgs,
   UpdateCommentArgs,
   DAOStats
-} from '@/declarations/dao_contract/dao_contract.did'
+} from '@declarations/dao_contract/dao_contract.did'
 import { IcrcService } from './icrc'
 import { formatTokenAmount } from "@/utils/token";
 import { convertGovernanceLevelFromBackend, convertGovernanceLevelToBackend } from "@/utils/dao";

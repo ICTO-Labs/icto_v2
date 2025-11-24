@@ -16,7 +16,7 @@ import Nat64 "mo:base/Nat64";
 module TokenFactory {
 
     // ================ CORE TOKEN TYPES ================
-    
+
     public type TokenInfo = {
         // Core token data
         name : Text;
@@ -25,36 +25,40 @@ module TokenFactory {
         decimals : Nat8;
         transferFee : Nat;
         totalSupply : Nat;
-        
+
         // Metadata
         description : ?Text;
         logo : ?Text;
         website : ?Text;
-        
+
         // Deployment info
         owner : Principal;
         deployer : Principal;
         deployedAt : Time.Time;
         moduleHash : Text;
         wasmVersion : Text;
-        
+
         // V2 enhancements
         standard : Text; // "ICRC-1", "ICRC-2", etc.
         features : [Text]; // ["governance", "staking", etc.]
         status : TokenStatus;
-        
+
         // Integration data
         projectId : ?Text;
         launchpadId : ?Principal;
         lockContracts : [(Text, Principal)];
-        
+
         // Cycle management
         enableCycleOps : Bool;
         lastCycleCheck : Time.Time;
-        
+
         // Factory-First V2 additions
         isPublic : Bool; // Discoverable in public listings
         isVerified : Bool; // Admin-verified legitimate token
+
+        // Transaction index tracking (source of truth)
+        indexCanisterId : ?Principal;           // Index canister for efficient queries
+        enableIndex : Bool;                     // Was index enabled at creation?
     };
 
     // Backup from backend/types/TokenDeployer
@@ -126,6 +130,9 @@ module TokenFactory {
         description: ?Text;
         website: ?Text;
         projectId: ?Text;
+        // NEW: Transaction index and launchpad tracking
+        enableIndex: ?Bool;
+        launchpadId: ?Principal;
     };
     
     public type DeploymentConfig = {

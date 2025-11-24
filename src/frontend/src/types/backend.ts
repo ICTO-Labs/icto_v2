@@ -9,7 +9,7 @@ import type {
   UserProfile,
   ServiceHealth,
   RefundRequest
-} from '../../../declarations/backend/backend.did'
+} from '@declarations/backend/backend.did'
 import type { Principal } from '@dfinity/principal'
 
 export type {
@@ -143,7 +143,7 @@ import type {
     RateLimitConfig,
     CampaignType,
     ExternalDeployerArgs
-} from '@/declarations/distribution_factory/distribution_factory.did'
+} from '@declarations/distribution_factory/distribution_factory.did'
 
 // Backend request parameters for distribution deployment
 export type DistributionDeploymentRequest = ExternalDeployerArgs

@@ -227,6 +227,25 @@
                                         class="inline-block h-4 w-4 transform rounded-full bg-white transition" />
                                 </Switch>
                             </div>
+
+                            <!-- Enable Index Canister Switch -->
+                            <div class="flex items-center justify-between pt-3 border-t border-gray-200 dark:border-gray-700">
+                                <div class="flex items-center">
+                                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Create Index
+                                        Canister</span>
+                                    <HelpTooltip>
+                                        Index canister enables efficient transaction queries and account-specific history.
+                                    </HelpTooltip>
+                                </div>
+                                <Switch v-model="enableIndex"
+                                    :class="enableIndex ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'"
+                                    class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                    <span class="sr-only">Enable index canister</span>
+                                    <span
+                                        :class="enableIndex ? 'translate-x-6' : 'translate-x-1'"
+                                        class="inline-block h-4 w-4 transform rounded-full bg-white transition" />
+                                </Switch>
+                            </div>
                         </div>
 
                         <!-- CycleOps Info -->
@@ -419,6 +438,7 @@ const emit = defineEmits<{
 const showAdvanced = ref(false)
 const isPaying = ref(false)
 const errors = ref<Record<string, string>>({})
+const enableIndex = ref(false)  // NEW: Track if user wants to create index canister
 
 const standards = [
     {
@@ -717,7 +737,10 @@ const handlePayment = async () => {
                                 description: [],
                                 logo: props.modelValue.tokenConfig.logo,
                                 website: [],
-                                projectId: []
+                                projectId: [],
+                                // NEW: Index and launchpad fields (minting/launchpad default to empty)
+                                enableIndex: enableIndex.value ? [true] : [],
+                                launchpadId: []
                             },
                             deploymentConfig: {
                                 cyclesForInstall: [],

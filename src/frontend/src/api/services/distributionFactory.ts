@@ -12,7 +12,7 @@ import { distributionFactoryActor } from '@/stores/auth';
 import type {
   DistributionInfo as DistributionInfoCandid,
   PaginatedResponse as PaginatedResponseCandid
-} from '../../../../declarations/distribution_factory/distribution_factory.did';
+} from '@declarations/distribution_factory/distribution_factory.did';
 
 // ============= TYPES =============
 

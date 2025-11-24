@@ -1,6 +1,6 @@
 // Types for Distribution Campaigns - V2 Architecture
-import type { DeploymentRecord, EligibilityType, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic, FeeStructure } from '../../../declarations/backend/backend.did'
-import type { DistributionConfig, DistributionStats, Result } from '../../../declarations/distribution_contract/distribution_contract.did'
+import type { DeploymentRecord, EligibilityType, RecipientMode, UnlockFrequency, FeeType, EligibilityLogic, FeeStructure } from '@declarations/backend/backend.did'
+import type { DistributionConfig, DistributionStats, Result } from '@declarations/distribution_contract/distribution_contract.did'
 
 export type CampaignStatus = 'Ongoing' | 'Upcoming' | 'Ended' | 'Created' | 'Deployed' | 'Active' | 'Paused' | 'Completed' | 'Cancelled';
 

@@ -12,7 +12,7 @@ import { launchpadFactoryActor } from '@/stores/auth';
 import type {
   LaunchpadContract,
   LaunchpadFilter
-} from '../../../../declarations/launchpad_factory/launchpad_factory.did';
+} from '@declarations/launchpad_factory/launchpad_factory.did';
 
 // ============= TYPES =============
 

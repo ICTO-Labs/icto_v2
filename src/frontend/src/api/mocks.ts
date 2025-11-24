@@ -1,6 +1,6 @@
 // api/mocks.ts
 import { Principal } from "@dfinity/principal";
-import type { UserProfile, TransactionView, /* AuditLog */ } from "../../../declarations/backend/backend.did";
+import type { UserProfile, TransactionView, /* AuditLog */ } from "@declarations/backend/backend.did";
 
 // Note: AuditLog type is complex and not fully defined in the provided DID snippet.
 // We will omit it from mocks for now.

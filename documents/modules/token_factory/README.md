@@ -11,6 +11,7 @@
 - [Backend Documentation](./BACKEND.md) - Motoko implementation
 - [Frontend Documentation](./FRONTEND.md) - Vue.js implementation
 - [API Documentation](./API.md) - Service layer and integration
+- [Token Indexing Guide](./TOKEN_INDEXING.md) - ICRC-3 Index Canister integration
 - [Files Reference](./FILES.md) - Complete file listing
 - [Implementation Guide](./IMPLEMENTATION_GUIDE.md) - For AI agents
 - [Changelog](./CHANGELOG.md) - Development history

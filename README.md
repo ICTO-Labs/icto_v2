@@ -36,7 +36,7 @@ A decentralized platform for token operations, multi-signature wallets, DAOs, to
 
 | Factory | Description | Status |
 |---------|-------------|--------|
-| **Token Factory** | Deploy ICRC-1/2 compliant tokens with blessed SNS-W WASM | ✅ Production |
+| **Token Factory** | Deploy ICRC-1/2 compliant tokens with blessed SNS-W WASM, auto-index tracking | ✅ Production |
 | **Multisig Factory** | Create multi-signature wallets with customizable policies | ✅ Production |
 | **Distribution Factory** | Token distribution with vesting, airdrops, and locks | ✅ Production |
 | **DAO Factory** | Deploy decentralized governance structures | 🚧 In Progress |
@@ -73,6 +73,8 @@ A decentralized platform for token operations, multi-signature wallets, DAOs, to
 - **Callback System** - Real-time synchronization between factories and contracts
 - **Audit Trail** - Complete logging via dedicated Audit Storage canister
 - **Payment Records** - Secure financial data in isolated Invoice Storage canister
+- **Token Indexing** - Automatic tracking of ICRC-3 Index Canister for efficient transaction queries
+- **Launchpad Integration** - Optional launchpad context tracking for token launches
 
 ---
 
@@ -523,13 +525,17 @@ npm run test:e2e
 
 ### Code Generation
 
-```bash
-# Generate Candid declarations
-npm run generate
+TypeScript declarations are **automatically generated** for all canisters during the build process:
 
-# Generate TypeScript types from Candid
+```bash
+# Build backend canisters (auto-generates declarations)
+dfx build
+
+# Generate TypeScript types from Candid (if needed manually)
 dfx generate
 ```
+
+**Key Feature:** All canister interfaces in `dfx.json` have `declarations` configured to output to `src/declarations/`. When you run `dfx build` or `dfx deploy`, TypeScript types are automatically generated and available for import via `@declarations/` alias.
 
 ### Linting & Formatting
 

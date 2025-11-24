@@ -2,35 +2,59 @@
     "canisters": {
         "backend": {
             "main": "src/motoko/backend/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/backend"
+            }
         },
         "audit_storage": {
             "main": "src/motoko/audit_storage/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/audit_storage"
+            }
         },
         "invoice_storage": {
             "main": "src/motoko/invoice_storage/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/invoice_storage"
+            }
         },
         "token_factory": {
             "main": "src/motoko/token_factory/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/token_factory"
+            }
         },
         "template_factory": {
             "main": "src/motoko/template_factory/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/template_factory"
+            }
         },
         "distribution_factory": {
             "main": "src/motoko/distribution_factory/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/distribution_factory"
+            }
         },
         "lock_factory": {
             "main": "src/motoko/lock_factory/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/lock_factory"
+            }
         },
         "launchpad_factory": {
             "main": "src/motoko/launchpad_factory/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/launchpad_factory"
+            }
         },
         "dao_factory": {
             "type": "motoko",
@@ -41,7 +65,10 @@
         },
         "multisig_factory": {
             "main": "src/motoko/multisig_factory/main.mo",
-            "type": "motoko"
+            "type": "motoko",
+            "declarations": {
+                "output": "src/declarations/multisig_factory"
+            }
         },
         "icp_ledger": {
             "type": "custom",
@@ -52,7 +79,18 @@
                     "ic": "ryjl3-tyaaa-aaaaa-aaaba-cai"
                 }
             },
-            "init_arg_file": "icp_ledger_init_args.did"
+            "init_arg_file": "icp_ledger_init_args.did",
+            "declarations": {
+                "output": "src/declarations/icp_ledger"
+            }
+        },
+        "icrc_index": {
+            "type": "custom",
+            "candid": "https://github.com/dfinity/ic/releases/download/ledger-suite-icrc-2025-10-27/index-ng.did",
+            "wasm": "https://github.com/dfinity/ic/releases/download/ledger-suite-icrc-2025-10-27/ic-icrc1-index-ng.wasm.gz",
+            "declarations": {
+                "output": "src/declarations/icrc_index"
+            }
         },
         "frontend": {
             "dependencies": [],
@@ -71,7 +109,10 @@
                 }
             },
             "type": "custom",
-            "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz"
+            "wasm": "https://github.com/dfinity/internet-identity/releases/latest/download/internet_identity_dev.wasm.gz",
+            "declarations": {
+                "output": "src/declarations/internet_identity"
+            }
         },
         "distribution_contract": {
             "type": "motoko",

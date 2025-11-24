@@ -1,5 +1,5 @@
 import { computed, type ComputedRef } from 'vue'
-import type { LaunchpadStatus } from '@/declarations/launchpad_contract/launchpad_contract.did'
+import type { LaunchpadStatus } from '@declarations/launchpad_contract/launchpad_contract.did'
 
 /**
  * Next Milestone Info

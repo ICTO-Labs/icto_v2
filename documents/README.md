@@ -41,7 +41,7 @@ Practical guides for common tasks and standards that apply across all modules.
 |---|---|
 | **[SETUP_GUIDE.md](./SETUP_GUIDE.md)** | A step-by-step guide to using the `setup-icto-v2.sh` script for local development. |
 | **[VERSION_MANAGEMENT.md](./VERSION_MANAGEMENT.md)** | Details the robust system for versioning and upgrading smart contracts. |
-| [More guides to come...] | |
+| **[DECLARATIONS_GENERATION.md](./guides/DECLARATIONS_GENERATION.md)** | Guide to automatic TypeScript declarations generation via dfx.json configuration. |
 
 ---
 
