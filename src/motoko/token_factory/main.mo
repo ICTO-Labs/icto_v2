@@ -782,12 +782,15 @@ persistent actor TokenFactoryCanister {
             features = [];
             status = #Active;
             projectId = pendingRecord.config.projectId;
-            launchpadId = null;
+            launchpadId = pendingRecord.config.launchpadId;
             lockContracts = [];
             enableCycleOps = Option.get(pendingRecord.deploymentConfig.enableCycleOps, false);
             lastCycleCheck = Time.now();
             isPublic = isPublic; // Factory-First V2
             isVerified = false; // Factory-First V2: Admin must verify manually
+            // Transaction index tracking (source of truth)
+            indexCanisterId = null; // Placeholder - will be populated when index is created
+            enableIndex = Option.get(pendingRecord.config.enableIndex, false);
         };
         tokens := Trie.put(tokens, textKey(Principal.toText(canisterId)), Text.equal, tokenInfo).0;
 
@@ -1024,6 +1027,8 @@ persistent actor TokenFactoryCanister {
                                     lastCycleCheck = Time.now();
                                     isPublic = isPublic; // Factory-First V2
                                     isVerified = false; // Factory-First V2
+                                    indexCanisterId = null; // Placeholder for index canister
+                                    enableIndex = false; // Not enabled for this deployment path
                                 };
                                 
                                 tokens := Trie.put(tokens, textKey(Principal.toText(canister)), Text.equal, tokenInfo).0;
@@ -1108,10 +1113,30 @@ persistent actor TokenFactoryCanister {
                 };
             };
             
-            let metadata = switch (config.logo) {
-                case (?logo) { [("icrc1:logo", #Text(logo))] };
-                case null { [] };
+            // Build metadata array, only adding fields that have values
+            var metadataArray : [(Text, MetadataValue)] = [];
+
+            // Add logo if present
+            switch (config.logo) {
+                case (?logo) {
+                    metadataArray := Array.append(metadataArray, [("icrc1:logo", #Text(logo))]);
+                };
+                case null {};
             };
+
+            // Add launchpadId if present (custom namespace icto:launchpadId)
+            switch (config.launchpadId) {
+                case (?launchpadId) {
+                    metadataArray := Array.append(metadataArray, [("icto:launchpadId", #Text(Principal.toText(launchpadId)))]);
+                };
+                case null {};
+            };
+
+            // Add indexId placeholder (null initially, will be populated after index canister creation)
+            // For now, we store null as empty text to indicate placeholder
+            metadataArray := Array.append(metadataArray, [("icto:indexId", #Text(""))]);
+
+            let metadata = metadataArray;
             
             let initArgs = {
                 token_symbol = config.symbol;
@@ -2110,7 +2135,36 @@ persistent actor TokenFactoryCanister {
             };
         }
     };
-    
+
+    // Update token with index canister ID (can be called by backend after index creation)
+    // This updates the token_factory storage (source of truth) with the index canister reference
+    // Metadata on the token canister will be updated via upgrade in a future version
+    public shared({ caller }) func updateTokenIndexCanister(
+        tokenId : Principal,
+        indexCanisterId : Principal
+    ) : async Result.Result<(), Text> {
+        // Allow token owner, backend, or admin to update
+        let tokenInfo = Trie.get(tokens, textKey(Principal.toText(tokenId)), Text.equal);
+        switch (tokenInfo) {
+            case null {
+                #err("Token not found")
+            };
+            case (?info) {
+                if (not (isAdmin(caller) or info.owner == caller or _isWhitelisted(caller))) {
+                    return #err("Unauthorized: Only token owner, admin, or whitelisted backend can update index canister");
+                };
+
+                let updatedInfo : TokenInfo = {
+                    info with indexCanisterId = ?indexCanisterId
+                };
+                tokens := Trie.put(tokens, textKey(Principal.toText(tokenId)), Text.equal, updatedInfo).0;
+
+                Debug.print("Index canister updated for token: " # Principal.toText(tokenId) # " -> " # Principal.toText(indexCanisterId) # " (metadata placeholder will be updated to: icto:indexId=" # Principal.toText(indexCanisterId) # ")");
+                #ok()
+            }
+        }
+    };
+
     // Admin: Update token visibility (public/private)
     public shared({ caller }) func updateTokenVisibility(
         tokenId : Principal,

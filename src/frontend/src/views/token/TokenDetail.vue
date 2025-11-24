@@ -291,9 +291,14 @@
                 <!-- Recent Transactions -->
                 <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 mb-8">
                     <div class="flex items-center justify-between mb-6">
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-white">
-                            Recent Transactions
-                        </h3>
+                        <div class="flex items-center gap-3">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white">
+                                Recent Transactions
+                            </h3>
+                            <span class="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+                                Source: {{ transactionSource }}
+                            </span>
+                        </div>
                         <router-link
                             :to="{ name: 'TokenTransactions', params: { id: token.canisterId } }"
                             class="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
@@ -301,9 +306,18 @@
                             View All
                         </router-link>
                     </div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
-                        <p>Transactions will appear here once loaded</p>
+                    <div v-if="transactionsLoading" class="flex justify-center items-center py-8">
+                        <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500"></div>
                     </div>
+                    <TransactionTable
+                        v-else
+                        :transactions="recentTransactions"
+                        :canisterId="token.canisterId"
+                        :decimals="token.decimals"
+                        :symbol="token.symbol"
+                        :currentPage="1"
+                        :pageSize="10"
+                    />
                 </div>
                 <!-- Token Chart -->
                 <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6 mb-8">
@@ -347,9 +361,14 @@ import { Principal } from '@dfinity/principal'
 import { formatCurrency, formatNumber, formatBalance } from '@/utils/numberFormat'
 import { formatDate, formatTimeAgo } from '@/utils/dateFormat'
 import { IcrcService } from '@/api/services/icrc'
+import { IcrcIndexService } from '@/api/services/icrcIndex'
+import { TokenFactoryService } from '@/api/services/tokenFactory'
 import { useAuthStore, icrcActor } from '@/stores/auth'
 import TokenLogo from '@/components/token/TokenLogo.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
+import TransactionTable from '@/components/token/TransactionTable.vue'
+import type { TransactionRecord } from '@/types/transaction'
+import type { TransactionWithId } from '@/declarations/icrc_index/icrc_index.did'
 import {
     CoinsIcon,
     FlameIcon,
@@ -367,6 +386,10 @@ const timeRange = ref('1M')
 const loading = ref(true)
 const error = ref<string | null>(null)
 const isMinter = ref(false)
+const recentTransactions = ref<TransactionRecord[]>([])
+const transactionsLoading = ref(false)
+const transactionSource = ref<'Ledger' | 'Index'>('Ledger')
+const indexCanisterId = ref<string | null>(null)
 // Token data
 const token = ref({
     canisterId: route.params.id as string,
@@ -398,24 +421,118 @@ const breadcrumbItems = computed(() => [
   { label: token.value.name || 'Token' }
 ])
 
+// Convert Index transaction to TransactionRecord format
+const convertIndexTransactionToRecord = (txWithId: TransactionWithId): TransactionRecord => {
+  const tx = txWithId.transaction
+  const record: TransactionRecord = {
+    index: txWithId.id,
+    kind: tx.kind,
+    timestamp: Number(tx.timestamp / BigInt(1000000)), // Convert nanoseconds to milliseconds
+  }
+
+  // Handle different transaction types
+  if (tx.transfer && tx.transfer.length > 0) {
+    const transfer = tx.transfer[0]
+    record.amount = transfer.amount
+    record.fee = transfer.fee?.[0]
+    record.from = transfer.from
+    record.to = transfer.to
+    record.memo = transfer.memo?.[0]
+  } else if (tx.mint && tx.mint.length > 0) {
+    const mint = tx.mint[0]
+    record.amount = mint.amount
+    record.fee = mint.fee?.[0]
+    record.to = mint.to
+    record.memo = mint.memo?.[0]
+  } else if (tx.burn && tx.burn.length > 0) {
+    const burn = tx.burn[0]
+    record.amount = burn.amount
+    record.fee = burn.fee?.[0]
+    record.from = burn.from
+    record.memo = burn.memo?.[0]
+  } else if (tx.approve && tx.approve.length > 0) {
+    const approve = tx.approve[0]
+    record.amount = approve.amount
+    record.fee = approve.fee?.[0]
+    record.from = approve.from
+    record.spender = approve.spender
+    record.memo = approve.memo?.[0]
+    record.expiresAt = approve.expires_at?.[0] ? Number(approve.expires_at[0] / BigInt(1000000)) : undefined
+  }
+
+  return record
+}
+
+// Load recent transactions from token ledger or index
+const loadRecentTransactions = async () => {
+    transactionsLoading.value = true
+    try {
+        if (!token.value.canisterId) {
+            return
+        }
+
+        // If we have an index canister, use it instead of ledger
+        if (indexCanisterId.value) {
+            const transactions = await IcrcIndexService.getRecentTransactions(
+                indexCanisterId.value,
+                BigInt(10)
+            )
+            const converted = transactions.map(tx => convertIndexTransactionToRecord(tx))
+            recentTransactions.value = converted.sort((a, b) => {
+                const timeA = a.timestamp || 0
+                const timeB = b.timestamp || 0
+                return timeB - timeA
+            })
+            transactionSource.value = 'Index'
+        } else {
+            // Fetch from ledger canister
+            const result = await IcrcService.getTransactions(
+                token.value.canisterId,
+                BigInt(0),
+                BigInt(10)
+            )
+
+            if (result) {
+                recentTransactions.value = result.transactions
+            }
+            transactionSource.value = 'Ledger'
+        }
+    } catch (err) {
+        console.error('Error loading recent transactions:', err)
+        // Don't show error to user, just log it
+    } finally {
+        transactionsLoading.value = false
+    }
+}
+
 // Load token metadata
 const loadTokenData = async () => {
     if (!token.value.canisterId) return
-    
+
     loading.value = true
     error.value = null
-    
+
     try {
-        // Fetch token metadata
+        // First, load token info from token_factory to get indexCanisterId
+        const tokenFactoryService = new TokenFactoryService()
+        const factoryTokenInfo = await tokenFactoryService.getTokenInfo(
+            Principal.fromText(token.value.canisterId)
+        )
+
+        if (factoryTokenInfo?.indexCanisterId && factoryTokenInfo.indexCanisterId.length > 0) {
+            indexCanisterId.value = factoryTokenInfo.indexCanisterId[0].toString()
+        }
+
+        // Fetch token metadata from ICRC canister
         const metadata = await IcrcService.getIcrc1Metadata(token.value.canisterId)
-        
+
         if (metadata) {
             token.value.name = metadata.name || 'Unknown Token'
             token.value.symbol = metadata.symbol || 'UNKNOWN'
             token.value.logo = metadata.logoUrl || null
             token.value.decimals = metadata.decimals || 8
             token.value.transferFee = metadata.fee?.toString() || '0'
-            
+
             // Determine standards based on supported standards
             if (metadata.standards?.includes('ICRC-2')) {
                 token.value.standard = 'ICRC-2'
@@ -423,7 +540,7 @@ const loadTokenData = async () => {
                 token.value.standard = 'ICRC-1'
             }
         }
-        
+
         // Fetch total supply
         try {
             const actor = icrcActor({
@@ -435,11 +552,14 @@ const loadTokenData = async () => {
         } catch (err) {
             console.error('Error fetching total supply:', err);
         }
-        
+
+        // Load recent transactions
+        await loadRecentTransactions()
+
         // TODO: Fetch additional data like holders, etc.
         // This would require additional canister calls or indexer services
         await checkIsMinter()
-        
+
     } catch (err) {
         console.error('Error loading token data:', err)
         error.value = 'Failed to load token data'
