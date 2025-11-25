@@ -135,7 +135,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ArrowUp, ArrowDown, Sparkles, Flame, Check, ArrowRightLeft } from 'lucide-vue-next'
+import { ArrowUp, ArrowDown, Sparkles, Flame, Check, ArrowRightLeft, Sprout } from 'lucide-vue-next'
 import type { TransactionRecord } from '@/types/transaction'
 import { formatBalance } from '@/utils/numberFormat'
 import { formatDate, formatTimeAgo, formatTimestampSafe } from '@/utils/dateFormat'
@@ -216,11 +216,11 @@ const getTransactionTypeBadgeClass = (kind: string): string => {
   return classMap[normalizedKind] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
 }
 
-const getTransactionIcon = (kind: string): typeof ArrowRightLeft | typeof ArrowDown | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft => {
+const getTransactionIcon = (kind: string): typeof ArrowRightLeft | typeof ArrowDown | typeof Sprout | typeof Flame | typeof Check | typeof ArrowRightLeft => {
   const normalizedKind = kind.toLowerCase()
-  const iconMap: Record<string, typeof ArrowRightLeft | typeof ArrowDown | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft> = {
+  const iconMap: Record<string, typeof ArrowRightLeft | typeof ArrowDown | typeof Sprout | typeof Flame | typeof Check | typeof ArrowRightLeft> = {
     'transfer': ArrowRightLeft, // Default to out, will be styled differently based on context
-    'mint': Sparkles,
+    'mint': Sprout,
     'burn': Flame,
     'approve': Check
   }
