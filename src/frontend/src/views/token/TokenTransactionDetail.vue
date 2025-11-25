@@ -206,12 +206,30 @@ const tokenDecimals = ref(8)
 const tokenName = ref('Token')
 const tokenSymbol = ref('TOKEN')
 
-const breadcrumbItems = computed(() => [
-  { label: 'Tokens', to: '/tokens' },
-  { label: tokenName.value, to: `/token/${canisterId.value}` },
-  { label: 'Transactions', to: `/token/${canisterId.value}/transactions` },
-  { label: `#${(transaction.value?.index || 0).toString()}` }
-])
+const breadcrumbItems = computed(() => {
+  // Check if we came from an account page (via query params)
+  const fromAccount = route.query.from === 'account'
+  const accountPrincipal = route.query.principal as string | undefined
+  
+  if (fromAccount && accountPrincipal) {
+    // Breadcrumb when navigating from account page
+    return [
+      { label: 'Tokens', to: '/tokens' },
+      { label: tokenName.value, to: `/token/${canisterId.value}` },
+      { label: 'Account' },
+      { label: `${accountPrincipal}`, to: `/token/${canisterId.value}/account/${accountPrincipal}` },
+      { label: `#${(transaction.value?.index || 0).toString()}` }
+    ]
+  } else {
+    // Default breadcrumb when navigating from transactions page
+    return [
+      { label: 'Tokens', to: '/tokens' },
+      { label: tokenName.value, to: `/token/${canisterId.value}` },
+      { label: 'Transactions', to: `/token/${canisterId.value}/transactions` },
+      { label: `#${(transaction.value?.index || 0).toString()}` }
+    ]
+  }
+})
 
 const formatAmount = (amount?: bigint): string => {
   if (!amount) return '0'
@@ -418,13 +436,6 @@ const loadTransaction = async () => {
   try {
     // Load token metadata
     await loadTokenMetadata()
-
-    // Try to get transaction from route state first
-    if (route.params.transaction) {
-      transaction.value = route.params.transaction as TransactionRecord
-      loading.value = false
-      return
-    }
 
     // Get the specific block by index from the ledger
     const blockIndex = BigInt(transactionIndex.value)

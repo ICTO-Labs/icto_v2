@@ -70,7 +70,7 @@
               <div class="flex items-center space-x-1">
                 <router-link
                   v-if="!isSpecialAccount(getFromAddress(tx))"
-                  :to="{ name: 'PrincipalAccount', params: { id: props.canisterId, principal: getFromAddress(tx) } }"
+                  :to="{ name: 'TokenAccount', params: { id: props.canisterId, principal: getFromAddress(tx) } }"
                   :class="getAddressClass(getFromAddress(tx))"
                   class="text-sm font-medium hover:underline truncate"
                   :title="getFromAddress(tx)"
@@ -90,7 +90,7 @@
               <div class="flex items-center space-x-1">
                 <router-link
                   v-if="!isSpecialAccount(getToAddress(tx))"
-                  :to="{ name: 'PrincipalAccount', params: { id: props.canisterId, principal: getToAddress(tx) } }"
+                  :to="{ name: 'TokenAccount', params: { id: props.canisterId, principal: getToAddress(tx) } }"
                   :class="getAddressClass(getToAddress(tx))"
                   class="text-sm font-medium hover:underline truncate"
                   :title="getToAddress(tx)"
@@ -121,7 +121,7 @@
                 @click="viewDetails(tx, idx)"
                 class="text-sm font-mono text-indigo-600 hover:text-indigo-700 dark:text-indigo-400 dark:hover:text-indigo-300 font-medium cursor-pointer transition-colors"
               >
-                {{ getTransactionIndex(idx) }}
+                {{ getTransactionIndex(tx, idx) }}
               </button>
             </td>
             </template>
@@ -148,29 +148,40 @@ interface Props {
   symbol?: string
   currentPage?: number
   pageSize?: number
+  accountPrincipal?: string  // Optional: if viewing from account page
 }
 
 const props = withDefaults(defineProps<Props>(), {
   decimals: 8,
   symbol: 'TOKEN',
   currentPage: 1,
-  pageSize: 20
+  pageSize: 20,
+  accountPrincipal: undefined
 })
 
 const router = useRouter()
 
 const viewDetails = (tx: TransactionRecord, arrayIndex: number) => {
-  // Calculate the global transaction index based on pagination
-  const globalIndex = (props.currentPage - 1) * props.pageSize + arrayIndex
-  router.push({
+  // Use the actual transaction index if available, otherwise calculate it
+  const indexToUse = tx.index !== undefined ? tx.index.toString() : ((props.currentPage - 1) * props.pageSize + arrayIndex).toString()
+
+  const routeParams: any = {
     name: 'TokenTransactionDetail',
     params: {
       id: props.canisterId,
-      index: globalIndex.toString(),
-      // Pass transaction data via state for direct access
-      transaction: tx
+      index: indexToUse,
     }
-  })
+  }
+
+  // Add query param if navigating from account page
+  if (props.accountPrincipal) {
+    routeParams.query = {
+      from: 'account',
+      principal: props.accountPrincipal
+    }
+  }
+
+  router.push(routeParams)
 }
 
 const formatAmount = (amount?: bigint | string): string => {
@@ -219,7 +230,7 @@ const getTransactionIcon = (kind: string): typeof ArrowRightLeft | typeof ArrowD
 const getFromAddress = (tx: TransactionRecord): string => {
   const kind = tx.kind.toLowerCase()
   if (kind === 'mint') return 'Minting Account'
-  if (kind === 'burn') return tx.burn?.[0]?.from?.owner.toString() || 'Unknown'
+  if (kind === 'burn') return tx.burn?.[0]?.from?.owner.toString() || tx.from?.owner.toString() || 'Unknown'
   if (kind === 'transfer' || kind === 'xfer') return tx.transfer?.[0]?.from?.owner.toString() || tx.from?.owner.toString() || 'Unknown'
   if (kind === 'approve') {
     const fromAddr = tx.approve?.[0]?.from?.owner?.toString?.() || tx.from?.owner?.toString?.()
@@ -243,10 +254,10 @@ const getToAddress = (tx: TransactionRecord): string => {
 
 const getTransactionAmount = (tx: TransactionRecord): bigint | string => {
   const kind = tx.kind.toLowerCase()
-  if (kind === 'mint') return tx.mint?.[0]?.amount || '0'
+  if (kind === 'mint') return tx.mint?.[0]?.amount || tx.amount || '0'
   if (kind === 'transfer') return tx.transfer?.[0]?.amount || tx.amount || '0'
   if (kind === 'approve') return tx.approve?.[0]?.amount || tx.amount || '0'
-  if (kind === 'burn') return tx.burn?.[0]?.amount || '0'
+  if (kind === 'burn') return tx.burn?.[0]?.amount || tx.amount || '0'
   return tx.amount || '0'
 }
 
@@ -256,7 +267,10 @@ const getTransactionFee = (tx: TransactionRecord): bigint | string | undefined =
   return tx.fee
 }
 
-const getTransactionIndex = (arrayIndex: number): string => {
+const getTransactionIndex = (tx: TransactionRecord, arrayIndex: number): string => {
+  if (tx.index !== undefined) {
+    return tx.index.toString()
+  }
   // Calculate the global transaction index: (currentPage - 1) * pageSize + arrayIndex
   const globalIndex = (props.currentPage - 1) * props.pageSize + arrayIndex
   return globalIndex.toString()

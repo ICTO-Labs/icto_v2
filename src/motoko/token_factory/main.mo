@@ -82,6 +82,8 @@ persistent actor TokenFactoryCanister {
     public type LedgerArg = TokenFactory.LedgerArg;
     public type DeploymentResultToken = TokenFactory.DeploymentResultToken;
     
+    private type WasmType = { #Ledger; #Index };
+    
     // ================ STABLE VARIABLES ================
     
     // Core V2 storage - clean state management
@@ -130,11 +132,13 @@ persistent actor TokenFactoryCanister {
     private stable var cyclesForArchive : Nat = 2_000_000_000_000; // 2T cycles
     
     // WASM management - enhanced from V1
-    private stable var snsWasmVersion : Blob = "a35575419aa7867702a5344c6d868aa190bb682421e77137d0514398f1506952";
-    private stable var snsWasmData : Blob = "";
-    private stable var allowManualWasm : Bool = true; // Enable manual WASM upload
+    private stable var snsWasmVersion : Blob = Blob.fromArray([]); // Ledger WASM Version (Hash)
+    private stable var snsWasmData : Blob = Blob.fromArray([]);    // Ledger WASM Binary
     
-    // Manual WASM upload chunks (from V1)
+    private stable var indexWasmVersion : Blob = Blob.fromArray([]); // Index WASM Version (Hash)
+    private stable var indexWasmData : Blob = Blob.fromArray([]);    // Index WASM Binary
+    
+    private stable var allowManualWasm : Bool = true;
     private transient let wasmChunks : Buffer.Buffer<Blob> = Buffer.Buffer(0);
     
     // Backend-Managed Admin System
@@ -331,48 +335,75 @@ persistent actor TokenFactoryCanister {
         
         try {
             let res = await snsWasm.get_latest_sns_version_pretty(null);
+            var updates = "";
+            
             for ((componentType, versionHex) in res.vals()) {
-                if (componentType == "Ledger") {
-                    let decode = Hex.decode(versionHex);
-                    switch (decode) {
-                        case (#ok(version)) {
-                            let latestVersion : Blob = Blob.fromArray(version);
+                let decode = Hex.decode(versionHex);
+                switch (decode) {
+                    case (#ok(version)) {
+                        let latestVersion : Blob = Blob.fromArray(version);
+                        
+                        if (componentType == "Ledger") {
                             if (not Blob.equal(snsWasmVersion, latestVersion)) {
                                 snsWasmVersion := latestVersion;
-                                let saved = await saveWasmVersion(snsWasmVersion);
+                                let saved = await saveWasmVersion(snsWasmVersion, #Ledger);
                                 switch (saved) {
-                                    case (#ok(_)) {
-                                        return #ok("New WASM version saved: " # versionHex);
-                                    };
-                                    case (#err(err)) {
-                                        return #err("Failed to save new WASM: " # err);
-                                    };
-                                }
-                            } else {
-                                return #ok("Already using latest version: " # versionHex);
-                            }
+                                    case (#ok(_)) { updates := updates # "Ledger updated to " # versionHex # "; " };
+                                    case (#err(e)) { updates := updates # "Ledger update failed: " # e # "; " };
+                                };
+                            };
+                        } else if (componentType == "Ledger Index") {
+                            if (not Blob.equal(indexWasmVersion, latestVersion)) {
+                                indexWasmVersion := latestVersion;
+                                let saved = await saveWasmVersion(indexWasmVersion, #Index);
+                                switch (saved) {
+                                    case (#ok(_)) { updates := updates # "Index updated to " # versionHex # "; " };
+                                    case (#err(e)) { updates := updates # "Index update failed: " # e # "; " };
+                                };
+                            };
                         };
-                        case (#err(err)) {
-                            return #err("Error decoding version: " # debug_show(err));
-                        };
+                    };
+                    case (#err(err)) {
+                        Debug.print("Error decoding version for " # componentType # ": " # debug_show(err));
                     };
                 };
             };
-            #err("Ledger WASM version not found in response")
+            
+            if (updates == "") {
+                #ok("All WASMs are up to date")
+            } else {
+                #ok(updates)
+            }
         } catch (error) {
             #err("Failed to fetch latest version: " # Error.message(error))
         }
     };
     
-    private func saveWasmVersion(version : Blob) : async Result.Result<Text, Text> {
+
+
+    private func saveWasmVersion(version : Blob, wasmType : WasmType) : async Result.Result<Text, Text> {
         try {
             let wasmResp = await snsWasm.get_wasm({ hash = version });
             let ?wasmVer = wasmResp.wasm else return #err("No blessed WASM available");
-            snsWasmData := wasmVer.wasm;
+            
+            let typeName = switch(wasmType) { case(#Ledger) "Ledger"; case(#Index) "Index" };
+            
+            // Store data based on type
+            switch(wasmType) {
+                case(#Ledger) { snsWasmData := wasmVer.wasm };
+                case(#Index) { indexWasmData := wasmVer.wasm };
+            };
 
             // VERSION MANAGEMENT: Register SNS WASM with version manager
             let versionHex = Hex.encode(Blob.toArray(version));
             let existingVersions = versionManager.listVersions();
+            
+            // Note: We might want to prefix release notes to distinguish Ledger vs Index if we use same version manager
+            // Currently VersionManager is generic, but we should probably tag them.
+            // For now, we'll assume VersionManager handles the contract type distinction via the contract registration
+            // BUT, uploadWASMVersion doesn't take a type. 
+            // TODO: Ideally VersionManager should support multiple artifact types.
+            // For now, we will just register them. The hash will be different anyway.
 
             // Check if this WASM version is already registered
             let alreadyRegistered = Array.find(existingVersions, func(wasmVer: VersionManager.WASMVersion) : Bool {
@@ -393,7 +424,7 @@ persistent actor TokenFactoryCanister {
                     Principal.fromText("qaa6y-5yaaa-aaaaa-aaafa-cai"), // SNS canister as uploader
                     semanticVersion,
                     wasmVer.wasm,
-                    "SNS ICRC-2 Ledger - Auto-sync from SNS canister - Hash: " # versionHex,
+                    "SNS ICRC " # typeName # " - Auto-sync from SNS canister - Hash: " # versionHex,
                     true, // SNS versions are considered stable
                     null,
                     version // externalHash: SNS provides the hash
@@ -401,19 +432,18 @@ persistent actor TokenFactoryCanister {
 
                 switch (registerResult) {
                     case (#ok()) {
-                        Debug.print("TokenFactory: Registered SNS WASM version " #
+                        Debug.print("TokenFactory: Registered SNS " # typeName # " WASM version " #
                                    Nat.toText(semanticVersion.major) # "." #
                                    Nat.toText(semanticVersion.minor) # "." #
                                    Nat.toText(semanticVersion.patch) # " with hash " # versionHex);
                     };
                     case (#err(err)) {
-                        Debug.print("TokenFactory: Failed to register SNS WASM version: " # err);
-                        // Don't fail the whole operation, just log it
+                        Debug.print("TokenFactory: Failed to register SNS " # typeName # " WASM version: " # err);
                     };
                 };
             };
 
-            #ok("WASM saved successfully")
+            #ok(typeName # " WASM saved successfully")
         } catch (error) {
             #err("Failed to save WASM: " # Error.message(error))
         }
@@ -512,6 +542,60 @@ persistent actor TokenFactoryCanister {
 
         #ok("Manual WASM added successfully. Size: " # Nat.toText(snsWasmData.size()) # " bytes")
     };
+
+    // Finalize manual Index WASM upload with version hash
+    public shared({ caller }) func addIndexWasm(hash : [Nat8]) : async Result.Result<Text, Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can add WASM");
+        };
+        
+        if (not allowManualWasm) {
+            return #err("Manual WASM upload is disabled");
+        };
+        
+        if (wasmChunks.size() == 0) {
+            return #err("No WASM chunks uploaded. Use uploadChunk first.");
+        };
+        
+        indexWasmVersion := Blob.fromArray(hash);
+        indexWasmData := flattenWasmChunks(wasmChunks.toArray());
+
+        // VERSION MANAGEMENT: Register manual WASM upload with version manager
+        let versionHex = Hex.encode(hash);
+        let now = Time.now();
+        let semanticVersion = {
+            major = 2; // Manual uploads start with major version 2 to distinguish from SNS
+            minor = Nat64.toNat(Nat64.fromIntWrap(now / 1_000_000_000)) % 1000;
+            patch = Nat64.toNat(Nat64.fromIntWrap(now % 1_000_000_000));
+        };
+
+        let registerResult = versionManager.uploadWASMVersion(
+            caller, // The admin who uploaded
+            semanticVersion,
+            indexWasmData,
+            "Manual ICRC Index Upload - Hash: " # versionHex,
+            true, // Manual uploads are considered stable once approved
+            null,
+            Blob.fromArray(hash) // externalHash: Calculated hash
+        );
+
+        switch (registerResult) {
+            case (#ok()) {
+                Debug.print("TokenFactory: Registered manual Index WASM version " #
+                           Nat.toText(semanticVersion.major) # "." #
+                           Nat.toText(semanticVersion.minor) # "." #
+                           Nat.toText(semanticVersion.patch) # " with hash " # versionHex);
+            };
+            case (#err(err)) {
+                Debug.print("TokenFactory: Failed to register manual Index WASM version: " # err);
+            };
+        };
+
+        // Clear chunks after successful upload
+        wasmChunks.clear();
+
+        #ok("Manual Index WASM added successfully. Size: " # Nat.toText(indexWasmData.size()) # " bytes")
+    };
     
     // Get current WASM info
     public query func getCurrentWasmInfo() : async {
@@ -523,6 +607,16 @@ persistent actor TokenFactoryCanister {
             version = Hex.encode(Blob.toArray(snsWasmVersion));
             size = snsWasmData.size();
             isManual = allowManualWasm;
+        }
+    };
+
+    public query func getIndexWasmInfo() : async {
+        version : Text;
+        size : Nat;
+    } {
+        {
+            version = Hex.encode(Blob.toArray(indexWasmVersion));
+            size = indexWasmData.size();
         }
     };
     
@@ -725,9 +819,34 @@ persistent actor TokenFactoryCanister {
             case (#ok()) {};
         };
         
+        // --- STEP 4: DEPLOY INDEX (if enabled) ---
+        var indexCanisterId : ?Principal = null;
+        if (Option.get(config.enableIndex, false)) {
+            Debug.print("Deployment " # pendingId # ": Step 4 - Deploying Index Canister");
+            
+            // Check if we have Index WASM
+            if (indexWasmData.size() == 0) {
+                 Debug.print("⚠️ Deployment " # pendingId # ": Index enabled but no Index WASM available. Skipping Index.");
+                 // We don't fail the deployment, just skip index
+            } else {
+                let indexRes = await deployIndexCanister(canisterId, Option.get(deploymentConfig.tokenOwner, Principal.fromActor(TokenFactoryCanister)), installCycles);
+                switch(indexRes) {
+                    case (#ok(idxId)) {
+                        indexCanisterId := ?idxId;
+                        Debug.print("Deployment " # pendingId # ": Index deployed at " # Principal.toText(idxId));
+                    };
+                    case (#err(msg)) {
+                        Debug.print("⚠️ Deployment " # pendingId # ": Index deployment failed: " # msg);
+                        // We don't fail the whole deployment if index fails, but we log it
+                        // Ideally we should probably retry or have a status for "PartialSuccess"
+                    };
+                };
+            };
+        };
+
         // --- SUCCESS ---
         Debug.print("Deployment " # pendingId # ": Success!");
-        _finalizeSuccessfulDeployment(pendingId, canisterId, deploymentStart, installCycles);
+        _finalizeSuccessfulDeployment(pendingId, canisterId, deploymentStart, installCycles, indexCanisterId);
         
         // Clean up the pending record on success
         pendingDeployments := Trie.remove(pendingDeployments, textKey(pendingId), Text.equal).0;
@@ -753,7 +872,7 @@ persistent actor TokenFactoryCanister {
     };
 
     // Helper to perform all state updates on a successful deployment.
-    private func _finalizeSuccessfulDeployment(pendingId: Text, canisterId: Principal, startTime: Time.Time, cyclesUsedVal: Nat) {
+    private func _finalizeSuccessfulDeployment(pendingId: Text, canisterId: Principal, startTime: Time.Time, cyclesUsedVal: Nat, indexCanisterIdVal: ?Principal) {
         let pendingRecord = switch(Trie.get(pendingDeployments, textKey(pendingId), Text.equal)) {
             case null { return };
             case (?record) { record };
@@ -789,7 +908,7 @@ persistent actor TokenFactoryCanister {
             isPublic = isPublic; // Factory-First V2
             isVerified = false; // Factory-First V2: Admin must verify manually
             // Transaction index tracking (source of truth)
-            indexCanisterId = null; // Placeholder - will be populated when index is created
+            indexCanisterId = indexCanisterIdVal;
             enableIndex = Option.get(pendingRecord.config.enableIndex, false);
         };
         tokens := Trie.put(tokens, textKey(Principal.toText(canisterId)), Text.equal, tokenInfo).0;
@@ -1185,6 +1304,50 @@ persistent actor TokenFactoryCanister {
             #ok()
         } catch (error) {
             #err("Token installation failed: " # Error.message(error))
+        }
+    };
+
+    private func deployIndexCanister(
+        tokenCanisterId : Principal,
+        owner : Principal,
+        cycles : Nat
+    ) : async Result.Result<Principal, Text> {
+        try {
+            // 1. Create Canister
+            let canisterIdRes = await createCanister(cycles);
+            let canisterId = switch(canisterIdRes) {
+                case (#ok(id)) { id };
+                case (#err(msg)) { return #err("Index canister creation failed: " # msg) };
+            };
+
+            // 2. Install Code
+            let initArgs : ICRC.IndexInitArgs = {
+                ledger_id = tokenCanisterId;
+                retrieve_blocks_from_ledger_interval_seconds = ?10; // Default 10s
+            };
+            
+            let args : ICRC.IndexArg = #Init(initArgs);
+
+            await ic.install_code({
+                mode = #install;
+                canister_id = canisterId;
+                wasm_module = indexWasmData;
+                arg = to_candid(args);
+                sender_canister_version = null;
+            });
+
+            // 3. Transfer Ownership
+            // We use the same cycle ops setting as the token (assumed false for now or passed down)
+            // For now, just transfer to owner
+            let transferRes = await transferOwnership(canisterId, owner, false);
+            switch (transferRes) {
+                case (#ok(_)) {};
+                case (#err(msg)) { return #err("Index ownership transfer failed: " # msg) };
+            };
+
+            #ok(canisterId)
+        } catch (error) {
+            #err("Index deployment failed: " # Error.message(error))
         }
     };
     

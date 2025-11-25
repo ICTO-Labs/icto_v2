@@ -368,7 +368,6 @@ import TokenLogo from '@/components/token/TokenLogo.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import TransactionTable from '@/components/token/TransactionTable.vue'
 import type { TransactionRecord } from '@/types/transaction'
-import type { TransactionWithId } from '@/declarations/icrc_index/icrc_index.did'
 import {
     CoinsIcon,
     FlameIcon,
@@ -421,49 +420,9 @@ const breadcrumbItems = computed(() => [
   { label: token.value.name || 'Token' }
 ])
 
-// Convert Index transaction to TransactionRecord format
-const convertIndexTransactionToRecord = (txWithId: TransactionWithId): TransactionRecord => {
-  const tx = txWithId.transaction
-  const record: TransactionRecord = {
-    index: txWithId.id,
-    kind: tx.kind,
-    timestamp: Number(tx.timestamp / BigInt(1000000)), // Convert nanoseconds to milliseconds
-  }
 
-  // Handle different transaction types
-  if (tx.transfer && tx.transfer.length > 0) {
-    const transfer = tx.transfer[0]
-    record.amount = transfer.amount
-    record.fee = transfer.fee?.[0]
-    record.from = transfer.from
-    record.to = transfer.to
-    record.memo = transfer.memo?.[0]
-  } else if (tx.mint && tx.mint.length > 0) {
-    const mint = tx.mint[0]
-    record.amount = mint.amount
-    record.fee = mint.fee?.[0]
-    record.to = mint.to
-    record.memo = mint.memo?.[0]
-  } else if (tx.burn && tx.burn.length > 0) {
-    const burn = tx.burn[0]
-    record.amount = burn.amount
-    record.fee = burn.fee?.[0]
-    record.from = burn.from
-    record.memo = burn.memo?.[0]
-  } else if (tx.approve && tx.approve.length > 0) {
-    const approve = tx.approve[0]
-    record.amount = approve.amount
-    record.fee = approve.fee?.[0]
-    record.from = approve.from
-    record.spender = approve.spender
-    record.memo = approve.memo?.[0]
-    record.expiresAt = approve.expires_at?.[0] ? Number(approve.expires_at[0] / BigInt(1000000)) : undefined
-  }
 
-  return record
-}
-
-// Load recent transactions from token ledger or index
+// Load recent transactions from token ledger
 const loadRecentTransactions = async () => {
     transactionsLoading.value = true
     try {
@@ -471,32 +430,19 @@ const loadRecentTransactions = async () => {
             return
         }
 
-        // If we have an index canister, use it instead of ledger
-        if (indexCanisterId.value) {
-            const transactions = await IcrcIndexService.getRecentTransactions(
-                indexCanisterId.value,
-                BigInt(10)
-            )
-            const converted = transactions.map(tx => convertIndexTransactionToRecord(tx))
-            recentTransactions.value = converted.sort((a, b) => {
-                const timeA = a.timestamp || 0
-                const timeB = b.timestamp || 0
-                return timeB - timeA
-            })
-            transactionSource.value = 'Index'
-        } else {
-            // Fetch from ledger canister
-            const result = await IcrcService.getTransactions(
-                token.value.canisterId,
-                BigInt(0),
-                BigInt(10)
-            )
+        // Always fetch from ledger canister for recent transactions
+        // Index canister is only for account-specific transactions
+        const result = await IcrcService.getTransactions(
+            token.value.canisterId,
+            BigInt(0),
+            BigInt(10)
+        )
 
-            if (result) {
-                recentTransactions.value = result.transactions
-            }
-            transactionSource.value = 'Ledger'
+        if (result) {
+            recentTransactions.value = result.transactions
         }
+        transactionSource.value = 'Ledger'
+        
     } catch (err) {
         console.error('Error loading recent transactions:', err)
         // Don't show error to user, just log it

@@ -115,6 +115,31 @@ export class IcrcService {
             return BigInt(0);
         }
     }
+    
+    /**
+     * Simplified balance check for a principal
+     */
+    public static async balanceOf(
+        canisterId: string,
+        principal: Principal,
+        subaccount?: number[]
+    ): Promise<bigint> {
+        const token: Token = {
+            canisterId,
+            symbol: 'TOKEN', // Placeholder
+            name: 'Token', // Placeholder
+            decimals: 8, // Placeholder
+            fee: 0,
+        };
+        
+        const result = await this.getIcrc1Balance(token, principal, subaccount);
+        
+        if (typeof result === 'bigint') {
+            return result;
+        } else {
+            return result.default;
+        }
+    }
 
     public static async getIcrc1SubaccountBalance(
         token: Token,
