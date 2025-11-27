@@ -39,7 +39,7 @@ export class DistributionUtils {
                 name: config.tokenInfo.name,
                 decimals: config.tokenInfo.decimals
             },
-            totalAmount: formatTokenAmount(config.totalAmount, config.tokenInfo.decimals).toNumber(),
+            totalAmount: BigInt(config.totalAmount),
             eligibilityType: config.eligibilityType, // Already in correct variant format from buildDistributionConfig
             recipientMode: config.recipientMode, // Already in correct variant format from buildDistributionConfig
             vestingSchedule: this.convertVestingSchedule(config.vestingSchedule),

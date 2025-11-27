@@ -27,7 +27,7 @@
     </div>
 
     <!-- Fund Contract CTA (NEW) -->
-    <div class="mb-4">
+    <div class="mb-4" v-if="isOwner">
       <button
         @click="emit('fund')"
         class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200"
@@ -43,9 +43,9 @@
     </div>
 
     <!-- Two Column Layout -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div :class="`grid grid-cols-1 md:grid-cols-${isOwner ? 2 : 1} gap-4`">
       <!-- Contract Address Column -->
-      <div class="bg-white dark:bg-amber-900/20 rounded-lg p-3 border border-amber-200 dark:border-amber-700">
+      <div class="bg-white dark:bg-amber-900/20 rounded-lg p-3 border border-amber-200 dark:border-amber-700" v-if="isOwner">
         <div class="text-xs text-amber-600 dark:text-amber-400 font-medium mb-2">
           Target Contract Address
         </div>
@@ -74,7 +74,7 @@
             {{ formatBalance(currentBalance) }} / {{ formatBalance(requiredAmount) }} {{ tokenSymbol }}
           </span>
         </div>
-        <div class="w-full bg-amber-200 dark:bg-amber-800/30 rounded-full h-2 overflow-hidden mb-1">
+        <div class="w-full bg-amber-100 dark:bg-amber-800/30 rounded-full h-2 overflow-hidden mb-1">
           <div 
             class="h-full bg-gradient-to-r from-amber-500 to-amber-600 rounded-full transition-all duration-700 ease-out relative"
             :style="{ width: `${progressPercentage}%` }"
@@ -103,6 +103,7 @@ import LabelCopyIcon from '@/icons/LabelCopyIcon.vue'
 
 interface Props {
   contractId: string
+  isOwner: boolean
   currentBalance: bigint
   requiredAmount: bigint
   tokenSymbol: string
@@ -296,18 +297,18 @@ const urgencyTitle = computed(() => {
   const time = timeUntilStart.value
 
   if (time?.passed) {
-    return '🚨 URGENT: Distribution start time passed - Requires immediate funding'
+    return 'URGENT: Distribution start time passed - Requires immediate funding'
   }
 
   if (!time) return 'Distribution pending fund allocation'
 
   if (time.hours <= 1) {
     const minutes = Math.floor(time.hours * 60)
-    return `⚠️ CRITICAL: Distribution starts in ${minutes} minutes!`
+    return `CRITICAL: Distribution starts in ${minutes} minutes!`
   }
   if (time.hours <= 24) {
     const hours = Math.floor(time.hours)
-    return `⚠️ URGENT: Distribution starts in ${hours} hours`
+    return `URGENT: Distribution starts in ${hours} hours`
   }
   if (time.hours <= 72) {
     const days = Math.floor(time.hours / 24)

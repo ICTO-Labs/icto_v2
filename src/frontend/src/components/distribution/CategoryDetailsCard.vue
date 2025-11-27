@@ -185,7 +185,10 @@
             <div class="flex items-center justify-between mb-3">
               <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <UsersIcon class="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                Category Participants ({{ participants.length }})
+                Category Participants 
+				<span class="inline-flex items-center rounded-full font-medium px-2 py-1 text-xs flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+				{{ participants.length }}
+				</span>	
               </h4>
               <button v-if="participants.length > 5" @click="showAllParticipants = !showAllParticipants"
                 class="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium">
@@ -228,13 +231,14 @@
                       <td class="px-4 py-3">
                         <div class="flex items-center gap-2">
                           <div
-                            class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-orange-500 flex items-center justify-center text-white text-xs font-semibold">
+                            class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-orange-300 flex items-center justify-center text-white text-xs font-semibold">
                             {{ getInitials(participant.principal) }}
                           </div>
-                          <div>
-                            <p class="text-xs font-semibold text-gray-900 dark:text-white">
+                          <div class="flex items-center gap-1">
+                            <p class="text-sm font-normal text-gray-900 dark:text-white">
                               {{ shortPrincipal(participant.principal) }}
                             </p>
+							<CopyIcon class="h-4 w-4" :data="participant.principal" :msg="'Principal'" />
                           </div>
                         </div>
                       </td>
@@ -288,7 +292,10 @@
             <div class="flex items-center justify-between mb-3">
               <h4 class="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
                 <HistoryIcon class="h-5 w-5 text-green-600 dark:text-green-400" />
-                Claim Transactions ({{ categoryTransactions.length }})
+                Claim Transactions 
+				<span class="inline-flex items-center rounded-full font-medium px-2 py-1 text-xs flex-shrink-0 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+				{{ categoryTransactions.length }}
+				</span>	
               </h4>
             </div>
 
@@ -391,6 +398,7 @@ import {
   AlertCircleIcon,
   CircleIcon
 } from 'lucide-vue-next'
+import CopyIcon from '@/icons/CopyIcon.vue'
 import { shortPrincipal } from '@/utils/common'
 import CategoryMetricCards from '@/components/distribution/CategoryMetricCards.vue'
 

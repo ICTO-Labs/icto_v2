@@ -525,6 +525,125 @@ export class IcrcService {
         }
     }
 
+    // Mint tokens (transfer from minting account - no fee)
+    // In ICRC, minting is a transfer FROM the minting account
+    public static async mint(
+        token: Token,
+        to: string | Principal | IcrcAccount,
+        amount: bigint,
+        opts: {
+            memo?: Uint8Array | number[];
+            createdAtTime?: bigint;
+        } = {},
+    ): Promise<any> {
+        try {
+            // First, get the minting account
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: false,
+                requiresSigning: true,
+            });
+
+            const mintingAccountResult = await actor.icrc1_minting_account();
+            if (!mintingAccountResult || !Array.isArray(mintingAccountResult) || mintingAccountResult.length === 0) {
+                return { Err: { GenericError: { message: 'No minting account found', error_code: BigInt(0) } } };
+            }
+
+            // Prepare recipient account
+            let recipientAccount: {
+                owner: Principal;
+                subaccount: [] | [Uint8Array | number[]];
+            };
+
+            if (typeof to === "string") {
+                recipientAccount = {
+                    owner: Principal.fromText(to),
+                    subaccount: [],
+                };
+            } else if (to instanceof Principal) {
+                recipientAccount = { owner: Principal.fromText(to.toString()), subaccount: [] };
+            } else {
+                recipientAccount = {
+                    owner: Principal.fromText(to.owner.toString()),
+                    subaccount: to.subaccount ? [to.subaccount] : [],
+                };
+            }
+
+            // Mint is a transfer from minting account (no fee)
+            const transferArgs: IcrcTransferArg = {
+                to: recipientAccount,
+                amount: amount,
+                fee: [], // No fee for minting
+                memo: opts.memo ? [new Uint8Array(opts.memo)] : [],
+                from_subaccount: [], // From minting account's default subaccount
+                created_at_time: opts.createdAtTime ? [opts.createdAtTime] : [],
+            };
+
+            console.log('Mint (transfer from minting account) Args:', transferArgs);
+
+            const result = await actor.icrc1_transfer(transferArgs);
+            return result;
+        } catch (error) {
+            console.error("Mint error:", error);
+            const stringifiedError = JSON.stringify(error, (_, value) =>
+                typeof value === "bigint" ? value.toString() : value,
+            );
+            return { Err: JSON.parse(stringifiedError) };
+        }
+    }
+
+    // Burn tokens (transfer to minting account - no fee)
+    // In ICRC, burning is a transfer TO the minting account
+    public static async burn(
+        token: Token,
+        amount: bigint,
+        opts: {
+            memo?: Uint8Array | number[];
+            fromSubaccount?: Uint8Array | number[];
+            createdAtTime?: bigint;
+        } = {},
+    ): Promise<any> {
+        try {
+            // First, get the minting account
+            const actor = icrcActor({
+                canisterId: token.canisterId.toString(),
+                anon: false,
+                requiresSigning: true,
+            });
+
+            const mintingAccountResult = await actor.icrc1_minting_account();
+            if (!mintingAccountResult || !Array.isArray(mintingAccountResult) || mintingAccountResult.length === 0) {
+                return { Err: { GenericError: { message: 'No minting account found', error_code: BigInt(0) } } };
+            }
+
+            const mintingAccount = mintingAccountResult[0];
+
+            // Burn is a transfer to minting account (no fee)
+            const transferArgs: IcrcTransferArg = {
+                to: {
+                    owner: mintingAccount.owner,
+                    subaccount: mintingAccount.subaccount || [],
+                },
+                amount: amount,
+                fee: [], // No fee for burning
+                memo: opts.memo ? [new Uint8Array(opts.memo)] : [],
+                from_subaccount: opts.fromSubaccount ? [new Uint8Array(opts.fromSubaccount)] : [],
+                created_at_time: opts.createdAtTime ? [opts.createdAtTime] : [],
+            };
+
+            console.log('Burn (transfer to minting account) Args:', transferArgs);
+
+            const result = await actor.icrc1_transfer(transferArgs);
+            return result;
+        } catch (error) {
+            console.error("Burn error:", error);
+            const stringifiedError = JSON.stringify(error, (_, value) =>
+                typeof value === "bigint" ? value.toString() : value,
+            );
+            return { Err: JSON.parse(stringifiedError) };
+        }
+    }
+
     // Get transaction history for a token
     public static async getTransactions(
         canisterId: string,
@@ -831,6 +950,62 @@ export class IcrcService {
             return null;
         } catch (error) {
             console.error('Error parsing transaction record:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get canister status from IC Management Canister
+     * Returns controllers, module hash, cycles, and memory size
+     */
+    public static async getCanisterStatus(canisterId: string): Promise<{
+        controllers: string[];
+        moduleHash: string | null;
+        cycles: bigint;
+        memorySize: bigint;
+    } | null> {
+        try {
+            // IC Management Canister principal
+            const IC_MANAGEMENT_CANISTER_ID = 'aaaaa-aa';
+            
+            // Create actor for IC Management Canister
+            // Note: This requires the caller to be a controller or have permission
+            const actor = icrcActor({
+                canisterId: IC_MANAGEMENT_CANISTER_ID,
+                anon: false,
+                requiresSigning: false,
+            }) as any;
+
+            // Call canister_status
+            const statusResult = await actor.canister_status({
+                canister_id: Principal.fromText(canisterId)
+            });
+
+            // Parse the result
+            const controllers = statusResult.settings?.controllers?.map((c: Principal) => c.toString()) || [];
+            
+            // Module hash is returned as an optional Blob
+            let moduleHash: string | null = null;
+            if (statusResult.module_hash && statusResult.module_hash.length > 0) {
+                const hashBytes = statusResult.module_hash[0] as Uint8Array;
+                // Convert Uint8Array to hex string
+                moduleHash = Array.from(hashBytes)
+                    .map((b: number) => b.toString(16).padStart(2, '0'))
+                    .join('');
+            }
+
+            const cycles = statusResult.cycles || BigInt(0);
+            const memorySize = statusResult.memory_size || BigInt(0);
+
+            return {
+                controllers,
+                moduleHash,
+                cycles,
+                memorySize
+            };
+        } catch (error) {
+            console.error(`Error getting canister status for ${canisterId}:`, error);
+            // Return null if we don't have permission or if there's an error
             return null;
         }
     }
