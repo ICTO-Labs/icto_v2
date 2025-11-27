@@ -1434,8 +1434,8 @@ const buildCategoryVestingSchedule = (category: CategoryData) => {
 	}
 
 	// Convert days to nanoseconds
-	const durationNs = (schedule.durationDays || 0) * 24 * 60 * 60 * 1_000_000_000
-	const cliffNs = (schedule.cliffDays || 0) * 24 * 60 * 60 * 1_000_000_000
+	const durationNs = BigInt(schedule.durationDays || 0) * 24n * 60n * 60n * 1_000_000_000n
+	const cliffNs = BigInt(schedule.cliffDays || 0) * 24n * 60n * 60n * 1_000_000_000n
 
 	// Build frequency variant based on UI config
 	const frequencyMap: Record<string, any> = {
@@ -1502,7 +1502,7 @@ const buildMultiCategoryRecipients = () => {
 			if (!recipientMap.has(principal)) {
 				recipientMap.set(principal, {
 					address: Principal.fromText(principal), // Convert string to Principal
-					amount: 0, // Will be sum of all category amounts (in e8s)
+					amount: 0n, // Will be sum of all category amounts (in e8s)
 					categories: [],
 					note: [] // MultiCategoryRecipient note as opt text
 				})
@@ -1573,15 +1573,25 @@ const buildDistributionConfig = () => {
 		if (category.mode === 'predefined') {
 			// For predefined mode: sum from recipients text
 			const recipients = parseCategoryRecipients(category.recipientsText)
-			return sum + recipients.reduce((catSum, r) => catSum + r.amount, 0)
+			const catSum = recipients.reduce((acc, r) => {
+				// recipient.amount is already human-readable (from CSV input)
+				// Just convert to e8s by multiplying with 10^decimals
+				const decimals = formData.tokenInfo.decimals || 8
+				const rAmountE8s = BigInt(Math.floor(r.amount * Math.pow(10, decimals)))
+				return acc + rAmountE8s
+			}, 0n)
+			return sum + catSum
 		} else {
 			// For open mode: max recipients * amount per recipient
 			if (category.maxRecipients && category.amountPerRecipient) {
-				return sum + (category.maxRecipients * category.amountPerRecipient)
+				// category.amountPerRecipient is also human-readable
+				const decimals = formData.tokenInfo.decimals || 8
+				const amountPerRecipientE8s = BigInt(Math.floor(category.amountPerRecipient * Math.pow(10, decimals)))
+				return sum + (BigInt(category.maxRecipients) * amountPerRecipientE8s)
 			}
 			return sum
 		}
-	}, 0)
+	}, 0n)
 
 	// Determine recipientMode based on categories
 	// If all categories are 'predefined' → Fixed
@@ -1639,6 +1649,23 @@ const buildDistributionConfig = () => {
 		}
 	}
 
+	// Convert categories to backend format
+	const buildCategories = () => {
+		return categories.value.map(cat => ({
+			id: BigInt(cat.id),
+			name: cat.name,
+			description: cat.description ? [cat.description] : [],
+			order: cat.order ? [BigInt(cat.order)] : [],
+			mode: cat.mode === 'predefined' ? { Predefined: null } : { Open: null },
+			defaultVestingSchedule: buildCategoryVestingSchedule(cat),
+			defaultVestingStart: BigInt(new Date(cat.vestingStartDate).getTime()) * 1_000_000n,
+			defaultPassportScore: BigInt(cat.passportScore || 0),
+			defaultPassportProvider: cat.passportProvider || 'ICTO',
+			maxParticipants: cat.maxRecipients ? [BigInt(cat.maxRecipients)] : [],
+			allocationPerUser: cat.amountPerRecipient ? [BigInt(formatTokenAmount(cat.amountPerRecipient, formData.tokenInfo.decimals).toFixed(0))] : []
+		}))
+	}
+
 	// Convert form data to backend format
 	const config = {
 		title: formData.title,
@@ -1680,12 +1707,12 @@ const buildDistributionConfig = () => {
 		eligibilityLogic: [], // Not implemented in UI
 		allowModification: formData.allowModification,
 
-		// NEW: Unified Category System - Pass raw categories (will be converted by convertToBackendRequest)
-		categories: categories.value,
+		// NEW: Unified Category System - Pass converted categories wrapped in opt
+		categories: [buildCategories()],
 
-		// Legacy multi-category recipients - Use proper conversion
+		// Legacy multi-category recipients - Use proper conversion and wrap in opt
 		// We need to pass the decimals to ensure correct conversion
-		multiCategoryRecipients: multiCategoryRecipients,
+		multiCategoryRecipients: [multiCategoryRecipients],
 
 		// Pass decimals for category allocation conversion
 		decimals: formData.tokenInfo.decimals || 8,

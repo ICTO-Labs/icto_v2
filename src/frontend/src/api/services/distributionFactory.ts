@@ -143,6 +143,29 @@ export class DistributionFactoryService {
       throw error;
     }
   }
+  /**
+   * Get distributions by Token ID
+   * @param tokenId Token Principal
+   * @param limit Number of items per page (default: 20)
+   * @param offset Page offset (default: 0)
+   */
+  async getDistributionsByToken(
+    tokenId: Principal,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<PaginatedResponse> {
+    try {
+      const actor = this.getActor(true); // Anonymous query allowed
+      const result = await actor.getDistributionsByToken(tokenId, limit, offset);
+      return {
+        distributions: result.distributions,
+        total: result.total,
+      };
+    } catch (error) {
+      console.error('Error fetching distributions by token:', error);
+      throw error;
+    }
+  }
 
   /**
    * Get single distribution by contract ID

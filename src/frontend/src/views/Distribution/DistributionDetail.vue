@@ -69,9 +69,9 @@
                   :show-sub-status="true" />
                 <!-- Campaign Visibility Type (Public/Private) -->
                 <Label variant="blue" class="inline-flex items-center gap-1">
-                  <GlobeIcon v-if="getVariantKey(details.eligibilityType) === 'Public'" class="w-3.5 h-3.5 mr-1" />
+                  <GlobeIcon v-if="details.isPublic" class="w-3.5 h-3.5 mr-1" />
                   <LockIcon v-else class="w-3.5 h-3.5 mr-1" />
-                  {{ getVariantKey(details.eligibilityType) === 'Public' ? 'Open' : 'Private' }}
+                  {{ details.isPublic ? 'Public' : 'Private' }}
                 </Label>
                 <!-- Campaign Type Label (Airdrop/Vesting/Lock) -->
                 <div :class="getCampaignTypeLabel(getVariantKey(details.campaignType) || 'Airdrop').bgClass"
@@ -133,16 +133,58 @@
               :status="countdownStatus" @countdown-end="handleCountdownEnd" />
           </div>
           <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ details.description }}</p>
+          <!-- Distribution Metadata -->
+          <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600 dark:text-gray-400">
+              <!-- Creator -->
+              <div class="flex items-center gap-2">
+                <UserIcon class="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                <span class="font-medium">Creator:</span>
+                <span class="font-mono text-sm">{{ shortPrincipal(details.owner.toString()) }}</span>
+                <CopyIcon class="w-4 h-4" :data="details.owner.toString()" :msg="'Creator Principal'" />
+              </div>
+              
+              <!-- Distribution Start -->
+              <div class="flex items-center gap-2">
+                <ClockIcon class="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                <span class="font-medium">Start:</span>
+                <span>{{ formatDate(Number(details.distributionStart) / 1_000_000) }}</span>
+              </div>
+              
+              <!-- Distribution End (if exists) -->
+              <div v-if="details.distributionEnd && details.distributionEnd.length > 0" class="flex items-center gap-2">
+                <ClockIcon class="w-4 h-4 text-gray-400 dark:text-gray-500" />
+                <span class="font-medium">End:</span>
+                <span>{{ formatDate(Number(details.distributionEnd[0]) / 1_000_000) }}</span>
+              </div>
+
+              <!-- Allow Cancel -->
+              <div class="flex items-center gap-2">
+                <span class="font-medium">Cancellable:</span>
+                <span :class="details.allowCancel ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+                  {{ details.allowCancel ? 'Yes' : 'No' }}
+                </span>
+              </div>
+
+              <!-- Allow Modification -->
+              <div class="flex items-center gap-2">
+                <span class="font-medium">Modifiable:</span>
+                <span :class="details.allowModification ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+                  {{ details.allowModification ? 'Yes' : 'No' }}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- ============================================ -->
         <!-- CONTRACT BALANCE (OWNER ONLY - KEEP AS-IS but move up) -->
         <!-- ============================================ -->
-        <ContractBalanceStatus v-if="details && isOwner" :contract-id="canisterId" :current-balance="contractBalance"
+        <ContractBalanceStatus v-if="details" :contract-id="canisterId" :current-balance="contractBalance"
           :required-amount="details.totalAmount" :token-symbol="details?.tokenInfo?.symbol || 'TOKEN'"
           :token-decimals="details?.tokenInfo?.decimals || 8" :contract-status="composableStatus"
           :distribution-start="details.distributionStart" :refreshing="checkingBalance" :needs-funding="needsFunding"
-          @refresh="checkBalance" @initial-check="checkBalance" @fund="showFundModal = true" />
+          @refresh="checkBalance" @initial-check="checkBalance" @fund="showFundModal = true" :is-owner="isOwner" />
 
         <!-- ============================================ -->
         <!-- MAIN GRID (2/3 + 1/3) -->
@@ -484,24 +526,21 @@
               @scroll-to-category="handleNavigateToCategory" />
 
             <!-- ============================================ -->
-            <!-- USER ALLOCATION (LEGACY - For non-category or single category) -->
+            <!-- TOKEN INFO (LEGACY - For non-category or single category) -->
             <!-- ============================================ -->
-            <DistributionUserAllocation v-else :user-context="userContext" :user-allocation="userAllocation"
-              :available-to-claim="availableToClaim" :already-claimed="alreadyClaimed"
-              :token-symbol="details.tokenInfo.symbol" :token-decimals="details.tokenInfo.decimals"
-              :eligibility-loading="eligibilityLoading" :eligibility-status="eligibilityStatus"
-              :registering="registering" :claiming="claiming"
-              :campaign-type="getVariantKey(details.campaignType) || 'Airdrop'"
-              :is-authenticated="authStore.isConnected" @check-eligibility="checkEligibility"
-              @register="registerForCampaign" @claim="claimTokens" />
+            <DistributionTokenInfo 
+              :token-canister-id="details.tokenInfo.canisterId"
+              :token-symbol="details.tokenInfo.symbol" 
+              :token-name="details.tokenInfo.name"
+              :token-decimals="details.tokenInfo.decimals" />
 
             <!-- ============================================ -->
             <!-- ACTION CARD (NEW COMPONENT) -->
             <!-- ============================================ -->
-            <DistributionActionCard :details="details" :stats="stats" :is-owner="isOwner"
+            <!-- <DistributionActionCard :details="details" :stats="stats" :is-owner="isOwner"
               :is-authenticated="authStore.isConnected" :canister-id="canisterId" :user-allocation="userAllocation"
               :refreshing="refreshing" :auto-refresh-enabled="autoRefreshEnabled" :contract-version="contractVersion"
-              @refresh="refreshData" @toggle-auto-refresh="toggleAutoRefresh" />
+              @refresh="refreshData" @toggle-auto-refresh="toggleAutoRefresh" /> -->
 
             <!-- ============================================ -->
             <!-- TIMELINE (NEW COMPONENT) -->
@@ -558,7 +597,7 @@ import { DistributionService } from '@/api/services/distribution'
 // NEW IMPORTS (Components) - NO HERO COMPONENT
 // ============================================
 import DistributionActionCard from '@/components/distribution/DistributionActionCard.vue'
-import DistributionUserAllocation from '@/components/distribution/DistributionUserAllocation.vue'
+import DistributionTokenInfo from '@/components/distribution/DistributionTokenInfo.vue'
 import DistributionCampaignDetails from '@/components/distribution/DistributionCampaignDetails.vue'
 import DistributionTimeline from '@/components/distribution/DistributionTimeline.vue'
 import DistributionStatusBadge from '@/components/distribution/DistributionStatusBadge.vue'
@@ -615,6 +654,7 @@ import {
   HistoryIcon,
   GlobeIcon,
   LockIcon,
+  UserIcon
 } from 'lucide-vue-next'
 import { CopyIcon } from '@/icons'
 
@@ -782,7 +822,7 @@ const distributionStartDate = computed(() => {
 
 const vestingEndDate = computed(() => {
   if (!details.value?.distributionStart || !details.value?.vestingSchedule) return null
-
+  console.log('details', details.value)
   const startTimestamp = Number(details.value.distributionStart) / 1_000_000
 
   if ('Single' in details.value.vestingSchedule) {
