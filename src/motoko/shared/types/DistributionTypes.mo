@@ -608,12 +608,20 @@ module DistributionTypes {
     };
 
     public type DistributionStats = {
+        // Statistics
         totalParticipants: Nat;
         totalDistributed: Nat;
         totalClaimed: Nat;
         remainingAmount: Nat;
         completionPercentage: Float;
         isActive: Bool;
+        
+        // Config info for frontend optimization (avoid multiple API calls)
+        title: Text;
+        description: Text;
+        tokenInfo: TokenInfo;
+        campaignType: CampaignType;
+        totalAmount: Nat;
     };
 
     // ================ RESULT TYPES ================

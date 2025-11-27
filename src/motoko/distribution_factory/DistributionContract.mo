@@ -2471,12 +2471,20 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
     } else { 0.0 };
 
     {
+      // Statistics
       totalParticipants = participantCount;
       totalDistributed = totalDistributed;
       totalClaimed = totalClaimed;
       remainingAmount = remaining;
       completionPercentage = completionPercentage;
       isActive = _isActive();
+      
+      // Config info for frontend optimization
+      title = config.title;
+      description = config.description;
+      tokenInfo = config.tokenInfo;
+      campaignType = config.campaignType;
+      totalAmount = config.totalAmount;
     };
   };
 
