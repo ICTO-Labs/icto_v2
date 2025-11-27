@@ -45,13 +45,13 @@
             <template v-else>
             <!-- Type Badge -->
             <td class="px-6 py-4 whitespace-nowrap">
-              <span
-                :class="getTransactionTypeBadgeClass(tx.kind)"
-                class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium"
-              >
-                <component :is="getTransactionIcon(tx.kind)" :size="14" class="flex-shrink-0" />
-                {{ getTransactionTypeLabel(tx.kind) }}
-              </span>
+                <span
+                  :class="getTransactionTypeBadgeClass(tx)"
+                  class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium"
+                >
+                  <component :is="getTransactionIcon(tx)" :size="14" class="flex-shrink-0" />
+                  {{ getTransactionTypeLabel(tx) }}
+                </span>
             </td>
 
             <!-- Amount -->
@@ -190,7 +190,30 @@ const formatAmount = (amount?: bigint | string): string => {
   return formatBalance(bigintAmount, props.decimals)
 }
 
-const getTransactionTypeLabel = (kind: string): string => {
+const getTransactionDirection = (tx: TransactionRecord): 'in' | 'out' | null => {
+  if (!props.accountPrincipal) return null
+  
+  // For Transfer/Approve, check from/to
+  const from = getFromAddress(tx)
+  const to = getToAddress(tx)
+  
+  if (from === props.accountPrincipal) return 'out'
+  if (to === props.accountPrincipal) return 'in'
+  
+  return null
+}
+
+const getTransactionTypeLabel = (tx: TransactionRecord): string => {
+  const kind = tx.kind
+  const normalizedKind = kind.toLowerCase()
+  
+  // Only apply direction logic for transfer transactions
+  if (normalizedKind === 'transfer' || normalizedKind === 'xfer') {
+    const direction = getTransactionDirection(tx)
+    if (direction === 'in') return 'Received'
+    if (direction === 'out') return 'Sent'
+  }
+
   const kindMap: Record<string, string> = {
     'xfer': 'Transfer',
     'transfer': 'Transfer',
@@ -205,8 +228,21 @@ const getTransactionTypeLabel = (kind: string): string => {
   return kindMap[kind] || kind || 'Unknown'
 }
 
-const getTransactionTypeBadgeClass = (kind: string): string => {
+const getTransactionTypeBadgeClass = (tx: TransactionRecord): string => {
+  const kind = tx.kind
   const normalizedKind = kind.toLowerCase()
+  
+  // Only apply direction colors for transfer transactions
+  if (normalizedKind === 'transfer' || normalizedKind === 'xfer') {
+    const direction = getTransactionDirection(tx)
+    if (direction === 'in') {
+      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+    }
+    if (direction === 'out') {
+      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+    }
+  }
+
   const classMap: Record<string, string> = {
     'transfer': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
     'approve': 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300',
@@ -216,10 +252,19 @@ const getTransactionTypeBadgeClass = (kind: string): string => {
   return classMap[normalizedKind] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
 }
 
-const getTransactionIcon = (kind: string): typeof ArrowRightLeft | typeof ArrowDown | typeof Sprout | typeof Flame | typeof Check | typeof ArrowRightLeft => {
+const getTransactionIcon = (tx: TransactionRecord): typeof ArrowRightLeft | typeof ArrowDown | typeof ArrowUp | typeof Sprout | typeof Flame | typeof Check => {
+  const kind = tx.kind
   const normalizedKind = kind.toLowerCase()
-  const iconMap: Record<string, typeof ArrowRightLeft | typeof ArrowDown | typeof Sprout | typeof Flame | typeof Check | typeof ArrowRightLeft> = {
-    'transfer': ArrowRightLeft, // Default to out, will be styled differently based on context
+  
+  // Only apply direction icons for transfer transactions
+  if (normalizedKind === 'transfer' || normalizedKind === 'xfer') {
+    const direction = getTransactionDirection(tx)
+    if (direction === 'in') return ArrowDown
+    if (direction === 'out') return ArrowUp
+  }
+
+  const iconMap: Record<string, any> = {
+    'transfer': ArrowRightLeft,
     'mint': Sprout,
     'burn': Flame,
     'approve': Check

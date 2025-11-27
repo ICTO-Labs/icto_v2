@@ -42,40 +42,64 @@
                                     </span>
                                 </h1>
                                 <div class="flex items-center space-x-2 mt-1">
-                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
-                                        :class="{
-                                            'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300': token.standard === 'ICRC-1',
-                                            'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300': token.standard === 'ICRC-2'
-                                        }"
-                                    >
-                                        {{ token.standard }}
-                                    </span>
+                                    
                                     <span class="text-sm text-gray-500 dark:text-gray-400">
-                                        Canister ID: {{ token.canisterId }}
+                                        {{ token.canisterId }}
                                     </span>
-                                    <a href="javascript:void(0)" @click="openSettingsModal">
-                                        <InfoIcon class="h-4 w-4 mr- 2 text-gray-500" />
-                                    </a>
+                                    <CopyIcon class="h-4 w-4 " :data="token.canisterId"/>
+                                    <div class="inline-flex items-center gap-2 px-3 py-0.5 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300 border border-blue-500/30 rounded-md cursor-pointer hover:border-blue-500/50 transition-all"
+                                    >
+                                        <span class="text-xs font-medium text-blue-600 dark:text-blue-400">
+                                        {{ token.standard }}
+                                        </span>
+                                    </div>
+                                    <LaunchpadBadge :launchpad-info="launchpadInfo" />
+                                    
                                 </div>
                             </div>
                         </div>
                         <div class="flex items-center space-x-3">
+                            <!-- Add to Wallet - Show if not in wallet and user is logged in -->
                             <button
+                                v-if="!isTokenInWallet && authStore.isWalletConnected"
+                                @click="addToWallet"
+                                class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
+                            >
+                                <PlusCircleIcon class="h-4 w-4 mr-2" />
+                                Add to Wallet
+                            </button>
+                            
+                            <!-- Mint - Only for minter/controller -->
+                            <button
+                                v-if="authStore.isWalletConnected && isMinter"
                                 @click="openMintModal"
                                 class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-900"
-                                v-if="isMinter" 
                             >
-                                <CoinsIcon class="h-4 w-4 mr-2" />
-                                Mint Tokens
+                                <SproutIcon class="h-4 w-4 mr-2" />
+                                Mint
                             </button>
+                            
+                            <!-- Transfer - For anyone logged in -->
                             <button
+                                v-if="authStore.isWalletConnected && !isMinter"
+                                @click="openTransferModal"
+                                class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 dark:focus:ring-offset-gray-900"
+                            >
+                                <SendIcon class="h-4 w-4 mr-2" />
+                                Transfer
+                            </button>
+                            
+                            <!-- Burn - For anyone logged in -->
+                            <button
+                                v-if="authStore.isWalletConnected && !isMinter"
                                 @click="openBurnModal"
                                 class="inline-flex items-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 dark:focus:ring-offset-gray-900"
-                                v-if="isMinter" 
                             >
                                 <FlameIcon class="h-4 w-4 mr-2" />
-                                Burn Tokens
+                                Burn
                             </button>
+                            
+                            <!-- Refresh button -->
                             <button
                                 @click="loadTokenData"
                                 :disabled="loading"
@@ -85,13 +109,6 @@
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                 </svg>
                                 Refresh
-                            </button>
-                            <button
-                                @click="$router.back()"
-                                class="inline-flex items-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 dark:focus:ring-offset-gray-900"
-                            >
-                                <CircleArrowLeftIcon class="h-4 w-4 mr-2" />
-                                Back
                             </button>
                         </div>
                     </div>
@@ -106,6 +123,12 @@
                         <p class="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">
                             {{ formatBalance(token.totalSupply, token.decimals) }}
                         </p>
+                        <div class="mt-3 space-y-1">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="text-gray-500 dark:text-gray-400">Circulating</span>
+                                <span class="font-medium text-green-600 dark:text-green-400">{{ (100 - lockedPercentage).toFixed(2) }}%</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
                         <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">
@@ -116,12 +139,21 @@
                         </p>
                     </div>
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-                        <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">
-                            Total Value Locked
-                        </h3>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">
+                                Total Value Locked
+                            </h3>
+                            <LockIcon v-if="distributionsLoading" class="h-4 w-4 text-gray-400 animate-pulse" />
+                        </div>
                         <p class="mt-2 text-3xl font-semibold text-gray-900 dark:text-white">
-                            {{ formatCurrency(token.tvl) }}
+                            {{ formatBalance(totalValueLocked.toString(), token.decimals) }}
                         </p>
+                        <div class="mt-3 space-y-1">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="text-gray-500 dark:text-gray-400">Locked</span>
+                                <span class="font-medium text-orange-600 dark:text-orange-400">{{ lockedPercentage.toFixed(2) }}%</span>
+                            </div>
+                        </div>
                     </div>
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
                         <h3 class="text-sm font-medium text-gray-500 dark:text-gray-400">
@@ -139,24 +171,57 @@
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
                     <!-- Controllers -->
                     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-                        <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-6">
-                            Controllers
-                        </h3>
-                        <div class="space-y-4">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-medium text-gray-900 dark:text-white">
+                                Controllers
+                            </h3>
+                            <span v-if="controllersLoading" class="text-xs text-gray-500 dark:text-gray-400">Loading...</span>
+                        </div>
+                        
+                        <!-- Controllers List -->
+                        <div v-if="canisterControllers.length > 0" class="space-y-3">
                             <div 
-                                v-for="controller in token.controllers" 
-                                :key="controller.principal"
-                                class="flex items-center justify-between"
+                                v-for="(controller, index) in canisterControllers" 
+                                :key="controller"
+                                class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg"
                             >
-                                <div class="flex items-center space-x-3">
-                                    <UserIcon class="h-5 w-5 text-gray-400" />
-                                    <span class="text-sm text-gray-900 dark:text-white">
-                                        {{ controller.principal }}
+                                <div class="flex items-center space-x-3 flex-1 min-w-0">
+                                    <UserIcon class="h-5 w-5 text-gray-400 flex-shrink-0" />
+                                    <span class="text-sm text-gray-900 dark:text-white font-mono truncate">
+                                        {{ controller }}
                                     </span>
                                 </div>
-                                <span class="text-sm text-gray-500 dark:text-gray-400">
-                                    {{ controller.role }}
+                                <button
+                                    @click="copyToClipboard(controller)"
+                                    class="ml-2 p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex-shrink-0"
+                                    title="Copy to clipboard"
+                                >
+                                    <CopyIcon class="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- No Controllers -->
+                        <div v-else-if="!controllersLoading" class="text-center py-4 text-sm text-gray-500 dark:text-gray-400">
+                            No controller information available
+                        </div>
+                        
+                        <!-- Module Hash -->
+                        <div v-if="moduleHash" class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="text-xs font-medium text-gray-500 dark:text-gray-400">Module Hash</span>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <span class="text-xs text-gray-900 dark:text-white font-mono truncate">
+                                    {{ moduleHash }}
                                 </span>
+                                <button
+                                    @click="copyToClipboard(moduleHash)"
+                                    class="ml-2 p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors flex-shrink-0"
+                                    title="Copy full hash"
+                                >
+                                    <CopyIcon class="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -168,7 +233,6 @@
                                 Cycles Balance
                             </h3>
                             <button
-                                v-if="isController"
                                 @click="openTopUpModal"
                                 class="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
                             >
@@ -208,84 +272,14 @@
                             </div>
                         </div>
                     </div>
+                </div>
 
-                    <!-- Token Locks -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-white">
-                                Token Locks
-                            </h3>
-                            <router-link 
-                                :to="`/token/${token.canisterId}/locks`"
-                                class="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
-                            >
-                                View All
-                            </router-link>
-                        </div>
-                        <div class="space-y-4">
-                            <div 
-                                v-for="lock in token.locks" 
-                                :key="lock.id"
-                                class="flex items-center justify-between"
-                            >
-                                <div>
-                                    <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ formatBalance(lock.amount, token.decimals) }} {{ token.symbol }}
-                                    </p>
-                                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                                        {{ lock.description }}
-                                    </p>
-                                </div>
-                                <div class="text-right">
-                                    <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ formatDate(lock.unlockDate) }}
-                                    </p>
-                                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                                        {{ formatTimeAgo(lock.unlockDate) }}
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Airdrops -->
-                    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm p-6">
-                        <div class="flex items-center justify-between mb-6">
-                            <h3 class="text-lg font-medium text-gray-900 dark:text-white">
-                                Airdrop Campaigns
-                            </h3>
-                            <router-link 
-                                :to="`/token/${token.canisterId}/airdrops`"
-                                class="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-500 dark:hover:text-blue-400"
-                            >
-                                View All
-                            </router-link>
-                        </div>
-                        <div class="space-y-4">
-                            <div 
-                                v-for="airdrop in token.airdrops" 
-                                :key="airdrop.id"
-                                class="flex items-center justify-between"
-                            >
-                                <div>
-                                    <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ airdrop.name }}
-                                    </p>
-                                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                                        {{ formatBalance(airdrop.totalAmount, token.decimals) }} {{ token.symbol }}
-                                    </p>
-                                </div>
-                                <div class="text-right">
-                                    <p class="text-sm font-medium text-gray-900 dark:text-white">
-                                        {{ airdrop.status }}
-                                    </p>
-                                    <p class="text-sm text-gray-500 dark:text-gray-400">
-                                        {{ formatNumber(airdrop.claimedCount) }}/{{ formatNumber(airdrop.totalCount) }} claimed
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                <!-- Token Distribution -->
+                <div class="mb-8">
+                    <TokenDistribution 
+                        :token="token" 
+                        @refresh="loadDistributions"
+                    />
                 </div>
 
                 <!-- Recent Transactions -->
@@ -354,7 +348,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useModalStore } from '@/stores/modal'
 import { Principal } from '@dfinity/principal'
@@ -363,20 +357,32 @@ import { formatDate, formatTimeAgo } from '@/utils/dateFormat'
 import { IcrcService } from '@/api/services/icrc'
 import { IcrcIndexService } from '@/api/services/icrcIndex'
 import { TokenFactoryService } from '@/api/services/tokenFactory'
+import { launchpadFactoryService } from '@/api/services/launchpadFactory'
+import { distributionFactoryService } from '@/api/services/distributionFactory'
+import { DistributionService } from '@/api/services/distribution'
 import { useAuthStore, icrcActor } from '@/stores/auth'
 import TokenLogo from '@/components/token/TokenLogo.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
 import TransactionTable from '@/components/token/TransactionTable.vue'
 import type { TransactionRecord } from '@/types/transaction'
+import type { LaunchpadInfo } from '@/api/services/launchpadFactory'
 import {
     CoinsIcon,
     FlameIcon,
     SettingsIcon,
     UserIcon,
     CircleArrowLeftIcon,
-    InfoIcon
+    InfoIcon,
+    SendIcon,
+    PlusCircleIcon,
+    SproutIcon,
+    LockIcon,
+    GiftIcon
 } from 'lucide-vue-next'
+import CopyIcon from '@/icons/CopyIcon.vue'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
+import LaunchpadBadge from '@/components/token/LaunchpadBadge.vue'
+import TokenDistribution from '@/views/Token/TokenDistribution.vue'
 
 const route = useRoute()
 const modalStore = useModalStore()
@@ -385,10 +391,17 @@ const timeRange = ref('1M')
 const loading = ref(true)
 const error = ref<string | null>(null)
 const isMinter = ref(false)
+const isTokenInWallet = ref(false)
 const recentTransactions = ref<TransactionRecord[]>([])
 const transactionsLoading = ref(false)
 const transactionSource = ref<'Ledger' | 'Index'>('Ledger')
 const indexCanisterId = ref<string | null>(null)
+const launchpadInfo = ref<LaunchpadInfo | null>(null)
+const canisterControllers = ref<string[]>([])
+const moduleHash = ref<string | null>(null)
+const controllersLoading = ref(false)
+const distributions = ref<any[]>([])
+const distributionsLoading = ref(false)
 // Token data
 const token = ref({
     canisterId: route.params.id as string,
@@ -420,6 +433,47 @@ const breadcrumbItems = computed(() => [
   { label: token.value.name || 'Token' }
 ])
 
+// Computed: TVL calculation from distributions
+const totalValueLocked = computed(() => {
+    if (!distributions.value.length) return BigInt(0)
+    
+    // Sum up totalAmount ONLY from ACTIVE distributions (exclude draft/unfunded)
+    return distributions.value
+        .filter(dist => dist.isActive) // Only count active distributions
+        .reduce((sum, dist) => {
+            try {
+                return sum + BigInt(dist.totalAmount || 0)
+            } catch {
+                return sum
+            }
+        }, BigInt(0))
+})
+
+const circulatingSupply = computed(() => {
+    try {
+        const total = BigInt(token.value.totalSupply || 0)
+        const locked = totalValueLocked.value
+        return total > locked ? total - locked : BigInt(0)
+    } catch {
+        return BigInt(0)
+    }
+})
+
+const lockedPercentage = computed(() => {
+    try {
+        const total = BigInt(token.value.totalSupply || 0)
+        if (total === BigInt(0)) return 0
+        const locked = totalValueLocked.value
+        return Number((locked * BigInt(10000) / total)) / 100 // 2 decimal places
+    } catch {
+        return 0
+    }
+})
+
+const isController = computed(() => {
+    if (!authStore.principal || !canisterControllers.value.length) return false
+    return canisterControllers.value.includes(authStore.principal.toString())
+})
 
 
 // Load recent transactions from token ledger
@@ -502,15 +556,85 @@ const loadTokenData = async () => {
         // Load recent transactions
         await loadRecentTransactions()
 
+        // Load controllers and distributions
+        await loadControllers(factoryTokenInfo)
+        await loadDistributions()
+
         // TODO: Fetch additional data like holders, etc.
         // This would require additional canister calls or indexer services
         await checkIsMinter()
+        await checkLaunchpad(factoryTokenInfo)
+        await checkIsInWallet()
 
     } catch (err) {
         console.error('Error loading token data:', err)
         error.value = 'Failed to load token data'
     } finally {
         loading.value = false
+    }
+}
+
+// Load canister controllers from factory token info
+const loadControllers = async (factoryTokenInfo: any) => {
+    controllersLoading.value = true
+    try {
+        console.log('factoryTokenInfo', factoryTokenInfo)
+        if (factoryTokenInfo?.owner) {
+            // Controllers from factory token info
+            canisterControllers.value = [factoryTokenInfo.owner.toString()]
+        }
+        
+        if (factoryTokenInfo?.moduleHash && factoryTokenInfo.moduleHash.length > 0) {
+            // Module hash from factory token info
+            moduleHash.value = factoryTokenInfo.moduleHash
+        }
+    } catch (err) {
+        console.error('Error loading controllers:', err)
+        // Silently fail - not critical for token display
+    } finally {
+        controllersLoading.value = false
+    }
+}
+
+// Load distributions for TVL calculation
+const loadDistributions = async () => {
+    distributionsLoading.value = true
+    try {
+        const tokenId = Principal.fromText(token.value.canisterId)
+        const result = await distributionFactoryService.getDistributionsByToken(tokenId, 100, 0)
+        
+        // Fetch real-time stats for each distribution to get correct isActive status
+        const distributionsWithStats = []
+        for (const dist of result.distributions) {
+             try {
+                const canisterId = dist.contractId.toString()
+                const stats = await DistributionService.getDistributionStats(canisterId)
+                distributionsWithStats.push({
+                    ...dist,
+                    totalAmount: stats.totalAmount,
+                    isActive: stats.isActive
+                })
+             } catch (e) {
+                 console.warn(`Failed to fetch stats for ${dist.contractId}`, e)
+             }
+        }
+        distributions.value = distributionsWithStats
+    } catch (err) {
+        console.error('Error loading distributions:', err)
+        // Silently fail - TVL will just show 0
+    } finally {
+        distributionsLoading.value = false
+    }
+}
+
+// Copy to clipboard helper
+const copyToClipboard = async (text: string) => {
+    try {
+        await navigator.clipboard.writeText(text)
+        const { toast } = await import('vue-sonner')
+        toast.success('Copied to clipboard')
+    } catch (err) {
+        console.error('Failed to copy:', err)
     }
 }
 
@@ -532,6 +656,57 @@ const openBurnModal = () => {
     modalStore.open('burnTokens', { token: token.value })
 }
 
+const openTransferModal = () => {
+    // SendTokenModal expects: modalData.data.token
+    modalStore.open('sendToken', { data: { token: token.value } })
+}
+
+const addToWallet = async () => {
+    try {
+        const { useUserTokensStore } = await import('@/stores/userTokens')
+        const userTokensStore = useUserTokensStore()
+        await userTokensStore.enableToken(token.value)
+        isTokenInWallet.value = true
+        const { toast } = await import('vue-sonner')
+        toast.success(`${token.value.symbol} added to wallet`)
+    } catch (error) {
+        console.error('Error adding token to wallet:', error)
+        const { toast } = await import('vue-sonner')
+        toast.error('Failed to add token to wallet')
+    }
+}
+
+const checkIsInWallet = async () => {
+    try {
+        const { useUserTokensStore } = await import('@/stores/userTokens')
+        const userTokensStore = useUserTokensStore()
+        // Check if token is in user's enabled tokens
+        isTokenInWallet.value = userTokensStore.tokens.some(
+            t => t.canisterId === token.value.canisterId
+        )
+    } catch (error) {
+        console.error('Error checking wallet:', error)
+    }
+}
+
+// Check if token was created via Launchpad
+// Check if token has associated launchpad
+const checkLaunchpad = async (factoryTokenInfo: any) => {
+    try {
+        // Check if token has launchpad ID from factory token info
+        if (factoryTokenInfo?.launchpadId && factoryTokenInfo.launchpadId.length > 0) {
+            const launchpadId = factoryTokenInfo.launchpadId[0].toString()
+            // Get launchpad info by ID
+            const launchpad = await launchpadFactoryService.getLaunchpadInfo(launchpadId)
+            if (launchpad) {
+                launchpadInfo.value = launchpad
+            }
+        }
+    } catch (error) {
+        console.error('Error checking launchpad:', error)
+    }
+}
+
 const openSettingsModal = () => {
     modalStore.open('tokenSettings', { token: token.value })
 }
@@ -545,5 +720,15 @@ watch(() => route.params.id, loadTokenData, { immediate: true })
 
 onMounted(() => {
     loadTokenData()
+    
+    // Listen for mint/burn events to refresh token data
+    window.addEventListener('token-minted', loadTokenData)
+    window.addEventListener('token-burned', loadTokenData)
+})
+
+onUnmounted(() => {
+    // Clean up event listeners
+    window.removeEventListener('token-minted', loadTokenData)
+    window.removeEventListener('token-burned', loadTokenData)
 })
 </script> 

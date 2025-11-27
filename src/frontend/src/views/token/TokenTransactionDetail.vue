@@ -186,7 +186,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { ArrowUp, Sparkles, Flame, Check, ArrowRightLeft } from 'lucide-vue-next'
+import { ArrowUp, ArrowDown, Sparkles, Flame, Check, ArrowRightLeft, Sprout } from 'lucide-vue-next'
 import { IcrcService } from '@/api/services/icrc'
 import AdminLayout from '@/components/layout/AdminLayout.vue'
 import Breadcrumb from '@/components/common/Breadcrumb.vue'
@@ -206,18 +206,21 @@ const tokenDecimals = ref(8)
 const tokenName = ref('Token')
 const tokenSymbol = ref('TOKEN')
 
+const accountPrincipal = computed(() => {
+  if (route.query.from === 'account') {
+    return route.query.principal as string | undefined
+  }
+  return undefined
+})
+
 const breadcrumbItems = computed(() => {
-  // Check if we came from an account page (via query params)
-  const fromAccount = route.query.from === 'account'
-  const accountPrincipal = route.query.principal as string | undefined
-  
-  if (fromAccount && accountPrincipal) {
+  if (accountPrincipal.value) {
     // Breadcrumb when navigating from account page
     return [
       { label: 'Tokens', to: '/tokens' },
       { label: tokenName.value, to: `/token/${canisterId.value}` },
       { label: 'Account' },
-      { label: `${accountPrincipal}`, to: `/token/${canisterId.value}/account/${accountPrincipal}` },
+      { label: `${accountPrincipal.value}`, to: `/token/${canisterId.value}/account/${accountPrincipal.value}` },
       { label: `#${(transaction.value?.index || 0).toString()}` }
     ]
   } else {
@@ -236,7 +239,29 @@ const formatAmount = (amount?: bigint): string => {
   return formatBalance(amount, tokenDecimals.value)
 }
 
+const getTransactionDirection = (tx: TransactionRecord): 'in' | 'out' | null => {
+  if (!accountPrincipal.value) return null
+  
+  // For Transfer/Approve, check from/to
+  const from = getFromAddress(tx)
+  const to = getToAddress(tx)
+  
+  if (from === accountPrincipal.value) return 'out'
+  if (to === accountPrincipal.value) return 'in'
+  
+  return null
+}
+
 const getTransactionTypeLabel = (kind: string): string => {
+  const normalizedKind = kind.toLowerCase()
+  
+  // Only apply direction logic for transfer transactions
+  if (transaction.value && (normalizedKind === 'transfer' || normalizedKind === 'xfer')) {
+    const direction = getTransactionDirection(transaction.value)
+    if (direction === 'in') return 'Received'
+    if (direction === 'out') return 'Sent'
+  }
+
   const kindMap: Record<string, string> = {
     'xfer': 'Transfer',
     'transfer': 'Transfer',
@@ -253,6 +278,18 @@ const getTransactionTypeLabel = (kind: string): string => {
 
 const getTransactionTypeBadgeClass = (kind: string): string => {
   const normalizedKind = kind.toLowerCase()
+  
+  // Only apply direction colors for transfer transactions
+  if (transaction.value && (normalizedKind === 'transfer' || normalizedKind === 'xfer')) {
+    const direction = getTransactionDirection(transaction.value)
+    if (direction === 'in') {
+      return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300'
+    }
+    if (direction === 'out') {
+      return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300'
+    }
+  }
+
   const classMap: Record<string, string> = {
     'transfer': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
     'xfer': 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
@@ -263,12 +300,20 @@ const getTransactionTypeBadgeClass = (kind: string): string => {
   return classMap[normalizedKind] || 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
 }
 
-const getTransactionIcon = (kind: string): typeof ArrowUp | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft => {
+const getTransactionIcon = (kind: string): typeof ArrowUp | typeof ArrowDown | typeof Sprout | typeof Flame | typeof Check | typeof ArrowRightLeft => {
   const normalizedKind = kind.toLowerCase()
-  const iconMap: Record<string, typeof ArrowUp | typeof Sparkles | typeof Flame | typeof Check | typeof ArrowRightLeft> = {
+  
+  // Only apply direction icons for transfer transactions
+  if (transaction.value && (normalizedKind === 'transfer' || normalizedKind === 'xfer')) {
+    const direction = getTransactionDirection(transaction.value)
+    if (direction === 'in') return ArrowDown
+    if (direction === 'out') return ArrowUp
+  }
+
+  const iconMap: Record<string, any> = {
     'transfer': ArrowRightLeft,
     'xfer': ArrowRightLeft,
-    'mint': Sparkles,
+    'mint': Sprout,
     'burn': Flame,
     'approve': Check
   }

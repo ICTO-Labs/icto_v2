@@ -1,12 +1,23 @@
 <template>
     <div class="bg-white dark:bg-gray-800 shadow rounded-lg overflow-hidden">
         <div class="px-4 py-5 sm:px-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-            <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">
-                Token Distributions
-            </h3>
-            <span class="text-sm text-gray-500 dark:text-gray-400">
-                All token distributions
-            </span>
+            <div>
+                <h3 class="text-lg leading-6 font-medium text-gray-900 dark:text-white">
+                    Token Distributions
+                </h3>
+                <span class="text-sm text-gray-500 dark:text-gray-400">
+                    All token distributions
+                </span>
+            </div>
+            <button
+                @click="loadDistributions"
+                :disabled="isLoading"
+                class="inline-flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Refresh distributions and recalculate TVL"
+            >
+                <RefreshCwIcon :class="['w-4 h-4', isLoading && 'animate-spin']" />
+                Refresh
+            </button>
         </div>
 
         <div v-if="isLoading" class="p-8 text-center">
@@ -120,7 +131,8 @@
 import { ref, onMounted, watch } from 'vue'
 import { Principal } from '@dfinity/principal'
 import { distributionFactoryService, DistributionFactoryService } from '@/api/services/distributionFactory'
-import { LoaderIcon, ChevronLeftIcon, ChevronRightIcon } from 'lucide-vue-next'
+import { DistributionService } from '@/api/services/distribution'
+import { LoaderIcon, ChevronLeftIcon, ChevronRightIcon, RefreshCwIcon } from 'lucide-vue-next'
 import { formatTokenDisplay } from '@/utils/token'
 
 const props = defineProps<{
@@ -130,6 +142,8 @@ const props = defineProps<{
         decimals: number;
     }
 }>()
+
+const emit = defineEmits(['refresh'])
 
 const isLoading = ref(false)
 const distributions = ref<any[]>([])
@@ -145,8 +159,38 @@ const loadDistributions = async () => {
         const tokenId = Principal.fromText(props.token.canisterId)
         const result = await distributionFactoryService.getDistributionsByToken(tokenId, limit, offset.value)
         
-        distributions.value = DistributionFactoryService.formatDistributions(result.distributions)
-        total.value = Number(result.total)
+        // Fetch all data from single getStats() call (optimized!)
+        const allDistributions = []
+        
+        for (const factoryDist of result.distributions) {
+            try {
+                const canisterId = factoryDist.contractId.toString()
+                
+                // Single API call - getStats now includes config data + isActive status
+                const stats = await DistributionService.getDistributionStats(canisterId)
+                
+                // Show ALL distributions, but mark isActive correctly for TVL calculation
+                allDistributions.push({
+                    id: canisterId,
+                    title: stats.title,
+                    description: stats.description,
+                    totalAmount: stats.totalAmount,
+                    tokenSymbol: stats.tokenInfo.symbol,
+                    recipientCount: stats.totalParticipants,
+                    isActive: stats.isActive, // Use actual status from contract
+                    campaignType: stats.campaignType
+                })
+            } catch (error) {
+                console.warn(`Failed to fetch stats for distribution ${factoryDist.contractId}:`, error)
+                // Skip distributions that fail to load
+            }
+        }
+        
+        distributions.value = allDistributions
+        total.value = allDistributions.length
+        
+        // Emit refresh event to notify parent (e.g. for TVL update)
+        emit('refresh')
     } catch (error) {
         console.error('Failed to load distributions:', error)
     } finally {

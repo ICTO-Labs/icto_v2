@@ -123,18 +123,21 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useModalStore } from '@/stores/modal'
-import { parseTokenAmount } from '@/utils/numberFormat'
+import { formatNumber, parseTokenAmount } from '@/utils/numberFormat'
 import { LoaderIcon } from 'lucide-vue-next'
 import BaseModal from '../core/BaseModal.vue'
 import { validateAddress } from '@/utils/validation'
 import { useSwal } from '@/composables/useSwal2'
 import { toast } from 'vue-sonner'
+import { IcrcService } from '@/api/services/icrc'
 
 interface TokenData {
     token: {
+        canisterId: string;
         name: string;
         symbol: string;
         decimals: number;
+        fee: number;
         logo?: string;
     }
 }
@@ -159,25 +162,97 @@ const handleClose = () => {
 }
 
 const handleMint = async () => {
-    if (!isValid.value || isLoading.value) return
+    if (!isValid.value || isLoading.value || !tokenData.value) return
+
+    const result = await useSwal.fire({
+        title: 'Confirm Mint',
+        html: `
+            <div class="text-left">
+                <p class="mb-2">You are about to mint:</p>
+                <p class="font-semibold text-2xl text-green-600">${formatNumber(amount.value)} ${tokenData.value.token.symbol}</p>
+                <p class="mt-2 mb-2">To:</p>
+                <p class="font-mono text-sm break-all">${recipient.value}</p>
+                ${memo.value ? `<p class="mt-2">Memo: ${memo.value}</p>` : ''}
+                <p class="mt-4 text-sm text-yellow-600">⚠️ This action will increase the total supply</p>
+            </div>
+        `,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Mint Tokens',
+        cancelButtonText: 'Cancel'
+    })
+
+    if (!result.isConfirmed) return
 
     try {
         isLoading.value = true
-        // TODO: Implement mint logic
-        await useSwal.fire({
-            title: 'Are you sure?',
-            text: `Are you sure you want to mint ${parseTokenAmount(amount.value, tokenData.value?.token.decimals || 8)} ${tokenData.value?.token.symbol}?`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: 'Yes, Let\'s Go!'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                toast.success(`Minted ${parseTokenAmount(amount.value, tokenData.value?.token.decimals || 8)} ${tokenData.value?.token.symbol}`)
-                handleClose()
+
+        // Convert amount to bigint with proper decimals
+        const amountBigInt = parseTokenAmount(amount.value, tokenData.value.token.decimals || 8)
+
+        // Prepare token object for IcrcService
+        const token = {
+            canisterId: tokenData.value.token.canisterId,
+            symbol: tokenData.value.token.symbol,
+            name: tokenData.value.token.name,
+            decimals: tokenData.value.token.decimals || 8,
+            fee: tokenData.value.token.fee || 0,
+        } as any // Type assertion to avoid strict type checking for optional properties
+
+        // Prepare mint options
+        const mintOpts: any = {}
+        if (memo.value) {
+            const encoder = new TextEncoder()
+            mintOpts.memo = encoder.encode(memo.value)
+        }
+
+        // Call the mint function
+        const mintResult = await IcrcService.mint(
+            token,
+            recipient.value,
+            amountBigInt,
+            mintOpts
+        )
+
+        console.log('Mint result:', mintResult)
+
+        // Check if mint was successful
+        if (mintResult.Ok !== undefined) {
+            toast.success(`Successfully minted ${parseTokenAmount(amount.value, tokenData.value.token.decimals || 8)} ${tokenData.value.token.symbol}`)
+            handleClose()
+            // Emit event to refresh token data
+            window.dispatchEvent(new CustomEvent('token-minted'))
+        } else if (mintResult.Err) {
+            // Handle specific error cases
+            const error = mintResult.Err
+            let errorMessage = 'Failed to mint tokens'
+
+            if (error.InsufficientFunds) {
+                errorMessage = 'Insufficient funds for minting'
+            } else if (error.BadFee) {
+                errorMessage = 'Incorrect fee specified'
+            } else if (error.GenericError) {
+                errorMessage = error.GenericError.message || 'An error occurred during minting'
+            } else if (error.TemporarilyUnavailable) {
+                errorMessage = 'Service temporarily unavailable. Please try again.'
+            } else if (error.Duplicate) {
+                errorMessage = 'Duplicate transaction detected'
+            } else if (error.BadBurn) {
+                errorMessage = 'Invalid burn operation'
+            } else if (error.CreatedInFuture) {
+                errorMessage = 'Transaction timestamp is in the future'
+            } else if (error.TooOld) {
+                errorMessage = 'Transaction is too old'
             }
-        })
+
+            toast.error(errorMessage)
+            console.error('Mint error:', error)
+        } else {
+            toast.error('Unexpected response from mint operation')
+        }
     } catch (error) {
         console.error('Failed to mint tokens:', error)
+        toast.error('Failed to mint tokens. Please try again.')
     } finally {
         isLoading.value = false
     }
