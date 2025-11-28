@@ -238,7 +238,7 @@
                             <p class="text-sm font-normal text-gray-900 dark:text-white">
                               {{ shortPrincipal(participant.principal) }}
                             </p>
-							<CopyIcon class="h-4 w-4" :data="participant.principal" :msg="'Principal'" />
+							<CopyIcon class="h-4 w-4" :data="participant?.principal.toString()" :msg="'Principal'" />
                           </div>
                         </div>
                       </td>

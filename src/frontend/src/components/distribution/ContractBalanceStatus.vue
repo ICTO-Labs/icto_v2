@@ -30,7 +30,7 @@
     <div class="mb-4" v-if="isOwner">
       <button
         @click="emit('fund')"
-        class="w-full flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200"
+        class="w-full flex items-center text-sm justify-center gap-2 px-2 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200"
       >
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
@@ -147,12 +147,12 @@ const shouldShow = computed(() => {
     return false
   }
   
-  // Only show for Created status with insufficient balance
-  const isCreated = status === 'Created'
+  // Only show for Upcoming status with insufficient balance
+  const isUpcoming = status === 'Upcoming'
   const isInsufficient = Number(props.currentBalance) < Number(props.requiredAmount)
 
-  // Show if Created AND insufficient, OR needsFunding flag is true (but only if Created)
-  return isCreated && (isInsufficient || props.needsFunding)
+  // Show if Upcoming AND insufficient, OR needsFunding flag is true (but only if Upcoming)
+  return isUpcoming && (isInsufficient || props.needsFunding)
 })
 
 const isInsufficient = computed(() => {

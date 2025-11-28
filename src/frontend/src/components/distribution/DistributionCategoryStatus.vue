@@ -26,23 +26,32 @@
 
       <!-- Batch Actions -->
       <div class="space-y-2 mb-4">
-        <button v-if="hasEligibleCategories" :disabled="!hasEligibleCategories || processing"
-          @click="$emit('register-all')"
-          class="w-full flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-sm">
-          <UserPlusIcon class="w-4 h-4 mr-2" />
-          Register All Eligible <span v-if="eligibleCount"
-            class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-1 text-xs px-2 text-blue-600 dark:text-blue-400 text-center ml-2">{{
-              eligibleCount }}</span>
-        </button>
+        <!-- Loading skeletons -->
+        <template v-if="loading">
+          <div class="w-full h-10 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+          <div class="w-full h-10 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+        </template>
+        
+        <!-- Actual buttons -->
+        <template v-else>
+          <button v-if="hasEligibleCategories" :disabled="!hasEligibleCategories || processing"
+            @click="$emit('register-all')"
+            class="w-full flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-sm">
+            <UserPlusIcon class="w-4 h-4 mr-2" />
+            Register All Eligible <span v-if="eligibleCount"
+              class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-1 text-xs px-2 text-blue-600 dark:text-blue-400 text-center ml-2">{{
+                eligibleCount }}</span>
+          </button>
 
-        <button v-if="hasClaimableCategories" :disabled="!hasClaimableCategories || processing"
-          @click="$emit('claim-all')"
-          class="w-full flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-sm">
-          <CoinsIcon class="w-4 h-4 mr-2" />
-          Claim All Ready <span v-if="claimableCount"
-            class="bg-green-50 dark:bg-green-900/20 rounded-lg p-1 text-xs px-2 text-green-600 dark:text-green-400 font-medium text-center ml-2">{{
-              claimableCount }}</span>
-        </button>
+          <button v-if="hasClaimableCategories" :disabled="!hasClaimableCategories || processing"
+            @click="$emit('claim-all')"
+            class="w-full flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed font-medium shadow-sm">
+            <CoinsIcon class="w-4 h-4 mr-2" />
+            Claim All Ready <span v-if="claimableCount"
+              class="bg-green-50 dark:bg-green-900/20 rounded-lg p-1 text-xs px-2 text-green-600 dark:text-green-400 font-medium text-center ml-2">{{
+                claimableCount }}</span>
+          </button>
+        </template>
       </div>
 
       <!-- Category List with Status -->
@@ -113,6 +122,7 @@ interface Props {
   userContext?: any
   isAuthenticated: boolean
   processing?: boolean
+  loading?: boolean  // NEW: Loading state for skeleton loaders
   activeCategory?: string
   distributionStart?: bigint // NEW: Distribution start time
 }
@@ -222,27 +232,59 @@ function getCategoryUserStatus(category: any): CategoryUserStatus {
     : BigInt(userCategoryData.claimed || 0)
 
   // Calculate claimable amount
-  // Priority: 1. Injected value (vesting-aware), 2. Local calculation (naive)
-  const claimableAmount = category.claimableAmount !== undefined
-    ? BigInt(category.claimableAmount)
-    : (eligibleAmount > claimedAmount ? eligibleAmount - claimedAmount : BigInt(0))
+  // For Instant Release: prioritize local calculation if backend returns 0
+  // Backend may not have updated claimableAmount yet for instant release
+  const vestingSchedule = category.vestingSchedule || category.category?.defaultVestingSchedule
+  const isInstantRelease = vestingSchedule && typeof vestingSchedule === 'object' && 'Instant' in vestingSchedule
+  
+  let claimableAmount: bigint
+  
+  if (isInstantRelease && category.claimableAmount === BigInt(0)) {
+    // For Instant Release with backend returning 0, use local calculation
+    // This handles the case where distribution is live but backend hasn't updated yet
+    claimableAmount = eligibleAmount > claimedAmount ? eligibleAmount - claimedAmount : BigInt(0)
+  } else {
+    // Priority: 1. Injected value (vesting-aware), 2. Local calculation (naive)
+    claimableAmount = category.claimableAmount !== undefined
+      ? BigInt(category.claimableAmount)
+      : (eligibleAmount > claimedAmount ? eligibleAmount - claimedAmount : BigInt(0))
+  }
+
+  // DEBUG: Log claimable calculation
+  console.log('🔍 getCategoryUserStatus Debug:', {
+    categoryId: category.categoryId || category.id,
+    categoryName: category.name,
+    isInstantRelease,
+    injectedClaimable: category.claimableAmount,
+    injectedEligible: category.eligibleAmount,
+    injectedClaimed: category.claimedAmount,
+    participantAllocation: userCategoryData.allocation,
+    participantClaimed: userCategoryData.claimed,
+    calculatedEligible: eligibleAmount.toString(),
+    calculatedClaimed: claimedAmount.toString(),
+    calculatedClaimable: claimableAmount.toString(),
+    distributionStart: props.distributionStart?.toString(),
+    now: (Date.now() * 1_000_000).toString()
+  })
 
   // Check if fully claimed
   if (eligibleAmount > 0 && claimedAmount >= eligibleAmount) {
     return 'CLAIMED'
   }
 
+  // CRITICAL: Check if can claim now BEFORE checking distribution start
+  // This ensures that when distribution is live and tokens are claimable,
+  // the status is CLAIMABLE (not REGISTERED)
+  if (claimableAmount > 0) {
+    return 'CLAIMABLE'
+  }
+
   // Check if distribution has started
   if (props.distributionStart) {
     const now = Date.now() * 1_000_000 // Convert to nanoseconds
     if (now < Number(props.distributionStart)) {
-      return 'REGISTERED' // Or LOCKED? REGISTERED implies waiting.
+      return 'REGISTERED' // Distribution hasn't started yet
     }
-  }
-
-  // Check if can claim now
-  if (claimableAmount > 0) {
-    return 'CLAIMABLE'
   }
 
   // Check if vesting has started

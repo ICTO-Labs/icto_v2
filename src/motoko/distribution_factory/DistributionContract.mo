@@ -2003,14 +2003,15 @@ persistent actor class DistributionContract(initArgs : DistributionUpgradeTypes.
     (totalAmount * penaltyConfig.penaltyPercentage) / 100;
   };
 
-  // ================ PER-CATEGORY VESTING CALCULATION (V2.0) ================
-
   /// Calculate unlocked amount for a single category
   /// Each category has its own vesting schedule and start time
   private func _calculateUnlockedAmountForCategory(category : CategoryAllocation, initialUnlockPercentage : Nat) : Nat {
     // Use GLOBAL distributionStart for all categories (not category-specific vestingStart)
     let vestingStart = config.distributionStart;
-    let currentTime = _getValidatedTime();
+    // CRITICAL FIX: Use Time.now() directly instead of _getValidatedTime()
+    // _getValidatedTime() relies on lastActivityTime which may be stale in query functions
+    // causing Instant Release to incorrectly return 0 claimable amount
+    let currentTime = Time.now();
 
     // CRITICAL FIX: Check if vesting has started
     // If current time is before vesting start, no tokens are unlocked yet

@@ -520,6 +520,7 @@
             <!-- ============================================ -->
             <DistributionCategoryStatus v-if="categoryData.length > 0" :categories="categoryData"
               :user-context="userContext" :is-authenticated="authStore.isConnected" :processing="registering || claiming"
+              :loading="loading"
               :active-category="activeCategoryTab === 'all' ? undefined : activeCategoryTab"
               :distribution-start="details?.distributionStart"
               @register-all="handleBatchRegister" @claim-all="handleBatchClaim"
@@ -528,8 +529,8 @@
             <!-- ============================================ -->
             <!-- TOKEN INFO (LEGACY - For non-category or single category) -->
             <!-- ============================================ -->
-            <DistributionTokenInfo 
-              :token-canister-id="details.tokenInfo.canisterId"
+            <DistributionTokenInfo v-if="details && details.tokenInfo"
+              :token-canister-id="details.tokenInfo.canisterId.toString()"
               :token-symbol="details.tokenInfo.symbol" 
               :token-name="details.tokenInfo.name"
               :token-decimals="details.tokenInfo.decimals" />
@@ -787,7 +788,7 @@ const {
   canManage,
   needsFunding,
   isLive,
-  isCreated,
+  isUpcoming,
   isRegistration,
   isEnded
 } = useDistributionStatus(distributionRef, contractBalance)
@@ -1474,14 +1475,11 @@ const formatNumber = (value: number) => {
 // ============================================
 const fetchDetails = async () => {
   try {
-    loading.value = true
     error.value = null
     details.value = await DistributionService.getDistributionDetails(canisterId.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch distribution details'
     console.error('Error fetching distribution details:', err)
-  } finally {
-    loading.value = false
   }
 }
 
@@ -1641,6 +1639,27 @@ watch(() => categoryData.value, (newCategories) => {
   }
 }, { immediate: true })
 
+// Watch for auth state changes (login/logout)
+watch(() => authStore.isConnected, async (newIsConnected, oldIsConnected) => {
+  // Only react to actual changes, not initial load
+  if (oldIsConnected !== undefined && newIsConnected !== oldIsConnected) {
+    console.log('🔐 Auth state changed, reloading distribution data...', { newIsConnected, oldIsConnected })
+    
+    // Clear user-specific data on logout
+    if (!newIsConnected) {
+      userContext.value = null
+      participantData.value = null
+      userCategoryBreakdown.value = new Map()
+      userAllocation.value = BigInt(0)
+      alreadyClaimed.value = BigInt(0)
+      availableToClaim.value = BigInt(0)
+    }
+    
+    // Reload all data
+    await refreshData()
+  }
+}, { immediate: false })
+
 onMounted(async () => {
   if (props.canisterId) {
     canisterId.value = props.canisterId
@@ -1649,15 +1668,25 @@ onMounted(async () => {
 })
 
 const refreshData = async () => {
-  refreshing.value = true
-  await fetchDetails()
-  await fetchStats()
-  await fetchDistributionStatus()
-  await fetchAllParticipants()
-  await fetchClaimHistory()
-  await fetchUserContext()
-  await checkBalance()
-  refreshing.value = false
+  try {
+    refreshing.value = true
+
+    // Fetch all data in parallel (more efficient than sequential)
+    await Promise.all([
+      fetchDetails(),
+      fetchStats(),
+      fetchDistributionStatus(),
+      fetchAllParticipants(),
+      fetchClaimHistory(),
+      fetchUserContext(),
+      checkBalance()
+    ])
+  } catch (err) {
+    console.error('Error refreshing data:', err)
+  } finally {
+    // ✅ CRITICAL: Only set refreshing = false after ALL fetches complete
+    refreshing.value = false
+  }
 }
 
 const fetchClaimHistory = async () => {
@@ -2122,15 +2151,30 @@ const handleCountdownEnd = async () => {
 }
 
 const parallelFetch = async () => {
-  await Promise.all([
-    fetchDetails(),
-    fetchCanisterInfo(),
-    fetchStats(),
-    fetchDistributionStatus(),
-    fetchAllParticipants(),
-    fetchClaimHistory(),
-    fetchUserContext()
-  ])
+  try {
+    // ✅ SET LOADING AT START - Controls all child fetches
+    loading.value = true
+    error.value = null
+
+    // Execute all fetches in parallel
+    await Promise.all([
+      fetchDetails(),
+      fetchCanisterInfo(),
+      fetchStats(),
+      fetchDistributionStatus(),
+      fetchAllParticipants(),
+      fetchClaimHistory(),
+      fetchUserContext()
+    ])
+  } catch (err) {
+    console.error('Error in parallel fetch:', err)
+    error.value = err instanceof Error ? err.message : 'Failed to fetch data'
+  } finally {
+    // ✅ CRITICAL: Set loading = false ONLY after Promise.all completes
+    // This ensures all child fetches (fetchDetails, fetchUserContext, etc) are done
+    // before skeletons disappear and buttons appear
+    loading.value = false
+  }
 }
 
 onMounted(() => {

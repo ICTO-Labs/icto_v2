@@ -6,7 +6,7 @@ import { getVariantKey } from '@/utils/common'
  * Simplified status based on campaign timeline and type
  */
 export type DistributionStatus =
-  | 'Created'        // Just created, not started yet (may need funding)
+  | 'Upcoming'       // Not started yet or needs funding
   | 'Registration'   // Registration period (SelfService mode)
   | 'Live'           // Distribution is live (can claim)
   | 'Locked'         // Lock campaign - tokens locked
@@ -66,7 +66,7 @@ export function useDistributionStatus(
    * Determine current distribution status with balance validation
    */
   const distributionStatus = computed<DistributionStatus>(() => {
-    if (!distribution.value) return 'Created'
+    if (!distribution.value) return 'Upcoming'
 
     const details = distribution.value
     const now = Date.now()
@@ -94,11 +94,11 @@ export function useDistributionStatus(
 
     // Check if not started yet
     if (now < startTime) {
-      return 'Created'
+      return 'Upcoming'
     }
 
-    // CRITICAL FIX: Check distributionEnd BEFORE balance check
-    // This prevents ended distributions from showing as "Created" due to insufficient balance
+    // CRITICAL FIX: Check distributionEnd BEFORE isActive check
+    // This prevents ended distributions from showing as "Upcoming" incorrectly
     const distributionEnd = details.distributionEnd && details.distributionEnd.length > 0
       ? Number(details.distributionEnd[0]) / 1_000_000
       : null
@@ -108,17 +108,11 @@ export function useDistributionStatus(
       return 'Ended'
     }
 
-    // Check balance before allowing "Live" status
-    // If distribution should be live but balance is insufficient, keep it in "Created"
+    // Use isActive from contract stats (source of truth)
+    // If started but not active, it needs funding
     const hasStarted = now >= startTime
-    if (hasStarted && contractBalance !== undefined) {
-      const totalAmount = details.totalAmount ? BigInt(details.totalAmount) : BigInt(0)
-      const currentBalance = contractBalance.value || BigInt(0)
-
-      // If contract doesn't have enough balance, it cannot go live
-      if (currentBalance < totalAmount) {
-        return 'Created'  // Stays in Created until funded
-      }
+    if (hasStarted && details.isActive === false) {
+      return 'Upcoming'  // Stays Upcoming until activated (funded)
     }
 
     // Determine status based on campaign type
@@ -144,7 +138,7 @@ export function useDistributionStatus(
       return 'Locked'
     }
 
-    // Live distribution (passed all checks including balance)
+    // Live distribution (passed all checks including isActive)
     if (campaignType === 'Vesting') {
       return 'Vesting'
     }
@@ -154,21 +148,21 @@ export function useDistributionStatus(
 
   /**
    * Check if contract needs funding
-   * Only show funding alert for Created status
-   * Once distribution is Active/Live, balance has already been verified during activation
+   * Show "Needs Funding" when:
+   * - Status is Upcoming (not started or not activated)
+   * - Current time >= start time (should have started)
+   * - isActive is false (not activated/funded)
    */
   const needsFunding = computed(() => {
-    if (!distribution.value || !contractBalance) return false
+    if (!distribution.value) return false
 
     const status = distributionStatus.value
-    // Only show funding alert for Created status
-    // Once Live/Active, balance has been verified. For Ended/Cancelled/Completed, funding is no longer relevant
-    if (status !== 'Created') return false
+    const details = distribution.value
+    const now = Date.now()
+    const startTime = Number(details.distributionStart) / 1_000_000
 
-    const totalAmount = distribution.value.totalAmount ? BigInt(distribution.value.totalAmount) : BigInt(0)
-    const currentBalance = contractBalance.value || BigInt(0)
-
-    return currentBalance < totalAmount
+    // Show "Needs Funding" when distribution should be active but isn't
+    return status === 'Upcoming' && now >= startTime && details.isActive === false
   })
 
   /**
@@ -186,8 +180,8 @@ export function useDistributionStatus(
     const approachingStart = startTime > 0 && now >= (startTime - 3600000) && now < startTime
 
     const statusMap: Record<DistributionStatus, Omit<DistributionStatusInfo, 'status'>> = {
-      Created: {
-        label: needsFunding.value ? 'Needs Funding' : approachingStart ? 'Starting Soon' : 'Created',
+      Upcoming: {
+        label: needsFunding.value ? 'Needs Funding' : approachingStart ? 'Starting Soon' : 'Upcoming',
         description: needsFunding.value
           ? 'Contract needs funding before distribution can start'
           : approachingStart
@@ -498,7 +492,7 @@ export function useDistributionStatus(
     timeline,
 
     // Convenience flags
-    isCreated: computed(() => distributionStatus.value === 'Created'),
+    isUpcoming: computed(() => distributionStatus.value === 'Upcoming'),
     isRegistration: computed(() => distributionStatus.value === 'Registration'),
     isLive: computed(() => distributionStatus.value === 'Live'),
     isActive: computed(() => distributionStatus.value === 'Live'),  // Alias for backwards compatibility

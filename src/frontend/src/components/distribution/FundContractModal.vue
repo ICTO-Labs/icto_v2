@@ -139,6 +139,21 @@
                       </div>
                     </div>
                   </div>
+
+                  <!-- Minting Account Warning -->
+                  <div v-if="isMintingAccount" class="mt-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+                    <div class="flex items-start gap-2">
+                      <InfoIcon class="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <p class="text-sm font-medium text-amber-800 dark:text-amber-200">
+                          Minting Account Detected
+                        </p>
+                        <p class="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                          You are funding from the Token Minting Account. This action will mint new tokens and increase the Total Supply.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <!-- Current Step Content -->
@@ -150,29 +165,50 @@
                       Ready to Fund Contract?
                     </h5>
                     <div class="space-y-3 text-sm text-gray-600 dark:text-gray-400">
-                      <div class="flex items-start gap-2">
-                        <CheckCircle2Icon class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                        <p>
-                          <strong class="text-gray-900 dark:text-white">Step 1:</strong> Approve {{ formatAmount(requiredAmount) }} {{ tokenSymbol }} for the distribution contract
-                        </p>
-                      </div>
-                      <div class="flex items-start gap-2">
-                        <CheckCircle2Icon class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
-                        <p>
-                          <strong class="text-gray-900 dark:text-white">Step 2:</strong> Deposit tokens to contract (contract will automatically activate when funded)
-                        </p>
-                      </div>
-                      <div class="flex items-start gap-2">
-                        <InfoIcon class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
-                        <p>
-                          <strong class="text-gray-900 dark:text-white">Note:</strong> This process requires 2 transactions. Please don't close this window.
-                        </p>
-                      </div>
+                      
+                      <!-- Standard Flow Steps -->
+                      <template v-if="!isMintingAccount">
+                        <div class="flex items-start gap-2">
+                          <CheckCircle2Icon class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                          <p>
+                            <strong class="text-gray-900 dark:text-white">Step 1:</strong> Approve {{ formatAmount(requiredAmount) }} {{ tokenSymbol }} for the distribution contract
+                          </p>
+                        </div>
+                        <div class="flex items-start gap-2">
+                          <CheckCircle2Icon class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                          <p>
+                            <strong class="text-gray-900 dark:text-white">Step 2:</strong> Deposit tokens to contract (contract will automatically activate when funded)
+                          </p>
+                        </div>
+                        <div class="flex items-start gap-2">
+                          <InfoIcon class="w-4 h-4 text-blue-500 flex-shrink-0 mt-0.5" />
+                          <p>
+                            <strong class="text-gray-900 dark:text-white">Note:</strong> This process requires 2 transactions. Please don't close this window.
+                          </p>
+                        </div>
+                      </template>
+
+                      <!-- Minting Account Flow Steps -->
+                      <template v-else>
+                        <div class="flex items-start gap-2">
+                          <CheckCircle2Icon class="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                          <p>
+                            <strong class="text-gray-900 dark:text-white">Action:</strong> Mint {{ formatAmount(requiredAmount) }} {{ tokenSymbol }} directly to the distribution contract
+                          </p>
+                        </div>
+                        <div class="flex items-start gap-2">
+                          <InfoIcon class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                          <p>
+                            <strong class="text-gray-900 dark:text-white">Note:</strong> This will execute a single Mint transaction and activate the distribution.
+                          </p>
+                        </div>
+                      </template>
+
                     </div>
                   </div>
 
-                  <!-- Step 1: Approving -->
-                  <div v-else-if="currentStep === 1">
+                  <!-- Step 1: Approving (Standard Flow Only) -->
+                  <div v-else-if="currentStep === 1 && !isMintingAccount">
                     <div class="flex items-center gap-3 mb-3">
                       <LoaderIcon class="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
                       <h5 class="text-sm font-semibold text-gray-900 dark:text-white">
@@ -189,20 +225,20 @@
                     </div>
                   </div>
 
-                  <!-- Step 2: Depositing -->
-                  <div v-else-if="currentStep === 2">
+                  <!-- Step 2: Depositing (Standard) or Minting (Minting Account) -->
+                  <div v-else-if="currentStep === 2 || (currentStep === 1 && isMintingAccount)">
                     <div class="flex items-center gap-3 mb-3">
                       <LoaderIcon class="w-5 h-5 text-blue-600 dark:text-blue-400 animate-spin" />
                       <h5 class="text-sm font-semibold text-gray-900 dark:text-white">
-                        Depositing Tokens...
+                        {{ isMintingAccount ? 'Minting Tokens...' : 'Depositing Tokens...' }}
                       </h5>
                     </div>
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                      Please confirm the deposit transaction in your wallet.
+                      Please confirm the {{ isMintingAccount ? 'mint' : 'deposit' }} transaction in your wallet.
                     </p>
                     <div class="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
                       <p class="text-xs text-blue-700 dark:text-blue-300">
-                        Depositing {{ formatAmount(requiredAmount) }} {{ tokenSymbol }} to distribution contract
+                        {{ isMintingAccount ? 'Minting' : 'Depositing' }} {{ formatAmount(requiredAmount) }} {{ tokenSymbol }} to distribution contract
                       </p>
                     </div>
                   </div>
@@ -272,7 +308,7 @@
                     v-if="currentStep === 0 && !error"
                     @click="startFunding"
                     :disabled="hasInsufficientBalance || isProcessing"
-                    class="flex-1 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    class="flex-1 px-6 py-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-semibold rounded-lg shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                   >
                     <CoinsIcon class="w-4 h-4" />
                     <span>Start Funding Process</span>
@@ -316,7 +352,6 @@ import { IcrcService } from '@/api/services/icrc'
 import { useAuthStore } from '@/stores/auth'
 import type { Token } from '@/types/token'
 import { Principal } from '@dfinity/principal'
-
 interface Props {
   isOpen: boolean
   contractId: string
@@ -338,17 +373,12 @@ const authStore = useAuthStore()
 const currentStep = ref(0) // 0: confirm, 1: approving, 2: depositing, 3: success
 const isProcessing = ref(false)
 const error = ref<string | null>(null)
+const isMintingAccount = ref(false)
+
 const userBalance = ref<bigint>(BigInt(0))
 const isFetchingBalance = ref(false)
-
-const steps = [
-  { label: 'Confirm' },
-  { label: 'Approve' },
-  { label: 'Deposit' },
-  { label: 'Complete' }
-]
-
 const hasInsufficientBalance = computed(() => {
+  if (isMintingAccount.value) return false
   return userBalance.value < props.requiredAmount
 })
 
@@ -356,12 +386,20 @@ const hasInsufficientBalance = computed(() => {
 const fetchUserBalance = async () => {
   if (!authStore.principal || !props.tokenCanisterId) {
     userBalance.value = BigInt(0)
+    isMintingAccount.value = false
     return
   }
 
   try {
     isFetchingBalance.value = true
     console.log('🔍 DEBUG - Fetching user balance for token:', props.tokenCanisterId)
+
+    // Check if user is minting account
+    isMintingAccount.value = await IcrcService.isMintAccount(
+      Principal.fromText(props.tokenCanisterId),
+      authStore.principal
+    )
+    console.log('🔍 DEBUG - Is Minting Account:', isMintingAccount.value)
 
     const token: Token = {
       canisterId: props.tokenCanisterId,
@@ -395,6 +433,12 @@ const fetchUserBalance = async () => {
     isFetchingBalance.value = false
   }
 }
+const steps = [
+  { label: 'Confirm' },
+  { label: 'Approve' },
+  { label: 'Deposit' },
+  { label: 'Complete' }
+]
 
 // Watch for modal opening to fetch balance
 watch(
@@ -409,7 +453,7 @@ watch(
 )
 
 const formatAmount = (amount: bigint) => {
-  return parseTokenAmount(amount, props.tokenDecimals).toLocaleString(undefined, {
+  return parseTokenAmount(amount, props.tokenDecimals).toNumber().toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2
   })
@@ -423,36 +467,81 @@ const truncateAddress = (address: string) => {
 const startFunding = async () => {
   error.value = null
   isProcessing.value = true
-  currentStep.value = 1
-
+  
   try {
-    // Use the combined fundContract method (approve + deposit)
-    const result = await DistributionService.fundContract(
-      props.contractId,
-      {
+    if (isMintingAccount.value) {
+      // Minting Account Flow: Direct Transfer (Mint) -> Activate
+      currentStep.value = 1 // Skip to "Deposit" (using step 1 index for UI consistency, though it's effectively the only step)
+      
+      console.log('🚀 Starting Minting Account Funding Flow')
+      
+      const token: Token = {
         canisterId: props.tokenCanisterId,
         symbol: props.tokenSymbol,
-        decimals: props.tokenDecimals
-      },
-      props.requiredAmount
-    )
+        name: props.tokenSymbol,
+        decimals: props.tokenDecimals,
+        standards: ['ICRC-1'],
+        metrics: { totalSupply: 0, marketCap: 0, price: 0, volume: 0 }
+      }
 
-    console.log('Funding result:', result)
+      // Step 1: Mint/Transfer tokens directly to the distribution contract
+      console.log(`Minting ${props.requiredAmount} ${props.tokenSymbol} to ${props.contractId}`)
+      const transferResult = await IcrcService.mint(
+        token,
+        Principal.fromText(props.contractId),
+        props.requiredAmount
+      )
 
-    // If we get here, both approve and deposit succeeded
-    // Step 2 is handled internally by fundContract
-    currentStep.value = 2
-    // Small delay to show the deposit step
-    await new Promise(resolve => setTimeout(resolve, 1000))
+      if (transferResult.Err) {
+        throw new Error(`Minting failed: ${JSON.stringify(transferResult.Err)}`)
+      }
 
-    // Step 3: Success
-    currentStep.value = 3
-    toast.success('Contract funded successfully!')
-    emit('success')
+      console.log('Mint successful, activating distribution...')
+
+      // Step 2: Activate Distribution
+      
+      const activationResult = await DistributionService.activateDistribution(props.contractId)
+      
+      if ('err' in activationResult) {
+         throw new Error(`Activation failed: ${activationResult.err}`)
+      }
+
+      currentStep.value = 3 // Success
+      toast.success('Contract funded and activated successfully!')
+      emit('success')
+
+    } else {
+      // Standard User Flow: Approve -> Deposit
+      currentStep.value = 1
+      
+      // Use the combined fundContract method (approve + deposit)
+      const result = await DistributionService.fundContract(
+        props.contractId,
+        {
+          canisterId: props.tokenCanisterId,
+          symbol: props.tokenSymbol,
+          decimals: props.tokenDecimals
+        },
+        props.requiredAmount
+      )
+  
+      console.log('Funding result:', result)
+  
+      // If we get here, both approve and deposit succeeded
+      // Step 2 is handled internally by fundContract
+      currentStep.value = 2
+      // Small delay to show the deposit step
+      await new Promise(resolve => setTimeout(resolve, 1000))
+  
+      // Step 3: Success
+      currentStep.value = 3
+      toast.success('Contract funded successfully!')
+      emit('success')
+    }
 
   } catch (err: any) {
     error.value = err.message || 'Transaction failed. Please try again.'
-    toast.error(error.value)
+    toast.error(error.value || 'Transaction failed')
     console.error('Funding error:', err)
   } finally {
     isProcessing.value = false
