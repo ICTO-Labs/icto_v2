@@ -135,13 +135,13 @@
           <p class="text-gray-600 dark:text-gray-300 leading-relaxed">{{ details.description }}</p>
           <!-- Distribution Metadata -->
           <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-            <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-gray-600 dark:text-gray-400">
+            <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-gray-600 dark:text-gray-400">
               <!-- Creator -->
               <div class="flex items-center gap-2">
                 <UserIcon class="w-4 h-4 text-gray-400 dark:text-gray-500" />
                 <span class="font-medium">Creator:</span>
-                <span class="font-mono text-sm">{{ shortPrincipal(details.owner.toString()) }}</span>
-                <CopyIcon class="w-4 h-4" :data="details.owner.toString()" :msg="'Creator Principal'" />
+                <span class="font-mono text-xs">{{ shortPrincipal(details.owner.toString()) }}</span>
+                <CopyIcon class="w-3.5 h-3.5" :data="details.owner.toString()" :msg="'Creator Principal'" />
               </div>
               
               <!-- Distribution Start -->
@@ -172,6 +172,11 @@
                 <span :class="details.allowModification ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
                   {{ details.allowModification ? 'Yes' : 'No' }}
                 </span>
+              </div>
+              <!-- Version -->
+              <div class="flex items-center gap-2">
+                <span class="font-medium">Contract Version:</span>
+                <span>{{ contractVersion }}</span>
               </div>
             </div>
           </div>
@@ -766,7 +771,7 @@ const alreadyClaimed = ref<bigint>(BigInt(0))
 
 // Auto-refresh
 const autoRefreshEnabled = ref(true)
-const contractVersion = '1.0.0'
+const contractVersion = ref('1.0.0')
 
 // ============================================
 // NEW: CATEGORY STATUS & OPERATIONS
@@ -1491,6 +1496,14 @@ const fetchStats = async () => {
   }
 }
 
+const fetchVersion = async () => {
+  try {
+    contractVersion.value = await DistributionService.getContractVersion(canisterId.value)
+  } catch (err) {
+    console.error('Error fetching contract version:', err)
+  }
+}
+
 const fetchDistributionStatus = async () => {
   try {
     const status = await DistributionService.getDistributionStatus(canisterId.value)
@@ -1664,6 +1677,7 @@ onMounted(async () => {
   if (props.canisterId) {
     canisterId.value = props.canisterId
     await fetchDetails()
+    await fetchVersion()
   }
 })
 
@@ -1679,7 +1693,8 @@ const refreshData = async () => {
       fetchAllParticipants(),
       fetchClaimHistory(),
       fetchUserContext(),
-      checkBalance()
+      checkBalance(),
+      fetchVersion()
     ])
   } catch (err) {
     console.error('Error refreshing data:', err)
@@ -2164,7 +2179,8 @@ const parallelFetch = async () => {
       fetchDistributionStatus(),
       fetchAllParticipants(),
       fetchClaimHistory(),
-      fetchUserContext()
+      fetchUserContext(),
+      fetchVersion()
     ])
   } catch (err) {
     console.error('Error in parallel fetch:', err)
