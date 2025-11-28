@@ -528,6 +528,25 @@ export class DistributionService {
     }
   }
 
+  // Get contract version
+  static async getContractVersion(canisterId: string): Promise<string> {
+    try {
+      const distributionContract = distributionContractActor({ canisterId, anon: true, requiresSigning: false });
+      const version = await distributionContract.getVersion();
+      if (typeof version === 'string') {
+        return version
+      } else if (version && typeof version === 'object') {
+        return `${(version as any).major || 0}.${(version as any).minor || 0}.${(version as any).patch || 0}`
+      }else{
+        return "1.0.0"
+      }
+    } catch (error) {
+      toast.error('Error: ' + error)
+      console.error(`Error fetching contract version for ${canisterId}:`, error);
+      throw error;
+    }
+  }
+
   // ================ ELIGIBILITY FUNCTIONS ================
 
   // Check eligibility (synchronous - for simple cases)

@@ -84,7 +84,8 @@ const countdownState = computed(() => {
   }
   
   // Check if distribution is currently active based on status
-  if (props.status === 'Active' && (!endMs.value || now < endMs.value)) {
+  console.log('props.status', props.status)
+  if (props.status === 'distribution' && (!endMs.value || now < endMs.value)) {
     return {
       type: 'live',
       message: 'Live Now'
@@ -276,6 +277,7 @@ onUnmounted(() => {
           Live
         </span>
       </div>
+
     </div>
   </div>
 </template>
