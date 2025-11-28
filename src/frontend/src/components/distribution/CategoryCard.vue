@@ -878,20 +878,22 @@ const getVestingSummary = (): string => {
 
 // Handle mode change
 const handleModeChange = (mode: 'predefined' | 'open') => {
-  localCategory.value.mode = mode
+  // Create a new object to ensure reactivity
+  const updatedCategory = { ...localCategory.value, mode }
 
   if (mode === 'predefined') {
     // Clear open mode config
-    delete localCategory.value.maxRecipients
-    delete localCategory.value.amountPerRecipient
-    localCategory.value.recipientsText = localCategory.value.recipientsText || ''
+    delete updatedCategory.maxRecipients
+    delete updatedCategory.amountPerRecipient
+    updatedCategory.recipientsText = updatedCategory.recipientsText || ''
   } else {
     // Clear predefined mode config
-    delete localCategory.value.recipientsText
-    localCategory.value.maxRecipients = localCategory.value.maxRecipients || 1000
-    localCategory.value.amountPerRecipient = localCategory.value.amountPerRecipient || 1000
+    delete updatedCategory.recipientsText
+    updatedCategory.maxRecipients = updatedCategory.maxRecipients || 1000
+    updatedCategory.amountPerRecipient = updatedCategory.amountPerRecipient || 1000
   }
 
+  localCategory.value = updatedCategory
   emitUpdate()
 }
 
