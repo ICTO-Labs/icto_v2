@@ -173,10 +173,15 @@ export class DistributionUtils {
 
         // Handle categories as Candid optional (NEW: unified category system)
         if (config.categories && Array.isArray(config.categories)) {
-            // Convert frontend CategoryData[] to backend DistributionCategory[]
-            // Pass decimals from tokenInfo to ensure correct conversion
-            const decimals = Number(config.tokenInfo.decimals) || 8;
-            result.categories = [this.convertCategoriesToBackend(config.categories, decimals)];
+            // Check if it's already in backend format (nested array: [[Category, ...]])
+            if (config.categories.length > 0 && Array.isArray(config.categories[0])) {
+                result.categories = config.categories;
+            } else {
+                // Convert frontend CategoryData[] to backend DistributionCategory[]
+                // Pass decimals from tokenInfo to ensure correct conversion
+                const decimals = Number(config.tokenInfo.decimals) || 8;
+                result.categories = [this.convertCategoriesToBackend(config.categories, decimals)];
+            }
         } else {
             result.categories = [];
         }

@@ -1911,6 +1911,11 @@ const onAssetSelected = () => {
 	}
 }
 
+// Watch for asset selection changes
+watch(selectedAssetId, () => {
+	onAssetSelected()
+})
+
 
 // Load deployment cost
 const loadDeploymentCost = async () => {
