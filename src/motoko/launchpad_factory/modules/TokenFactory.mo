@@ -73,21 +73,27 @@ module {
                 logo = saleToken.logo;
                 description = saleToken.description;
                 website = config.projectInfo.website;
-                
+
                 // Initial minter is launchpad creator
                 minter = ?{
                     owner = Principal.fromText(launchpadId);
                     subaccount = null;
                 };
-                
+
                 // Fee collector is creator
                 feeCollector = null; //use feeCollector if needed, null as default
-                
+
                 // Initial balances will be set by distribution contracts
                 initialBalances = [];
-                
+
                 // Link to project
                 projectId = ?launchpadId;
+
+                // Enable transaction index for efficient queries
+                enableIndex = ?true;
+
+                // Link to launchpad canister
+                launchpadId = ?Principal.fromText(launchpadId);
             }
         };
 
