@@ -3,47 +3,49 @@
     <PageBreadcrumb pageTitle="Dashboard" />
 
     <div class="container mx-auto px-4 py-6 space-y-8">
-      <!-- Hero Section with Gradient -->
-      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#b27c10] via-[#d8a735] to-[#e1b74c] p-8 text-white">
-        <div class="absolute top-0 right-0 w-64 h-64 opacity-20">
+      <!-- Hero Section - Compact with Gradient -->
+      <div class="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#b27c10] via-[#d8a735] to-[#e1b74c] p-6 lg:p-8 text-white">
+        <div class="absolute top-0 right-0 w-48 h-48 lg:w-64 lg:h-64 opacity-15">
           <RocketIcon class="w-full h-full" />
         </div>
         <div class="relative z-10">
-          <h1 class="text-3xl font-bold mb-2">Welcome to ICTO V2</h1>
-          <p class="text-base text-white/90 mb-6">
+          <h1 class="text-3xl lg:text-4xl font-bold mb-2">Welcome to ICTO V2</h1>
+          <p class="text-sm lg:text-base text-white/90 mb-5">
             Internet Computer Token Operations Platform - Your Web3 Ecosystem Hub
           </p>
-          <div class="flex flex-wrap gap-4">
+          <div class="flex flex-wrap gap-3">
             <button
               @click="navigateToTokenFactory"
-              class="px-6 py-3 bg-white text-[#b27c10] font-semibold rounded-lg hover:bg-white/90 transition-all duration-300 hover:shadow-xl"
+              class="px-5 lg:px-6 py-2 lg:py-3 bg-white text-[#b27c10] font-semibold rounded-lg hover:bg-white/90 transition-all duration-200 hover:shadow-lg cursor-pointer"
             >
-              <PlusIcon class="w-5 h-5 inline-block mr-2" />
+              <PlusIcon class="w-4 lg:w-5 h-4 lg:h-5 inline-block mr-2" />
               Deploy Token
             </button>
             <button
               @click="navigateToMultisigFactory"
-              class="px-6 py-3 bg-white/10 backdrop-blur-sm border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/20 transition-all duration-300"
+              class="px-5 lg:px-6 py-2 lg:py-3 bg-white/10 backdrop-blur-sm border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/20 transition-all duration-200 cursor-pointer"
             >
-              <WalletIcon class="w-5 h-5 inline-block mr-2" />
+              <WalletIcon class="w-4 lg:w-5 h-4 lg:h-5 inline-block mr-2" />
               Create Multisig
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Key Metrics -->
+      <!-- Key Metrics - Enhanced -->
       <div>
-        <h2 class="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <TrendingUpIcon class="w-5 h-5 text-[#b27c10]" />
-          Ecosystem Overview
-        </h2>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+            <TrendingUpIcon class="w-6 h-6 text-[#b27c10]" />
+            Ecosystem Overview
+          </h2>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
           <StatsCard
             title="Total Contracts"
             :value="dashboardStats.totalContracts"
             :icon="LayoutGridIcon"
-            iconBg="bg-gradient-to-br from-[#b27c10]/10 to-[#d8a735]/10"
+            iconBg="bg-gradient-to-br from-[#b27c10]/15 to-[#d8a735]/15 dark:from-[#b27c10]/10 dark:to-[#d8a735]/10"
             iconColor="text-[#b27c10]"
             :change="12.5"
             changeLabel="this month"
@@ -53,7 +55,7 @@
             title="Active Users"
             :value="dashboardStats.activeUsers"
             :icon="UsersIcon"
-            iconBg="bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/20 dark:to-blue-800/20"
+            iconBg="bg-gradient-to-br from-blue-100/60 to-blue-200/60 dark:from-blue-900/20 dark:to-blue-800/20"
             iconColor="text-blue-600"
             :change="8.3"
             changeLabel="vs last month"
@@ -63,7 +65,7 @@
             title="Total Value Locked"
             :value="dashboardStats.tvl"
             :icon="DollarSignIcon"
-            iconBg="bg-gradient-to-br from-green-100 to-green-200 dark:from-green-900/20 dark:to-green-800/20"
+            iconBg="bg-gradient-to-br from-green-100/60 to-green-200/60 dark:from-green-900/20 dark:to-green-800/20"
             iconColor="text-green-600"
             :change="15.7"
             changeLabel="growth"
@@ -74,7 +76,7 @@
             title="24h Transactions"
             :value="dashboardStats.transactions24h"
             :icon="ActivityIcon"
-            iconBg="bg-gradient-to-br from-purple-100 to-purple-200 dark:from-purple-900/20 dark:to-purple-800/20"
+            iconBg="bg-gradient-to-br from-purple-100/60 to-purple-200/60 dark:from-purple-900/20 dark:to-purple-800/20"
             iconColor="text-purple-600"
             :change="5.4"
             changeLabel="vs yesterday"
@@ -83,16 +85,67 @@
         </div>
       </div>
 
-      <!-- Factory Services -->
+      <!-- Charts Section - First -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Ecosystem Distribution -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border dark:border-gray-700 hover:shadow-lg transition-shadow">
+          <div class="flex items-center justify-between mb-6">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <PieChartIcon class="w-5 h-5 text-[#b27c10]" />
+              Ecosystem Distribution
+            </h3>
+            <button class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors cursor-pointer">
+              <RefreshCwIcon class="w-4 h-4" />
+            </button>
+          </div>
+          <EcosystemChart
+            :data="{
+              tokens: Number(factoryStats.tokens),
+              multisigs: Number(factoryStats.multisigs),
+              distributions: Number(factoryStats.distributions),
+              daos: Number(factoryStats.daos),
+              launchpads: Number(factoryStats.launchpads)
+            }"
+          />
+        </div>
+
+        <!-- Activity Over Time -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border dark:border-gray-700 hover:shadow-lg transition-shadow">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <BarChart3Icon class="w-5 h-5 text-[#b27c10]" />
+              Platform Activity (7 Days)
+            </h3>
+            <div class="flex items-center space-x-2">
+              <button
+                v-for="period in ['7D', '30D', '90D']"
+                :key="period"
+                :class="[
+                  'px-3 py-1 text-xs rounded-lg transition-colors font-medium cursor-pointer',
+                  selectedPeriod === period
+                    ? 'bg-[#b27c10] text-white'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                ]"
+                @click="selectedPeriod = period"
+              >
+                {{ period }}
+              </button>
+            </div>
+          </div>
+          <ActivityChart :data="activityData" />
+        </div>
+      </div>
+
+      <!-- Factory Services - Featured -->
       <div>
-        <div class="flex items-center justify-between mb-4">
-          <h2 class="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <FactoryIcon class="w-5 h-5 text-[#b27c10]" />
+        <div class="mb-6">
+          <h2 class="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2 mb-2">
+            <FactoryIcon class="w-6 h-6 text-[#b27c10]" />
             Factory Services
           </h2>
-          <button class="text-sm text-[#b27c10] hover:text-[#d8a735] font-medium">
-            View All Factories →
-          </button>
+          <p class="text-gray-600 dark:text-gray-400 text-sm">
+            Deploy and manage blockchain services on the Internet Computer
+          </p>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <!-- Token Factory -->
@@ -186,67 +239,17 @@
         </div>
       </div>
 
-      <!-- Charts Section -->
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <!-- Ecosystem Distribution -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border dark:border-gray-700">
-          <div class="flex items-center justify-between mb-6">
-            <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <PieChartIcon class="w-5 h-5 text-[#b27c10]" />
-              Ecosystem Distribution
-            </h3>
-            <button class="p-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
-              <RefreshCwIcon class="w-4 h-4" />
-            </button>
-          </div>
-          <EcosystemChart
-            :data="{
-              tokens: Number(factoryStats.tokens),
-              multisigs: Number(factoryStats.multisigs),
-              distributions: Number(factoryStats.distributions),
-              daos: Number(factoryStats.daos),
-              launchpads: Number(factoryStats.launchpads)
-            }"
-          />
-        </div>
-
-        <!-- Activity Over Time -->
-        <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border dark:border-gray-700">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <BarChart3Icon class="w-4 h-4 text-[#b27c10]" />
-              Platform Activity (7 Days)
-            </h3>
-            <div class="flex items-center space-x-2">
-              <button
-                v-for="period in ['7D', '30D', '90D']"
-                :key="period"
-                :class="[
-                  'px-3 py-1 text-xs rounded-lg transition-colors font-medium',
-                  selectedPeriod === period
-                    ? 'bg-[#b27c10] text-white'
-                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
-                ]"
-                @click="selectedPeriod = period"
-              >
-                {{ period }}
-              </button>
-            </div>
-          </div>
-          <ActivityChart :data="activityData" />
-        </div>
-      </div>
 
       <!-- Recent Activity & Quick Actions -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
         <!-- Recent Activities -->
-        <div class="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl p-6 border dark:border-gray-700">
-          <div class="flex items-center justify-between mb-4">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-              <ClockIcon class="w-4 h-4 text-[#b27c10]" />
+        <div class="lg:col-span-2 bg-white dark:bg-gray-800/80 rounded-xl p-6 lg:p-8 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+          <div class="flex items-center justify-between mb-6">
+            <h3 class="text-lg lg:text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              <ClockIcon class="w-5 h-5 text-[#b27c10]" />
               Recent Platform Activity
             </h3>
-            <button class="text-sm text-[#b27c10] hover:text-[#d8a735] font-medium">
+            <button class="text-xs lg:text-sm text-[#b27c10] hover:text-[#d8a735] font-semibold uppercase tracking-wide transition-colors cursor-pointer">
               View All →
             </button>
           </div>
@@ -256,9 +259,9 @@
         <!-- Quick Actions & Resources -->
         <div class="space-y-6">
           <!-- Quick Actions -->
-          <div class="bg-white dark:bg-gray-800 rounded-xl p-6 border dark:border-gray-700">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <ZapIcon class="w-4 h-4 text-[#b27c10]" />
+          <div class="bg-white dark:bg-gray-800/80 rounded-xl p-6 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow">
+            <h3 class="text-base lg:text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <ZapIcon class="w-5 h-5 text-[#b27c10]" />
               Quick Actions
             </h3>
             <div class="space-y-2">
@@ -317,110 +320,70 @@
           </div>
 
           <!-- Resources -->
-          <div class="bg-gradient-to-br from-[#b27c10]/10 to-[#d8a735]/10 dark:from-[#b27c10]/5 dark:to-[#d8a735]/5 rounded-xl p-6 border border-[#b27c10]/20 dark:border-[#b27c10]/10">
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-              <BookOpenIcon class="w-4 h-4 text-[#b27c10]" />
+          <div class="bg-gradient-to-br from-[#b27c10]/12 to-[#d8a735]/12 dark:from-[#b27c10]/8 dark:to-[#d8a735]/8 rounded-xl p-6 border border-[#b27c10]/20 dark:border-[#b27c10]/15 hover:shadow-lg transition-shadow">
+            <h3 class="text-base lg:text-lg font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
+              <BookOpenIcon class="w-5 h-5 text-[#b27c10]" />
               Resources
             </h3>
             <div class="space-y-3">
               <a
                 href="/docs/architecture"
-                class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md transition-shadow"
+                class="flex items-center justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg hover:bg-white dark:hover:bg-gray-800 transition-colors cursor-pointer"
               >
                 <span class="text-sm font-medium text-gray-900 dark:text-white">Architecture Guide</span>
-                <ArrowRightIcon class="w-4 h-4 text-gray-400" />
+                <ArrowRightIcon class="w-4 h-4 text-gray-400 group-hover:text-[#b27c10]" />
               </a>
               <a
                 href="/docs/workflow"
-                class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md transition-shadow"
+                class="flex items-center justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg hover:bg-white dark:hover:bg-gray-800 transition-colors cursor-pointer"
               >
                 <span class="text-sm font-medium text-gray-900 dark:text-white">Workflow Guide</span>
-                <ArrowRightIcon class="w-4 h-4 text-gray-400" />
+                <ArrowRightIcon class="w-4 h-4 text-gray-400 group-hover:text-[#b27c10]" />
               </a>
               <a
                 href="https://github.com/ICTO-Labs/icto_v2"
                 target="_blank"
-                class="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-lg hover:shadow-md transition-shadow"
+                class="flex items-center justify-between p-3 bg-white/60 dark:bg-gray-800/60 rounded-lg hover:bg-white dark:hover:bg-gray-800 transition-colors cursor-pointer"
               >
                 <span class="text-sm font-medium text-gray-900 dark:text-white">GitHub Repository</span>
-                <ExternalLinkIcon class="w-4 h-4 text-gray-400" />
+                <ExternalLinkIcon class="w-4 h-4 text-gray-400 group-hover:text-[#b27c10]" />
               </a>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Our Services -->
-      <div class="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-800 dark:to-gray-700 rounded-xl p-8 border dark:border-gray-700">
-        <div class="text-center mb-6">
-          <h2 class="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            Complete DeFi Ecosystem
-          </h2>
-          <p class="text-sm text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            All the tools you need to build, manage, and scale your Web3 project
-          </p>
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-6 text-center hover:shadow-lg transition-shadow">
-            <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <CoinsIcon class="w-6 h-6 text-white" />
-            </div>
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-2">Token Services</h3>
-            <p class="text-xs text-gray-600 dark:text-gray-400">
-              Deploy ICRC-1/2 tokens, manage distributions, and create vesting schedules
-            </p>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-6 text-center hover:shadow-lg transition-shadow">
-            <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <LockKeyholeIcon class="w-6 h-6 text-white" />
-            </div>
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-2">Security & Governance</h3>
-            <p class="text-xs text-gray-600 dark:text-gray-400">
-              Multi-signature wallets and DAO governance for secure management
-            </p>
-          </div>
-          <div class="bg-white dark:bg-gray-800 rounded-lg p-6 text-center hover:shadow-lg transition-shadow">
-            <div class="w-12 h-12 bg-gradient-to-br from-pink-500 to-pink-600 rounded-lg flex items-center justify-center mx-auto mb-4">
-              <RocketIcon class="w-6 h-6 text-white" />
-            </div>
-            <h3 class="text-base font-semibold text-gray-900 dark:text-white mb-2">Fundraising</h3>
-            <p class="text-xs text-gray-600 dark:text-gray-400">
-              Launch token sales with built-in vesting and compliance tools
-            </p>
-          </div>
-        </div>
-      </div>
 
       <!-- Footer -->
-      <div class="bg-gray-50 dark:bg-white/[0.03] rounded-2xl p-12">
+      <div class="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-white/[0.02] dark:to-white/[0.05] rounded-2xl p-8 lg:p-12 border border-gray-200 dark:border-gray-800">
         <!-- Top Section -->
-        <div class="text-center mb-8">
-          <div class="inline-block mb-4">
-            <div class="flex items-center justify-center gap-3 bg-white dark:bg-gray-800 rounded-full px-6 py-3 border border-gray-200 dark:border-gray-700">
-              <ShieldCheckIcon class="w-6 h-6 text-[#b27c10]" />
-              <span class="text-lg font-bold text-gray-900 dark:text-white">100% On-Chain</span>
+        <div class="text-center mb-8 lg:mb-10">
+          <div class="inline-block mb-4 lg:mb-6">
+            <div class="flex items-center justify-center gap-2 lg:gap-3 bg-white dark:bg-gray-800/80 rounded-full px-5 lg:px-6 py-2 lg:py-3 border border-gray-200 dark:border-gray-700">
+              <ShieldCheckIcon class="w-5 lg:w-6 h-5 lg:h-6 text-[#b27c10]" />
+              <span class="text-base lg:text-lg font-bold text-gray-900 dark:text-white">100% On-Chain</span>
             </div>
           </div>
-          <h3 class="text-3xl font-bold mb-3 text-gray-900 dark:text-white">Entirely on Internet Computer</h3>
-          <p class="text-base text-gray-600 dark:text-gray-400 max-w-3xl mx-auto mb-6">
+          <h3 class="text-2xl lg:text-3xl xl:text-4xl font-bold mb-3 text-gray-900 dark:text-white">Entirely on Internet Computer</h3>
+          <p class="text-sm lg:text-base text-gray-600 dark:text-gray-400 max-w-3xl mx-auto mb-6 lg:mb-8">
             Every transaction, every smart contract, every piece of data is stored and executed on the Internet Computer blockchain. No centralized servers, no third-party dependencies.
           </p>
-          <div class="flex items-center justify-center gap-8 flex-wrap mb-8">
+          <div class="flex items-center justify-center gap-4 lg:gap-8 flex-wrap mb-8">
             <div class="flex items-center gap-2">
               <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Decentralized</span>
+              <span class="text-xs lg:text-sm font-medium text-gray-700 dark:text-gray-300">Decentralized</span>
             </div>
             <div class="flex items-center gap-2">
               <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Trustless</span>
+              <span class="text-xs lg:text-sm font-medium text-gray-700 dark:text-gray-300">Trustless</span>
             </div>
             <div class="flex items-center gap-2">
               <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Transparent</span>
+              <span class="text-xs lg:text-sm font-medium text-gray-700 dark:text-gray-300">Transparent</span>
             </div>
             <div class="flex items-center gap-2">
               <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Immutable</span>
+              <span class="text-xs lg:text-sm font-medium text-gray-700 dark:text-gray-300">Immutable</span>
             </div>
           </div>
         </div>
@@ -429,7 +392,7 @@
         <div class="border-t border-gray-200 dark:border-gray-700 mb-8"></div>
 
         <!-- Bottom Section - Links & Socials -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 lg:gap-8 text-left">
           <!-- About -->
           <div>
             <h4 class="text-sm font-bold uppercase tracking-wide mb-4 text-gray-900 dark:text-white">About ICTO</h4>
@@ -495,9 +458,9 @@
                 </a>
               </li>
               <li>
-                <a href="https://twitter.com/ICTO_Labs" target="_blank" class="text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors flex items-center gap-2">
-                  <TwitterIcon class="w-4 h-4" />
-                  Twitter
+                <a href="https://x.com/icto_app" target="_blank" class="text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors flex items-center gap-2">
+                  <XIcon class="w-4 h-4" />
+                  X
                 </a>
               </li>
               <li>
@@ -507,7 +470,7 @@
                 </a>
               </li>
               <li>
-                <a href="https://t.me/icto_labs" target="_blank" class="text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors flex items-center gap-2">
+                <a href="https://t.me/icto_app" target="_blank" class="text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors flex items-center gap-2">
                   <SendIcon class="w-4 h-4" />
                   Telegram
                 </a>
@@ -522,14 +485,14 @@
                 <GithubIcon class="w-5 h-5" />
               </a>
               <a
-                href="https://twitter.com/ICTO_Labs"
+                href="https://x.com/icto_app"
                 target="_blank"
                 class="w-10 h-10 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-[#b27c10] hover:border-[#b27c10] hover:text-white transition-all"
               >
-                <TwitterIcon class="w-5 h-5" />
+                <XIcon class="w-5 h-5" />
               </a>
               <a
-                href="https://discord.gg/icto"
+                href="#"
                 target="_blank"
                 class="w-10 h-10 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg flex items-center justify-center text-gray-700 dark:text-gray-300 hover:bg-[#b27c10] hover:border-[#b27c10] hover:text-white transition-all"
               >
@@ -540,15 +503,15 @@
         </div>
 
         <!-- Bottom Bar -->
-        <div class="border-t border-gray-200 dark:border-gray-700 mt-8 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p class="text-sm text-gray-600 dark:text-gray-400">
+        <div class="border-t border-gray-200 dark:border-gray-700 mt-8 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p class="text-xs lg:text-sm text-gray-600 dark:text-gray-400">
             © 2024 ICTO Labs. Built on Internet Computer Protocol.
           </p>
-          <div class="flex items-center gap-6">
-            <a href="/privacy" class="text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors">
+          <div class="flex items-center gap-4 lg:gap-6">
+            <a href="/privacy" class="text-xs lg:text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors cursor-pointer">
               Privacy Policy
             </a>
-            <a href="/terms" class="text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors">
+            <a href="/terms" class="text-xs lg:text-sm text-gray-600 dark:text-gray-400 hover:text-[#b27c10] transition-colors cursor-pointer">
               Terms of Service
             </a>
           </div>
@@ -587,7 +550,7 @@ import {
   ExternalLinkIcon,
   ShieldCheckIcon,
   GithubIcon,
-  TwitterIcon,
+  XIcon,
   MessageCircleIcon
 } from 'lucide-vue-next'
 
