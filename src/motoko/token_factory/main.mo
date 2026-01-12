@@ -1597,6 +1597,49 @@ persistent actor TokenFactoryCanister {
         pendingDeployments := Trie.remove(pendingDeployments, textKey(pendingId), Text.equal).0;
         #ok(())
     };
+
+    // ================ MIGRATION HELPER (V2.1) ================
+
+    public shared({caller}) func adminImportToken(tokenInfo : TokenInfo) : async Result.Result<(), Text> {
+        if (not isAdmin(caller)) {
+            return #err("Unauthorized: Only admins can import tokens");
+        };
+
+        let canisterId = tokenInfo.canisterId;
+        let canisterIdText = Principal.toText(canisterId);
+
+        // Check if already exists
+        if (Trie.get(tokens, textKey(canisterIdText), Text.equal) != null) {
+            return #err("Token " # canisterIdText # " already exists");
+        };
+
+        // Insert into tokens Trie
+        tokens := Trie.put(tokens, textKey(canisterIdText), Text.equal, tokenInfo).0;
+
+        // Update creator index
+        addToCreatorIndex(tokenInfo.owner, canisterId);
+
+        // Update public tokens list if public
+        if (tokenInfo.isPublic) {
+             if (Array.find(publicTokens, func(id : Principal) : Bool = id == canisterId) == null) {
+                publicTokens := Array.append(publicTokens, [canisterId]);
+            };
+        };
+
+        // Update verified tokens list if verified
+        if (tokenInfo.isVerified) {
+             if (Array.find(verifiedTokens, func(id : Principal) : Bool = id == canisterId) == null) {
+                verifiedTokens := Array.append(verifiedTokens, [canisterId]);
+            };
+        };
+        
+        // Update stats
+        // We don't update totalDeployments/successfulDeployments as this is an import, not a new deployment
+        
+        Debug.print("Imported token: " # tokenInfo.symbol # " (" # canisterIdText # ")");
+        
+        #ok(())
+    };
     
     // ================ BACKEND-MANAGED ADMIN SYSTEM ================
 
