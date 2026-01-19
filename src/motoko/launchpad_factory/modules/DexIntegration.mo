@@ -737,13 +737,41 @@ module {
             
             Debug.print("🔍 Verifying liquidity on " # debug_show(dexPlatform));
 
-            try {
-                // TODO: Query DEX to verify pool exists and has liquidity
-                
-                Debug.print("✅ Liquidity verified");
-                #ok(true)
-            } catch (error) {
-                #err("Verification failed: " # Error.message(error))
+            switch (dexPlatform) {
+                case (#ICPSwap) {
+                    // Verify via metadata call to pool canister
+                    let poolCanisterId = switch (icpSwapPoolCanisterId) {
+                        case (?id) id;
+                        case (null) return #err("ICPSwap pool canister not configured");
+                    };
+
+                    try {
+                        let swapPool: ICPSwapPool = actor(Principal.toText(poolCanisterId));
+                        let metadataResult = await swapPool.metadata();
+                        
+                        switch (metadataResult) {
+                            case (#ok(meta)) {
+                                if (meta.sqrtPriceX96 > 0) {
+                                    Debug.print("✅ ICPSwap liquidity verified (active price)");
+                                    #ok(true)
+                                } else {
+                                    #err("ICPSwap pool exists but has no active price")
+                                }
+                            };
+                            case (#err(e)) {
+                                #err("ICPSwap metadata check failed: " # debug_show(e))
+                            };
+                        }
+                    } catch (e) {
+                        #err("ICPSwap verification error: " # Error.message(e))
+                    }
+                };
+                case (#KongSwap) {
+                    // KongSwap doesn't expose a public read API in the provided docs
+                    // We rely on the successful result of add_pool which returns LP tokens
+                    Debug.print("✅ KongSwap liquidity assumed verified (based on successful add_pool)");
+                    #ok(true)
+                };
             }
         };
 
@@ -752,11 +780,31 @@ module {
         /// Check if DEX platform is available
         public func checkDEXAvailability(dexPlatform: DEXPlatform) : async Bool {
             try {
-                // TODO: Ping DEX platform
                 Debug.print("📡 Checking " # debug_show(dexPlatform) # " availability...");
                 
-                // Placeholder: assume available
-                true
+                switch (dexPlatform) {
+                    case (#ICPSwap) {
+                        let poolCanisterId = switch (icpSwapPoolCanisterId) {
+                            case (?id) id;
+                            case (null) return false;
+                        };
+                        
+                        let swapPool: ICPSwapPool = actor(Principal.toText(poolCanisterId));
+                        // Try lightweight call
+                        switch (await swapPool.metadata()) {
+                            case (#ok(_)) true;
+                            case (#err(_)) false;
+                        }
+                    };
+                    case (#KongSwap) {
+                        // Optimistic check for KongSwap as we lack a read API
+                        // Just check if canister ID is configured
+                        switch (kongSwapCanisterId) {
+                            case (?_) true;
+                            case (null) false;
+                        }
+                    };
+                }
             } catch (error) {
                 Debug.print("⚠️ " # debug_show(dexPlatform) # " unavailable: " # Error.message(error));
                 false

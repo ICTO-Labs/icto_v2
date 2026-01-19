@@ -3265,6 +3265,12 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                 stage = #FinalCleanup;
                 executor = executorFactory.createFeeProcessingExecutor(totalRaised);
                 required = true;
+            },
+            {
+                name = "Distribute Raised Funds";
+                stage = #Distribution;
+                executor = executorFactory.createRaisedFundsDistributionExecutor(totalRaised);
+                required = true;
             }
         ];
         
@@ -3341,7 +3347,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                                 deployedContracts with
                                 liquidityPool = ?liquidityData.poolId;
                             };
-                            Debug.print("💾 Saved liquidity pool: " # Principal.toText(liquidityData.poolId));
+                            Debug.print("💾 Saved liquidity pool: " # liquidityData.poolId);
                         };
                         case (#TokensDeposited(depositData)) {
                             // Tokens successfully deposited to distribution contract
