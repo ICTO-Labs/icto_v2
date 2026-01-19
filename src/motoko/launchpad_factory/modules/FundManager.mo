@@ -100,6 +100,13 @@ module {
         #InsufficientForFee;
     };
 
+    /// Generic transfer request
+    public type TransferRequest = {
+        to: Principal;
+        amount: Nat;
+        referenceId: ExecutionId;
+    };
+
     // ================ FUND MANAGER CLASS ================
 
     public class FundManager(
@@ -466,6 +473,31 @@ module {
                 owner = launchpadPrincipal;
                 subaccount = subAccount;
                 subaccountHex = toHex(subAccount);
+            }
+        };
+
+        /// Process a single transfer from the launchpad main account
+        public func processTransfer(request: TransferRequest) : async Result.Result<Nat, Text> {
+            try {
+                let ledger: ICRCTypes.ICRCLedger = actor(Principal.toText(purchaseTokenCanisterId));
+                
+                let transferArgs: ICRCTypes.TransferArgs = {
+                    from_subaccount = null; // Main account
+                    to = { owner = request.to; subaccount = null };
+                    amount = request.amount;
+                    fee = ?purchaseTokenFee;
+                    memo = ?Text.encodeUtf8("Ref: " # request.referenceId);
+                    created_at_time = ?Nat64.fromNat(Int.abs(Time.now()));
+                };
+
+                let result = await ledger.icrc1_transfer(transferArgs);
+
+                switch (result) {
+                    case (#Ok(blockIndex)) #ok(blockIndex);
+                    case (#Err(e)) #err(debug_show(e));
+                }
+            } catch (e) {
+                #err(Error.message(e))
             }
         };
     };

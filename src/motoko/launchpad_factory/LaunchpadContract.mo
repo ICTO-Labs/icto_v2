@@ -3341,7 +3341,7 @@ shared ({ caller = factory }) persistent actor class LaunchpadContract<system>(
                                 deployedContracts with
                                 liquidityPool = ?liquidityData.poolId;
                             };
-                            Debug.print("💾 Saved liquidity pool: " # Principal.toText(liquidityData.poolId));
+                            Debug.print("💾 Saved liquidity pool: " # liquidityData.poolId);
                         };
                         case (#TokensDeposited(depositData)) {
                             // Tokens successfully deposited to distribution contract

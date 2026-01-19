@@ -633,7 +633,7 @@ module LaunchpadTypes {
         tokenCanister: ?Principal;    // Deployed token canister
         vestingContracts: [(Text, Principal)]; // Name -> Principal mapping
         daoCanister: ?Principal;      // DAO governance canister
-        liquidityPool: ?Principal;    // DEX liquidity pool
+        liquidityPool: ?Text;         // DEX liquidity pool (ID or Principal as Text)
         stakingContract: ?Principal;  // Staking rewards contract
     };
 

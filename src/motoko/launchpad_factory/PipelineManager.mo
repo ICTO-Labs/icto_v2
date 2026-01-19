@@ -95,7 +95,7 @@ module {
 
     /// Custom step executor function type
     /// Allows external functions to be injected as pipeline steps
-    public type StepExecutor = (executionId: ExecutionId) -> async Result.Result<StepResultData, Text>;
+    public type StepExecutor = (executionId: ExecutionId) -> async Result.Result<(StepResultData, [FinancialRecord]), Text>;
 
     /// Step definition for flexible pipeline
     public type StepDefinition = {
@@ -145,7 +145,7 @@ module {
         };
         #DAODeployed: { canisterId: Principal; initialMembers: Nat };
         #FeesProcessed: { amount: Nat; txId: Text; blockIndex: Nat };
-        #LiquidityCreated: { poolId: Principal; amount: Nat };
+        #LiquidityCreated: { poolId: Text; amount: Nat };
         #ControlTransferred: { controllers: [Principal]; timestamp: Time.Time };
         #RefundProcessed: {
             totalRefunded: Nat;
@@ -566,9 +566,9 @@ module {
                         
                         // Handle result and manage lock
                         switch (result) {
-                            case (#ok(stepData)) {
+                            case (#ok((stepData, financialRecords))) {
                                 // Complete step successfully and release lock
-                                let _ = completeStepExecution(stepIndex, executionId, stepData, []);
+                                let _ = completeStepExecution(stepIndex, executionId, stepData, financialRecords);
                                 #ok(stepData)
                             };
                             case (#err(errorMsg)) {
@@ -958,7 +958,7 @@ module {
         
         /// Execute batch refunds using FundManager
         public func createRefundExecutor() : StepExecutor {
-            func(executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("💸 Executing refund with FundManager...");
                 
                 // Convert participants from array to Trie
@@ -1016,12 +1016,12 @@ module {
                     }
                 );
                 
-                #ok(#RefundProcessed({
+                #ok((#RefundProcessed({
                     totalRefunded = batchResult.totalAmount;
                     successCount = batchResult.successCount;
                     failedCount = batchResult.failedCount;
                     transactions = convertedTxs;
-                }))
+                }), convertedTxs))
             }
         };
         
@@ -1033,7 +1033,7 @@ module {
         /// - If deposits were via legacy transfer → funds in participant subaccounts → collect them
         /// - IDEMPOTENCY: If main account already has funds → skip collection (already done)
         public func createCollectFundsExecutor() : StepExecutor {
-            func(executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("💰 Collecting funds from subaccounts...");
                 
                 // IDEMPOTENCY CHECK: If launchpad main account already has significant balance,
@@ -1056,11 +1056,11 @@ module {
                 // If main account has >= 80% of expected funds, skip collection
                 if (mainAccountBalance >= (expectedTotal * 80 / 100)) {
                     Debug.print("✅ Funds already in main account (ICRC-2 or previous collection), skipping subaccount collection");
-                    return #ok(#FeesProcessed({
+                    return #ok((#FeesProcessed({
                         amount = mainAccountBalance;
                         txId = executionId # "_skipped";
                         blockIndex = 0;
-                    }));
+                    }), []));
                 };
 
                 // Otherwise, proceed with subaccount collection
@@ -1096,11 +1096,11 @@ module {
 
                 Debug.print("✅ Collected " # Nat.toText(batchResult.totalAmount) # " tokens from " # Nat.toText(batchResult.successCount) # " participants");
 
-                #ok(#FeesProcessed({
+                #ok((#FeesProcessed({
                     amount = batchResult.totalAmount;
                     txId = executionId;
                     blockIndex = 0;
-                }))
+                }), [])) // TODO: Convert batchResult transactions if needed for collection records
             }
         };
         
@@ -1108,7 +1108,7 @@ module {
         
         /// Deploy project token using TokenFactory
         public func createTokenDeploymentExecutor() : StepExecutor {
-            func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(_executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("🪙 Deploying project token...");
 
                 let tokenFactory = TokenFactoryModule.TokenFactory(
@@ -1128,10 +1128,10 @@ module {
                         deployedTokenId := ?deployment.canisterId;
                         Debug.print("✅ Token deployed and ID saved: " # Principal.toText(deployment.canisterId));
 
-                        #ok(#TokenDeployed({
+                        #ok((#TokenDeployed({
                             canisterId = deployment.canisterId;
                             totalSupply = deployment.totalSupply;
-                        }))
+                        }), []))
                     };
                     case (#err(error)) {
                         #err("Token deployment failed: " # debug_show(error))
@@ -1148,7 +1148,7 @@ module {
             kongSwapCanisterId: ?Principal,
             icpSwapPoolCanisterId: ?Principal
         ) : StepExecutor {
-            func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(_executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("🔄 Setting up DEX liquidity...");
                 
                 switch (launchpadConfig.multiDexConfig) {
@@ -1170,15 +1170,18 @@ module {
                             case (#ok(multiResult)) {
                                 // Use first pool as representative
                                 let poolId = if (multiResult.pools.size() > 0) {
-                                    Principal.fromText("aaaaa-aa") // Placeholder
+                                    switch (multiResult.pools[0].poolId) {
+                                        case (?id) id;
+                                        case (null) "unknown_pool";
+                                    };
                                 } else {
-                                    Principal.fromText("aaaaa-aa")
+                                    "no_pool_created";
                                 };
                                 
-                                #ok(#LiquidityCreated({
+                                #ok((#LiquidityCreated({
                                     poolId = poolId;
                                     amount = multiResult.totalTokenLiquidity;
-                                }))
+                                }), []))
                             };
                             case (#err(error)) {
                                 #err("DEX setup failed: " # debug_show(error))
@@ -1187,10 +1190,10 @@ module {
                     };
                     case (null) {
                         Debug.print("   No DEX configured - skipping");
-                        #ok(#LiquidityCreated({
-                            poolId = Principal.fromText("aaaaa-aa");
+                        #ok((#LiquidityCreated({
+                            poolId = "no_dex_configured";
                             amount = 0;
-                        }))
+                        }), []))
                     };
                 }
             }
@@ -1200,19 +1203,66 @@ module {
         
         /// Process platform fees
         public func createFeeProcessingExecutor(totalRaised: Nat) : StepExecutor {
-            func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("💳 Processing platform fees...");
                 
                 let platformFee = totalRaised * Nat8.toNat(launchpadConfig.platformFeeRate) / 100;
                 
-                // TODO: Transfer to backend
-                Debug.print("   Platform fee: " # Nat.toText(platformFee));
-                
-                #ok(#FeesProcessed({
+                if (platformFee == 0) {
+                     Debug.print("   No platform fee to process (0 amount)");
+                     return #ok((#FeesProcessed({
+                        amount = 0;
+                        txId = "no_fee";
+                        blockIndex = 0;
+                    }), []));
+                };
+
+                Debug.print("   Platform fee amount: " # Nat.toText(platformFee));
+                Debug.print("   Transferring to factory: " # Principal.toText(backendPrincipal));
+
+                // Use FundManager to transfer fees
+                let fundManager = FundManager.FundManager(
+                    launchpadConfig.purchaseToken.canisterId,
+                    launchpadConfig.purchaseToken.transferFee,
+                    launchpadPrincipal
+                );
+
+                // Create a single transfer request
+                let transferRequest: FundManager.TransferRequest = {
+                    to = backendPrincipal;
                     amount = platformFee;
-                    txId = "fee_tx_" # launchpadId;
-                    blockIndex = 0;
-                }))
+                    referenceId = executionId;
+                };
+
+                let result = await fundManager.processTransfer(transferRequest);
+
+                switch (result) {
+                    case (#ok(blockIndex)) {
+                        Debug.print("✅ Platform fee transferred successfully at block " # Nat.toText(blockIndex));
+                        
+                        // Record financial transaction
+                        let feeRecord: FinancialRecord = {
+                            txType = #FeePayment;
+                            amount = platformFee;
+                            from = launchpadPrincipal;
+                            to = backendPrincipal;
+                            blockIndex = ?blockIndex;
+                            timestamp = Time.now();
+                            status = #Confirmed;
+                            executionId = executionId;
+                        };
+
+                        #ok((#FeesProcessed({
+                            amount = platformFee;
+                            txId = "fee_tx_" # Nat.toText(blockIndex);
+                            blockIndex = blockIndex;
+                        }), [feeRecord]))
+                    };
+                    case (#err(error)) {
+                        Debug.print("❌ Platform fee transfer failed: " # error);
+                        #err("Platform fee transfer failed: " # error)
+                    };
+                }
             }
         };
         
@@ -1221,7 +1271,7 @@ module {
         /// Deploy unified distribution contract for ALL launchpad categories
         /// Uses new multi-category DistributionFactory with unified deployment
         public func createDistributionDeploymentExecutor() : StepExecutor {
-            func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(_executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("📦 Deploying UNIFIED distribution contract for ALL categories...");
 
                 // Check if launchpad uses new TokenDistribution structure
@@ -1265,10 +1315,10 @@ module {
                                         Debug.print("   Total Amount: " # Nat.toText(unifiedResult.totalAmount));
                                         Debug.print("   ⚠️  NEXT STEP: Approve and deposit " # Nat.toText(unifiedResult.totalAmount) # " tokens");
 
-                                        #ok(#DistributionDeployed({
+                                        #ok((#DistributionDeployed({
                                             canisters = [unifiedResult.unifiedCanisterId];
                                             totalAllocated = unifiedResult.totalAmount;
-                                        }))
+                                        }), []))
                                     };
                                     case (#err(error)) {
                                         let errorMsg = debug_show(error);
@@ -1336,10 +1386,10 @@ module {
                                         Debug.print("   Recipients: " # Nat.toText(deployment.recipientCount));
                                         Debug.print("   Total Amount: " # Nat.toText(deployment.totalAmount));
 
-                                        #ok(#DistributionDeployed({
+                                        #ok((#DistributionDeployed({
                                             canisters = [deployment.canisterId];
                                             totalAllocated = deployment.totalAmount;
-                                        }))
+                                        }), []))
                                     };
                                     case (#err(error)) {
                                         let errorMsg = debug_show(error);
@@ -1379,7 +1429,7 @@ module {
         /// - Requires deployedTokenId (from token deployment step)
         /// - Requires deployedDistributionId (from distribution deployment step)
         public func createDistributionDepositExecutor() : StepExecutor {
-            func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(_executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("💰 Depositing tokens to distribution contract...");
 
                 // Get deployed distribution canister ID
@@ -1452,12 +1502,12 @@ module {
                             Debug.print("   Amount: " # Nat.toText(totalAmount));
                             Debug.print("   ℹ️  Distribution will auto-activate when start time arrives");
 
-                            #ok(#TokensDeposited({
+                            #ok((#TokensDeposited({
                                 distributionCanisterId = distributionCanisterId;
                                 amount = totalAmount;
                                 approveBlockIndex = 0; // Not used for minting account
                                 depositBlockIndex = blockIndex;
-                            }))
+                            }), [])) // TODO: Add financial record for deposit
                         };
                     }
 
@@ -1477,12 +1527,12 @@ module {
         // ================ DAO/MULTISIG EXECUTOR (PLACEHOLDER) ================
         
         public func createDAODeploymentExecutor() : StepExecutor {
-            func(_executionId: ExecutionId) : async Result.Result<StepResultData, Text> {
+            func(_executionId: ExecutionId) : async Result.Result<(StepResultData, [FinancialRecord]), Text> {
                 Debug.print("🏛️ DAO deployment - PLACEHOLDER");
-                #ok(#DAODeployed({
+                #ok((#DAODeployed({
                     canisterId = Principal.fromText("aaaaa-aa");
                     initialMembers = 0;
-                }))
+                }), []))
             }
         };
     };
