@@ -21,24 +21,24 @@
 
       <!-- Content -->
       <div class="flex-1 pb-8">
-        <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 group-hover:shadow-md transition-shadow">
+        <div class="bg-white dark:bg-black/20 rounded-xl border border-gray-200 dark:border-white/5 p-4 group-hover:bg-gray-50 dark:group-hover:bg-black/30 transition-colors shadow-sm dark:shadow-none">
           <div class="flex items-start justify-between mb-2">
             <div class="flex-1">
-              <h4 class="font-semibold text-gray-900 dark:text-white text-sm">{{ activity.title }}</h4>
+              <h4 class="font-bold text-gray-900 dark:text-white text-sm">{{ activity.title }}</h4>
               <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">{{ activity.description }}</p>
             </div>
             <span
-              class="px-2 py-1 rounded-full text-xs font-medium ml-2"
+              class="px-2 py-1 rounded-full text-xs font-bold ml-2 border border-gray-200 dark:border-white/5"
               :class="getStatusClass(activity.status)"
             >
               {{ activity.status }}
             </span>
           </div>
           <div class="flex items-center justify-between mt-3">
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ activity.time }}</span>
+            <span class="text-xs text-gray-500">{{ activity.time }}</span>
             <button
               v-if="activity.actionUrl"
-              class="text-xs text-blue-600 hover:text-blue-700 dark:text-blue-400 font-medium"
+              class="text-xs text-[#b27c10] hover:text-[#d8a735] font-bold uppercase tracking-wide"
             >
               View Details →
             </button>
