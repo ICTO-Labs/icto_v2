@@ -1,12 +1,15 @@
 <template>
   <div
-    class="bg-white dark:bg-gray-800/80 rounded-xl p-6 lg:p-8 border border-gray-200 dark:border-gray-700 hover:shadow-xl transition-all duration-200 hover:-translate-y-1.5 cursor-pointer group"
+    class="bg-white dark:bg-gray-900/40 backdrop-blur-xl rounded-2xl p-6 border border-gray-200 dark:border-white/5 hover:border-[#b27c10]/30 transition-all duration-300 group cursor-pointer relative overflow-hidden shadow-sm dark:shadow-none"
     :class="gradient ? 'bg-gradient-to-br ' + gradient : ''"
   >
-    <div class="flex items-start justify-between gap-4">
+    <!-- Hover Glow -->
+    <div class="absolute inset-0 bg-[#b27c10]/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+
+    <div class="relative z-10 flex items-start justify-between gap-4">
       <div class="flex-1 min-w-0">
-        <p class="text-xs lg:text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">{{ title }}</p>
-        <p class="text-3xl lg:text-4xl font-bold text-gray-900 dark:text-white mb-3 group-hover:text-[#b27c10] transition-colors">
+        <p class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-2">{{ title }}</p>
+        <p class="text-3xl font-bold text-gray-900 dark:text-white mb-3 group-hover:text-[#b27c10] transition-colors">
           <span v-if="loading" class="animate-pulse inline-block">−−−</span>
           <span v-else>{{ formattedValue }}</span>
         </p>
@@ -14,7 +17,7 @@
           <component
             :is="change >= 0 ? TrendingUpIcon : TrendingDownIcon"
             class="w-4 h-4 flex-shrink-0"
-            :class="change >= 0 ? 'text-green-500' : 'text-red-500'"
+            :class="change >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'"
           />
           <span
             class="text-sm font-semibold"
@@ -22,20 +25,20 @@
           >
             {{ change >= 0 ? '+' : '' }}{{ change }}%
           </span>
-          <span v-if="changeLabel" class="text-xs text-gray-500 dark:text-gray-500 ml-auto whitespace-nowrap">
+          <span v-if="changeLabel" class="text-xs text-gray-500 ml-auto whitespace-nowrap">
             {{ changeLabel }}
           </span>
         </div>
-        <p v-if="subtitle" class="text-xs text-gray-500 dark:text-gray-400 mt-2">{{ subtitle }}</p>
+        <p v-if="subtitle" class="text-xs text-gray-500 mt-2">{{ subtitle }}</p>
       </div>
       <div
-        class="w-16 h-16 lg:w-18 lg:h-18 rounded-xl lg:rounded-2xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-200"
-        :class="iconBg || 'bg-blue-100 dark:bg-blue-900/20'"
+        class="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300 border border-gray-100 dark:border-white/5"
+        :class="iconBg || 'bg-blue-500/10'"
       >
         <component
           :is="icon"
-          class="w-8 lg:w-9 h-8 lg:h-9"
-          :class="iconColor || 'text-blue-600'"
+          class="w-7 h-7"
+          :class="iconColor || 'text-blue-500'"
         />
       </div>
     </div>
