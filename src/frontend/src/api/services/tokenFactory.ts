@@ -49,18 +49,11 @@ export class TokenFactoryService {
     offset: number = 0
   ): Promise<PaginatedResponse> {
     try {
-      const actor = this.getActor(false); // Authenticated query
-
-      // Backend expects page number (1-indexed) and pageSize
-      const page = Math.floor(offset / limit) + 1;
-      const tokens = await actor.getMyCreatedTokens(user, BigInt(page), BigInt(limit));
-
-      // Get total count
-      const total = await actor.getTotalTokens();
-
+      const actor = this.getActor(false);
+      const result = await actor.getMyCreatedTokens(user, BigInt(limit), BigInt(offset));
       return {
-        tokens,
-        total: BigInt(total),
+        tokens: result.tokens,
+        total: BigInt(result.total),
       };
     } catch (error) {
       console.error('Error fetching created tokens:', error);
@@ -257,6 +250,7 @@ export class TokenFactoryService {
     creator: string;
     isPublic: boolean;
     isVerified: boolean;
+    logo: string | null;
     createdAt: Date;
   } {
     return {
@@ -268,7 +262,8 @@ export class TokenFactoryService {
       creator: info.owner.toString(),
       isPublic: info.isPublic,
       isVerified: info.isVerified,
-      createdAt: new Date(Number(info.createdAt) / 1_000_000), // Convert nanoseconds to milliseconds
+      logo: info.logo?.[0] ?? null,
+      createdAt: new Date(Number(info.deployedAt) / 1_000_000),
     };
   }
 

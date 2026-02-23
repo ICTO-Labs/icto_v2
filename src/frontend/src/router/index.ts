@@ -332,12 +332,12 @@ const router = createRouter({
       path: '/user',
       name: 'user-center',
       component: () => import('@/views/User/Index.vue'),
-      meta: { requiresAuth: true }
+      meta: { title: 'User Center', requiresAuth: true }
     },
     {
       path: '/user/:id',
       component: () => import('@/views/Dashboard/User.vue'),
-      meta: { requiresAuth: true }
+      meta: { title: 'User Profile', requiresAuth: true }
     },
   
     {
