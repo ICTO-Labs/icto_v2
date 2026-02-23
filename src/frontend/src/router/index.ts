@@ -296,6 +296,14 @@ const router = createRouter({
     },
 
     {
+      path: '/coming-soon',
+      name: 'ComingSoon',
+      component: () => import('../views/Pages/ComingSoon.vue'),
+      meta: {
+        title: 'Coming Soon',
+      },
+    },
+    {
       path: '/error-404',
       name: '404 Error',
       component: () => import('../views/Errors/FourZeroFour.vue'),

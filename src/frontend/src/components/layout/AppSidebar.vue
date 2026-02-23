@@ -132,6 +132,12 @@
                     class="menu-item-text"
                     >{{ item.name }}</span
                   >
+                  <span
+                    v-if="(isExpanded || isHovered || isMobileOpen) && item.new"
+                    class="ml-auto menu-dropdown-badge menu-dropdown-badge-inactive"
+                  >
+                    new
+                  </span>
                 </router-link>
                 <transition
                   @enter="startTransition"
@@ -232,7 +238,7 @@ import {
 } from "../../icons";
 import SidebarWidget from "./SidebarWidget.vue";
 import BoxCubeIcon from "@/icons/BoxCubeIcon.vue";
-import { CoinsIcon, LockIcon, SendIcon, RocketIcon, GoalIcon, CodeSquareIcon, ShieldIcon, FingerprintIcon } from "lucide-vue-next";
+import { CoinsIcon, SendIcon, RocketIcon, CodeSquareIcon, FingerprintIcon, ZapIcon, LinkIcon, TerminalIcon, GlobeIcon } from "lucide-vue-next";
 import { useSidebar } from "@/composables/useSidebar";
 
 const route = useRoute();
@@ -259,18 +265,6 @@ const menuGroups = [
         path: "/distribution",
       },
 
-      // {
-      //   name: "Lock",
-      //   icon: LockIcon,
-      //   subItems: [
-      //     { name: "Lock Elements", path: "/lock-elements", pro: false },
-      //   ],
-      // },
-      // {
-      //   name: "Airdrop",
-      //   icon: GoalIcon,
-      //   subItems: [{ name: "Airdrop Elements", path: "/airdrop-elements", pro: false }],
-      // },
       {
         name: "Launchpad",
         icon: RocketIcon,
@@ -285,21 +279,50 @@ const menuGroups = [
         icon: FingerprintIcon,
         name: "Multisig",
         path: "/multisig",
+        new: true,
       },
       {
         icon: PlugInIcon,
         name: "Mini DAO",
         path: "/dao",
+        new: true,
       },
       {
         icon: CodeSquareIcon,
-        name: "SNS tools",
+        name: "SNS Tools",
         subItems: [
-          { name: "Signin", path: "/signin", pro: false },
-          { name: "Signup", path: "/signup", pro: false },
+          { name: "SNS Neurons", path: "/coming-soon?feature=SNS+Neurons", new: true },
+          { name: "SNS Proposals", path: "/coming-soon?feature=SNS+Proposals", new: true },
+          { name: "SNS Swap", path: "/coming-soon?feature=SNS+Swap", new: true },
+          { name: "NNS Staking", path: "/coming-soon?feature=NNS+Staking", new: true },
+          { name: "ICRC-7 NFTs", path: "/coming-soon?feature=ICRC-7+NFTs", new: true },
         ],
       },
-      // ... Add other menu items here
+    ],
+  },
+  {
+    title: "Coming Soon",
+    items: [
+      {
+        icon: LinkIcon,
+        name: "Chain-Key Tokens",
+        path: "/coming-soon?feature=Chain-Key+Tokens",
+      },
+      {
+        icon: ZapIcon,
+        name: "Cycles Manager",
+        path: "/coming-soon?feature=Cycles+Manager",
+      },
+      {
+        icon: GlobeIcon,
+        name: "Chain Fusion",
+        path: "/coming-soon?feature=Chain+Fusion",
+      },
+      {
+        icon: TerminalIcon,
+        name: "Canister Hub",
+        path: "/coming-soon?feature=Canister+Hub",
+      },
     ],
   },
 ];
