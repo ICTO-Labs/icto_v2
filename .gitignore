@@ -29,7 +29,7 @@ dist/
 .cursorrules
 
 # ignore temporary files in docs/
-docs/
+docs_dev/
 
 # ignore sns wasm file
 sns_icrc_wasm_v2.wasm
@@ -62,3 +62,4 @@ QWEN.md
 **/.env*
 .ai-devkit.json
 AGENTS.md
+.bg-shell/*
